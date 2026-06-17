@@ -11,12 +11,12 @@
  * reconstructed on session start / tree navigation.
  */
 
-import { Box, Text } from "@earendil-works/pi-tui";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
+import { Text } from "@earendil-works/pi-tui";
+import { registerNotificationRenderer, sendNotification } from "./lib/notification.ts";
 
 const ALARM_TOOL = "alarm";
-const ALARM_MESSAGE_TYPE = "alarm";
 const MAX_ALARM_SECONDS = 365 * 24 * 60 * 60; // ~1 year
 
 interface Alarm {
@@ -28,11 +28,6 @@ interface Alarm {
 
 interface AlarmDetails {
   alarms: Alarm[];
-}
-
-interface AlarmFiredDetails {
-  alarmId: string;
-  targetMs: number;
 }
 
 const alarmSchema = Type.Object({
@@ -70,8 +65,25 @@ const timers = new Map<string, NodeJS.Timeout>();
 let holdNoticeSent = false;
 let lastStopReason: string | undefined;
 
-function generateAlarmId(): string {
-  return `alarm-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+function nextAlarmId(): string {
+  let max = 0;
+  for (const a of alarms) {
+    const m = /^a(\d+)$/.exec(a.id);
+    if (m) max = Math.max(max, parseInt(m[1], 10));
+  }
+  return `a${max + 1}`;
+}
+
+// Compact date for LLM consumption — omits year, timezone, and milliseconds
+// to reduce token count vs full ISO 8601 (e.g. "6/17 17:19:15" ≈ 12 tokens
+// vs "2026-06-17T17:19:15.000Z" ≈ 15 tokens). Seconds only shown when non-zero.
+function formatAlarmDate(ms: number): string {
+  const d = new Date(ms);
+  const h = d.getHours().toString().padStart(2, "0");
+  const m = d.getMinutes().toString().padStart(2, "0");
+  const s = d.getSeconds();
+  const time = s > 0 ? `${h}:${m}:${s.toString().padStart(2, "0")}` : `${h}:${m}`;
+  return `${d.getMonth() + 1}/${d.getDate()} ${time}`;
 }
 
 function parseTargetTime(input: string): number | null {
@@ -134,14 +146,20 @@ function fireAlarm(alarm: Alarm): void {
   alarm.fired = true;
   timers.delete(alarm.id);
   persistAlarms();
-  piRef.sendMessage(
+  // Compact date in payload (not ISO 8601) to minimize tokens in LLM context
+  const summary = `Alarm ${alarm.id} fired at ${formatAlarmDate(alarm.targetMs)}`;
+  sendNotification(
+    piRef,
     {
-      customType: ALARM_MESSAGE_TYPE,
-      content: alarm.message || "⏰ Alarm fired",
-      display: true,
-      details: { alarmId: alarm.id, targetMs: alarm.targetMs } satisfies AlarmFiredDetails,
+      kind: "alarm",
+      summary,
+      payload: {
+        id: alarm.id,
+        at: formatAlarmDate(alarm.targetMs),
+        msg: alarm.message || "Alarm fired",
+      },
     },
-    { deliverAs: "steer", triggerTurn: true },
+    { deliverAs: "steer" },
   );
 }
 
@@ -155,15 +173,7 @@ function rescheduleFromState(): void {
 export default function (pi: ExtensionAPI) {
   piRef = pi;
 
-  pi.registerMessageRenderer(ALARM_MESSAGE_TYPE, (message, _options, theme) => {
-    const details = message.details as AlarmFiredDetails | undefined;
-    const id = details?.alarmId ?? "unknown";
-    const when = details?.targetMs ? new Date(details.targetMs).toLocaleTimeString() : "unknown";
-    const box = new Box(1, 1, (t) => theme.bg("customMessageBg", t));
-    box.addChild(new Text(`${theme.fg("toolTitle", "Alarm")}: ${id} fired at ${when}`, 0, 0));
-    box.addChild(new Text(theme.fg("muted", message.content), 0, 1));
-    return box;
-  });
+  registerNotificationRenderer(pi);
 
   pi.registerTool({
     name: ALARM_TOOL,
@@ -229,7 +239,7 @@ export default function (pi: ExtensionAPI) {
         throw new Error("Target time must be in the future.");
       }
 
-      const id = params.alarm_id?.trim() || generateAlarmId();
+      const id = params.alarm_id?.trim() || nextAlarmId();
       const message = params.message?.trim() || `Alarm ${id} fired`;
 
       alarms = alarms.filter((a) => a.id !== id);
@@ -242,11 +252,49 @@ export default function (pi: ExtensionAPI) {
         content: [
           {
             type: "text",
-            text: `Scheduled alarm ${id} for ${new Date(targetMs).toISOString()}.`,
+            // Compact format (not ISO 8601) to minimize tokens in LLM context
+            text: `Alarm ${id} at ${formatAlarmDate(targetMs)}`,
           },
         ],
         details: { alarms: [...alarms] } satisfies AlarmDetails,
       };
+    },
+    renderResult(result, { expanded: _expanded, isPartial: _isPartial }, theme) {
+      const text = result.content[0];
+      const raw = text?.type === "text" ? text.text : "";
+      // Parse alarm ID from text to look up targetMs in details
+      const match = /Alarm (\S+) at /.exec(raw);
+      if (match) {
+        const id = match[1];
+        const details = result.details as AlarmDetails | undefined;
+        const alarm = details?.alarms?.find((a) => a.id === id);
+        if (alarm) {
+          const dt = new Date(alarm.targetMs);
+          const absTime = dt.toLocaleString(undefined, {
+            month: "short",
+            day: "numeric",
+            hour: "2-digit",
+            minute: "2-digit",
+            second: "2-digit",
+          });
+          const deltaSec = Math.round((alarm.targetMs - Date.now()) / 1000);
+          const relTime =
+            deltaSec > 0
+              ? deltaSec >= 3600
+                ? `T+${Math.floor(deltaSec / 3600)}h${Math.floor((deltaSec % 3600) / 60)}m`
+                : `T+${deltaSec}s`
+              : "passed";
+          const t = new Text("", 0, 0);
+          t.setText(
+            theme.fg("success", "✓") + theme.fg("dim", ` Alarm ${id} · ${absTime} · ${relTime}`),
+          );
+          return t;
+        }
+      }
+      // Cancel result or unrecognized — show raw text
+      const t = new Text("", 0, 0);
+      t.setText(theme.fg("success", "✓") + theme.fg("dim", ` ${raw}`));
+      return t;
     },
   });
 

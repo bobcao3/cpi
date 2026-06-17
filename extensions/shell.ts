@@ -7,8 +7,8 @@
  *
  * `sh` parameters:
  *   - command: shell command to execute
- *   - waitfor: seconds to wait before returning while the process keeps running
- *     (default 5, maximum 30)
+ *   - waitfor: seconds to wait before returning while the process keeps running (configurable
+ *     via cpi-config.json; default 5, maximum 30)
  *
  * If a command is still running when `waitfor` elapses, it is left running in
  * the background, `sh` returns its PID as the background id plus the partial
@@ -22,8 +22,10 @@
  */
 
 import { Type } from "typebox";
-import { Box, Text } from "@earendil-works/pi-tui";
+import { Text, truncateToWidth } from "@earendil-works/pi-tui";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { loadShellConfig } from "./lib/config.ts";
+import { registerNotificationRenderer, sendNotification } from "./lib/notification.ts";
 import { ensureShellTools, getToolEnv, type ToolAvailability } from "./shell/tools.ts";
 import {
   getActiveBackgrounds,
@@ -38,9 +40,7 @@ import {
 
 const SH_TOOL = "sh";
 const SH_SEND_SIGNAL_TOOL = "sh_send_signal";
-const SESSION_ENDED_MESSAGE_TYPE = "shell-session-ended";
-const DEFAULT_WAITFOR = 5;
-const MAX_WAITFOR = 30;
+const TAIL_LINES = 5;
 
 const SLEEP_UNIT_SECONDS: Record<string, number> = { s: 1, m: 60, h: 3600, d: 86400 };
 
@@ -58,23 +58,6 @@ function offendingSleep(command: string, waitfor: number): number | null {
 let holdNoticeSent = false;
 let lastStopReason: string | undefined;
 
-interface SessionEndedDetails {
-  id: string;
-  exitCode: number | null;
-}
-
-const shSchema = Type.Object({
-  command: Type.String({ description: "Command to run" }),
-  waitfor: Type.Optional(
-    Type.Number({
-      description: "Seconds to wait before backgrounding (default 5, max 30; >30 errors)",
-    }),
-  ),
-  describe: Type.Optional(
-    Type.String({ description: "Short description of what this command is doing (a few words)" }),
-  ),
-});
-
 const shSendSignalSchema = Type.Object({
   id: Type.String({ description: "Background shell PID (as returned by sh)" }),
   signal: Type.Optional(
@@ -82,38 +65,70 @@ const shSendSignalSchema = Type.Object({
   ),
 });
 
+const RESET = "\x1b[0m";
+
+function truncateLine(line: string, width: number): string {
+  const truncated = truncateToWidth(line, width, "…");
+  // truncateToWidth inserts a reset before the ellipsis, which clears the
+  // container's background color. Drop that reset so the block background
+  // continues through the ellipsis.
+  return truncated.replace(`${RESET}…`, "…");
+}
+
+function truncatedPreview(
+  lines: string[],
+  summary: string,
+): { invalidate(): void; render(width: number): string[] } {
+  return {
+    invalidate() {},
+    render(width: number): string[] {
+      return [...lines.map((l) => truncateLine(l, width)), truncateLine(summary, width)];
+    },
+  };
+}
+
 export default async function (pi: ExtensionAPI) {
+  // Load configurable waitfor parameters from cpi-config.json.
+  // Falls back to built-in defaults (5s / 30s) if not configured.
+  const { defaultWaitfor: DEFAULT_WAITFOR, maxWaitfor: MAX_WAITFOR } = loadShellConfig();
+
+  const shSchema = Type.Object({
+    command: Type.String({ description: "Command to run" }),
+    waitfor: Type.Optional(
+      Type.Number({
+        description: `Seconds to wait before backgrounding (default ${DEFAULT_WAITFOR}, max ${MAX_WAITFOR}; >${MAX_WAITFOR} errors)`,
+      }),
+    ),
+    describe: Type.Optional(
+      Type.String({ description: "Short description of what this command is doing (a few words)" }),
+    ),
+  });
   const availability = await ensureShellTools().catch((err) => {
     console.warn("[shell-ext] Binary tool setup failed:", err);
     return { fd: false, rg: false } as ToolAvailability;
   });
 
-  pi.registerMessageRenderer(SESSION_ENDED_MESSAGE_TYPE, (message, _options, theme) => {
-    const details = message.details as SessionEndedDetails | undefined;
-    const id = details?.id ?? "unknown";
-    const exitCode = details?.exitCode ?? "unknown";
-    const line1 = `${theme.fg("toolTitle", "Shell command ended")}: ${id} (exit code ${exitCode})`;
-    const box = new Box(1, 1, (t) => theme.bg("customMessageBg", t));
-    box.addChild(new Text(line1, 0, 0));
-    return box;
-  });
+  registerNotificationRenderer(pi);
 
   setCompletionHook((id, _cmd, code) =>
-    pi.sendMessage(
+    sendNotification(
+      pi,
       {
-        customType: SESSION_ENDED_MESSAGE_TYPE,
-        content: `Shell ${id} exited ${code}`,
-        display: true,
-        details: { id, exitCode: code } satisfies SessionEndedDetails,
+        kind: "shell-complete",
+        summary: `Shell ${id} exited ${code}`,
+        payload: {
+          "shell-id": id,
+          "exit-code": code ?? -1,
+        },
       },
-      { deliverAs: "followUp", triggerTurn: true },
+      { deliverAs: "followUp" },
     ),
   );
 
   const guidelines: string[] = [
     "Each sh call = fresh `bash -c`. No session reuse; env/cwd/shell state don't persist.",
     "Always pass a short `describe` parameter (a few words) explaining the command's purpose; it appears in hold/background notifications.",
-    "Keep waitfor <=30s. On overflow, sh returns the command's PID as its background id + partial output.",
+    `Keep waitfor <=${MAX_WAITFOR}s. On overflow, sh returns the command's PID as its background id + partial output.`,
     "Signal a bg shell via sh_send_signal with its PID; send SIGKILL to terminate.",
     "You will receive a notification once a background shell completes, feel free to relinquish control if you need to wait.",
     "Do not set alarm for 'checking on backgrounded shell', you will be waken up once background notifies",
@@ -131,7 +146,9 @@ export default async function (pi: ExtensionAPI) {
     name: SH_TOOL,
     label: "sh",
     description:
-      "Run a command via `bash -c`. Stateless: no env/cwd persistence. Outliving waitfor backgrounds it and returns an id for signalling. Maximum waitfor is 30s.",
+      "Run a command via `bash -c`. Stateless: no env/cwd persistence. Outliving waitfor backgrounds it and returns an id for signalling. Maximum waitfor is " +
+      MAX_WAITFOR +
+      "s.",
     promptSnippet: "Run shell commands",
     promptGuidelines: guidelines,
     parameters: shSchema,
@@ -180,6 +197,7 @@ export default async function (pi: ExtensionAPI) {
         signal,
         (text) => onUpdate?.({ content: [{ type: "text", text }], details: undefined }),
         describe,
+        MAX_WAITFOR,
       );
 
       const describeTag = describe ? ` (${truncateDescribe(describe)})` : "";
@@ -208,12 +226,142 @@ export default async function (pi: ExtensionAPI) {
         isError: res.status === "completed" && res.exitCode !== 0 && res.exitCode !== null,
       };
     },
+
     renderCall(args, theme, context) {
       const text = (context.lastComponent as Text | undefined) ?? new Text("", 0, 0);
       const waitfor = args.waitfor ?? DEFAULT_WAITFOR;
       const waitforSuffix = waitfor ? theme.fg("muted", ` (waitfor ${waitfor}s)`) : "";
-      text.setText(theme.fg("toolTitle", theme.bold(`$ ${args.command}`)) + waitforSuffix);
+      const cmdLines = args.command.split("\n");
+
+      if (cmdLines.length <= TAIL_LINES) {
+        text.setText(theme.fg("toolTitle", theme.bold(`$ ${args.command}`)) + waitforSuffix);
+      } else if (context.expanded) {
+        const first = theme.fg("toolTitle", theme.bold(`$ ${cmdLines[0]}`));
+        const rest = cmdLines
+          .slice(1)
+          .map((l: string) => theme.fg("toolTitle", l))
+          .join("\n");
+        text.setText(
+          first + "\n" + rest + theme.fg("dim", " · Ctrl+O to collapse") + waitforSuffix,
+        );
+      } else {
+        // Collapsed: first line + ... + last 4, all bold white
+        const tailStart = cmdLines.length - 3;
+        const hint = theme.fg("dim", ` showing ${tailStart}-${cmdLines.length} (Ctrl+O to expand)`);
+        const first = theme.fg("toolTitle", theme.bold(`$ ${cmdLines[0]}`)) + hint + waitforSuffix;
+        const ellipsis = theme.fg("dim", "...");
+        const tail = cmdLines
+          .slice(-4)
+          .map((l: string) => theme.fg("toolTitle", theme.bold(l)))
+          .join("\n");
+        text.setText(first + "\n" + ellipsis + "\n" + tail);
+      }
       return text;
+    },
+
+    renderResult(result, { expanded, isPartial }, theme, _context) {
+      const content = result.content[0];
+      const fullText = content?.type === "text" ? content.text : "";
+
+      // Split output from status line (execute appends "\n---\n<status>")
+      const sepIdx = fullText.indexOf("\n---\n");
+      const outputText = sepIdx !== -1 ? fullText.slice(0, sepIdx) : fullText;
+      const outputLines = outputText
+        .trimEnd()
+        .split("\n")
+        .filter((l: string) => l !== "");
+      const totalLines = outputLines.length;
+
+      // ── Streaming: live tail ──
+      if (isPartial) {
+        const tail = outputLines.slice(-TAIL_LINES);
+        const hidden = outputLines.length - tail.length;
+        let summary = theme.fg("warning", "⏳ running");
+        if (hidden > 0) {
+          summary += theme.fg(
+            "dim",
+            ` · showing L${hidden + 1}-${outputLines.length} (Ctrl+O to expand)`,
+          );
+        } else {
+          summary += theme.fg("dim", ` · ${outputLines.length} lines`);
+        }
+        if (outputText.trim()) {
+          return new Text(
+            tail.map((l: string) => theme.fg("toolOutput", l)).join("\n") + "\n" + summary,
+            0,
+            0,
+          );
+        }
+        return new Text(summary, 0, 0);
+      }
+
+      // ── Completed ──
+      const details = result.details as
+        | {
+            id?: string;
+            exitCode?: number | null;
+            status?: string;
+            fullOutputPath?: string;
+            describe?: string;
+          }
+        | undefined;
+      const isRunning = details?.status === "running";
+      const exitCode = details?.exitCode;
+
+      // Status icon
+      let status = "";
+      if (isRunning) {
+        status = theme.fg("warning", "⏳ backgrounded");
+        if (details?.id) status += theme.fg("dim", ` PID=${details.id}`);
+        if (details?.fullOutputPath) status += theme.fg("dim", ` · ${details.fullOutputPath}`);
+      } else if (exitCode !== null && exitCode !== undefined && exitCode !== 0) {
+        status = theme.fg("error", `exit ${exitCode}`);
+      } else {
+        status = theme.fg("success", "✓");
+      }
+
+      if (expanded) {
+        // ── Expanded: full output, summary at end ──
+        let summary = status + theme.fg("dim", ` · ${totalLines} lines · Ctrl+O to collapse`);
+        if (details?.fullOutputPath) {
+          summary += theme.fg("warning", " [truncated]");
+        }
+        let t = "";
+        if (totalLines > 0) {
+          t = outputLines.map((l: string) => theme.fg("toolOutput", l)).join("\n");
+        } else {
+          t = theme.fg("dim", "(no output)");
+        }
+        if (details?.fullOutputPath) {
+          t += `\n${theme.fg("dim", `Full output: ${details.fullOutputPath}`)}`;
+        }
+        return new Text(t + "\n" + summary, 0, 0);
+      }
+
+      // ── Collapsed (default): tail TAIL_LINES, summary at end ──
+      if (totalLines === 0) {
+        return new Text(theme.fg("dim", "(no output)") + "\n" + status, 0, 0);
+      }
+
+      if (totalLines <= TAIL_LINES) {
+        const summary = status + theme.fg("dim", ` · ${totalLines} lines`);
+        return truncatedPreview(
+          outputLines.map((l: string) => theme.fg("toolOutput", l)),
+          summary,
+        );
+      }
+
+      const startLine = totalLines - TAIL_LINES + 1;
+      let summary =
+        status + theme.fg("dim", ` · showing L${startLine}-${totalLines} (Ctrl+O to expand)`);
+      if (details?.fullOutputPath) {
+        summary += theme.fg("warning", " [truncated]");
+      }
+      const tail = outputLines.slice(-TAIL_LINES);
+      return truncatedPreview(
+        tail.map((l: string) => theme.fg("toolOutput", l)),
+        summary,
+      );
     },
   });
 
@@ -221,11 +369,11 @@ export default async function (pi: ExtensionAPI) {
     name: SH_SEND_SIGNAL_TOOL,
     label: "sh_send_signal",
     description:
-      "Signal a background shell command by its PID (sh-returned). Send SIGKILL to terminate.",
+      "Signal a background shell command by its PID (sh-returned). Send SIGKILL to terminate background shell process-group.",
     promptSnippet: "Signal background shell commands",
     promptGuidelines: [
-      "E.g. terminate: id='12345', signal='SIGKILL'.",
       "Default SIGINT, delivered to the whole process group.",
+      "Avoid using `sh $ kill` against background shell PIDs, use `sh_send_signal` tool instead.",
     ],
     parameters: shSendSignalSchema,
     async execute(_toolCallId, params) {

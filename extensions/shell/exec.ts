@@ -22,7 +22,6 @@ import { truncateTail } from "@earendil-works/pi-coding-agent";
 const PREVIEW_MAX_BYTES = 10 * 1024;
 const PREVIEW_MAX_LINES = 500;
 const MAX_ACC_BYTES = 4 * 1024 * 1024; // RAM cap on the merged accumulator; logfile holds full output.
-const WAITFOR_CAP_SEC = 30;
 const UPDATE_INTERVAL_MS = 200;
 
 interface BackgroundChild {
@@ -134,6 +133,7 @@ export async function runShell(
   signal?: AbortSignal,
   onPartial?: (text: string) => void,
   describe?: string,
+  maxWaitforSec: number = 30,
 ): Promise<ShResult> {
   const child = spawn(resolveBash(), ["-c", command], {
     detached: true, // child is process-group leader → process.kill(-pid) hits the whole group
@@ -229,7 +229,7 @@ export async function runShell(
 
   let timer: ReturnType<typeof setTimeout> | undefined;
   const deadlinePromise = new Promise<void>((resolve) => {
-    timer = setTimeout(resolve, Math.min(waitforSec, WAITFOR_CAP_SEC) * 1000);
+    timer = setTimeout(resolve, Math.min(waitforSec, maxWaitforSec) * 1000);
   });
 
   const finishedFirst = await Promise.race([
