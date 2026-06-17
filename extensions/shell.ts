@@ -75,6 +75,21 @@ function truncateLine(line: string, width: number): string {
   return truncated.replace(`${RESET}…`, "…");
 }
 
+
+// pi-tui's ANSI parser only recognizes a subset of CSI sequences. Cursor-movement
+// and other non-SGR sequences leak into width calculations and corrupt terminal
+// output. Strip them, but keep SGR color/style codes. Also expand tabs to match
+// pi-tui's 3-column model and strip CR to avoid line-ending artifacts.
+function sanitizeForDisplay(text: string): string {
+  return text
+    .replace(/\x1b\[[\x30-\x3f]*[\x20-\x2f]*[\x40-\x6c\x6e-\x7e]/g, "") // CSI except SGR (m)
+    .replace(/\x1b\][^\x07]*(?:\x07|\x1b\\)/g, "") // OSC
+    .replace(/\x1b\_[^\x07]*(?:\x07|\x1b\\)/g, "") // APC
+    .replace(/\x1bP[^\x1b]*(?:\x1b\\|\x9c)/g, "") // DCS
+    .replace(/\t/g, "   ")
+    .replace(/\r/g, "");
+}
+
 function truncatedPreview(
   lines: string[],
   summary: string,
@@ -136,10 +151,10 @@ export default async function (pi: ExtensionAPI) {
     "If a background shell completes and you decide no follow up needed, say 'ACK' exactly.",
   ];
   if (availability.fd) {
-    guidelines.push("Search files with `$ fd` not `$ find`: fd [OPTS] [pattern] [path]...");
+    guidelines.push("Search files with `$ fd` not `$ find`: fd [OPTS] [-H # search .hidden] [-I # do not respect .(git|fd)ignore] [pattern] [path]...");
   }
   if (availability.rg) {
-    guidelines.push("Search content with `$ rg` not `$ grep`: rg [OPTS] PATTERN [path]...");
+    guidelines.push("Search content with `$ rg` not `$ grep`: rg [OPTS] [--hidden] [--no-ignore] PATTERN [path]...");
   }
 
   pi.registerTool({
@@ -269,7 +284,8 @@ export default async function (pi: ExtensionAPI) {
       const outputLines = outputText
         .trimEnd()
         .split("\n")
-        .filter((l: string) => l !== "");
+        .filter((l: string) => l !== "")
+        .map(sanitizeForDisplay);
       const totalLines = outputLines.length;
 
       // ── Streaming: live tail ──
