@@ -1,0 +1,42 @@
+# ── Jujutsu VCS ──────────────────────────────────────
+.jj/
+
+# ── Node.js / TypeScript ────────────────────────────
+node_modules/
+*.js
+*.js.map
+*.d.ts
+tsconfig.tsbuildinfo
+.npm/
+.pnpm-store/
+
+# ── Environment & secrets ────────────────────────────
+.env
+.env.*
+!.env.example
+fallback-providers.json
+*.pem
+*.key
+
+# ── Logs ────────────────────────────────────────────
+*.log
+npm-debug.log*
+
+# ── OS files ────────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ── Editor / IDE ────────────────────────────────────
+*.swp
+*.swo
+*~
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# ── Misc ────────────────────────────────────────────
+.cache/
+.tmp/
+tmp/

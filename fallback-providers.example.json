@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema",
+  "$comment": "Copy to ~/.pi/agent/fallback-providers.json (user) or .pi/fallback-providers.json (project). Project config overrides user config for matching provider keys; project fallbacks list replaces user's entirely.",
+  "providers": {
+    "my-custom-llm": {
+      "name": "My Custom LLM",
+      "baseUrl": "https://my-llm-endpoint.example.com/v1",
+      "api": "openai-completions",
+      "apiKey": "your-api-key-or-NO-for-unauthenticated",
+      "models": [
+        {
+          "id": "model-v1",
+          "name": "Model V1",
+          "reasoning": true,
+          "input": ["text", "image"],
+          "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 },
+          "contextWindow": 131072,
+          "maxTokens": 8192
+        }
+      ]
+    }
+  },
+  "fallbacks": [{ "provider": "my-custom-llm", "model": "model-v1" }]
+}
