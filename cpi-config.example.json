@@ -1,0 +1,6 @@
+{
+  "shell": {
+    "defaultWaitfor": 5,
+    "maxWaitfor": 30
+  }
+}

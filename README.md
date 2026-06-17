@@ -12,6 +12,8 @@ Installed at the **user-home level** (`~/.pi/agent/`) so every project inherits 
 cpi/
 ├── extensions/
 │   ├── shell.ts                       # Stateless sh + sh_send_signal (replaces builtin bash)
+│   ├── lib/                            # Shared support modules (not loaded as extensions)
+│   │   └── config.ts                  # Shared config loader (cpi-config.json)
 │   ├── shell/                         # Support modules for shell.ts
 │   │   ├── exec.ts
 │   │   └── tools.ts
@@ -28,6 +30,7 @@ cpi/
 │       ├── SKILL.md                  # Subagent orchestration instructions
 │       ├── subagent.sh               # Launcher script
 │       └── output-protocol.md        # Injected system prompt for subagents
+├── cpi-config.example.json           # Template for cpi plugin config
 ├── fallback-providers.example.json   # Template for fallback provider config
 ├── install.sh                        # One-time: point pi at cpi via settings.json globs
 ├── uninstall.sh                      # Remove cpi entries from settings.json
@@ -104,6 +107,47 @@ syntax.
 
 ## Fallback Providers Config
 
+## cpi Config
+
+Extensions read their tunable parameters from a shared JSON config file,
+merged from two locations:
+
+| Scope   | Path                            | Purpose                                      |
+| ------- | ------------------------------- | -------------------------------------------- |
+| User    | `~/.pi/agent/cpi-config.json`   | Defaults for all projects                    |
+| Project | `<project>/.pi/cpi-config.json` | Override/add settings for a specific project |
+
+### Merge rules
+
+- **Deep merge**: nested objects are merged recursively; project values override user values for the same key.
+- **Arrays**: project array replaces user array wholesale (same as pi's settings.json behavior).
+- **Defaults**: any field not present in either config file falls back to built-in defaults.
+
+### Schema
+
+See `cpi-config.example.json` for a template. Current sections:
+
+```jsonc
+{
+  "shell": {
+    "defaultWaitfor": 5, // seconds to wait before backgrounding (default: 5)
+    "maxWaitfor": 30, // maximum allowed waitfor; larger values error (default: 30)
+  },
+}
+```
+
+### Shell (`shell` section)
+
+Controls the `sh` tool's `waitfor` behavior:
+
+| Setting          | Type   | Default | Description                                                                |
+| ---------------- | ------ | ------- | -------------------------------------------------------------------------- |
+| `defaultWaitfor` | number | `5`     | Seconds to wait before backgrounding a command when no `waitfor` is passed |
+| `maxWaitfor`     | number | `30`    | Maximum allowed `waitfor` value; larger values are rejected with an error  |
+
+These values are reflected in the tool's schema description, guidelines, and
+validation logic at runtime, so the model always sees the effective limits.
+
 `provider-fallback.ts` reads provider/model definitions and fallback order
 from two JSON files, merged at session start:
 
@@ -153,15 +197,16 @@ See `fallback-providers.example.json` for a template. Key fields:
 
 ## What each extension does
 
-| Extension                    | Purpose                                                                                                                |
-| ---------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| `shell.ts`                   | Replaces builtin `bash` with stateless `sh` tool: backgrounding, signalling, busy-wait detection, session-hold.        |
-| `alarm.ts`                   | `alarm` tool for scheduled wake-ups (relative or absolute time). Survives session resume.                              |
-| `disable-bash.ts`            | Strips the builtin `bash` tool so only the custom `sh` is available.                                                   |
-| `disable-read-write-edit.ts` | Strips builtin `read`/`write`/`edit` — all file I/O goes through `sh`.                                                 |
-| `provider-fallback.ts`       | Registers custom model providers from JSON config; disables env-based Bedrock/HF; falls back to configured candidates. |
-| `transcript.ts`              | Writes live markdown transcript when `PI_TRANSCRIPT_MD` is set (used by subagent.sh).                                  |
-| `glm52-sglang-thinking.ts`   | Bridges GLM-5.2 thinking to SGLang `chat_template_kwargs`.                                                             |
+| Extension                    | Purpose                                                                                                                   |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `lib/config.ts`              | Shared config loader: reads `cpi-config.json` (user + project), deep-merges, provides typed accessors for each extension. |
+| `shell.ts`                   | Replaces builtin `bash` with stateless `sh` tool: backgrounding, signalling, busy-wait detection, session-hold.           |
+| `alarm.ts`                   | `alarm` tool for scheduled wake-ups (relative or absolute time). Survives session resume.                                 |
+| `disable-bash.ts`            | Strips the builtin `bash` tool so only the custom `sh` is available.                                                      |
+| `disable-read-write-edit.ts` | Strips builtin `read`/`write`/`edit` — all file I/O goes through `sh`.                                                    |
+| `provider-fallback.ts`       | Registers custom model providers from JSON config; disables env-based Bedrock/HF; falls back to configured candidates.    |
+| `transcript.ts`              | Writes live markdown transcript when `PI_TRANSCRIPT_MD` is set (used by subagent.sh).                                     |
+| `glm52-sglang-thinking.ts`   | Bridges GLM-5.2 thinking to SGLang `chat_template_kwargs`.                                                                |
 
 ## Adding new extensions/skills
 

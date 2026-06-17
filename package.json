@@ -4,5 +4,8 @@
   "type": "module",
   "devDependencies": {
     "prettier": "^3"
+  },
+  "dependencies": {
+    "gpt-tokenizer": "^3.4.0"
   }
 }

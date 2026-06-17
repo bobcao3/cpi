@@ -4,12 +4,17 @@
   "workspaces": {
     "": {
       "name": "cpi",
+      "dependencies": {
+        "gpt-tokenizer": "^3.4.0",
+      },
       "devDependencies": {
         "prettier": "^3",
       },
     },
   },
   "packages": {
+    "gpt-tokenizer": ["gpt-tokenizer@3.4.0", "", {}, "sha512-wxFLnhIXTDjYebd9A9pGl3e31ZpSypbpIJSOswbgop5jLte/AsZVDvjlbEuVFlsqZixVKqbcoNmRlFDf6pz/UQ=="],
+
     "prettier": ["prettier@3.8.4", "", { "bin": { "prettier": "bin/prettier.cjs" } }, "sha512-N2MylSdi48+5N/6S5j+maeHbUSIzzZ5uOcX5Hm4QpV8Dkb1HFjfAKTKX6yNPJQD9AhcT3ifHNB66tWTTJDi11Q=="],
   }
 }
