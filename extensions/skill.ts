@@ -1,5 +1,6 @@
 import { Type } from "typebox";
-import type { ExtensionAPI, Skill } from "@earendil-works/pi-coding-agent";
+import type { AgentToolResult, ExtensionAPI, Skill } from "@earendil-works/pi-coding-agent";
+import { Text } from "@earendil-works/pi-tui";
 import { readFileSync } from "node:fs";
 import { resolve, sep } from "node:path";
 
@@ -64,11 +65,18 @@ function resolveSubdoc(baseDir: string, subdoc: string): string {
   return resolved;
 }
 
+function skillBlurb(name: string, subdoc: string | undefined, theme: any): string {
+  let text = theme.fg("toolTitle", "Using skill: ");
+  text += theme.fg("accent", name);
+  if (subdoc) {
+    text += theme.fg("dim", ` / ${subdoc}`);
+  }
+  return text;
+}
+
 export default function (pi: ExtensionAPI) {
   pi.on("before_agent_start", async (event) => {
     updateSkills(event.systemPromptOptions?.skills as Skill[] | undefined);
-    require("node:fs").writeFileSync("/tmp/sp-before.txt", event.systemPrompt);
-    require("node:fs").writeFileSync("/tmp/skills-opts.txt", JSON.stringify((event.systemPromptOptions?.skills ?? []).map(s => s.name)));
 
     let systemPrompt = event.systemPrompt;
     systemPrompt = systemPrompt.replace(
@@ -77,7 +85,6 @@ export default function (pi: ExtensionAPI) {
     );
     systemPrompt += buildSkillsPrompt(event.systemPromptOptions?.skills as Skill[] | undefined);
 
-    require("node:fs").writeFileSync("/tmp/sp-returned.txt", systemPrompt);
     return { systemPrompt };
   });
 
@@ -99,6 +106,18 @@ export default function (pi: ExtensionAPI) {
         Type.String({ description: "Relative path to a sub-document inside the skill directory" }),
       ),
     }),
+    renderShell: "self",
+    renderCall(args, theme, _context) {
+      return new Text(skillBlurb(args.name, args.subdoc, theme), 0, 0);
+    },
+    renderResult(result: AgentToolResult<unknown>, _options, theme, _context) {
+      if (result.isError) {
+        return undefined;
+      }
+      // Zero-width space keeps the result slot non-empty in HTML export so the
+      // full skill text is not rendered, while remaining invisible in the TUI.
+      return new Text(theme.fg("dim", "\u200b"), 0, 0);
+    },
     async execute(_toolCallId, params) {
       const ref = skills.get(params.name);
       if (!ref) {
