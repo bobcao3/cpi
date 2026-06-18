@@ -28,11 +28,11 @@ export interface ToolAvailability { fd: boolean; rg: boolean; shuck: boolean; tr
 interface ToolSpec { name: "fd" | "rg" | "shuck"; version: string; repo: string; archiveExt: "tar.gz" | "tar.xz" | "zip"; assetPrefix: string; targets: Record<string, string> }
 
 const TOOLS: ToolSpec[] = [
-  { name: "fd", version: "v10.4.2", repo: "sharkdp/fd", archiveExt: IS_WIN ? "zip" : "tar.gz", assetPrefix: "fd-", targets: {
+  { name: "fd", version: "v10.4.2", repo: "sharkdp/fd", archiveExt: IS_WIN ? "zip" : "tar.gz", assetPrefix: "fd-v10.4.2-", targets: {
     "linux-x64": "x86_64-unknown-linux-musl", "linux-arm64": "aarch64-unknown-linux-musl",
-    "darwin-arm64": "aarch64-apple-darwin", "darwin-x64": "aarch64-apple-darwin",
+    "darwin-arm64": "aarch64-apple-darwin", "darwin-x64": "x86_64-apple-darwin",
     "win32-x64": "x86_64-pc-windows-msvc", "win32-arm64": "aarch64-pc-windows-msvc" } },
-  { name: "rg", version: "15.1.0", repo: "BurntSushi/ripgrep", archiveExt: IS_WIN ? "zip" : "tar.gz", assetPrefix: "ripgrep-", targets: {
+  { name: "rg", version: "15.1.0", repo: "BurntSushi/ripgrep", archiveExt: IS_WIN ? "zip" : "tar.gz", assetPrefix: "ripgrep-15.1.0-", targets: {
     "linux-x64": "x86_64-unknown-linux-musl", "linux-arm64": "aarch64-unknown-linux-gnu",
     "darwin-arm64": "aarch64-apple-darwin", "darwin-x64": "x86_64-apple-darwin",
     "win32-x64": "x86_64-pc-windows-msvc", "win32-arm64": "aarch64-pc-windows-msvc" } },
