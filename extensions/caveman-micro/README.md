@@ -6,7 +6,9 @@ A Pi extension that toggles the [caveman-micro](https://github.com/kuba-guzik/ca
 
 When enabled, the caveman-micro prompt is appended to the system prompt on every turn. The model responds in terse, fragment-style prose — dropping articles, pleasantries, and hedging while preserving all technical accuracy.
 
-Caveman mode is **on by default** for new sessions. A small rock indicator (🪨) is appended to the model string in the footer, so it does not use a separate status line.
+Caveman mode is **on by default** for new sessions. A rock indicator (🪨) is shown on the footer's extension-status line while enabled.
+
+> **Why a status line?** pi allows only one custom footer at a time (`ctx.ui.setFooter` replaces rather than stacks). Owning the footer here collided with the `shell` extension's footer, so one indicator always silently lost. `ctx.ui.setStatus()` is rendered by whatever footer is active (built-in or custom), so the marker coexists with other extensions with no ownership conflict.
 
 ## Install
 
@@ -33,13 +35,15 @@ Then restart pi or run `/reload`.
 
 ## Footer indicator
 
-When caveman is on, the footer model string shows a `🪨` suffix, e.g.:
+When caveman is on, the footer's extension-status line shows `🪨`, e.g.:
 
 ```
-(provider/model • high 🪨)
+~/project (main)
+0.0%/200k (auto)                  (provider) model-id • high
+🪨
 ```
 
-When off, the default footer is restored with no caveman indicator.
+When off, the indicator is cleared.
 
 ## Mid-conversation warning
 

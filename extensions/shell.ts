@@ -32,7 +32,7 @@ import {
   silenceChild,
 } from "./shell/exec.ts";
 import { createRepeatTool, getActiveRepeats } from "./shell/repeat.ts";
-import { setupFooter } from "./shell/footer.ts";
+import { createShellStatusRefresher, type ShellStatusRefresher } from "./shell/status.ts";
 import { lintCommand, formatDiagnostics, disposeLspClient } from "./shell/lint.ts";
 import { parseCommand } from "./shell/parse.ts";
 import { checkRules, formatRuleMatches } from "./shell/rules.ts";
@@ -42,11 +42,13 @@ const SH_TOOL = "sh",
   SH_REPEAT_TOOL = "sh_repeat_until",
   SH_BACKGROUND_PS_TOOL = "sh_background_ps",
   TAIL_LINES = 5;
+const MAX_SHUTDOWN_HOLD_MS = 5 * 60 * 1000;
 const SLEEP_UNITS: Record<string, number> = { s: 1, m: 60, h: 3600, d: 86400 };
 const truncateDescribe = (t: string, max = 48) => (t.length <= max ? t : t.slice(0, max - 1) + "…");
 const fmtDiags = (diags: any[], fmt: (d: any[]) => string) => (diags.length ? fmt(diags) : "");
 let holdNoticeSent = false,
   lastStopReason: string | undefined;
+let shellStatus: ShellStatusRefresher | null = null;
 
 export default async function (pi: ExtensionAPI) {
   const { defaultWaitfor: DEFAULT_WAITFOR, maxWaitfor: MAX_WAITFOR } = loadShellConfig();
@@ -314,7 +316,8 @@ export default async function (pi: ExtensionAPI) {
   });
 
   pi.on("session_start", async (_event, ctx) => {
-    setupFooter(pi, ctx);
+    shellStatus?.dispose();
+    shellStatus = createShellStatusRefresher(ctx);
     pi.setActiveTools(
       Array.from(
         new Set([
@@ -363,6 +366,8 @@ export default async function (pi: ExtensionAPI) {
   });
 
   pi.on("session_shutdown", async (event, ctx) => {
+    shellStatus?.dispose();
+    shellStatus = null;
     disposeLspClient();
     if (
       ctx.hasUI ||
@@ -378,8 +383,13 @@ export default async function (pi: ExtensionAPI) {
       emitHold(ctx);
       holdNoticeSent = true;
     }
+    const deadline = Date.now() + MAX_SHUTDOWN_HOLD_MS;
     await new Promise<void>((resolve) => {
       const check = () => {
+        if (Date.now() >= deadline) {
+          resolve();
+          return;
+        }
         if (!hasActiveBackground() && ctx.isIdle())
           setTimeout(
             () => (!hasActiveBackground() && ctx.isIdle() ? resolve() : setTimeout(check, 100)),

@@ -2,8 +2,14 @@
  * Caveman Micro Extension for Pi
  *
  * Toggles the "caveman-micro" token-compression prompt style on/off.
- * Enabled by default; indicator (🪨) is appended to the model string in the
- * footer instead of occupying a separate status line.
+ * Enabled by default; a rock indicator (🪨) is shown in the footer's
+ * extension-status line while enabled.
+ *
+ * Why a status line and not a custom footer: pi allows only one custom
+ * footer at a time (setFooter replaces). Owning the footer here collided
+ * with the shell extension's footer, so one indicator always won. Using
+ * ctx.ui.setStatus() lets every footer (built-in or custom) render the
+ * marker with no ownership conflict.
  *
  * Commands:
  *   /caveman           Toggle caveman mode on/off
@@ -14,10 +20,7 @@
  * Configuration is read from caveman-micro.yaml (next to this index.ts).
  */
 
-import type { ExtensionAPI, ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
-import { FooterComponent } from "@earendil-works/pi-coding-agent";
-import type { TUI } from "@earendil-works/pi-tui";
-import type { Model } from "@earendil-works/pi-ai";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { readFileSync, existsSync, realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
@@ -36,18 +39,17 @@ interface CavemanConfig {
   mid_convo_nudge_negative: string;
 }
 
-type ThinkingLevel = ReturnType<ExtensionAPI["getThinkingLevel"]>;
-
 // ── Constants ───────────────────────────────────────────────────────────────
 
 const STATE_KEY = "caveman-micro-state";
 const CONFIG_FILE = "caveman-micro.yaml";
+const STATUS_KEY = "caveman";
+const STATUS_TEXT = "🪨";
 
 // ── Module-level state (reset on extension reload) ──────────────────────────
 
 let cavemanEnabled = true;
 let cachedConfig: CavemanConfig | null = null;
-let footerTui: TUI | undefined;
 let pi_appendState: (data: CavemanState) => void = () => {};
 
 // ── Config loading ───────────────────────────────────────────────────────────
@@ -121,53 +123,11 @@ function loadConfig(): CavemanConfig {
   return cachedConfig;
 }
 
-// ── Footer integration ───────────────────────────────────────────────────────
+// ── Status integration ──────────────────────────────────────────────────────
 
-function cavemanSuffix(theme: Theme): string {
-  return theme.fg("accent", " 🪨");
-}
-
-function getCavemanModelState(
-  ctx: ExtensionContext,
-  pi: ExtensionAPI,
-  theme: Theme,
-): { model: Model<any> | undefined; thinkingLevel: ThinkingLevel } {
-  const model = ctx.model;
-  const thinkingLevel = pi.getThinkingLevel();
-  if (!cavemanEnabled || !model) {
-    return { model, thinkingLevel };
-  }
-  const suffix = cavemanSuffix(theme);
-  if (model.reasoning) {
-    return { model, thinkingLevel: `${thinkingLevel}${suffix}` as ThinkingLevel };
-  }
-  return { model: { ...model, id: `${model.id}${suffix}` }, thinkingLevel };
-}
-
-function updateFooter(ctx: ExtensionContext, pi: ExtensionAPI): void {
+function applyStatus(ctx: ExtensionContext): void {
   if (!ctx.hasUI) return;
-
-  if (!cavemanEnabled) {
-    ctx.ui.setFooter(undefined);
-    return;
-  }
-
-  ctx.ui.setFooter((tui, theme, footerData) => {
-    footerTui = tui;
-    const sessionLike = {
-      get state() {
-        return getCavemanModelState(ctx, pi, theme);
-      },
-      sessionManager: ctx.sessionManager,
-      modelRegistry: ctx.modelRegistry,
-      getContextUsage: () => ctx.getContextUsage(),
-    };
-    return new FooterComponent(sessionLike, footerData);
-  });
-}
-
-function refreshFooter(): void {
-  footerTui?.requestRender();
+  ctx.ui.setStatus(STATUS_KEY, cavemanEnabled ? STATUS_TEXT : undefined);
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
@@ -249,8 +209,7 @@ export default function cavemanMicroExtension(pi: ExtensionAPI) {
       // ── Apply state change ────────────────────────────────────────
       cavemanEnabled = turningOn;
       persistState();
-      updateFooter(ctx, pi);
-      refreshFooter();
+      applyStatus(ctx);
 
       // ── Mid-conversation: inject user message ─────────────────────
       const midConvo = isMidConversation(ctx);
@@ -284,8 +243,7 @@ export default function cavemanMicroExtension(pi: ExtensionAPI) {
 
   prependMessage(pi, {
     customType: "caveman-micro-nudge",
-    content:
-      loadConfig().mid_convo_nudge_positive || "From now on, respond in caveman style.",
+    content: loadConfig().mid_convo_nudge_positive || "From now on, respond in caveman style.",
     when: isFirstTurn,
     once: true,
   });
@@ -303,29 +261,18 @@ export default function cavemanMicroExtension(pi: ExtensionAPI) {
     };
   });
 
-  // ── Restore state & set footer on session start ───────────────────────
+  // ── Restore state & set status on session start ───────────────────────
 
   pi.on("session_start", async (_event, ctx) => {
     restoreFromBranch(ctx);
     loadConfig();
-    updateFooter(ctx, pi);
+    applyStatus(ctx);
   });
 
   // ── Restore state on tree navigation ─────────────────────────────────
 
   pi.on("session_tree", async (_event, ctx) => {
     restoreFromBranch(ctx);
-    updateFooter(ctx, pi);
-    refreshFooter();
-  });
-
-  // ── Re-render footer when model or thinking level changes ─────────────
-
-  pi.on("model_select", async (_event, _ctx) => {
-    refreshFooter();
-  });
-
-  pi.on("thinking_level_select", async (_event, _ctx) => {
-    refreshFooter();
+    applyStatus(ctx);
   });
 }

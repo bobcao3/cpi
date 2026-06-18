@@ -302,12 +302,9 @@ export default function (pi: ExtensionAPI) {
     reconstructAlarms(ctx);
     rescheduleFromState();
 
-    // Ensure the alarm tool stays active after other extensions (e.g. shell) mutate the active tool set.
-    setTimeout(() => {
-      const active = new Set(pi.getActiveTools());
-      active.add(ALARM_TOOL);
-      pi.setActiveTools(Array.from(active));
-    }, 0);
+    const active = new Set(pi.getActiveTools());
+    active.add(ALARM_TOOL);
+    pi.setActiveTools(Array.from(active));
   });
 
   pi.on("session_tree", async (_event, ctx) => {
@@ -377,9 +374,14 @@ export default function (pi: ExtensionAPI) {
 
     // Keep the session/runtime alive until all alarms fire and the agent stays idle
     // long enough for any queued follow-up turn to complete.
+    const deadline = Date.now() + (MAX_ALARM_SECONDS * 1000 + 5000);
     await new Promise<void>((resolve) => {
       const pendingCount = () => alarms.filter((a) => !a.fired).length;
       const check = () => {
+        if (Date.now() >= deadline) {
+          resolve();
+          return;
+        }
         if (pendingCount() === 0 && ctx.isIdle()) {
           // Wait a grace beat to confirm no follow-up turn is starting.
           setTimeout(() => {

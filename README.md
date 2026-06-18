@@ -7,7 +7,12 @@ Shared extensions and skills for the [pi coding agent](https://github.com/earend
 | Extension                    | Purpose                                                                                                                   |
 | ---------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
 | `lib/config.ts`              | Shared config loader: reads `cpi-config.json` (user + project), deep-merges, provides typed accessors for each extension. |
+| `lib/footer.ts`              | Shared footer engine: `setBranchResolver`/`registerLineSegment` let extensions add line-1 data without owning the footer. |
+| `footer/index.ts`            | Owns pi's custom footer: renders line 1, splices built-in footer lines 2/3. Other extensions must not call `setFooter`.   |
+| `vcs-jj/index.ts`            | Shows jj change id/bookmark on footer line 1, overriding git branch. Bounded cached `.jj` lookup; no shell-out at render. |
 | `shell.ts`                   | Replaces builtin `bash` with stateless `sh` tool: backgrounding, signalling, busy-wait detection, session-hold.           |
+| `shell/status.ts`            | Adds background-shell / repeat-monitor counts (`bg:N` / `mon:N`) to the footer status line via `ctx.ui.setStatus`.        |
+| `caveman-micro/index.ts`     | Toggles caveman-micro token-compression prompt (default on); shows `🪨` on the footer status line via `ctx.ui.setStatus`. |
 | `alarm.ts`                   | `alarm` tool for scheduled wake-ups (relative or absolute time). Survives session resume.                                 |
 | `skill.ts`                   | `skill` tool: loads full `SKILL.md` by name so the agent can use skills even though builtin `read` is stripped.           |
 | `disable-bash.ts`            | Strips the builtin `bash` tool so only the custom `sh` is available.                                                      |

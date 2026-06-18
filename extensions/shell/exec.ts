@@ -8,6 +8,7 @@ import { createWriteStream, existsSync, type WriteStream } from "node:fs";
 import { rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { StringDecoder } from "node:string_decoder";
 import { truncateTail } from "@earendil-works/pi-coding-agent";
 import {
   getActiveRepeats,
@@ -29,6 +30,7 @@ interface BackgroundChild {
   describe?: string;
   child: ChildProcess;
   acc: string;
+  decoder: StringDecoder;
   logPath: string;
   logStream: WriteStream;
   exitCode: number | null;
@@ -123,6 +125,7 @@ export async function runShell(
     describe,
     child,
     acc: "",
+    decoder: new StringDecoder("utf8"),
     logPath,
     logStream,
     exitCode: null,
@@ -142,12 +145,15 @@ export async function runShell(
       entry.linesEmitted += chunk.slice(0, lastNl).filter((b) => b === 0x0a).length + 1;
       entry.colBytes = chunk.length - 1 - lastNl;
     }
-    entry.acc += chunk.toString("utf8");
+    entry.acc += entry.decoder.write(chunk);
     const blen = Buffer.byteLength(entry.acc);
-    if (blen > MAX_ACC)
-      entry.acc = Buffer.from(entry.acc, "utf8")
-        .subarray(blen - MAX_ACC)
-        .toString("utf8");
+    if (blen > MAX_ACC) {
+      while (Buffer.byteLength(entry.acc) > MAX_ACC) {
+        entry.acc = entry.acc.slice(Math.max(1, Math.ceil(entry.acc.length * 0.1)));
+      }
+      const c0 = entry.acc.charCodeAt(0);
+      if (c0 >= 0xdc00 && c0 <= 0xdfff) entry.acc = entry.acc.slice(1); // drop lone low surrogate
+    }
     const now = Date.now();
     if (onPartial && now - lastUpd >= UPDATE_MS) {
       lastUpd = now;
@@ -162,20 +168,30 @@ export async function runShell(
       if (!entry.done) {
         entry.done = true;
         entry.exitCode = code;
-        entry.logStream.end();
-        if (bg.has(id)) {
-          if (!entry.signaled) completionHook?.(id, command, code, "completed", { path: logPath });
-          bg.delete(id);
-        }
+        // logStream.end() only *schedules* the final flush; its callback fires
+        // on "finish", once buffered output has reached the fd. Notify and
+        // resolve only then, so any consumer reading logPath on completion (or
+        // the foreground-truncated path that reuses logPath as full output)
+        // sees the complete log rather than a still-buffering tail.
+        entry.logStream.end(() => {
+          if (bg.has(id)) {
+            if (!entry.signaled)
+              completionHook?.(id, command, code, "completed", { path: logPath });
+            bg.delete(id);
+          }
+          resolve();
+        });
+      } else {
+        resolve();
       }
-      resolve();
     });
     child.on("error", () => {
       if (!entry.done) {
         entry.done = true;
-        entry.logStream.end();
+        entry.logStream.end(() => resolve());
+      } else {
+        resolve();
       }
-      resolve();
     });
   });
 

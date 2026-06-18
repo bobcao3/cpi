@@ -17,6 +17,7 @@
  *         "baseUrl": "https://...",
  *         "api": "openai-completions",
  *         "apiKey": "NO",
+ *         "compat": { ... },              // optional, relocated onto each model
  *         "models": [
  *           {
  *             "id": "model-id",
@@ -25,7 +26,8 @@
  *             "input": ["text", "image"],    // optional
  *             "cost": { ... },               // optional
  *             "contextWindow": 262144,        // optional
- *             "maxTokens": 16384             // optional
+ *             "maxTokens": 16384,            // optional
+ *             "compat": { ... }              // optional, overrides provider/defaults
  *           }
  *         ]
  *       }
@@ -66,6 +68,21 @@ const debug = (msg: string) => {
 
 // ── types ────────────────────────────────────────────────────────────────────
 
+/**
+ * OpenAI-completions compatibility overrides. Only the fields we care about are
+ * named; the rest pass through. See pi-ai's openai-completions `getCompat`.
+ */
+interface CompatConfig {
+  supportsStore?: boolean;
+  supportsDeveloperRole?: boolean;
+  supportsReasoningEffort?: boolean;
+  supportsUsageInStreaming?: boolean;
+  maxTokensField?: string;
+  requiresReasoningContentOnAssistantMessages?: boolean;
+  thinkingFormat?: string;
+  [key: string]: unknown;
+}
+
 interface ProviderModel {
   id: string;
   name?: string;
@@ -74,6 +91,7 @@ interface ProviderModel {
   cost?: Record<string, number>;
   contextWindow?: number;
   maxTokens?: number;
+  compat?: CompatConfig;
 }
 
 interface ProviderConfig {
@@ -81,6 +99,12 @@ interface ProviderConfig {
   baseUrl: string;
   api: string;
   apiKey?: string;
+  /**
+   * Provider-level compat is accepted for convenience but the framework's
+   * dynamic registerProvider path ignores it (only model-level compat is read).
+   * `normalizeCompat` relocates it onto each model, so this is never sent as-is.
+   */
+  compat?: CompatConfig;
   models: ProviderModel[];
 }
 
@@ -108,6 +132,71 @@ function withDefaultCosts(pcfg: ProviderConfig): void {
   for (const model of pcfg.models ?? []) {
     model.cost = { ...ZERO_COST, ...(model.cost ?? {}) };
   }
+}
+
+// ── compat normalization ───────────────────────────────────────────────────
+
+/**
+ * Conservative compat defaults for self-hosted, OpenAI-compatible endpoints
+ * (SGLang / vLLM), which is what every provider in these configs is.
+ *
+ * - `supportsDeveloperRole: false` — these servers' chat templates generally do
+ *   NOT understand the `developer` role. pi sends the system prompt under
+ *   `developer` for reasoning models when this is left on (auto-detected true
+ *   for unrecognized URLs), and templates like GLM-5.2's silently drop it,
+ *   losing the entire system prompt (CWD, guidelines, skills). Force `system`.
+ * - `maxTokensField: "max_tokens"` — SGLang/vLLM use the classic field, not
+ *   OpenAI's newer `max_completion_tokens`.
+ *
+ * A model (or provider) can override any of these by setting its own compat.
+ */
+const DEFAULT_COMPAT: CompatConfig = {
+  supportsDeveloperRole: false,
+  maxTokensField: "max_tokens",
+};
+
+/**
+ * Validate a provider config and fold compat down onto each model.
+ *
+ * The framework's dynamic registerProvider path (model-registry.js
+ * `applyProviderConfig`) only reads model-level `compat` — a provider-level
+ * `compat` block is silently ignored (unlike the models.json path, which
+ * merges it). So we relocate any provider-level compat onto every model and
+ * apply conservative defaults. Precedence (low → high):
+ *
+ *   DEFAULT_COMPAT  <  provider.compat  <  model.compat
+ *
+ * Returns human-readable warnings for malformed entries (does not throw —
+ * a bad provider should be skipped, not crash startup). Mutates in place.
+ */
+function validateAndNormalizeCompat(key: string, pcfg: ProviderConfig): string[] {
+  const warnings: string[] = [];
+
+  if (!pcfg.baseUrl) warnings.push(`provider "${key}": missing baseUrl`);
+  if (!pcfg.api) warnings.push(`provider "${key}": missing api`);
+  if (!Array.isArray(pcfg.models) || pcfg.models.length === 0) {
+    warnings.push(`provider "${key}": no models defined`);
+  }
+
+  const providerCompat = pcfg.compat;
+  if (providerCompat) {
+    warnings.push(
+      `provider "${key}": provider-level "compat" is ignored by the framework; ` +
+        `relocating it onto each model (set compat per-model to silence this)`,
+    );
+    delete pcfg.compat;
+  }
+
+  for (const model of pcfg.models ?? []) {
+    if (!model.id) warnings.push(`provider "${key}": a model is missing "id"`);
+    model.compat = {
+      ...DEFAULT_COMPAT,
+      ...providerCompat,
+      ...model.compat,
+    };
+  }
+
+  return warnings;
 }
 
 // ── env-based provider detection ─────────────────────────────────────────────
@@ -194,28 +283,57 @@ function loadMergedConfig(cwd: string): FallbackConfig {
 
 // ── extension ────────────────────────────────────────────────────────────────
 
+/**
+ * Register a single provider config idempotently.
+ *
+ * Defaults each model's `cost` (the framework's dynamic registerProvider path
+ * stores `cost` verbatim with no default, unlike the models.json path; a model
+ * without `cost` leaves model.cost undefined and calculateCost then throws
+ * "Cannot read properties of undefined (reading 'input')" on the first turn),
+ * folds compat down onto each model with conservative defaults, then calls
+ * pi.registerProvider. Records `key` in `registered` and is a no-op if the key
+ * is already present, so the factory and session_start can both walk their
+ * respective configs without double-registering. Errors are caught and warned,
+ * never thrown — a bad provider is skipped, not crashed.
+ */
+function registerProviderConfig(
+  pi: ExtensionAPI,
+  key: string,
+  pcfg: ProviderConfig,
+  registered: Set<string>,
+): void {
+  if (registered.has(key)) {
+    debug(`provider already registered: ${key}`);
+    return;
+  }
+  try {
+    withDefaultCosts(pcfg);
+
+    for (const w of validateAndNormalizeCompat(key, pcfg)) {
+      process.stderr.write(`[provider-fallback] ${w}\n`);
+      debug(w);
+    }
+
+    pi.registerProvider(key, pcfg as Parameters<typeof pi.registerProvider>[1]);
+    debug(`registered provider: ${key}`);
+    registered.add(key);
+  } catch (err) {
+    console.warn(`[provider-fallback] registerProvider(${key}) failed:`, err);
+  }
+}
+
 export default async function (pi: ExtensionAPI) {
   // We need the cwd for project-scoped config. The factory runs before
   // session_start, so we use process.cwd() as a best guess. session_start
   // will have the real ctx.cwd but providers must be registered here.
   const config = loadMergedConfig(process.cwd());
+  const registered = new Set<string>();
 
   // Register all providers from the merged config. Queued during initial
   // load and drained before model resolution.
   if (config.providers) {
     for (const [key, pcfg] of Object.entries(config.providers)) {
-      try {
-        // The framework's dynamic registerProvider path (applyProviderConfig)
-        // stores `cost` verbatim with no default, unlike the models.json path.
-        // A model without `cost` leaves model.cost undefined, and calculateCost
-        // then throws "Cannot read properties of undefined (reading 'input')"
-        // on the first turn. Default it here so cost-less models can't crash.
-        withDefaultCosts(pcfg);
-        pi.registerProvider(key, pcfg as Parameters<typeof pi.registerProvider>[1]);
-        debug(`registered provider: ${key}`);
-      } catch (err) {
-        console.warn(`[provider-fallback] registerProvider(${key}) failed:`, err);
-      }
+      registerProviderConfig(pi, key, pcfg, registered);
     }
   }
 
@@ -229,6 +347,18 @@ export default async function (pi: ExtensionAPI) {
     debug(
       `merged fallbacks: ${(liveConfig.fallbacks ?? []).map((f) => `${f.provider}/${f.model}`).join(", ") || "none"}`,
     );
+
+    // Register any providers in the live (ctx.cwd) config that weren't in the
+    // factory's process.cwd() config — e.g. a fork/resume into a different
+    // project whose .pi/fallback-providers.json defines new providers.
+    // Without this, modelRegistry.find(provider, modelId) returns null and
+    // fallbacks referencing those providers silently fail. Idempotent:
+    // registerProviderConfig skips already-registered keys.
+    if (liveConfig.providers) {
+      for (const [key, pcfg] of Object.entries(liveConfig.providers)) {
+        registerProviderConfig(pi, key, pcfg, registered);
+      }
+    }
 
     // 1. Disable env-based providers that shadow real ones.
     const disabled: string[] = [];
