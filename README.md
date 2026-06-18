@@ -9,6 +9,7 @@ Shared extensions and skills for the [pi coding agent](https://github.com/earend
 | `lib/config.ts`              | Shared config loader: reads `cpi-config.json` (user + project), deep-merges, provides typed accessors for each extension. |
 | `shell.ts`                   | Replaces builtin `bash` with stateless `sh` tool: backgrounding, signalling, busy-wait detection, session-hold.           |
 | `alarm.ts`                   | `alarm` tool for scheduled wake-ups (relative or absolute time). Survives session resume.                                 |
+| `skill.ts`                   | `skill` tool: loads full `SKILL.md` by name so the agent can use skills even though builtin `read` is stripped.           |
 | `disable-bash.ts`            | Strips the builtin `bash` tool so only the custom `sh` is available.                                                      |
 | `disable-read-write-edit.ts` | Strips builtin `read`/`write`/`edit` — all file I/O goes through `sh`.                                                    |
 | `provider-fallback.ts`       | Registers custom model providers from JSON config; disables env-based Bedrock/HF; falls back to configured candidates.    |
@@ -17,10 +18,10 @@ Shared extensions and skills for the [pi coding agent](https://github.com/earend
 
 ## Skills
 
-| Skill               | Purpose                                                                                                                     |
-| ------------------- | -------------------------------------------------------------------------------------------------------------------------- |
-| `editing-files/`    | Teaches the model a fuzzy patch application workflow for applying file edits without exact line numbers.                   |
-| `subagents-in-pi/`  | Orchestrates subagent sessions — spawning child pi instances with a custom system prompt (`output-protocol.md`) via `subagent.sh`, with results captured in a live transcript. |
+| Skill              | Purpose                                                                                                                                                                        |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `editing-files/`   | Teaches the model a fuzzy patch application workflow for applying file edits without exact line numbers.                                                                       |
+| `subagents-in-pi/` | Orchestrates subagent sessions — spawning child pi instances with a custom system prompt (`output-protocol.md`) via `subagent.sh`, with results captured in a live transcript. |
 
 ## How it works
 
@@ -30,6 +31,7 @@ point pi directly at the cpi source **directories**:
 ```json
 {
   "extensions": ["/home/you/cpi/extensions"],
+  "enableSkillCommands": true,
   "skills": ["/home/you/cpi/skills"]
 }
 ```
@@ -49,12 +51,12 @@ the live link.
 
 No symlinks are created. Pi reads from the source files at runtime, so:
 
-| Action                             | Result                                          |
-| ---------------------------------- | ----------------------------------------------- |
-| Add a `.ts` to `extensions/`       | Live on next pi session — no re-install needed  |
-| Remove a file from `extensions/`   | Gone on next pi session                         |
-| Edit an existing file              | Already live (pi reads from disk)               |
-| Add a skill directory to `skills/` | Live on next pi session                         |
+| Action                             | Result                                         |
+| ---------------------------------- | ---------------------------------------------- |
+| Add a `.ts` to `extensions/`       | Live on next pi session — no re-install needed |
+| Remove a file from `extensions/`   | Gone on next pi session                        |
+| Edit an existing file              | Already live (pi reads from disk)              |
+| Add a skill directory to `skills/` | Live on next pi session                        |
 
 ## Install
 
@@ -146,9 +148,9 @@ validation logic at runtime, so the model always sees the effective limits.
 `provider-fallback.ts` reads provider/model definitions and fallback order
 from two JSON files, merged at session start:
 
-| Scope   | Path                                     | Purpose                                               |
-| ------- | ---------------------------------------- | ----------------------------------------------------- |
-| User    | `~/.pi/agent/fallback-providers.json`    | Default providers + fallback order for all projects  |
+| Scope   | Path                                    | Purpose                                               |
+| ------- | --------------------------------------- | ----------------------------------------------------- |
+| User    | `~/.pi/agent/fallback-providers.json`   | Default providers + fallback order for all projects   |
 | Project | `<project>/.pi/fallback-providers.json` | Override/add providers; reorder fallbacks per-project |
 
 ### Merge rules

@@ -114,6 +114,7 @@ patch_settings() {
           | drop_cpi_plain                        # drop broken glob / prior dir entry
           | . + [$ext_path]                       # add live directory
       ) | unique)
+      | .enableSkillCommands = true
       | .skills = ((
         (.skills // [])
           | map(select(IN($skill_old[]) | not))
@@ -125,6 +126,9 @@ patch_settings() {
     local n_ext n_skill
     n_ext=$(jq '.extensions | length' "$PI_SETTINGS")
     n_skill=$(jq '.skills | length' "$PI_SETTINGS")
+    local skill_cmds
+    skill_cmds=$(jq '.enableSkillCommands // false' "$PI_SETTINGS")
+    log "skill commands: ${skill_cmds}"
     log "extensions: ${n_ext} entry(ies) — dir: ${EXT_PATH}"
     log "skills:     ${n_skill} entry(ies) — dir: ${SKILL_PATH}"
 }
@@ -146,20 +150,25 @@ verify() {
         -p "List the exact names of every tool you have, one per line, nothing else." \
         >"$out" 2>&1 || true
 
-    if grep -qx 'sh' "$out"; then
+    if rg -qx 'sh' "$out" >/dev/null 2>&1; then
         log "verify: ✓ custom 'sh' tool registered (shell.ts loaded)"
     else
         log "verify: ⚠ 'sh' tool not found in pi output"; ok=0
     fi
-    if grep -qx 'alarm' "$out"; then
+    if rg -qx 'alarm' "$out" >/dev/null 2>&1; then
         log "verify: ✓ 'alarm' tool registered (alarm.ts loaded)"
     else
         log "verify: ⚠ 'alarm' tool not found in pi output"; ok=0
     fi
-    if grep -qiv 'bash' "$out" && ! grep -qx 'bash' "$out"; then
+    if rg -qx 'skill' "$out" >/dev/null 2>&1; then
+        log "verify: ✓ 'skill' tool registered (skill.ts loaded)"
+    else
+        log "verify: ⚠ 'skill' tool not found in pi output"; ok=0
+    fi
+    if rg -qiv 'bash' "$out" >/dev/null 2>&1 && ! rg -qx 'bash' "$out" >/dev/null 2>&1; then
         log "verify: ✓ builtin 'bash' stripped (disable-bash.ts loaded)"
     fi
-    if grep -qi 'registered provider' "$dbg" 2>/dev/null; then
+    if rg -qi 'registered provider' "$dbg" >/dev/null 2>&1; then
         log "verify: ✓ provider-fallback.ts registered providers"
     else
         log "verify: ⚠ provider-fallback debug log not written"; ok=0
