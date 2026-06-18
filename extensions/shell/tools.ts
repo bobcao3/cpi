@@ -1,12 +1,10 @@
 /**
- * Shell tool dependencies: fd + rg install and PATH augmentation.
- *
- * Downloads fd and ripgrep into the agent cache on first use and exposes a
- * PATH-augmented env so `bash -c` invocations can find them. No zmx, no pi/tui
- * imports — this is a leaf module consumed by the exec engine and the entry.
+ * Shell tool dependencies: fd + rg + shuck install and PATH augmentation.
+ * Downloads binaries into the agent cache on first use.
+ * Pure leaf module — no pi/tui imports.
  */
 
-import { createWriteStream } from "node:fs";
+import { createWriteStream, existsSync } from "node:fs";
 import { chmod, copyFile, mkdir, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
@@ -14,192 +12,102 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 
-const DOWNLOAD_TIMEOUT_MS = 60_000;
-const FD_VERSION = "v10.4.2";
-const RG_VERSION = "15.1.0";
-
+const execFileAsync = promisify(execFile);
+const DL_TIMEOUT = 60_000;
 const CACHE_DIR = join(getAgentDir(), "cache", "shell-tools");
 const BIN_DIR = join(CACHE_DIR, "bin");
+const WASM_DIR = join(CACHE_DIR, "wasm");
+const GRAMMAR_PATH = join(WASM_DIR, "tree-sitter-bash.wasm");
+const GRAMMAR_VERSION = "v0.25.1";
+const IS_WIN = process.platform === "win32";
+const PLATFORM_KEY = `${process.platform}-${process.arch}`;
+const binName = (n: string) => (IS_WIN ? `${n}.exe` : n);
 
-const execFileAsync = promisify(execFile);
+export interface ToolAvailability { fd: boolean; rg: boolean; shuck: boolean; treeSitter: boolean }
 
-export interface ToolAvailability {
-  fd: boolean;
-  rg: boolean;
-}
+interface ToolSpec { name: "fd" | "rg" | "shuck"; version: string; repo: string; archiveExt: "tar.gz" | "tar.xz" | "zip"; assetPrefix: string; targets: Record<string, string> }
 
-function getPlatform(): { os: string; arch: string } {
-  return { os: process.platform, arch: process.arch };
-}
+const TOOLS: ToolSpec[] = [
+  { name: "fd", version: "v10.4.2", repo: "sharkdp/fd", archiveExt: IS_WIN ? "zip" : "tar.gz", assetPrefix: "fd-", targets: {
+    "linux-x64": "x86_64-unknown-linux-musl", "linux-arm64": "aarch64-unknown-linux-musl",
+    "darwin-arm64": "aarch64-apple-darwin", "darwin-x64": "aarch64-apple-darwin",
+    "win32-x64": "x86_64-pc-windows-msvc", "win32-arm64": "aarch64-pc-windows-msvc" } },
+  { name: "rg", version: "15.1.0", repo: "BurntSushi/ripgrep", archiveExt: IS_WIN ? "zip" : "tar.gz", assetPrefix: "ripgrep-", targets: {
+    "linux-x64": "x86_64-unknown-linux-musl", "linux-arm64": "aarch64-unknown-linux-gnu",
+    "darwin-arm64": "aarch64-apple-darwin", "darwin-x64": "x86_64-apple-darwin",
+    "win32-x64": "x86_64-pc-windows-msvc", "win32-arm64": "aarch64-pc-windows-msvc" } },
+  { name: "shuck", version: "v0.0.41", repo: "ewhauser/shuck", archiveExt: IS_WIN ? "zip" : "tar.xz", assetPrefix: "shuck-cli-", targets: {
+    "linux-x64": "x86_64-unknown-linux-musl", "linux-arm64": "aarch64-unknown-linux-musl",
+    "darwin-arm64": "aarch64-apple-darwin", "darwin-x64": "aarch64-apple-darwin",
+    "win32-x64": "x86_64-pc-windows-msvc" } },
+];
 
-function getFdTarget(os: string, arch: string): string | null {
-  if (os === "linux") {
-    if (arch === "x64") return "x86_64-unknown-linux-musl";
-    if (arch === "arm64") return "aarch64-unknown-linux-musl";
-  }
-  if (os === "darwin") {
-    if (arch === "arm64") return "aarch64-apple-darwin";
-    if (arch === "x64") return "aarch64-apple-darwin";
-  }
-  if (os === "win32") {
-    if (arch === "x64") return "x86_64-pc-windows-msvc";
-    if (arch === "arm64") return "aarch64-pc-windows-msvc";
-  }
-  return null;
-}
-
-function getRgTarget(os: string, arch: string): string | null {
-  if (os === "linux") {
-    if (arch === "x64") return "x86_64-unknown-linux-musl";
-    if (arch === "arm64") return "aarch64-unknown-linux-gnu";
-  }
-  if (os === "darwin") {
-    if (arch === "arm64") return "aarch64-apple-darwin";
-    if (arch === "x64") return "x86_64-apple-darwin";
-  }
-  if (os === "win32") {
-    if (arch === "x64") return "x86_64-pc-windows-msvc";
-    if (arch === "arm64") return "aarch64-pc-windows-msvc";
-  }
-  return null;
-}
-
-function getFdAssetName(os: string, arch: string): string | null {
-  const target = getFdTarget(os, arch);
-  if (!target) return null;
-  const ext = os === "win32" ? "zip" : "tar.gz";
-  return `fd-${FD_VERSION}-${target}.${ext}`;
-}
-
-function getRgAssetName(os: string, arch: string): string | null {
-  const target = getRgTarget(os, arch);
-  if (!target) return null;
-  const ext = os === "win32" ? "zip" : "tar.gz";
-  return `ripgrep-${RG_VERSION}-${target}.${ext}`;
-}
-
-function binaryName(name: string): string {
-  return process.platform === "win32" ? `${name}.exe` : name;
-}
-
-async function fetchWithTimeout(url: string, timeoutMs: number): Promise<Response> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
+async function download(url: string, dest: string): Promise<void> {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), DL_TIMEOUT);
   try {
-    const response = await fetch(url, { signal: controller.signal });
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-    }
-    return response;
-  } finally {
-    clearTimeout(timer);
-  }
+    const res = await fetch(url, { signal: ctrl.signal });
+    if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`);
+    const ws = createWriteStream(dest);
+    const reader = res.body.getReader();
+    try { for (;;) { const { done, value } = await reader.read(); if (done) break; ws.write(Buffer.from(value)); } }
+    finally { ws.end(); reader.releaseLock(); }
+    await new Promise<void>((res, rej) => { ws.on("finish", res); ws.on("error", rej); });
+  } finally { clearTimeout(timer); }
 }
 
-async function downloadFile(url: string, dest: string): Promise<void> {
-  const response = await fetchWithTimeout(url, DOWNLOAD_TIMEOUT_MS);
-  const fileStream = createWriteStream(dest);
-  if (!response.body) {
-    throw new Error("No response body");
-  }
-  const reader = response.body.getReader();
+async function ensureTool(spec: ToolSpec): Promise<boolean> {
+  const target = spec.targets[PLATFORM_KEY];
+  if (!target) { console.warn(`[shell-ext] No ${spec.name} for ${PLATFORM_KEY}`); return false; }
+  const aname = `${spec.assetPrefix}${target}.${spec.archiveExt}`;
+  const binPath = join(BIN_DIR, binName(spec.name));
+  try { await readFile(binPath); return true; } catch {}
+  const baseName = aname.replace(/\.(tar\.(?:gz|xz)|zip)$/, "");
+  const url = `https://github.com/${spec.repo}/releases/download/${spec.version}/${aname}`;
+  const tmp = join(tmpdir(), `pi-sh-${spec.name}-${Date.now()}`);
+  const archivePath = join(tmp, aname);
+  await mkdir(tmp, { recursive: true });
   try {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      fileStream.write(Buffer.from(value));
-    }
-  } finally {
-    fileStream.end();
-    reader.releaseLock();
-  }
-  await new Promise<void>((resolve, reject) => {
-    fileStream.on("finish", resolve);
-    fileStream.on("error", reject);
-  });
-}
-
-async function extractArchive(
-  archivePath: string,
-  destDir: string,
-  archiveType: "tar.gz" | "zip",
-): Promise<void> {
-  await mkdir(destDir, { recursive: true });
-  if (archiveType === "tar.gz") {
-    await execFileAsync("tar", ["-xzf", archivePath, "-C", destDir]);
-  } else {
-    try {
-      await execFileAsync("tar", ["-xf", archivePath, "-C", destDir]);
-    } catch {
-      await execFileAsync("unzip", ["-q", archivePath, "-d", destDir]);
-    }
-  }
-}
-
-async function ensureTool(
-  toolName: "fd" | "rg",
-  version: string,
-  repo: string,
-  getAssetName: (os: string, arch: string) => string | null,
-): Promise<boolean> {
-  const { os, arch } = getPlatform();
-  const assetName = getAssetName(os, arch);
-  if (!assetName) {
-    console.warn(`[shell-ext] No ${toolName} binary available for ${os}/${arch}`);
-    return false;
-  }
-
-  const binPath = join(BIN_DIR, binaryName(toolName));
-
-  try {
-    await readFile(binPath);
-    return true;
-  } catch {
-    // proceed to download
-  }
-
-  const archiveType = assetName.endsWith(".zip") ? "zip" : "tar.gz";
-  const assetBaseName = archiveType === "zip" ? assetName.slice(0, -4) : assetName.slice(0, -7);
-  const url = `https://github.com/${repo}/releases/download/${version}/${assetName}`;
-
-  const tempDir = join(tmpdir(), `pi-sh-tools-${toolName}-${Date.now()}`);
-  const archivePath = join(tempDir, assetName);
-  await mkdir(tempDir, { recursive: true });
-
-  try {
-    await downloadFile(url, archivePath);
-    await extractArchive(archivePath, tempDir, archiveType);
-
-    const extractedBinaryPath = join(tempDir, assetBaseName, binaryName(toolName));
+    await download(url, archivePath);
+    // Extract
+    await mkdir(tmp, { recursive: true });
+    if (spec.archiveExt === "zip") { try { await execFileAsync("tar", ["-xf", archivePath, "-C", tmp]); } catch { await execFileAsync("unzip", ["-q", archivePath, "-d", tmp]); } }
+    else if (spec.archiveExt === "tar.xz") { try { await execFileAsync("tar", ["-xJf", archivePath, "-C", tmp]); } catch { await execFileAsync("tar", ["-xf", archivePath, "-C", tmp]); } }
+    else { await execFileAsync("tar", ["-xzf", archivePath, "-C", tmp]); }
     await mkdir(BIN_DIR, { recursive: true });
-    await copyFile(extractedBinaryPath, binPath);
-    if (process.platform !== "win32") {
-      await chmod(binPath, 0o755);
-    }
-
+    await copyFile(join(tmp, baseName, binName(spec.name)), binPath);
+    if (!IS_WIN) await chmod(binPath, 0o755);
     await execFileAsync(binPath, ["--version"]);
     return true;
-  } catch (err) {
-    console.warn(`[shell-ext] Failed to install ${toolName}:`, err);
-    return false;
-  } finally {
-    await rm(tempDir, { recursive: true, force: true });
-  }
+  } catch (err) { console.warn(`[shell-ext] Failed to install ${spec.name}:`, err); return false; }
+  finally { await rm(tmp, { recursive: true, force: true }); }
 }
 
 export async function ensureShellTools(): Promise<ToolAvailability> {
-  const [fd, rg] = await Promise.all([
-    ensureTool("fd", FD_VERSION, "sharkdp/fd", getFdAssetName),
-    ensureTool("rg", RG_VERSION, "BurntSushi/ripgrep", getRgAssetName),
+  const [fd, rg, shuck, treeSitter] = await Promise.all([
+    ...TOOLS.map(ensureTool),
+    (async () => {
+      try { await readFile(GRAMMAR_PATH); return true; } catch {}
+      try {
+        await mkdir(WASM_DIR, { recursive: true });
+        await download(`https://github.com/tree-sitter/tree-sitter-bash/releases/download/${GRAMMAR_VERSION}/tree-sitter-bash.wasm`, GRAMMAR_PATH);
+        return true;
+      } catch (err) { console.warn("[shell-ext] Failed to install tree-sitter grammar:", err); return false; }
+    })(),
   ]);
-  return { fd, rg };
+  return { fd, rg, shuck, treeSitter };
 }
 
 export function getToolEnv(): NodeJS.ProcessEnv {
-  const pathKey = Object.keys(process.env).find((key) => key.toLowerCase() === "path") ?? "PATH";
-  const currentPath = process.env[pathKey] ?? "";
-  return {
-    ...process.env,
-    [pathKey]: [BIN_DIR, currentPath].filter(Boolean).join(delimiter),
-  };
+  const key = Object.keys(process.env).find((k) => k.toLowerCase() === "path") ?? "PATH";
+  return { ...process.env, [key]: [BIN_DIR, process.env[key] ?? ""].join(delimiter) };
+}
+
+export function getShuckBinPath(): string | null {
+  const p = join(BIN_DIR, binName("shuck"));
+  return existsSync(p) ? p : null;
+}
+
+export function getGrammarPath(): string | null {
+  return existsSync(GRAMMAR_PATH) ? GRAMMAR_PATH : null;
 }

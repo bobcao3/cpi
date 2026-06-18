@@ -6,6 +6,7 @@
     "prettier": "^3"
   },
   "dependencies": {
-    "gpt-tokenizer": "^3.4.0"
+    "gpt-tokenizer": "^3.4.0",
+    "web-tree-sitter": "^0.26.9"
   }
 }
