@@ -22,6 +22,7 @@ import { readFileSync, existsSync, realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { createRequire } from "node:module";
+import { prependMessage, isFirstTurn } from "../lib/prepend-message";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -172,14 +173,7 @@ function refreshFooter(): void {
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
 function isMidConversation(ctx: ExtensionContext): boolean {
-  for (const entry of ctx.sessionManager.getBranch()) {
-    if (entry.type !== "message") continue;
-    const role = entry.message?.role;
-    if (role === "user" || role === "assistant") {
-      return true;
-    }
-  }
-  return false;
+  return !isFirstTurn(ctx);
 }
 
 // ── State persistence ───────────────────────────────────────────────────────
@@ -284,6 +278,16 @@ export default function cavemanMicroExtension(pi: ExtensionAPI) {
         ctx.ui.notify(`Caveman mode ${cavemanEnabled ? "ON" : "OFF"}`, "info");
       }
     },
+  });
+
+  // ── Prepend nudge before first user message ──────────────────────
+
+  prependMessage(pi, {
+    customType: "caveman-micro-nudge",
+    content:
+      loadConfig().mid_convo_nudge_positive || "From now on, respond in caveman style.",
+    when: isFirstTurn,
+    once: true,
   });
 
   // ── Inject caveman prompt into system prompt ──────────────────────────
