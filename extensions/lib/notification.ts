@@ -16,6 +16,10 @@ export const NOTIFICATION_TYPE = "notification";
 
 export type NotificationKind = "alarm" | "shell-complete" | "repeat-triggered" | "repeat-breach";
 
+export interface RawXmlValue {
+  __rawXml: string;
+}
+
 export interface NotificationDetails {
   kind: NotificationKind;
   /** Human-readable summary for TUI display (not included in XML) */
@@ -28,16 +32,38 @@ export interface NotificationDetails {
  * Wrap notification content in XML for LLM delivery.
  * The model sees this as a user-role message but can pattern-match the
  * <notification> tag to distinguish it from real user input.
+ * Nested objects are rendered as child XML elements.
+ * Values shaped as { __rawXml: "..." } are inserted verbatim.
  */
 export function wrapNotification(details: NotificationDetails): string {
   const lines: string[] = [`<notification type="${details.kind}">`];
-  for (const [key, value] of Object.entries(details.payload)) {
-    if (value !== undefined && value !== null) {
-      lines.push(`  <${key}>${escapeXml(String(value))}</${key}>`);
-    }
-  }
+  lines.push(...renderPayload(details.payload, "  "));
   lines.push("</notification>");
   return lines.join("\n");
+}
+
+function isRawXmlValue(value: unknown): value is RawXmlValue {
+  return typeof value === "object" && value !== null && "__rawXml" in value;
+}
+
+function renderPayload(payload: Record<string, unknown>, indent: string): string[] {
+  const lines: string[] = [];
+  for (const [key, value] of Object.entries(payload)) {
+    if (value === undefined || value === null) continue;
+    if (isRawXmlValue(value)) {
+      lines.push(`${indent}${value.__rawXml}`);
+    } else if (typeof value === "object" && !Array.isArray(value)) {
+      const childLines = renderPayload(value as Record<string, unknown>, indent + "  ");
+      if (childLines.length) {
+        lines.push(`${indent}<${key}>`);
+        lines.push(...childLines);
+        lines.push(`${indent}</${key}>`);
+      }
+    } else {
+      lines.push(`${indent}<${key}>${escapeXml(String(value))}</${key}>`);
+    }
+  }
+  return lines;
 }
 
 function escapeXml(s: string): string {

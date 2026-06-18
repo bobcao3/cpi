@@ -63,38 +63,32 @@ export default async function (pi: ExtensionAPI) {
     () => ({ fd: false, rg: false, shuck: false, treeSitter: false }) as ToolAvailability,
   );
   registerNotificationRenderer(pi);
-  setCompletionHook((id, _cmd, code, reason) => {
-    if (reason === "triggered") {
-      sendNotification(
-        pi,
-        {
-          kind: "repeat-triggered",
-          summary: `Repeat monitor ${id} triggered on exit ${code}`,
-          payload: { "shell-id": id, "exit-code": code ?? -1 },
-        },
-        { deliverAs: "followUp" },
-      );
-    } else if (reason === "breach") {
-      sendNotification(
-        pi,
-        {
-          kind: "repeat-breach",
-          summary: `Repeat monitor ${id} breached (invocation exceeded interval)`,
-          payload: { "shell-id": id, "exit-code": -1 },
-        },
-        { deliverAs: "followUp" },
-      );
-    } else {
-      sendNotification(
-        pi,
-        {
-          kind: "shell-complete",
-          summary: `Shell ${id} exited ${code}`,
-          payload: { "shell-id": id, "exit-code": code ?? -1 },
-        },
-        { deliverAs: "followUp" },
-      );
+  setCompletionHook((id, _cmd, code, reason, log) => {
+    const kind =
+      reason === "triggered"
+        ? "repeat-triggered"
+        : reason === "breach"
+          ? "repeat-breach"
+          : "shell-complete";
+    const base =
+      reason === "triggered"
+        ? `Repeat monitor ${id} triggered on exit ${code}`
+        : reason === "breach"
+          ? `Repeat monitor ${id} breached (invocation exceeded interval)`
+          : `Shell ${id} exited ${code}`;
+    const hasRange = log && log.startLine !== undefined && log.endLine !== undefined;
+    const summary = log
+      ? `${base}; log ${log.path}${hasRange ? ` lines ${log.startLine}..${log.endLine}` : ""}`
+      : base;
+    const payload: Record<string, unknown> = { "shell-id": id, "exit-code": code ?? -1 };
+    if (log) {
+      payload.log = {
+        __rawXml: hasRange
+          ? `<!-- log ${log.path} lines ${log.startLine}..${log.endLine} -->`
+          : `<!-- log ${log.path} -->`,
+      };
     }
+    sendNotification(pi, { kind, summary, payload }, { deliverAs: "followUp" });
   });
 
   const commonGuidelines = [

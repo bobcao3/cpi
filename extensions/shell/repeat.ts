@@ -1,14 +1,15 @@
 /**
  * Repeat-until monitor engine and tool factory.
  *
- * The engine is a Node-side loop: each iteration spawns `bash -c command`
- * detached and arms a per-iteration timeout equal to the interval. If the
- * timeout fires first, the invocation breached the contract and the whole
- * monitor is stopped.
+ * Each monitor appends every invocation to a single log file. Invocations are
+ * separated by header/footer blocks so the agent can locate a failed run by
+ * line range.
  */
 
 import { spawn, type ChildProcess } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, createWriteStream, type WriteStream } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { Type } from "typebox";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { renderShCall, renderShResult } from "./render.ts";
@@ -17,13 +18,18 @@ import { lintCommand, formatDiagnostics } from "./lint.ts";
 import { parseCommand } from "./parse.ts";
 import { checkRules, formatRuleMatches } from "./rules.ts";
 
-const MAX_ACC = 4 * 1024 * 1024;
+export interface RepeatLogRange {
+  path: string;
+  startLine?: number;
+  endLine?: number;
+}
 
 export type RepeatCompletionHook = (
   id: string,
   cmd: string,
   code: number | null,
   reason: "completed" | "triggered" | "breach",
+  log?: RepeatLogRange,
 ) => void;
 
 interface RepeatMonitor {
@@ -39,7 +45,11 @@ interface RepeatMonitor {
   pid: number;
   timeout?: ReturnType<typeof setTimeout>;
   nextTimer?: ReturnType<typeof setTimeout>;
-  acc: string;
+  logPath: string;
+  logStream: WriteStream;
+  logLine: number;
+  invocation: number;
+  startLine?: number;
 }
 
 const rpt = new Map<string, RepeatMonitor>();
@@ -50,17 +60,20 @@ export const setRepeatCompletionHook = (fn: RepeatCompletionHook) => {
   hook = fn;
 };
 
-function boundAcc(mon: RepeatMonitor, chunk: Buffer): void {
-  mon.acc += chunk.toString("utf8");
-  const blen = Buffer.byteLength(mon.acc);
-  if (blen > MAX_ACC)
-    mon.acc = Buffer.from(mon.acc, "utf8")
-      .subarray(blen - MAX_ACC)
-      .toString("utf8");
+function writeLog(mon: RepeatMonitor, text: string): void {
+  if (!text.length) return;
+  mon.logStream.write(text);
+  for (let i = 0; i < text.length; i++) if (text[i] === "\n") mon.logLine++;
 }
 
-function stopRepeat(mon: RepeatMonitor, notify = false): void {
-  if (!mon.running && !notify) return;
+function writeLogBuffer(mon: RepeatMonitor, chunk: Buffer): void {
+  if (!chunk.length) return;
+  mon.logStream.write(chunk);
+  for (const b of chunk) if (b === 0x0a) mon.logLine++;
+}
+
+function stopRepeat(mon: RepeatMonitor): void {
+  if (!mon.running) return;
   mon.running = false;
   clearTimeout(mon.timeout);
   clearTimeout(mon.nextTimer);
@@ -69,20 +82,29 @@ function stopRepeat(mon: RepeatMonitor, notify = false): void {
       process.kill(-mon.pid, "SIGTERM");
     } catch {}
   }
-  if (notify) {
-    hook?.(mon.id, mon.command, null, "breach");
-    rpt.delete(mon.id);
-  }
+  mon.logStream.end();
 }
 
-function finishRepeat(
+function finalize(
   mon: RepeatMonitor,
   code: number | null,
-  reason: "completed" | "triggered",
+  outcome: "completed" | "triggered" | "breach" | "next",
 ): void {
+  const reason = outcome === "next" ? "continue" : outcome;
+  const footer = `───────────────────────────────────────────────────────────────────────────────\nExit: ${code ?? "unknown"} (${reason})\n═══════════════════════════════════════════════════════════════════════════════\n`;
+  writeLog(mon, footer);
+  if (outcome === "next") {
+    scheduleNext(mon);
+    return;
+  }
   mon.running = false;
   clearTimeout(mon.timeout);
-  hook?.(mon.id, mon.command, code, reason);
+  mon.logStream.end();
+  hook?.(mon.id, mon.command, code, outcome, {
+    path: mon.logPath,
+    startLine: mon.startLine,
+    endLine: mon.logLine,
+  });
   rpt.delete(mon.id);
 }
 
@@ -94,6 +116,11 @@ function scheduleNext(mon: RepeatMonitor): void {
 function runIteration(mon: RepeatMonitor): void {
   if (!mon.running || mon.breached) return;
   clearTimeout(mon.nextTimer);
+  mon.invocation++;
+  mon.startLine = mon.logLine + 1;
+  const header = `═══════════════════════════════════════════════════════════════════════════════\nInvocation ${mon.invocation} — ${new Date().toISOString()}\nCommand: ${mon.command}\n───────────────────────────────────────────────────────────────────────────────\n`;
+  writeLog(mon, header);
+
   const child = spawn(existsSync("/bin/bash") ? "/bin/bash" : "bash", ["-c", mon.command], {
     detached: true,
     env: mon.env,
@@ -102,36 +129,39 @@ function runIteration(mon: RepeatMonitor): void {
   mon.child = child;
   mon.pid = child.pid ?? -1;
 
-  child.stdout?.on("data", (chunk: Buffer) => boundAcc(mon, chunk));
-  child.stderr?.on("data", (chunk: Buffer) => boundAcc(mon, chunk));
+  child.stdout?.on("data", (chunk: Buffer) => writeLogBuffer(mon, chunk));
+  child.stderr?.on("data", (chunk: Buffer) => writeLogBuffer(mon, chunk));
 
   mon.timeout = setTimeout(() => {
     mon.breached = true;
-    stopRepeat(mon, true);
+    if (mon.child && !mon.child.killed && mon.pid > 0) {
+      try {
+        process.kill(-mon.pid, "SIGTERM");
+      } catch {}
+    }
   }, mon.intervalSec * 1000);
 
-  child.on("exit", (code) => {
+  child.on("close", (code) => {
     clearTimeout(mon.timeout);
-    if (mon.breached) {
-      rpt.delete(mon.id);
+    if (!mon.running || mon.breached) {
+      if (mon.breached) finalize(mon, null, "breach");
       return;
     }
-    if (!mon.running) return;
     if (code === mon.triggerCode) {
-      finishRepeat(mon, code, "triggered");
+      finalize(mon, code, "triggered");
       return;
     }
     if (code !== 0) {
-      finishRepeat(mon, code, "completed");
+      finalize(mon, code, "completed");
       return;
     }
-    scheduleNext(mon);
+    finalize(mon, code, "next");
   });
 
   child.on("error", () => {
     clearTimeout(mon.timeout);
     if (!mon.running || mon.breached) return;
-    finishRepeat(mon, null, "completed");
+    finalize(mon, null, "completed");
   });
 }
 
@@ -143,6 +173,8 @@ export function startRepeat(
   describe?: string,
 ): string {
   const id = `rpt-${++rptCounter}`;
+  const logPath = join(tmpdir(), `pi-rpt-output-${id}-${Date.now()}.log`);
+  const logStream = createWriteStream(logPath, { flags: "a" });
   const mon: RepeatMonitor = {
     id,
     command,
@@ -153,7 +185,11 @@ export function startRepeat(
     running: true,
     breached: false,
     pid: -1,
-    acc: "",
+    logPath,
+    logStream,
+    logLine: 0,
+    invocation: 0,
+    startLine: 1,
   };
   rpt.set(id, mon);
   runIteration(mon);
@@ -163,13 +199,13 @@ export function startRepeat(
 export function signalRepeat(id: string, signal: string): boolean {
   const mon = rpt.get(id);
   if (!mon) return false;
-  stopRepeat(mon, false);
+  stopRepeat(mon);
   if (mon.child && mon.pid > 0) {
     try {
       process.kill(-mon.pid, /^\d+$/.test(signal) ? Number(signal) : (signal as NodeJS.Signals));
     } catch {}
   }
-  rpt.delete(id);
+  rpt.delete(mon.id);
   return true;
 }
 
@@ -179,7 +215,7 @@ export const getActiveRepeats = () =>
   [...rpt.values()].map((e) => ({ id: e.id, describe: e.describe }));
 
 export function killAllRepeats(): void {
-  for (const mon of rpt.values()) stopRepeat(mon, false);
+  for (const mon of rpt.values()) stopRepeat(mon);
   rpt.clear();
 }
 
@@ -220,6 +256,7 @@ export function createRepeatTool(
     "If a sh_repeat_until invocation takes longer than its interval, the monitor stops and emits a repeat-breach notification.",
     "For sh_repeat_until, trigger_code (default 0) is the exit code that stops repetition and emits a repeat-triggered success notification.",
     "For sh_repeat_until, any non-zero exit code that does not match trigger_code stops repetition and emits a shell-complete error notification.",
+    "The notification includes the monitor log file path and the line range for the failed or triggering invocation.",
     "Cancel a repeat monitor with sh_send_signal using its rpt- ID; SIGKILL terminates immediately.",
   ];
 

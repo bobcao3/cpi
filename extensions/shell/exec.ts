@@ -59,6 +59,7 @@ export type CompletionHook = (
   cmd: string,
   code: number | null,
   reason: "completed" | "triggered" | "breach",
+  log?: { path: string; startLine?: number; endLine?: number },
 ) => void;
 
 const bg = new Map<string, BackgroundChild>();
@@ -163,7 +164,7 @@ export async function runShell(
         entry.exitCode = code;
         entry.logStream.end();
         if (bg.has(id)) {
-          if (!entry.signaled) completionHook?.(id, command, code, "completed");
+          if (!entry.signaled) completionHook?.(id, command, code, "completed", { path: logPath });
           bg.delete(id);
         }
       }
