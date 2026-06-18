@@ -3,6 +3,7 @@ import type { AgentToolResult, ExtensionAPI, Skill } from "@earendil-works/pi-co
 import { Text } from "@earendil-works/pi-tui";
 import { readFileSync } from "node:fs";
 import { resolve, sep } from "node:path";
+import { prependMessage } from "./lib/prepend-message.ts";
 
 const SKILL_TOOL = "skill";
 
@@ -74,7 +75,14 @@ function skillBlurb(name: string, subdoc: string | undefined, theme: any): strin
   return text;
 }
 
+const SKILL_DISCIPLINE_NUDGE = readFileSync(
+  new URL("./skill-discipline-nudge.md", import.meta.url),
+  "utf8",
+);
+
 export default function (pi: ExtensionAPI) {
+  prependMessage(pi, { customType: "skill-discipline-nudge", content: SKILL_DISCIPLINE_NUDGE });
+
   pi.on("before_agent_start", async (event) => {
     updateSkills(event.systemPromptOptions?.skills as Skill[] | undefined);
 
