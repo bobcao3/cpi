@@ -32,6 +32,7 @@ import {
   silenceChild,
 } from "./shell/exec.ts";
 import { createRepeatTool, getActiveRepeats } from "./shell/repeat.ts";
+import { registerShellTranscriptRenderers } from "./shell/transcript.ts";
 import { createShellStatusRefresher, type ShellStatusRefresher } from "./shell/status.ts";
 import { lintCommand, formatDiagnostics, disposeLspClient } from "./shell/lint.ts";
 import { parseCommand } from "./shell/parse.ts";
@@ -283,6 +284,7 @@ export default async function (pi: ExtensionAPI) {
   });
 
   pi.registerTool(createRepeatTool(pi, DEFAULT_WAITFOR, MAX_WAITFOR, TAIL_LINES, availability));
+  registerShellTranscriptRenderers();
 
   pi.registerTool({
     name: SH_BACKGROUND_PS_TOOL,

@@ -8,10 +8,15 @@
  *
  * Sessions launched without `PI_TRANSCRIPT_MD` (e.g. the main agent itself) are
  * a no-op.
+ *
+ * Tool-call rendering is delegated to lib/transcript-registry.ts: extensions
+ * register per-tool renderers there (e.g. shell renders `sh` as a ```bash
+ * block); tools without a registered renderer fall back to pretty-printed XML.
  */
 
 import { appendFileSync, existsSync } from "node:fs";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { renderToolCallMarkdown, type ToolCallBlock } from "./lib/transcript-registry.ts";
 
 const MD_PATH = process.env.PI_TRANSCRIPT_MD;
 
@@ -39,9 +44,7 @@ function renderMessage(m: any): string {
       } else if (c.type === "text" && c.text) {
         out.push(c.text, "");
       } else if (c.type === "toolCall") {
-        const args =
-          typeof c.arguments === "string" ? c.arguments : JSON.stringify(c.arguments ?? {});
-        out.push(`🔧 **${c.name}** \`${c.id ?? ""}\``, "```json", args, "```", "");
+        out.push(...renderToolCallMarkdown(c as ToolCallBlock));
       }
     }
   } else if (role === "toolResult") {
@@ -78,6 +81,14 @@ export default async function (pi: ExtensionAPI) {
   });
 
   pi.on("message_end", async (event) => {
-    append(renderMessage((event as { message: unknown }).message));
+    // Best effort: a render error must never skip the append or break the
+    // session (the runner also guards, but we avoid losing the message line).
+    let md = "";
+    try {
+      md = renderMessage((event as { message: unknown }).message);
+    } catch {
+      md = "";
+    }
+    append(md);
   });
 }
