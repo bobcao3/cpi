@@ -12,12 +12,14 @@ interface SkillRef {
   baseDir: string;
 }
 
+let skillList: Skill[] = [];
 let skills = new Map<string, SkillRef>();
+let lastSkillSignature = "";
 
 function updateSkills(list: Skill[] | undefined) {
-  if (!list) return;
+  skillList = list ?? [];
   skills = new Map(
-    list.map((s) => [
+    skillList.map((s) => [
       s.name,
       {
         filePath: s.filePath,
@@ -27,33 +29,28 @@ function updateSkills(list: Skill[] | undefined) {
   );
 }
 
-function escapeXml(str: string): string {
-  return str
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&apos;");
+function visibleSkillsSignature(list: Skill[]): string {
+  return list
+    .filter((s) => !s.disableModelInvocation)
+    .map((s) => `${s.name}\x00${s.description}`)
+    .join("\x01");
 }
 
-function buildSkillsPrompt(list: Skill[] | undefined): string {
+function buildSkillToolDescription(list: Skill[] | undefined): string {
   const visible = (list ?? []).filter((s) => !s.disableModelInvocation);
-  if (visible.length === 0) return "";
   const lines = [
-    "\n\nThe following skills provide specialized instructions for specific tasks.",
-    "Use the skill tool to load a skill by name when the task matches its description. " +
-      "To load a sub-document, pass its relative path from the skill directory as subdoc.",
+    "Load the full SKILL.md of a discovered skill by exact name. " +
+      "Pass subdoc to load a relative sub-document inside the skill directory.",
     "",
-    "<available_skills>",
+    "Available skills:",
   ];
-  for (const skill of visible) {
-    lines.push("  <skill>");
-    lines.push(`    <name>${escapeXml(skill.name)}</name>`);
-    lines.push(`    <description>${escapeXml(skill.description)}</description>`);
-    lines.push(`    <location>${escapeXml(skill.filePath)}</location>`);
-    lines.push("  </skill>");
+  if (visible.length === 0) {
+    lines.push("  (none)");
+  } else {
+    for (const skill of visible) {
+      lines.push(`- ${skill.name}: ${skill.description}`);
+    }
   }
-  lines.push("</available_skills>");
   return lines.join("\n");
 }
 
@@ -83,78 +80,91 @@ const SKILL_DISCIPLINE_NUDGE = readFileSync(
 export default function (pi: ExtensionAPI) {
   prependMessage(pi, { customType: "skill-discipline-nudge", content: SKILL_DISCIPLINE_NUDGE });
 
+  function registerSkillTool() {
+    pi.registerTool({
+      name: SKILL_TOOL,
+      label: "Skill",
+      description: buildSkillToolDescription(skillList),
+      promptSnippet: "Load a skill by name to read its full instructions",
+      promptGuidelines: [
+        "Use the skill tool when a skill description matches the current task and you need the full SKILL.md instructions.",
+        "Pass the exact skill name as shown in the skill tool description.",
+        "To read a sub-document referenced by the skill, pass its relative path from the skill directory as subdoc.",
+        "If the skill name is unknown, the tool returns the list of available skill names.",
+      ],
+      parameters: Type.Object({
+        name: Type.String({ description: "Exact name of the skill to load" }),
+        subdoc: Type.Optional(
+          Type.String({ description: "Relative path to a sub-document inside the skill directory" }),
+        ),
+      }),
+      renderShell: "self",
+      renderCall(args, theme, _context) {
+        return new Text(skillBlurb(args.name, args.subdoc, theme), 0, 0);
+      },
+      renderResult(result: AgentToolResult<unknown>, _options, theme, context: any) {
+        if (result.isError) {
+          return undefined;
+        }
+        const details = result.details as { available?: string[] } | undefined;
+        if (details?.available) {
+          return new Text(
+            theme.fg("warning", `Tried to invoke unknown skill: ${context.args.name}`),
+            0,
+            0,
+          );
+        }
+        return new Text(theme.fg("dim", "\u200b"), 0, 0);
+      },
+      async execute(_toolCallId, params) {
+        const ref = skills.get(params.name);
+        if (!ref) {
+          const names = Array.from(skills.keys()).sort();
+          return {
+            content: [
+              {
+                type: "text",
+                text: `Unknown skill: ${params.name}. Available: ${names.join(", ") || "none"}`,
+              },
+            ],
+            details: { available: names },
+          };
+        }
+
+        let target: string;
+        if (params.subdoc?.trim()) {
+          target = resolveSubdoc(ref.baseDir, params.subdoc.trim());
+        } else {
+          target = ref.filePath;
+        }
+
+        const text = readFileSync(target, "utf8");
+        return {
+          content: [{ type: "text", text }],
+          details: { name: params.name, subdoc: params.subdoc, path: target },
+        };
+      },
+    });
+  }
+
   pi.on("before_agent_start", async (event) => {
     updateSkills(event.systemPromptOptions?.skills as Skill[] | undefined);
+
+    const sig = visibleSkillsSignature(skillList);
+    if (sig !== lastSkillSignature) {
+      lastSkillSignature = sig;
+      registerSkillTool();
+    }
 
     let systemPrompt = event.systemPrompt;
     systemPrompt = systemPrompt.replace(
       /\n\nThe following skills provide[\s\S]*?<\/available_skills>/,
       "",
     );
-    systemPrompt += buildSkillsPrompt(event.systemPromptOptions?.skills as Skill[] | undefined);
-
     return { systemPrompt };
   });
 
-  pi.registerTool({
-    name: SKILL_TOOL,
-    label: "Skill",
-    description:
-      "Load the full SKILL.md of a discovered skill by exact name. Pass subdoc to load a relative sub-document inside the skill directory.",
-    promptSnippet: "Load a skill by name to read its full instructions",
-    promptGuidelines: [
-      "Use the skill tool when a skill description matches the current task and you need the full SKILL.md instructions.",
-      "Pass the exact skill name as shown in the available skills list.",
-      "To read a sub-document referenced by the skill, pass its relative path from the skill directory as subdoc.",
-      "If the skill name is unknown, the tool returns the list of available skill names.",
-    ],
-    parameters: Type.Object({
-      name: Type.String({ description: "Exact name of the skill to load" }),
-      subdoc: Type.Optional(
-        Type.String({ description: "Relative path to a sub-document inside the skill directory" }),
-      ),
-    }),
-    renderShell: "self",
-    renderCall(args, theme, _context) {
-      return new Text(skillBlurb(args.name, args.subdoc, theme), 0, 0);
-    },
-    renderResult(result: AgentToolResult<unknown>, _options, theme, _context) {
-      if (result.isError) {
-        return undefined;
-      }
-      // Zero-width space keeps the result slot non-empty in HTML export so the
-      // full skill text is not rendered, while remaining invisible in the TUI.
-      return new Text(theme.fg("dim", "\u200b"), 0, 0);
-    },
-    async execute(_toolCallId, params) {
-      const ref = skills.get(params.name);
-      if (!ref) {
-        const names = Array.from(skills.keys()).sort();
-        return {
-          content: [
-            {
-              type: "text",
-              text: `Unknown skill: ${params.name}. Available: ${names.join(", ") || "none"}`,
-            },
-          ],
-          details: { available: names },
-        };
-      }
-
-      let target: string;
-      if (params.subdoc?.trim()) {
-        target = resolveSubdoc(ref.baseDir, params.subdoc.trim());
-      } else {
-        target = ref.filePath;
-      }
-
-      const text = readFileSync(target, "utf8");
-      return {
-        content: [{ type: "text", text }],
-        details: { name: params.name, subdoc: params.subdoc, path: target },
-      };
-    },
-  });
+  registerSkillTool();
 
   pi.on("session_start", async () => {
     const active = new Set(pi.getActiveTools());
