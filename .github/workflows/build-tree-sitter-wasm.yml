@@ -1,0 +1,41 @@
+name: Build tree-sitter-wasm
+
+on:
+  push:
+    branches: [main, master]
+    paths:
+      - 'tree-sitter-wasm/**'
+      - '.github/workflows/build-tree-sitter-wasm.yml'
+  pull_request:
+    paths:
+      - 'tree-sitter-wasm/**'
+      - '.github/workflows/build-tree-sitter-wasm.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Zig 0.16.0
+        run: |
+          curl -L https://ziglang.org/download/0.16.0/zig-x86_64-linux-0.16.0.tar.xz | tar -xJ -C /opt
+          echo "/opt/zig-x86_64-linux-0.16.0" >> "$GITHUB_PATH"
+
+      - name: Build WASM
+        working-directory: tree-sitter-wasm
+        run: zig build -Drelease=true
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: tree-sitter-wasm
+          path: tree-sitter-wasm/zig-out/bin/tree-sitter-wasm.wasm
+          if-no-files-found: error
+
+      - name: Smoke test
+        working-directory: tree-sitter-wasm
+        run: |
+          file zig-out/bin/tree-sitter-wasm.wasm
+          file zig-out/bin/tree-sitter-wasm.wasm | grep -q "WebAssembly" || exit 1
