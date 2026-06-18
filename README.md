@@ -1,41 +1,26 @@
 # cpi - There are many agent harnesses, but this one is mine (Cheng Cao's)
 
-Shared extensions and skills for the [pi coding agent](https://github.com/earendil-works/pi-coding-agent).
-Installed at the **user-home level** (`~/.pi/agent/`) so every project inherits them.
+Shared extensions and skills for the [pi coding agent](https://github.com/earendil-works/pi-coding-agent), installed at the **user-home level** (`~/.pi/agent/`) so every project inherits them.
 
-> [!NOTE]
-> This repo is managed with [**Jujutsu (`jj`)**](https://jj-vcs.dev), a Git-compatible VCS. Using `jj` is recommended — `jj fix` runs Prettier automatically on `.ts`/`.js`/`.json`/`.md` files via `bun`. To get started: `jj fix` after making changes, and `jj log` to explore history.
+## What each extension does
 
-## Structure
+| Extension                    | Purpose                                                                                                                   |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `lib/config.ts`              | Shared config loader: reads `cpi-config.json` (user + project), deep-merges, provides typed accessors for each extension. |
+| `shell.ts`                   | Replaces builtin `bash` with stateless `sh` tool: backgrounding, signalling, busy-wait detection, session-hold.           |
+| `alarm.ts`                   | `alarm` tool for scheduled wake-ups (relative or absolute time). Survives session resume.                                 |
+| `disable-bash.ts`            | Strips the builtin `bash` tool so only the custom `sh` is available.                                                      |
+| `disable-read-write-edit.ts` | Strips builtin `read`/`write`/`edit` — all file I/O goes through `sh`.                                                    |
+| `provider-fallback.ts`       | Registers custom model providers from JSON config; disables env-based Bedrock/HF; falls back to configured candidates.    |
+| `transcript.ts`              | Writes live markdown transcript when `PI_TRANSCRIPT_MD` is set (used by subagent.sh).                                     |
+| `glm52-sglang-thinking.ts`   | Bridges GLM-5.2 thinking to SGLang `chat_template_kwargs`.                                                                |
 
-```
-cpi/
-├── extensions/
-│   ├── shell.ts                       # Stateless sh + sh_send_signal (replaces builtin bash)
-│   ├── lib/                            # Shared support modules (not loaded as extensions)
-│   │   └── config.ts                  # Shared config loader (cpi-config.json)
-│   ├── shell/                         # Support modules for shell.ts
-│   │   ├── exec.ts
-│   │   └── tools.ts
-│   ├── alarm.ts                      # Scheduled wake-up alarms for the model
-│   ├── disable-bash.ts               # Removes builtin bash tool
-│   ├── disable-read-write-edit.ts    # Removes builtin read/write/edit tools
-│   ├── provider-fallback.ts          # Config-driven provider registration + model fallback
-│   ├── transcript.ts                 # Live markdown transcript for subagents
-│   └── glm52-sglang-thinking.ts      # GLM-5.2 thinking bridge for SGLang
-├── skills/
-│   ├── editing-files/
-│   │   └── SKILL.md                  # Fuzzy patch application workflow
-│   └── subagents-in-pi/
-│       ├── SKILL.md                  # Subagent orchestration instructions
-│       ├── subagent.sh               # Launcher script
-│       └── output-protocol.md        # Injected system prompt for subagents
-├── cpi-config.example.json           # Template for cpi plugin config
-├── fallback-providers.example.json   # Template for fallback provider config
-├── install.sh                        # One-time: point pi at cpi via settings.json globs
-├── uninstall.sh                      # Remove cpi entries from settings.json
-└── README.md
-```
+## Skills
+
+| Skill               | Purpose                                                                                                                     |
+| ------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `editing-files/`    | Teaches the model a fuzzy patch application workflow for applying file edits without exact line numbers.                   |
+| `subagents-in-pi/`  | Orchestrates subagent sessions — spawning child pi instances with a custom system prompt (`output-protocol.md`) via `subagent.sh`, with results captured in a live transcript. |
 
 ## How it works
 
@@ -49,25 +34,31 @@ point pi directly at the cpi source **directories**:
 }
 ```
 
-> **Why directories, not globs?** In pi's settings, a _plain_ path entry
-> (file or directory) is what gets **discovered** — pi collects the
-> extension/skill files under it. An entry containing `*`/`?` (or starting
-> with `!`/`+`/`-`) is treated as a _filter pattern_ applied to the
-> discovered set; it does **not** discover files itself. So a bare glob like
-> `extensions/*.ts` with no plain path matches nothing and **loads zero
-> extensions** — the bug this install fixes. The directory entry is the
-> live link.
+<details>
+<summary><strong>Why directories, not globs?</strong></summary>
+
+In pi's settings, a _plain_ path entry (file or directory) is what gets
+**discovered** — pi collects the extension/skill files under it. An entry
+containing `*`/`?` (or starting with `!`/`+`/`-`) is treated as a _filter
+pattern_ applied to the discovered set; it does **not** discover files itself.
+So a bare glob like `extensions/*.ts` with no plain path matches nothing and
+**loads zero extensions** — the bug this install fixes. The directory entry is
+the live link.
+
+</details>
 
 No symlinks are created. Pi reads from the source files at runtime, so:
 
-| Action                             | Result                                         |
-| ---------------------------------- | ---------------------------------------------- |
-| Add a `.ts` to `extensions/`       | Live on next pi session — no re-install needed |
-| Remove a file from `extensions/`   | Gone on next pi session                        |
-| Edit an existing file              | Already live (pi reads from disk)              |
-| Add a skill directory to `skills/` | Live on next pi session                        |
+| Action                             | Result                                          |
+| ---------------------------------- | ----------------------------------------------- |
+| Add a `.ts` to `extensions/`       | Live on next pi session — no re-install needed  |
+| Remove a file from `extensions/`   | Gone on next pi session                         |
+| Edit an existing file              | Already live (pi reads from disk)               |
+| Add a skill directory to `skills/` | Live on next pi session                         |
 
 ## Install
+
+**Prerequisites:** The [pi coding agent](https://github.com/earendil-works/pi-coding-agent) must be installed and accessible as `pi` on your `PATH`.
 
 ```bash
 ~/cpi/install.sh
@@ -78,6 +69,10 @@ stale glob entries from previous versions, re-syncs the settings.json directory
 entries, then invokes `pi` non-interactively to verify the extensions actually
 loaded (custom `sh`/`alarm` tools present, builtin `bash` stripped, providers
 registered).
+
+After installation, start `pi` normally. The custom `sh` tool replaces the
+builtin `bash`, the `alarm` tool is available for scheduled wake-ups, and
+configured providers are registered automatically.
 
 ## Uninstall
 
@@ -104,8 +99,6 @@ out `disable-bash.ts`. `install.sh` preserves any `!`/`+`/`-` filter patterns
 you add here when it re-syncs. See the
 [pi settings docs](https://pi.dev/docs/latest/settings) for full glob/exclusion
 syntax.
-
-## Fallback Providers Config
 
 ## cpi Config
 
@@ -136,7 +129,7 @@ See `cpi-config.example.json` for a template. Current sections:
 }
 ```
 
-### Shell (`shell` section)
+### Shell
 
 Controls the `sh` tool's `waitfor` behavior:
 
@@ -148,12 +141,14 @@ Controls the `sh` tool's `waitfor` behavior:
 These values are reflected in the tool's schema description, guidelines, and
 validation logic at runtime, so the model always sees the effective limits.
 
+## Fallback Providers Config
+
 `provider-fallback.ts` reads provider/model definitions and fallback order
 from two JSON files, merged at session start:
 
-| Scope   | Path                                    | Purpose                                               |
-| ------- | --------------------------------------- | ----------------------------------------------------- |
-| User    | `~/.pi/agent/fallback-providers.json`   | Default providers + fallback order for all projects   |
+| Scope   | Path                                     | Purpose                                               |
+| ------- | ---------------------------------------- | ----------------------------------------------------- |
+| User    | `~/.pi/agent/fallback-providers.json`    | Default providers + fallback order for all projects  |
 | Project | `<project>/.pi/fallback-providers.json` | Override/add providers; reorder fallbacks per-project |
 
 ### Merge rules
@@ -193,24 +188,18 @@ See `fallback-providers.example.json` for a template. Key fields:
 1. All providers from merged config are registered at extension load (before model resolution).
 2. At `session_start`, env-based `amazon-bedrock` and `huggingface` providers are disabled (their ambient creds shadow real providers in cloud environments).
 3. If no usable model is active (or the active one was just disabled), each fallback candidate is tried in order until `setModel` succeeds.
-4. Set `PF_DEBUG=1` to trace decisions to `/tmp/provider-fallback-debug.log`.
-
-## What each extension does
-
-| Extension                    | Purpose                                                                                                                   |
-| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| `lib/config.ts`              | Shared config loader: reads `cpi-config.json` (user + project), deep-merges, provides typed accessors for each extension. |
-| `shell.ts`                   | Replaces builtin `bash` with stateless `sh` tool: backgrounding, signalling, busy-wait detection, session-hold.           |
-| `alarm.ts`                   | `alarm` tool for scheduled wake-ups (relative or absolute time). Survives session resume.                                 |
-| `disable-bash.ts`            | Strips the builtin `bash` tool so only the custom `sh` is available.                                                      |
-| `disable-read-write-edit.ts` | Strips builtin `read`/`write`/`edit` — all file I/O goes through `sh`.                                                    |
-| `provider-fallback.ts`       | Registers custom model providers from JSON config; disables env-based Bedrock/HF; falls back to configured candidates.    |
-| `transcript.ts`              | Writes live markdown transcript when `PI_TRANSCRIPT_MD` is set (used by subagent.sh).                                     |
-| `glm52-sglang-thinking.ts`   | Bridges GLM-5.2 thinking to SGLang `chat_template_kwargs`.                                                                |
+4. Set the `PF_DEBUG=1` environment variable before launching pi (e.g., `PF_DEBUG=1 pi`) to trace provider-fallback decisions to `/tmp/provider-fallback-debug.log`.
 
 ## Adding new extensions/skills
 
 1. Drop the `.ts` file into `extensions/` (or create a `skills/<name>/` directory).
-2. Restart pi — the new extension/skill is auto-discovered via the glob.
+2. Restart pi — the new file is auto-discovered from the directory entry already in `settings.json`.
 
 No need to re-run `install.sh`.
+
+## Contributing
+
+This repo is managed with [**Jujutsu (`jj`)**](https://jj-vcs.dev), a
+Git-compatible VCS. Using `jj` is recommended — `jj fix` runs Prettier
+automatically on `.ts`/`.js`/`.json`/`.md` files via `bun`. To get started:
+`jj fix` after making changes, and `jj log` to explore history.
