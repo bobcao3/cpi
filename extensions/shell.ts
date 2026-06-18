@@ -9,7 +9,11 @@ import { Type } from "typebox";
 import { renderShCall, renderShResult } from "./shell/render.ts";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { loadShellConfig } from "./lib/config.ts";
-import { registerNotificationRenderer, sendNotification } from "./lib/notification.ts";
+import {
+  registerNotificationRenderer,
+  sendNotification,
+  type NotificationKind,
+} from "./lib/notification.ts";
 import {
   ensureShellTools,
   getToolEnv,
@@ -64,30 +68,35 @@ export default async function (pi: ExtensionAPI) {
   );
   registerNotificationRenderer(pi);
   setCompletionHook((id, _cmd, code, reason, log) => {
-    const kind =
+    const isRepeat = id.startsWith("rpt-");
+    const kind: NotificationKind =
       reason === "triggered"
         ? "repeat-triggered"
         : reason === "breach"
           ? "repeat-breach"
-          : "shell-complete";
-    const base =
-      reason === "triggered"
+          : isRepeat
+            ? "repeat-command-failed"
+            : code === 0
+              ? "shell-complete"
+              : "shell-failed";
+    const base = isRepeat
+      ? reason === "triggered"
         ? `Repeat monitor ${id} triggered on exit ${code}`
         : reason === "breach"
-          ? `Repeat monitor ${id} breached (invocation exceeded interval)`
-          : `Shell ${id} exited ${code}`;
+          ? `Repeat monitor ${id} breached on exit ${code ?? "unknown"} (shell command time exceeded repeat interval)`
+          : `Repeat monitor ${id} command failed on exit ${code ?? "unknown"}`
+      : code === 0
+        ? `Shell ${id} completed on exit ${code}`
+        : `Shell ${id} command failed on exit ${code ?? "unknown"}`;
     const hasRange = log && log.startLine !== undefined && log.endLine !== undefined;
     const summary = log
       ? `${base}; log ${log.path}${hasRange ? ` lines ${log.startLine}..${log.endLine}` : ""}`
       : base;
-    const payload: Record<string, unknown> = { "shell-id": id, "exit-code": code ?? -1 };
-    if (log) {
-      payload.log = {
-        __rawXml: hasRange
-          ? `<!-- log ${log.path} lines ${log.startLine}..${log.endLine} -->`
-          : `<!-- log ${log.path} -->`,
-      };
-    }
+    const payload: Record<string, unknown> = {
+      "shell-id": id,
+      "exit-code": code ?? -1,
+      summary,
+    };
     sendNotification(pi, { kind, summary, payload }, { deliverAs: "followUp" });
   });
 

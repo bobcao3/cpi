@@ -14,7 +14,13 @@ import { Text } from "@earendil-works/pi-tui";
 
 export const NOTIFICATION_TYPE = "notification";
 
-export type NotificationKind = "alarm" | "shell-complete" | "repeat-triggered" | "repeat-breach";
+export type NotificationKind =
+  | "alarm"
+  | "shell-complete"
+  | "shell-failed"
+  | "repeat-triggered"
+  | "repeat-command-failed"
+  | "repeat-breach";
 
 export interface RawXmlValue {
   __rawXml: string;
@@ -114,9 +120,11 @@ export function registerNotificationRenderer(pi: ExtensionAPI): void {
       icon = "⏰";
       iconColor = "warning";
     } else if (kind === "shell-complete") {
-      const code = (details?.payload?.["exit-code"] as number | undefined) ?? null;
-      icon = code === 0 ? "✓" : "✗";
-      iconColor = code === 0 ? "success" : "error";
+      icon = "✓";
+      iconColor = "success";
+    } else if (kind === "shell-failed" || kind === "repeat-command-failed") {
+      icon = "✗";
+      iconColor = "error";
     } else if (kind === "repeat-triggered") {
       icon = "✓";
       iconColor = "success";

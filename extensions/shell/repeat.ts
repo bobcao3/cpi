@@ -37,7 +37,8 @@ interface RepeatMonitor {
   command: string;
   describe?: string;
   intervalSec: number;
-  triggerCode: number;
+  endCode: number;
+  keepCode: number;
   env: NodeJS.ProcessEnv;
   running: boolean;
   breached: boolean;
@@ -147,15 +148,15 @@ function runIteration(mon: RepeatMonitor): void {
       if (mon.breached) finalize(mon, null, "breach");
       return;
     }
-    if (code === mon.triggerCode) {
+    if (code === mon.endCode) {
       finalize(mon, code, "triggered");
       return;
     }
-    if (code !== 0) {
-      finalize(mon, code, "completed");
+    if (code === mon.keepCode) {
+      finalize(mon, code, "next");
       return;
     }
-    finalize(mon, code, "next");
+    finalize(mon, code, "completed");
   });
 
   child.on("error", () => {
@@ -168,7 +169,8 @@ function runIteration(mon: RepeatMonitor): void {
 export function startRepeat(
   command: string,
   intervalSec: number,
-  triggerCode: number,
+  endCode: number,
+  keepCode: number,
   env: NodeJS.ProcessEnv,
   describe?: string,
 ): string {
@@ -180,7 +182,8 @@ export function startRepeat(
     command,
     describe,
     intervalSec,
-    triggerCode,
+    endCode,
+    keepCode,
     env,
     running: true,
     breached: false,
@@ -239,12 +242,13 @@ export function createRepeatTool(
       maximum: 60,
       description: "Seconds between repetitions (5-60)",
     }),
-    trigger_code: Type.Optional(
-      Type.Number({
-        description:
-          "Exit code that stops repetition and triggers success notification (default 0)",
-      }),
-    ),
+    end_monitor_retcode: Type.Number({
+      description:
+        "Exit code that stops the monitor and emits a repeat-triggered success notification",
+    }),
+    keep_looping_retcode: Type.Number({
+      description: "Exit code that means the condition is not met yet; keep polling",
+    }),
     describe: Type.Optional(
       Type.String({ description: "Short description of what this monitor is doing (a few words)" }),
     ),
@@ -254,8 +258,9 @@ export function createRepeatTool(
     "Use sh_repeat_until for active polling, not for passive waits; prefer the `alarm` tool for simple delayed wake-ups.",
     "sh_repeat_until interval must be between 5 and 60 seconds.",
     "If a sh_repeat_until invocation takes longer than its interval, the monitor stops and emits a repeat-breach notification.",
-    "For sh_repeat_until, trigger_code (default 0) is the exit code that stops repetition and emits a repeat-triggered success notification.",
-    "For sh_repeat_until, any non-zero exit code that does not match trigger_code stops repetition and emits a shell-complete error notification.",
+    "For sh_repeat_until, whether the monitor loop continues or stops it's all based on return codes. If the command returned other return codes, that mean the command itself failed.",
+    "For sh_repeat_until, end_monitor_retcode is the exit code that stops the monitor and emits a repeat-triggered success notification.",
+    "For sh_repeat_until, keep_looping_retcode is the exit code that means the condition is not met yet and the monitor should run another iteration.",
     "The notification includes the monitor log file path and the line range for the failed or triggering invocation.",
     "Cancel a repeat monitor with sh_send_signal using its rpt- ID; SIGKILL terminates immediately.",
   ];
@@ -264,7 +269,7 @@ export function createRepeatTool(
     name: "sh_repeat_until",
     label: "sh_repeat_until",
     description:
-      "Run a command repeatedly until it exits with trigger_code. Stateless, detached process group. Backgrounded by default.",
+      "Run a command repeatedly until it exits with end_monitor_retcode. Stateless, detached process group. Backgrounded by default.",
     promptSnippet: "Poll with repeated shell commands",
     promptGuidelines: guidelines,
     parameters: schema,
@@ -276,7 +281,8 @@ export function createRepeatTool(
       _ctx: any,
     ) {
       const interval = params.interval;
-      const triggerCode = params.trigger_code ?? 0;
+      const endCode = params.end_monitor_retcode;
+      const keepCode = params.keep_looping_retcode;
       const describe = params.describe?.trim();
       if (interval < 5 || interval > 60) {
         return {
@@ -322,8 +328,8 @@ export function createRepeatTool(
         ? `⚠ shuck warnings:\n${warnParts.join("\n")}\n---\n`
         : "";
 
-      const id = startRepeat(params.command, interval, triggerCode, getToolEnv(), describe);
-      const status = `repeating PID=${id} every ${interval}s · trigger on code ${triggerCode}`;
+      const id = startRepeat(params.command, interval, endCode, keepCode, getToolEnv(), describe);
+      const status = `repeating PID=${id} every ${interval}s · trigger on code ${endCode} · keep looping on code ${keepCode}`;
       const tag = describe ? ` (${truncateDescribe(describe)})` : "";
       return {
         content: [{ type: "text", text: `${warningPrefix}${status}${tag}` }],
@@ -331,7 +337,8 @@ export function createRepeatTool(
           id,
           status: "repeating",
           interval,
-          triggerCode,
+          endCode,
+          keepCode,
           describe,
           shuckWarnings: warningPrefix || undefined,
           tsAst: parsed.ast,
