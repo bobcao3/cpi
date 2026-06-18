@@ -14,7 +14,7 @@ import { Text } from "@earendil-works/pi-tui";
 
 export const NOTIFICATION_TYPE = "notification";
 
-export type NotificationKind = "alarm" | "shell-complete";
+export type NotificationKind = "alarm" | "shell-complete" | "repeat-triggered" | "repeat-breach";
 
 export interface NotificationDetails {
   kind: NotificationKind;
@@ -91,6 +91,12 @@ export function registerNotificationRenderer(pi: ExtensionAPI): void {
       const code = (details?.payload?.["exit-code"] as number | undefined) ?? null;
       icon = code === 0 ? "✓" : "✗";
       iconColor = code === 0 ? "success" : "error";
+    } else if (kind === "repeat-triggered") {
+      icon = "✓";
+      iconColor = "success";
+    } else if (kind === "repeat-breach") {
+      icon = "⚠";
+      iconColor = "warning";
     } else {
       icon = "•";
       iconColor = "muted";

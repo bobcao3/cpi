@@ -183,7 +183,7 @@ export default function (pi: ExtensionAPI) {
     promptSnippet: "Schedule future wake-up alarms for the model",
     promptGuidelines: [
       "Use alarm when the user wants to be reminded or woken after a delay or at a specific time.",
-      "Provide exactly one of relative_seconds or target_time, not both.",
+      "For alarm, provide exactly one of relative_seconds or target_time, not both.",
       "Pass cancel=true to cancel all active alarms, or cancel=<alarm_id> to cancel a specific alarm.",
     ],
     parameters: alarmSchema,
