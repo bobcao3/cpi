@@ -32,6 +32,12 @@ TASK
   final message). Force background now with `sh` `waitfor=1`. Fan out via several
   `sh` launches; collect each result.
 
+<VERY_IMPORTANT>
+The subagent is like any other backgrounded shell command:
+**DO NOT busy poll its status**,
+just wait for the shell completion notification.
+</VERY_IMPORTANT>
+
 ## Read the result
 
 Line 1 is `transcript: <path>`, the rest is the answer — inline in the `sh`
