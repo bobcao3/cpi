@@ -17,8 +17,8 @@ const DL_TIMEOUT = 60_000;
 const CACHE_DIR = join(getAgentDir(), "cache", "shell-tools");
 const BIN_DIR = join(CACHE_DIR, "bin");
 const WASM_DIR = join(CACHE_DIR, "wasm");
-const GRAMMAR_PATH = join(WASM_DIR, "tree-sitter-bash.wasm");
-const GRAMMAR_VERSION = "v0.25.1";
+const WASM_PATH = join(WASM_DIR, "tree-sitter-wasm.wasm");
+const WASM_VERSION = "2026.06.18";
 const IS_WIN = process.platform === "win32";
 const PLATFORM_KEY = `${process.platform}-${process.arch}`;
 const binName = (n: string) => (IS_WIN ? `${n}.exe` : n);
@@ -87,12 +87,15 @@ export async function ensureShellTools(): Promise<ToolAvailability> {
   const [fd, rg, shuck, treeSitter] = await Promise.all([
     ...TOOLS.map(ensureTool),
     (async () => {
-      try { await readFile(GRAMMAR_PATH); return true; } catch {}
+      try { await readFile(WASM_PATH); return true; } catch {}
       try {
         await mkdir(WASM_DIR, { recursive: true });
-        await download(`https://github.com/tree-sitter/tree-sitter-bash/releases/download/${GRAMMAR_VERSION}/tree-sitter-bash.wasm`, GRAMMAR_PATH);
+        await download(
+          `https://github.com/bobcao3/cpi/releases/download/${WASM_VERSION}/tree-sitter-wasm.wasm`,
+          WASM_PATH,
+        );
         return true;
-      } catch (err) { console.warn("[shell-ext] Failed to install tree-sitter grammar:", err); return false; }
+      } catch (err) { console.warn("[shell-ext] Failed to download tree-sitter-wasm:", err); return false; }
     })(),
   ]);
   return { fd, rg, shuck, treeSitter };
@@ -108,6 +111,7 @@ export function getShuckBinPath(): string | null {
   return existsSync(p) ? p : null;
 }
 
-export function getGrammarPath(): string | null {
-  return existsSync(GRAMMAR_PATH) ? GRAMMAR_PATH : null;
+export function getWasmPath(): string | null {
+  return existsSync(WASM_PATH) ? WASM_PATH : null;
 }
+

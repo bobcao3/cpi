@@ -4,7 +4,7 @@
  * To add a rule: append an AstRule to `defaultRules`.
  */
 
-import type { Node } from "web-tree-sitter";
+import type { JsonNode as Node } from "./parse.ts";
 
 export type RuleAction = "reject" | "warn";
 export interface RuleMatch { rule: string; action: RuleAction; message: string; row: number; column: number }

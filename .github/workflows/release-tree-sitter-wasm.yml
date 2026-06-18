@@ -1,0 +1,36 @@
+name: Release tree-sitter-wasm
+
+on:
+  push:
+    tags:
+      - '[0-9][0-9][0-9][0-9].[0-9][0-9].[0-9][0-9]'
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Zig 0.16.0
+        run: |
+          curl -L https://ziglang.org/download/0.16.0/zig-x86_64-linux-0.16.0.tar.xz | tar -xJ -C /opt
+          echo "/opt/zig-x86_64-linux-0.16.0" >> "$GITHUB_PATH"
+
+      - name: Build WASM
+        working-directory: tree-sitter-wasm
+        run: zig build -Drelease=true
+
+      - name: Smoke test
+        working-directory: tree-sitter-wasm
+        run: |
+          file zig-out/bin/tree-sitter-wasm.wasm
+          file zig-out/bin/tree-sitter-wasm.wasm | grep -q "WebAssembly" || exit 1
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: tree-sitter-wasm/zig-out/bin/tree-sitter-wasm.wasm
+          name: tree-sitter-wasm ${{ github.ref_name }}
+          generate_release_notes: true
