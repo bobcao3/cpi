@@ -20,8 +20,6 @@ interface ShellCallArgs {
   command?: string;
   describe?: string;
   interval?: number;
-  end_monitor_retcode?: number;
-  keep_looping_retcode?: number;
 }
 
 // Returns markdown lines, or null to defer to the default XML renderer.
@@ -34,7 +32,7 @@ function renderShellTranscriptCall(block: ToolCallBlock): string[] | null {
   if (desc) meta.push(`_${desc}_`);
   if (block.name === "sh_repeat_until" && args.interval != null) {
     meta.push(`every ${args.interval}s`);
-    meta.push(`exit→${args.end_monitor_retcode}·loop→${args.keep_looping_retcode}`);
+    meta.push(`stop on non-zero exit`);
   }
   const suffix = meta.length ? " " + meta.join(" · ") : "";
   return [head + suffix, "```bash", args.command, "```", ""];

@@ -34,7 +34,7 @@ export function renderShCall(
     args.interval != null
       ? theme.fg(
           "muted",
-          ` (every ${args.interval}s · trigger on code ${args.end_monitor_retcode} · keep looping on code ${args.keep_looping_retcode})`,
+          ` (every ${args.interval}s · stop on non-zero exit)`,
         )
       : "";
   const cmdLines: string[] = args.command.split("\n");
@@ -86,8 +86,6 @@ interface ShResultDetails {
   shuckWarnings?: string;
   shuckBlocked?: boolean;
   interval?: number;
-  endCode?: number;
-  keepCode?: number;
 }
 
 export function renderShResult(
@@ -156,7 +154,7 @@ export function renderShResult(
       theme.fg("warning", "⏳ repeating") +
       theme.fg(
         "dim",
-        ` PID=${details.id} every ${details.interval}s · trigger on code ${details.endCode} · keep looping on code ${details.keepCode}`,
+        ` PID=${details.id} every ${details.interval}s · stop on non-zero exit`,
       );
   } else if (exitCode != null && exitCode !== 0) status = theme.fg("error", `exit ${exitCode}`);
   else status = theme.fg("success", "✓");

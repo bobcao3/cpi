@@ -28,7 +28,7 @@ export type RepeatCompletionHook = (
   id: string,
   cmd: string,
   code: number | null,
-  reason: "completed" | "triggered" | "breach",
+  reason: "completed" | "stopped" | "breach",
   log?: RepeatLogRange,
 ) => void;
 
@@ -37,8 +37,6 @@ interface RepeatMonitor {
   command: string;
   describe?: string;
   intervalSec: number;
-  endCode: number;
-  keepCode: number;
   env: NodeJS.ProcessEnv;
   running: boolean;
   breached: boolean;
@@ -89,7 +87,7 @@ function stopRepeat(mon: RepeatMonitor): void {
 function finalize(
   mon: RepeatMonitor,
   code: number | null,
-  outcome: "completed" | "triggered" | "breach" | "next",
+  outcome: "stopped" | "breach" | "next",
 ): void {
   const reason = outcome === "next" ? "continue" : outcome;
   const footer = `───────────────────────────────────────────────────────────────────────────────\nExit: ${code ?? "unknown"} (${reason})\n═══════════════════════════════════════════════════════════════════════════════\n`;
@@ -148,29 +146,23 @@ function runIteration(mon: RepeatMonitor): void {
       if (mon.breached) finalize(mon, null, "breach");
       return;
     }
-    if (code === mon.endCode) {
-      finalize(mon, code, "triggered");
+    if (code === 0) {
+      finalize(mon, 0, "next");
       return;
     }
-    if (code === mon.keepCode) {
-      finalize(mon, code, "next");
-      return;
-    }
-    finalize(mon, code, "completed");
+    finalize(mon, code, "stopped");
   });
 
   child.on("error", () => {
     clearTimeout(mon.timeout);
     if (!mon.running || mon.breached) return;
-    finalize(mon, null, "completed");
+    finalize(mon, null, "stopped");
   });
 }
 
 export function startRepeat(
   command: string,
   intervalSec: number,
-  endCode: number,
-  keepCode: number,
   env: NodeJS.ProcessEnv,
   describe?: string,
 ): string {
@@ -182,8 +174,6 @@ export function startRepeat(
     command,
     describe,
     intervalSec,
-    endCode,
-    keepCode,
     env,
     running: true,
     breached: false,
@@ -242,13 +232,6 @@ export function createRepeatTool(
       maximum: 60,
       description: "Seconds between repetitions (5-60)",
     }),
-    end_monitor_retcode: Type.Number({
-      description:
-        "Exit code that stops the monitor and emits a repeat-triggered success notification",
-    }),
-    keep_looping_retcode: Type.Number({
-      description: "Exit code that means the condition is not met yet; keep polling",
-    }),
     describe: Type.Optional(
       Type.String({ description: "Short description of what this monitor is doing (a few words)" }),
     ),
@@ -258,10 +241,9 @@ export function createRepeatTool(
     "Use sh_repeat_until for active polling, not for passive waits; prefer the `alarm` tool for simple delayed wake-ups.",
     "sh_repeat_until interval must be between 5 and 60 seconds.",
     "If a sh_repeat_until invocation takes longer than its interval, the monitor stops and emits a repeat-breach notification.",
-    "For sh_repeat_until, whether the monitor loop continues or stops it's all based on return codes. If the command returned other return codes, that mean the command itself failed.",
-    "For sh_repeat_until, end_monitor_retcode is the exit code that stops the monitor and emits a repeat-triggered success notification.",
-    "For sh_repeat_until, keep_looping_retcode is the exit code that means the condition is not met yet and the monitor should run another iteration.",
-    "The notification includes the monitor log file path and the line range for the failed or triggering invocation.",
+    "For sh_repeat_until, exit code 0 means the condition is not met yet; keep polling. Any non-zero exit code stops the monitor.",
+    "When the monitor stops on a non-zero exit, a single notification is emitted regardless of whether the command succeeded or errored.",
+    "The notification includes the monitor log file path and the line range for the stopping invocation.",
     "Cancel a repeat monitor with sh_send_signal using its rpt- ID; SIGKILL terminates immediately.",
   ];
 
@@ -269,7 +251,7 @@ export function createRepeatTool(
     name: "sh_repeat_until",
     label: "sh_repeat_until",
     description:
-      "Run a command repeatedly until it exits with end_monitor_retcode. Stateless, detached process group. Backgrounded by default.",
+      "Run a command repeatedly until it exits non-zero; exit code 0 continues looping. Stateless, detached process group. Backgrounded by default.",
     promptSnippet: "Poll with repeated shell commands",
     promptGuidelines: guidelines,
     parameters: schema,
@@ -281,8 +263,6 @@ export function createRepeatTool(
       _ctx: any,
     ) {
       const interval = params.interval;
-      const endCode = params.end_monitor_retcode;
-      const keepCode = params.keep_looping_retcode;
       const describe = params.describe?.trim();
       if (interval < 5 || interval > 60) {
         return {
@@ -328,8 +308,8 @@ export function createRepeatTool(
         ? `⚠ shuck warnings:\n${warnParts.join("\n")}\n---\n`
         : "";
 
-      const id = startRepeat(params.command, interval, endCode, keepCode, getToolEnv(), describe);
-      const status = `repeating PID=${id} every ${interval}s · trigger on code ${endCode} · keep looping on code ${keepCode}`;
+      const id = startRepeat(params.command, interval, getToolEnv(), describe);
+      const status = `repeating PID=${id} every ${interval}s · stop on non-zero exit`;
       const tag = describe ? ` (${truncateDescribe(describe)})` : "";
       return {
         content: [{ type: "text", text: `${warningPrefix}${status}${tag}` }],
@@ -337,8 +317,6 @@ export function createRepeatTool(
           id,
           status: "repeating",
           interval,
-          endCode,
-          keepCode,
           describe,
           shuckWarnings: warningPrefix || undefined,
           tsAst: parsed.ast,

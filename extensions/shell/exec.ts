@@ -60,7 +60,7 @@ export type CompletionHook = (
   id: string,
   cmd: string,
   code: number | null,
-  reason: "completed" | "triggered" | "breach",
+  reason: "completed" | "stopped" | "breach",
   log?: { path: string; startLine?: number; endLine?: number },
 ) => void;
 

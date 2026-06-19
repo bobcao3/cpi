@@ -19,23 +19,26 @@
  * NOT be shared between importers. State is therefore backed by a single
  * `globalThis` slot, which is process-wide and identical across jiti loads.
  *
- * Line-1 composition:
- *   ~/{cwd} ({branch} | {seg1} | {seg2}) • {session-name}
+ * Line-1 composition (left → right):
+ *   ~/{cwd} ({branch} | {seg1} | {seg2}) • {session-name}      {right-segs}
  * branch defaults to the built-in git branch; `setBranchResolver` overrides
- * it (e.g. jj change id, falling back to git). Extra segments via
- * `registerLineSegment`. Empty groups are dropped.
+ * it (e.g. jj change id, falling back to git). Extra parenthetical groups via
+ * `registerLineSegment`. Flush-right indicators (e.g. caveman icon, shell bg
+ * count) via `registerRightSegment`; they are right-aligned to the terminal
+ * edge so they stay visible regardless of cwd length. Empty parts are dropped.
  */
 
 import { FooterComponent } from "@earendil-works/pi-coding-agent";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { TUI, Theme } from "@earendil-works/pi-tui";
-import { truncateToWidth } from "@earendil-works/pi-tui";
+import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { resolve, relative, sep, isAbsolute } from "node:path";
 
 // ── Constants ───────────────────────────────────────────────────────────────
 
 const REFRESH_MS = 2000;
 const SEGMENT_SEP = " | ";
+const RIGHT_SEP = " ";
 const GLOBAL_KEY = "__cpiFooter";
 
 // ── Types ──────────────────────────────────────────────────────────────────
@@ -54,6 +57,7 @@ type FooterData = Parameters<Parameters<ExtensionContext["ui"]["setFooter"]>[0]>
 interface FooterState {
   branchResolver: Contributor | null;
   segments: Contributor[];
+  rightSegments: Contributor[];
   activeTui: TUI | undefined;
   timer: ReturnType<typeof setInterval> | null;
 }
@@ -66,6 +70,7 @@ function state(): FooterState {
     g[GLOBAL_KEY] = {
       branchResolver: null,
       segments: [],
+      rightSegments: [],
       activeTui: undefined,
       timer: null,
     } satisfies FooterState;
@@ -83,6 +88,7 @@ function tick(): void {
   const s = state();
   s.branchResolver?.refresh?.();
   for (const seg of s.segments) seg.refresh?.();
+  for (const seg of s.rightSegments) seg.refresh?.();
   s.activeTui?.requestRender();
 }
 
@@ -98,6 +104,12 @@ function stopTimer(): void {
     clearInterval(s.timer);
     s.timer = null;
   }
+}
+
+/** Request a footer re-render from any extension (e.g. when a right-segment's
+ *  value changes asynchronously). No-op until the footer is set up. */
+export function requestFooterRender(): void {
+  state().activeTui?.requestRender();
 }
 
 // ── Public registration API ─────────────────────────────────────────────────
@@ -128,6 +140,23 @@ export function clearLineSegment(name: string): void {
   if (i >= 0) s.segments.splice(i, 1);
 }
 
+/** Add a flush-right indicator on line 1. Idempotent by name. Return
+ *  null/undefined from `produce` to hide the indicator. */
+export function registerRightSegment(name: string, produce: Producer, refresh?: () => void): void {
+  const s = state();
+  if (!s.rightSegments.some((seg) => seg.name === name)) {
+    s.rightSegments.push({ name, produce, refresh });
+    ensureTimer();
+  }
+}
+
+/** Remove a previously registered right-segment by name. */
+export function clearRightSegment(name: string): void {
+  const s = state();
+  const i = s.rightSegments.findIndex((seg) => seg.name === name);
+  if (i >= 0) s.rightSegments.splice(i, 1);
+}
+
 // ── Line-1 rendering ────────────────────────────────────────────────────────
 
 /** Replicates built-in formatCwdForFooter (not package-exported). */
@@ -139,6 +168,31 @@ function formatCwd(cwd: string, home: string | undefined): string {
   const inside = rel === "" || (rel !== ".." && !rel.startsWith(`..${sep}`) && !isAbsolute(rel));
   if (!inside) return cwd;
   return rel === "" ? "~" : `~${sep}${rel}`;
+}
+
+/**
+ * Compose one footer line: `left` left-aligned, `right` flush-right, padded
+ * to `width`. `style` wraps a string in ANSI (e.g. theme.fg("dim", …));
+ * `ellipsis` is the styled truncation marker. If `right` is empty, only `left`
+ * is rendered (truncated to width). When both sides overflow, the left side is
+ * truncated so the right indicators stay pinned to the edge.
+ */
+export function composeLine1(
+  left: string,
+  right: string,
+  width: number,
+  style: (s: string) => string,
+  ellipsis: string,
+): string {
+  const leftStyled = style(left);
+  if (!right) return truncateToWidth(leftStyled, width, ellipsis);
+  const rightStyled = style(right);
+  const rightW = visibleWidth(rightStyled);
+  if (rightW >= width) return truncateToWidth(rightStyled, width, ellipsis);
+  const leftMax = width - rightW - 1; // 1 for the gap between sides
+  if (leftMax <= 0) return truncateToWidth(rightStyled, width, ellipsis);
+  const leftTrunc = truncateToWidth(leftStyled, leftMax, ellipsis, true);
+  return leftTrunc + RIGHT_SEP + rightStyled;
 }
 
 function renderLine1(
@@ -156,11 +210,16 @@ function renderLine1(
     const v = seg.produce();
     if (v) groups.push(v);
   }
-  let line = cwd;
-  if (groups.length > 0) line += ` (${groups.join(SEGMENT_SEP)})`;
+  let left = cwd;
+  if (groups.length > 0) left += ` (${groups.join(SEGMENT_SEP)})`;
   const sessionName = ctx.sessionManager.getSessionName();
-  if (sessionName) line += ` • ${sessionName}`;
-  return truncateToWidth(theme.fg("dim", line), width, theme.fg("dim", "…"));
+  if (sessionName) left += ` • ${sessionName}`;
+  const right = s.rightSegments
+    .map((seg) => seg.produce())
+    .filter((v): v is string => Boolean(v))
+    .join(RIGHT_SEP);
+  const dim = (str: string) => theme.fg("dim", str);
+  return composeLine1(left, right, width, dim, dim("…"));
 }
 
 // ── Footer ownership ────────────────────────────────────────────────────────

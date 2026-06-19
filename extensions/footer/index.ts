@@ -7,8 +7,9 @@
  * FooterComponent. See `extensions/lib/footer.ts` for the architecture.
  *
  * Other cpi extensions must NOT call `ctx.ui.setFooter`; they contribute
- * line-1 data via `setBranchResolver` / `registerLineSegment`, and line-3
- * indicators via `ctx.ui.setStatus`.
+ * line-1 data via `setBranchResolver` / `registerLineSegment`, flush-right
+ * line-1 indicators via `registerRightSegment`, and line-3 indicators via
+ * `ctx.ui.setStatus`.
  */
 
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
