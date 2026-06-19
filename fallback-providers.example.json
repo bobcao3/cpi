@@ -13,12 +13,48 @@
           "name": "Model V1",
           "reasoning": true,
           "input": ["text", "image"],
-          "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 },
+          "cost": {
+            "input": 0,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0
+          },
           "contextWindow": 131072,
           "maxTokens": 8192
         }
       ]
     }
   },
-  "fallbacks": [{ "provider": "my-custom-llm", "model": "model-v1" }]
+  "fallbacks": [
+    {
+      "provider": "my-custom-llm",
+      "model": "model-v1"
+    },
+    {
+      "provider": "my-custom-llm",
+      "model": "model-v2"
+    }
+  ],
+  "strip": [
+    {
+      "provider": "amazon-bedrock",
+      "env": [
+        "AWS_PROFILE",
+        "AWS_ACCESS_KEY_ID",
+        "AWS_SECRET_ACCESS_KEY",
+        "AWS_BEARER_TOKEN_BEDROCK"
+      ],
+      "match": "any",
+      "$comment": "Unregister when ANY env is set (ambient cloud creds shadow real providers). Omit 'strip' entirely to use this default set; set to [] to disable."
+    },
+    {
+      "provider": "huggingface",
+      "env": ["HF_TOKEN"],
+      "match": "any"
+    }
+  ],
+  "failover": {
+    "failureThreshold": 3,
+    "$comment": "Consecutive errored turns (stopReason=error, after pi's own retries) before switching to the next fallback whose contextWindow fits. Omit for default 3."
+  }
 }

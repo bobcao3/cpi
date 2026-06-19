@@ -1,31 +1,19 @@
 /**
- * Caveman Micro Extension for Pi
+ * caveman-micro: append a "caveman" system-prompt directive and toggle it
+ * on/off via /caveman. Reads its prompt strings from the shared cpi-config.json
+ * (`caveman` section via lib/config.ts); the actual system-prompt mutation is
+ * delegated to the single owner extension (extensions/system-prompt.ts) through
+ * a registered transform (lib/system-prompt.ts).
  *
- * Toggles the "caveman-micro" token-compression prompt style on/off.
- * Enabled by default; a rock indicator (🪨) is shown in the footer's
- * extension-status line while enabled.
- *
- * Why a status line and not a custom footer: pi allows only one custom
- * footer at a time (setFooter replaces). Owning the footer here collided
- * with the shell extension's footer, so one indicator always won. Using
- * ctx.ui.setStatus() lets every footer (built-in or custom) render the
- * marker with no ownership conflict.
- *
- * Commands:
- *   /caveman           Toggle caveman mode on/off
- *   /caveman on        Enable explicitly
- *   /caveman off       Disable explicitly
- *   /caveman status    Show current state
- *
- * Configuration is read from caveman-micro.yaml (next to this index.ts).
+ * /caveman on|off|status toggles a module-level flag; toggling mid-conversation
+ * also injects a user message so the model sees an explicit in-context nudge.
  */
 
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { readFileSync, existsSync, realpathSync } from "node:fs";
-import { fileURLToPath } from "node:url";
-import { dirname, join } from "node:path";
-import { createRequire } from "node:module";
 import { prependMessage, isFirstTurn } from "../lib/prepend-message";
+import { registerRightSegment, requestFooterRender } from "../lib/footer.ts";
+import { loadCavemanConfig, type CavemanConfig } from "../lib/config.ts";
+import { registerSystemPromptTransform } from "../lib/system-prompt.ts";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -33,101 +21,35 @@ interface CavemanState {
   enabled: boolean;
 }
 
-interface CavemanConfig {
-  system_prompt: string;
-  mid_convo_nudge_positive: string;
-  mid_convo_nudge_negative: string;
-}
-
 // ── Constants ───────────────────────────────────────────────────────────────
 
 const STATE_KEY = "caveman-micro-state";
-const CONFIG_FILE = "caveman-micro.yaml";
 const STATUS_KEY = "caveman";
 const STATUS_TEXT = "🪨";
 
 // ── Module-level state (reset on extension reload) ──────────────────────────
 
 let cavemanEnabled = true;
-let cachedConfig: CavemanConfig | null = null;
 let pi_appendState: (data: CavemanState) => void = () => {};
 
 // ── Config loading ───────────────────────────────────────────────────────────
 
-function getExtensionDir(): string {
-  try {
-    return dirname(fileURLToPath(import.meta.url));
-  } catch {
-    const dir = (globalThis as Record<string, unknown>).__dirname;
-    if (typeof dir === "string") return dir;
-    return process.cwd();
-  }
-}
-
-function loadYAMLLib(): ((input: string) => unknown) | null {
-  try {
-    const piBin = realpathSync(process.argv[1] || "");
-    let dir = dirname(piBin);
-    for (let i = 0; i < 20 && dir !== "/" && dir !== "."; i++) {
-      const scopedPkg = join(dir, "node_modules", "@earendil-works", "pi-coding-agent");
-      if (existsSync(scopedPkg)) {
-        const req = createRequire(join(scopedPkg, "dist", "index.js"));
-        const yamlMod = req("yaml");
-        return typeof yamlMod.parse === "function" ? yamlMod.parse : null;
-      }
-      dir = dirname(dir);
-    }
-  } catch {
-    // fall through
-  }
-  return null;
-}
-
-function loadConfig(): CavemanConfig {
-  if (cachedConfig !== null) return cachedConfig;
-
-  const configPath = join(getExtensionDir(), CONFIG_FILE);
-  const empty = {
-    system_prompt: "",
-    mid_convo_nudge_positive: "",
-    mid_convo_nudge_negative: "",
-  };
-
-  let raw: string;
-  try {
-    raw = readFileSync(configPath, "utf8");
-  } catch (err) {
-    console.error(`[caveman-micro] Failed to read ${configPath}:`, err);
-    cachedConfig = empty;
-    return cachedConfig;
-  }
-
-  const yamlParse = loadYAMLLib();
-  if (!yamlParse) {
-    console.error("[caveman-micro] yaml package not found");
-    cachedConfig = empty;
-    return cachedConfig;
-  }
-
-  try {
-    const parsed = yamlParse(raw) as Record<string, unknown>;
-    cachedConfig = {
-      system_prompt: String(parsed.system_prompt ?? ""),
-      mid_convo_nudge_positive: String(parsed.mid_convo_nudge_positive ?? ""),
-      mid_convo_nudge_negative: String(parsed.mid_convo_nudge_negative ?? ""),
-    };
-  } catch (err) {
-    console.error("[caveman-micro] Failed to parse config:", err);
-    cachedConfig = empty;
-  }
-  return cachedConfig;
+// Cheap file read (user + project cpi-config.json), no cache: cpi-config.json
+// is small and loadConfig may be called per-turn by the transform closure.
+function loadConfig(cwd: string = process.cwd()): CavemanConfig {
+  return loadCavemanConfig(cwd);
 }
 
 // ── Status integration ──────────────────────────────────────────────────────
 
+// Caveman icon lives on footer line 1's right side (flush-right), not the
+// built-in status line, so it stays visible regardless of cwd length and
+// coexists with other line-1 segments under the single cpi footer owner.
+// Idempotent: re-registering on session_start/tree is a no-op after first.
 function applyStatus(ctx: ExtensionContext): void {
   if (!ctx.hasUI) return;
-  ctx.ui.setStatus(STATUS_KEY, cavemanEnabled ? STATUS_TEXT : undefined);
+  registerRightSegment(STATUS_KEY, () => (cavemanEnabled ? STATUS_TEXT : undefined));
+  requestFooterRender();
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
@@ -197,9 +119,7 @@ export default function cavemanMicroExtension(pi: ExtensionAPI) {
         const config = loadConfig();
         if (!config.system_prompt) {
           ctx.ui.notify(
-            "Cannot enable caveman: system_prompt is empty in " +
-              CONFIG_FILE +
-              ". Check the extension directory.",
+            "Cannot enable caveman: system_prompt is empty in cpi-config.json.",
             "error",
           );
           return;
@@ -248,18 +168,20 @@ export default function cavemanMicroExtension(pi: ExtensionAPI) {
     once: true,
   });
 
-  // ── Inject caveman prompt into system prompt ──────────────────────────
-
-  pi.on("before_agent_start", async (event) => {
-    if (!cavemanEnabled) return undefined;
-
-    const config = loadConfig();
-    if (!config.system_prompt) return undefined;
-
-    return {
-      systemPrompt: event.systemPrompt + "\n\n" + "---\n" + config.system_prompt + "\n---\n",
-    };
-  });
+  // ── Register system-prompt transform (applied by the owner extension) ──
+  // order 200: runs after strip-skills (100) so the appended block is never
+  // stripped. cavemanEnabled is module state captured by this closure; same
+  // module instance within this extension, so toggles are visible here.
+  registerSystemPromptTransform(
+    "caveman-append",
+    (sp) => {
+      if (!cavemanEnabled) return sp;
+      const config = loadConfig();
+      if (!config.system_prompt) return sp;
+      return sp + "\n\n" + "---\n" + config.system_prompt + "\n---\n";
+    },
+    200,
+  );
 
   // ── Restore state & set status on session start ───────────────────────
 

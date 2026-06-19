@@ -18,8 +18,7 @@ export type NotificationKind =
   | "alarm"
   | "shell-complete"
   | "shell-failed"
-  | "repeat-triggered"
-  | "repeat-command-failed"
+  | "repeat-stopped"
   | "repeat-breach";
 
 export interface RawXmlValue {
@@ -122,12 +121,12 @@ export function registerNotificationRenderer(pi: ExtensionAPI): void {
     } else if (kind === "shell-complete") {
       icon = "✓";
       iconColor = "success";
-    } else if (kind === "shell-failed" || kind === "repeat-command-failed") {
+    } else if (kind === "shell-failed") {
       icon = "✗";
       iconColor = "error";
-    } else if (kind === "repeat-triggered") {
-      icon = "✓";
-      iconColor = "success";
+    } else if (kind === "repeat-stopped") {
+      icon = "•";
+      iconColor = "muted";
     } else if (kind === "repeat-breach") {
       icon = "⚠";
       iconColor = "warning";
@@ -139,4 +138,22 @@ export function registerNotificationRenderer(pi: ExtensionAPI): void {
     const text = new Text(`${theme.fg(iconColor, icon)} ${theme.fg("muted", summary)}`, 0, 0);
     return text;
   });
+}
+
+/**
+ * Ensure the shared notification renderer is registered exactly once across all
+ * jiti-loaded extension instances.
+ *
+ * pi loads each extension via jiti with `moduleCache: false`, so a module-level
+ * boolean would NOT be shared between importers and each load would re-register.
+ * The flag therefore lives on `globalThis`, process-wide and identical across
+ * jiti loads (same pattern as lib/footer.ts and lib/transcript-registry.ts).
+ */
+const NOTIFICATION_RENDERER_FLAG = "__cpiNotificationRendererEnsured";
+
+export function ensureNotificationRenderer(pi: ExtensionAPI): void {
+  const g = globalThis as Record<string, unknown>;
+  if (g[NOTIFICATION_RENDERER_FLAG]) return;
+  registerNotificationRenderer(pi);
+  g[NOTIFICATION_RENDERER_FLAG] = true;
 }

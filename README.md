@@ -4,22 +4,24 @@ Shared extensions and skills for the [pi coding agent](https://github.com/earend
 
 ## What each extension does
 
-| Extension                    | Purpose                                                                                                                   |
-| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| `lib/config.ts`              | Shared config loader: reads `cpi-config.json` (user + project), deep-merges, provides typed accessors for each extension. |
-| `lib/footer.ts`              | Shared footer engine: `setBranchResolver`/`registerLineSegment` let extensions add line-1 data without owning the footer. |
-| `footer/index.ts`            | Owns pi's custom footer: renders line 1, splices built-in footer lines 2/3. Other extensions must not call `setFooter`.   |
-| `vcs-jj/index.ts`            | Shows jj change id/bookmark on footer line 1, overriding git branch. Bounded cached `.jj` lookup; no shell-out at render. |
-| `shell.ts`                   | Replaces builtin `bash` with stateless `sh` tool: backgrounding, signalling, busy-wait detection, session-hold.           |
-| `shell/status.ts`            | Adds background-shell / repeat-monitor counts (`bg:N` / `mon:N`) to the footer status line via `ctx.ui.setStatus`.        |
-| `caveman-micro/index.ts`     | Toggles caveman-micro token-compression prompt (default on); shows `🪨` on the footer status line via `ctx.ui.setStatus`. |
-| `alarm.ts`                   | `alarm` tool for scheduled wake-ups (relative or absolute time). Survives session resume.                                 |
-| `skill.ts`                   | `skill` tool: loads full `SKILL.md` by name so the agent can use skills even though builtin `read` is stripped.           |
-| `disable-bash.ts`            | Strips the builtin `bash` tool so only the custom `sh` is available.                                                      |
-| `disable-read-write-edit.ts` | Strips builtin `read`/`write`/`edit` — all file I/O goes through `sh`.                                                    |
-| `provider-fallback.ts`       | Registers custom model providers from JSON config; disables env-based Bedrock/HF; falls back to configured candidates.    |
-| `transcript.ts`              | Writes live markdown transcript when `PI_TRANSCRIPT_MD` is set (used by subagent.sh).                                     |
-| `glm52-sglang-thinking.ts`   | Bridges GLM-5.2 thinking to SGLang `chat_template_kwargs`.                                                                |
+| Extension                      | Purpose                                                                                                                                                 |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `lib/config.ts`                | Shared config loader: reads `cpi-config.json` (user + project), deep-merges, provides typed accessors for each extension.                               |
+| `lib/footer.ts`                | Shared footer engine: `setBranchResolver`/`registerLineSegment` let extensions add line-1 data without owning the footer.                               |
+| `footer/index.ts`              | Owns pi's custom footer: renders line 1, splices built-in footer lines 2/3. Other extensions must not call `setFooter`.                                 |
+| `vcs-jj/index.ts`              | Shows jj change id/bookmark on footer line 1, overriding git branch. Bounded cached `.jj` lookup; no shell-out at render.                               |
+| `shell.ts`                     | Replaces builtin `bash` with stateless `sh` tool: backgrounding, signalling, busy-wait detection; strips bash on reload.                                |
+| `hold.ts`                      | Single owner of session-hold: one combined hold notice + one deadline await across alarm/shell (no stacked shutdown holds).                             |
+| `system-prompt.ts`             | Single owner of `before_agent_start` system-prompt transforms (strip-skills, caveman-append) in declared order.                                         |
+| `shell/status.ts`              | Adds background-shell / repeat-monitor counts (`bg:N` / `mon:N`) flush-right on footer line 1 via `registerRightSegment`.                               |
+| `caveman-micro/index.ts`       | Toggles caveman-micro token-compression prompt (default on); shows `🪨` flush-right on footer line 1. Reads `caveman` config from `cpi-config.json`.    |
+| `alarm.ts`                     | `alarm` tool for scheduled wake-ups (relative or absolute time). Survives session resume.                                                               |
+| `skill.ts`                     | `skill` tool: loads full `SKILL.md` by name so the agent can use skills even though builtin `read` is stripped.                                         |
+| `disable-read-write-edit.ts`   | Strips builtin `read`/`write`/`edit` — all file I/O goes through `sh`.                                                                                  |
+| `provider-strip.ts`            | Startup (behavior 1): registers providers from JSON config; strips unusable ones via configurable provider:auth rules (defaults: env-based Bedrock/HF). |
+| `provider-failover.ts`         | Runtime (behavior 2): on repeated endpoint failures (errored turns ≥ threshold), switches to the next fallback candidate whose context window fits.     |
+| `subagent-transcript/index.ts` | Streams live markdown transcript to stderr in print mode (`pi -p` / subagent runs); surfaces jsonl path + run summary.                                  |
+| `glm52-sglang-thinking.ts`     | Bridges GLM-5.2 thinking to SGLang `chat_template_kwargs`.                                                                                              |
 
 ## Skills
 
@@ -97,12 +99,12 @@ pattern to the `extensions` array in `~/.pi/agent/settings.json`:
 
 ```json
 {
-  "extensions": ["/home/you/cpi/extensions", "!/home/you/cpi/extensions/disable-bash.ts"]
+  "extensions": ["/home/you/cpi/extensions", "!/home/you/cpi/extensions/disable-read-write-edit.ts"]
 }
 ```
 
 The directory entry discovers all cpi extensions; the `!` pattern then filters
-out `disable-bash.ts`. `install.sh` preserves any `!`/`+`/`-` filter patterns
+out `disable-read-write-edit.ts`. `install.sh` preserves any `!`/`+`/`-` filter patterns
 you add here when it re-syncs. See the
 [pi settings docs](https://pi.dev/docs/latest/settings) for full glob/exclusion
 syntax.
@@ -150,7 +152,7 @@ validation logic at runtime, so the model always sees the effective limits.
 
 ## Fallback Providers Config
 
-`provider-fallback.ts` reads provider/model definitions and fallback order
+`provider-strip.ts` + `provider-failover.ts` read provider/model definitions and fallback order
 from two JSON files, merged at session start:
 
 | Scope   | Path                                    | Purpose                                               |
@@ -192,10 +194,32 @@ See `fallback-providers.example.json` for a template. Key fields:
 
 ### Behavior
 
-1. All providers from merged config are registered at extension load (before model resolution).
-2. At `session_start`, env-based `amazon-bedrock` and `huggingface` providers are disabled (their ambient creds shadow real providers in cloud environments).
-3. If no usable model is active (or the active one was just disabled), each fallback candidate is tried in order until `setModel` succeeds.
-4. Set the `PF_DEBUG=1` environment variable before launching pi (e.g., `PF_DEBUG=1 pi`) to trace provider-fallback decisions to `/tmp/provider-fallback-debug.log`.
+Two distinct behaviors, one per extension:
+
+**Behavior 1 — startup (`provider-strip.ts`):** upon pi start, all providers from merged config are registered, then unusable ones are **stripped** via configurable provider:auth matching (`strip` rules; defaults to env-based `amazon-bedrock` / `huggingface`, whose ambient cloud creds shadow real providers). If the active model is missing or was just stripped, the first fallback candidate whose context window fits is selected.
+
+**Behavior 2 — runtime (`provider-failover.ts`):** when an endpoint fails repeatedly — assistant turns ending with `stopReason: "error"` (pi surfaces these after exhausting its own retries, i.e. "pi's limits") — the active model is switched to the **next** fallback candidate, but only if that candidate's `contextWindow` fits the current context ("if context allows"). The switch is armed at the failure threshold and applied on the next user `input` (agent idle), never mid-retry, to avoid racing pi's in-flight request or misattributing the old model's errors.
+
+### Config: `strip` and `failover`
+
+```jsonc
+{
+  "providers": {
+    /* ... */
+  },
+  "fallbacks": [{ "provider": "p", "model": "m" }],
+  "strip": [
+    { "provider": "amazon-bedrock", "env": ["AWS_PROFILE", "AWS_ACCESS_KEY_ID"], "match": "any" },
+    { "provider": "huggingface", "env": ["HF_TOKEN"], "match": "all" },
+  ],
+  "failover": { "failureThreshold": 3 },
+}
+```
+
+- **`strip`** (optional): list of `{ provider, env[], match }`. `match: "any"` strips when any env is set (default); `"all"` requires all. Omit to use the built-in bedrock/huggingface defaults; set `[]` to disable stripping.
+- **`failover.failureThreshold`** (optional, default `3`): consecutive errored turns before switching models.
+
+Set `PF_DEBUG=1` (e.g., `PF_DEBUG=1 pi`) to trace decisions: strip/failover logs to stderr, config loads to `/tmp/provider-fallback-debug.log`.
 
 ## Adding new extensions/skills
 

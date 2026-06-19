@@ -20,7 +20,7 @@
 
 import { writeFileSync } from "node:fs";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { renderToolCallMarkdown, type ToolCallBlock } from "./lib/transcript-registry.ts";
+import { renderToolCallMarkdown, type ToolCallBlock } from "../lib/transcript-registry.ts";
 
 const SUMMARY_PATH = process.env.PI_SUBAGENT_SUMMARY;
 

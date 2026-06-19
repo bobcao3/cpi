@@ -10,10 +10,11 @@ import { renderShCall, renderShResult } from "./shell/render.ts";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { loadShellConfig } from "./lib/config.ts";
 import {
-  registerNotificationRenderer,
+  ensureNotificationRenderer,
   sendNotification,
   type NotificationKind,
 } from "./lib/notification.ts";
+import { registerHoldSource } from "./lib/session-hold.ts";
 import {
   ensureShellTools,
   getToolEnv,
@@ -43,13 +44,22 @@ const SH_TOOL = "sh",
   SH_REPEAT_TOOL = "sh_repeat_until",
   SH_BACKGROUND_PS_TOOL = "sh_background_ps",
   TAIL_LINES = 5;
-const MAX_SHUTDOWN_HOLD_MS = 5 * 60 * 1000;
 const SLEEP_UNITS: Record<string, number> = { s: 1, m: 60, h: 3600, d: 86400 };
 const truncateDescribe = (t: string, max = 48) => (t.length <= max ? t : t.slice(0, max - 1) + "…");
 const fmtDiags = (diags: any[], fmt: (d: any[]) => string) => (diags.length ? fmt(diags) : "");
-let holdNoticeSent = false,
-  lastStopReason: string | undefined;
 let shellStatus: ShellStatusRefresher | null = null;
+
+function disableBuiltinBash(pi: ExtensionAPI): void {
+  const active = pi.getActiveTools();
+  const all = pi.getAllTools();
+  const withoutBash = active.filter((name) => {
+    const tool = all.find((t) => t.name === name && t.sourceInfo?.source === "builtin");
+    return tool?.name !== "bash";
+  });
+  if (withoutBash.length !== active.length) {
+    pi.setActiveTools(withoutBash);
+  }
+}
 
 export default async function (pi: ExtensionAPI) {
   const { defaultWaitfor: DEFAULT_WAITFOR, maxWaitfor: MAX_WAITFOR } = loadShellConfig();
@@ -69,25 +79,20 @@ export default async function (pi: ExtensionAPI) {
   const availability = await ensureShellTools().catch(
     () => ({ fd: false, rg: false, shuck: false, treeSitter: false }) as ToolAvailability,
   );
-  registerNotificationRenderer(pi);
+  ensureNotificationRenderer(pi);
   setCompletionHook((id, _cmd, code, reason, log) => {
     const isRepeat = id.startsWith("rpt-");
-    const kind: NotificationKind =
-      reason === "triggered"
-        ? "repeat-triggered"
-        : reason === "breach"
-          ? "repeat-breach"
-          : isRepeat
-            ? "repeat-command-failed"
-            : code === 0
-              ? "shell-complete"
-              : "shell-failed";
+    const kind: NotificationKind = isRepeat
+      ? reason === "breach"
+        ? "repeat-breach"
+        : "repeat-stopped"
+      : code === 0
+        ? "shell-complete"
+        : "shell-failed";
     const base = isRepeat
-      ? reason === "triggered"
-        ? `Repeat monitor ${id} triggered on exit ${code}`
-        : reason === "breach"
-          ? `Repeat monitor ${id} breached on exit ${code ?? "unknown"} (shell command time exceeded repeat interval)`
-          : `Repeat monitor ${id} command failed on exit ${code ?? "unknown"}`
+      ? reason === "breach"
+        ? `Repeat monitor ${id} breached on exit ${code ?? "unknown"} (shell command time exceeded repeat interval)`
+        : `Repeat monitor ${id} stopped on exit ${code ?? "unknown"}`
       : code === 0
         ? `Shell ${id} completed on exit ${code}`
         : `Shell ${id} command failed on exit ${code ?? "unknown"}`;
@@ -333,74 +338,22 @@ export default async function (pi: ExtensionAPI) {
     );
   });
 
-  const emitHold = (ctx: ExtensionContext) => {
-    const parts = getActiveBackgrounds().map(
-      (b) => `[${b.id}${b.describe ? " " + truncateDescribe(b.describe) : ""}]`,
-    );
-    const text = `active background shells: ${parts.join(", ")}`;
-    process.stderr.write(`[shell-hold] ${text}\n`);
-    ctx.hasUI && ctx.ui.notify(text, "info");
-  };
+  pi.on("resources_discover", async () => disableBuiltinBash(pi));
 
-  pi.on("agent_start", () => {
-    lastStopReason = undefined;
-    holdNoticeSent = false;
+  registerHoldSource({
+    id: "shell",
+    hasPending: () => hasActiveBackground(),
+    noticeText: () =>
+      `active background shells: ${getActiveBackgrounds()
+        .map((b) => `[${b.id}${b.describe ? " " + truncateDescribe(b.describe) : ""}]`)
+        .join(", ")}`,
+    deadlineMs: 5 * 60 * 1000,
+    onAbort: killAll,
   });
 
-  pi.on("agent_end", (event, ctx) => {
-    for (let i = event.messages.length - 1; i >= 0; i--) {
-      if (event.messages[i].role === "assistant") {
-        lastStopReason = (event.messages[i] as any).stopReason;
-        break;
-      }
-    }
-    if (
-      ctx.hasUI ||
-      lastStopReason === "error" ||
-      lastStopReason === "aborted" ||
-      !hasActiveBackground()
-    )
-      return;
-    if (!holdNoticeSent) {
-      emitHold(ctx);
-      holdNoticeSent = true;
-    }
-  });
-
-  pi.on("session_shutdown", async (event, ctx) => {
+  pi.on("session_shutdown", async () => {
     shellStatus?.dispose();
     shellStatus = null;
     disposeLspClient();
-    if (
-      ctx.hasUI ||
-      event.reason !== "quit" ||
-      !hasActiveBackground() ||
-      lastStopReason === "error" ||
-      lastStopReason === "aborted"
-    ) {
-      killAll();
-      return;
-    }
-    if (!holdNoticeSent) {
-      emitHold(ctx);
-      holdNoticeSent = true;
-    }
-    const deadline = Date.now() + MAX_SHUTDOWN_HOLD_MS;
-    await new Promise<void>((resolve) => {
-      const check = () => {
-        if (Date.now() >= deadline) {
-          resolve();
-          return;
-        }
-        if (!hasActiveBackground() && ctx.isIdle())
-          setTimeout(
-            () => (!hasActiveBackground() && ctx.isIdle() ? resolve() : setTimeout(check, 100)),
-            500,
-          );
-        else setTimeout(check, 100);
-      };
-      check();
-    });
-    killAll();
   });
 }

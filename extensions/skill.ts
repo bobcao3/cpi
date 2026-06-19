@@ -4,6 +4,7 @@ import { Text } from "@earendil-works/pi-tui";
 import { readFileSync } from "node:fs";
 import { resolve, sep } from "node:path";
 import { prependMessage } from "./lib/prepend-message.ts";
+import { registerSystemPromptTransform } from "./lib/system-prompt.ts";
 
 const SKILL_TOOL = "skill";
 
@@ -80,6 +81,15 @@ const SKILL_DISCIPLINE_NUDGE = readFileSync(
 export default function (pi: ExtensionAPI) {
   prependMessage(pi, { customType: "skill-discipline-nudge", content: SKILL_DISCIPLINE_NUDGE });
 
+  // Strip pi's auto-injected "Available skills" block from the system prompt.
+  // Applied by the single system-prompt owner extension; order 100 runs before
+  // caveman-append (200) so the appended caveman block is never stripped.
+  registerSystemPromptTransform(
+    "strip-skills",
+    (sp) => sp.replace(/\n\nThe following skills provide[\s\S]*?<\/available_skills>/, ""),
+    100,
+  );
+
   function registerSkillTool() {
     pi.registerTool({
       name: SKILL_TOOL,
@@ -95,7 +105,9 @@ export default function (pi: ExtensionAPI) {
       parameters: Type.Object({
         name: Type.String({ description: "Exact name of the skill to load" }),
         subdoc: Type.Optional(
-          Type.String({ description: "Relative path to a sub-document inside the skill directory" }),
+          Type.String({
+            description: "Relative path to a sub-document inside the skill directory",
+          }),
         ),
       }),
       renderShell: "self",
@@ -147,6 +159,9 @@ export default function (pi: ExtensionAPI) {
     });
   }
 
+  // Keep skills + tool registration fresh, but do NOT return a mutated
+  // systemPrompt: the strip-skills transform (above) owns that, applied by
+  // the system-prompt owner extension.
   pi.on("before_agent_start", async (event) => {
     updateSkills(event.systemPromptOptions?.skills as Skill[] | undefined);
 
@@ -155,13 +170,6 @@ export default function (pi: ExtensionAPI) {
       lastSkillSignature = sig;
       registerSkillTool();
     }
-
-    let systemPrompt = event.systemPrompt;
-    systemPrompt = systemPrompt.replace(
-      /\n\nThe following skills provide[\s\S]*?<\/available_skills>/,
-      "",
-    );
-    return { systemPrompt };
   });
 
   registerSkillTool();

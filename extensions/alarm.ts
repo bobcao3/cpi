@@ -14,7 +14,8 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { Text } from "@earendil-works/pi-tui";
-import { registerNotificationRenderer, sendNotification } from "./lib/notification.ts";
+import { ensureNotificationRenderer, sendNotification } from "./lib/notification.ts";
+import { registerHoldSource } from "./lib/session-hold.ts";
 
 const ALARM_TOOL = "alarm";
 const MAX_ALARM_SECONDS = 365 * 24 * 60 * 60; // ~1 year
@@ -62,8 +63,6 @@ const alarmSchema = Type.Object({
 let piRef: ExtensionAPI;
 let alarms: Alarm[] = [];
 const timers = new Map<string, NodeJS.Timeout>();
-let holdNoticeSent = false;
-let lastStopReason: string | undefined;
 
 function nextAlarmId(): string {
   let max = 0;
@@ -173,7 +172,7 @@ function rescheduleFromState(): void {
 export default function (pi: ExtensionAPI) {
   piRef = pi;
 
-  registerNotificationRenderer(pi);
+  ensureNotificationRenderer(pi);
 
   pi.registerTool({
     name: ALARM_TOOL,
@@ -298,6 +297,18 @@ export default function (pi: ExtensionAPI) {
     },
   });
 
+  registerHoldSource({
+    id: "alarm",
+    hasPending: () => alarms.some((a) => !a.fired),
+    noticeText: () =>
+      `active alarms: ${alarms
+        .filter((a) => !a.fired)
+        .map((a) => a.id)
+        .join(", ")}`,
+    deadlineMs: MAX_ALARM_SECONDS * 1000 + 5000,
+    onAbort: clearAllTimers,
+  });
+
   pi.on("session_start", async (_event, ctx) => {
     reconstructAlarms(ctx);
     rescheduleFromState();
@@ -310,94 +321,5 @@ export default function (pi: ExtensionAPI) {
   pi.on("session_tree", async (_event, ctx) => {
     reconstructAlarms(ctx);
     rescheduleFromState();
-  });
-
-  const formatActiveAlarms = () => {
-    const ids = alarms.filter((a) => !a.fired).map((a) => a.id);
-    return `holding, active alarms: ${ids.join(", ")}`;
-  };
-
-  const emitHoldMessage = (ctx: ExtensionContext) => {
-    const text = formatActiveAlarms();
-    // Write to stderr only; do not inject a custom message into the model context.
-    process.stderr.write(`[alarm-hold] ${text}\n`);
-    if (ctx.hasUI) {
-      ctx.ui.notify(text, "info");
-    }
-  };
-
-  pi.on("agent_start", () => {
-    lastStopReason = undefined;
-    holdNoticeSent = false;
-  });
-
-  pi.on("agent_end", (event, ctx) => {
-    for (let i = event.messages.length - 1; i >= 0; i--) {
-      const m = event.messages[i];
-      if (m.role === "assistant") {
-        lastStopReason = (m as any).stopReason;
-        break;
-      }
-    }
-
-    if (ctx.hasUI) return;
-    if (lastStopReason === "error" || lastStopReason === "aborted") return;
-    if (alarms.filter((a) => !a.fired).length === 0) return;
-
-    if (!holdNoticeSent) {
-      emitHoldMessage(ctx);
-      holdNoticeSent = true;
-    }
-  });
-
-  pi.on("session_shutdown", async (event, ctx) => {
-    // Interactive sessions and non-exit reasons should not hold the process.
-    if (ctx.hasUI || event.reason !== "quit") {
-      clearAllTimers();
-      return;
-    }
-
-    const pending = alarms.filter((a) => !a.fired);
-    if (pending.length === 0) {
-      clearAllTimers();
-      return;
-    }
-    if (lastStopReason === "error" || lastStopReason === "aborted") {
-      clearAllTimers();
-      return;
-    }
-
-    if (!holdNoticeSent) {
-      emitHoldMessage(ctx);
-      holdNoticeSent = true;
-    }
-
-    // Keep the session/runtime alive until all alarms fire and the agent stays idle
-    // long enough for any queued follow-up turn to complete.
-    const deadline = Date.now() + (MAX_ALARM_SECONDS * 1000 + 5000);
-    await new Promise<void>((resolve) => {
-      const pendingCount = () => alarms.filter((a) => !a.fired).length;
-      const check = () => {
-        if (Date.now() >= deadline) {
-          resolve();
-          return;
-        }
-        if (pendingCount() === 0 && ctx.isIdle()) {
-          // Wait a grace beat to confirm no follow-up turn is starting.
-          setTimeout(() => {
-            if (pendingCount() === 0 && ctx.isIdle()) {
-              resolve();
-            } else {
-              setTimeout(check, 100);
-            }
-          }, 500);
-        } else {
-          setTimeout(check, 100);
-        }
-      };
-      check();
-    });
-
-    clearAllTimers();
   });
 }

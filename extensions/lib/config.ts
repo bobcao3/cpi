@@ -36,8 +36,18 @@ export interface ShellConfig {
   maxWaitfor: number;
 }
 
+export interface CavemanConfig {
+  /** Appended to the system prompt each turn when caveman is enabled. */
+  system_prompt: string;
+  /** User message injected when caveman is toggled ON mid-conversation. */
+  mid_convo_nudge_positive: string;
+  /** User message injected when caveman is toggled OFF mid-conversation. */
+  mid_convo_nudge_negative: string;
+}
+
 export interface CpiConfig {
   shell?: ShellConfig;
+  caveman?: CavemanConfig;
   // Future extensions add their sections here.
 }
 
@@ -47,6 +57,24 @@ export const DEFAULTS: CpiConfig = {
   shell: {
     defaultWaitfor: 5,
     maxWaitfor: 30,
+  },
+  // Joined with "\n" so the literal newlines match the former caveman-micro.yaml
+  // `|` block scalar exactly (trailing newline included); keeps the appended
+  // system-prompt block byte-identical to the prior yaml-driven output.
+  caveman: {
+    system_prompt: [
+      "Respond like smart caveman. Cut all filler, keep technical substance.",
+      "- Drop articles (a, an, the), filler (just, really, basically, actually).",
+      "- Drop pleasantries (sure, certainly, happy to).",
+      "- No hedging. Fragments fine. Short synonyms.",
+      "- Technical terms stay exact. Code blocks unchanged.",
+      "- Pattern: [thing] [action] [reason]. [next step].",
+      "",
+    ].join("\n"),
+    mid_convo_nudge_positive:
+      "From now on, respond in caveman style. Cut all filler, keep technical substance. Drop articles (a, an, the), pleasantries, and hedging. Use fragments. Short synonyms. Technical terms stay exact. Code blocks unchanged.",
+    mid_convo_nudge_negative:
+      "From now on, speak normally. Ignore any previous caveman-style instructions.",
   },
 };
 
@@ -69,7 +97,7 @@ function loadConfigFile(path: string): Record<string, unknown> | null {
  *  - Otherwise, project's value replaces user's.
  * Returns a new object; inputs are not mutated.
  */
-function deepMerge<T>(user: T, project: Partial<T> | undefined): T {
+export function deepMerge<T>(user: T, project: Partial<T> | undefined): T {
   if (project === undefined) return user;
   if (typeof user !== "object" || user === null) return project as T;
   if (typeof project !== "object" || project === null) return project as T;
@@ -96,12 +124,8 @@ function deepMerge<T>(user: T, project: Partial<T> | undefined): T {
 }
 
 /**
- * Merge a user-level config section with a project-level one, then apply
- * built-in defaults for any missing fields.
- *
- * @param section  - The top-level config key (e.g. "shell").
- * @param defaults - The full defaults object for this section.
- * @param cwd      - The project working directory (for project-level config).
+ * Load the full cpi config: user-level + project-level cpi-config.json, deep
+ * merged, then defaults merged underneath so missing fields fall back.
  */
 export function loadCpiConfig(cwd: string = process.cwd()): CpiConfig {
   const userPath = join(process.env.HOME ?? "", ".pi", "agent", "cpi-config.json");
@@ -136,5 +160,25 @@ export function loadShellConfig(cwd: string = process.cwd()): ShellConfig {
         : DEFAULTS.shell!.defaultWaitfor,
     maxWaitfor:
       Number.isFinite(maxWaitfor) && maxWaitfor > 0 ? maxWaitfor : DEFAULTS.shell!.maxWaitfor,
+  };
+}
+
+/** Coerce a config value to a string, defaulting to "" when absent/non-string. */
+function str(value: unknown): string {
+  return typeof value === "string" ? value : "";
+}
+
+/**
+ * Load the caveman section: DEFAULTS.caveman deep-merged with the user/project
+ * `caveman` config, with each string field coerced to a string ("" if missing
+ * or non-string). Cheap file read; callers may invoke per-turn without caching.
+ */
+export function loadCavemanConfig(cwd: string = process.cwd()): CavemanConfig {
+  const config = loadCpiConfig(cwd);
+  const merged = deepMerge(DEFAULTS.caveman!, config.caveman);
+  return {
+    system_prompt: str(merged.system_prompt),
+    mid_convo_nudge_positive: str(merged.mid_convo_nudge_positive),
+    mid_convo_nudge_negative: str(merged.mid_convo_nudge_negative),
   };
 }
