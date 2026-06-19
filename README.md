@@ -116,6 +116,7 @@ merged from two locations:
 
 | Scope   | Path                            | Purpose                                      |
 | ------- | ------------------------------- | -------------------------------------------- |
+| Default | `cpi-config.default.json`       | Shipped defaults — the documented base layer |
 | User    | `~/.pi/agent/cpi-config.json`   | Defaults for all projects                    |
 | Project | `<project>/.pi/cpi-config.json` | Override/add settings for a specific project |
 
@@ -123,32 +124,46 @@ merged from two locations:
 
 - **Deep merge**: nested objects are merged recursively; project values override user values for the same key.
 - **Arrays**: project array replaces user array wholesale (same as pi's settings.json behavior).
-- **Defaults**: any field not present in either config file falls back to built-in defaults.
+- **Defaults**: any field absent from user/project config falls back to `cpi-config.default.json` (shipped, documented below).
 
 ### Schema
 
-See `cpi-config.example.json` for a template. Current sections:
+See `cpi-config.default.json` for the full documented defaults. Current sections:
 
 ```jsonc
 {
   "shell": {
     "defaultWaitfor": 5, // seconds to wait before backgrounding (default: 5)
-    "maxWaitfor": 30, // maximum allowed waitfor; larger values error (default: 30)
+    "maxWaitfor": 30, // max allowed waitfor; larger errors (default: 30)
+    "maxPreviewLines": 500, // agent head/tail line cap (default: 500)
+    "previewMaxBytes": 10240, // agent head/tail byte cap (default: 10240)
+    "maxAcc": 4194304, // in-memory output acc cap before trim (default: 4MB)
+    "updateMs": 200, // min ms between streaming partials; 0 = off (default: 200)
+    "tailLines": 5, // TUI folded-preview lines, independent of head/tail (default: 5)
+    "describeMax": 48, // max chars of the `describe` summary in UI (default: 48)
   },
 }
 ```
 
 ### Shell
 
-Controls the `sh` tool's `waitfor` behavior:
+Controls the `sh` tool's execution and output truncation. All values are
+reflected in the tool's schema description, guidelines, and validation at
+runtime, so the model always sees the effective limits.
 
-| Setting          | Type   | Default | Description                                                                |
-| ---------------- | ------ | ------- | -------------------------------------------------------------------------- |
-| `defaultWaitfor` | number | `5`     | Seconds to wait before backgrounding a command when no `waitfor` is passed |
-| `maxWaitfor`     | number | `30`    | Maximum allowed `waitfor` value; larger values are rejected with an error  |
+| Setting           | Type   | Default   | Range          | Description                                                                   |
+| ----------------- | ------ | --------- | -------------- | ----------------------------------------------------------------------------- |
+| `defaultWaitfor`  | number | `5`       | > 0            | Seconds to wait before backgrounding when no `waitfor` is passed              |
+| `maxWaitfor`      | number | `30`      | > 0            | Maximum allowed `waitfor`; larger values are rejected with an error           |
+| `maxPreviewLines` | number | `500`     | 1–10000        | Agent-facing head/tail line cap (also the default tail when neither is given) |
+| `previewMaxBytes` | number | `10240`   | 1024–1048576   | Agent-facing head/tail byte cap (whichever limit hits first wins)             |
+| `maxAcc`          | number | `4194304` | 65536–67108864 | Max bytes accumulated in memory per shell before trimming                     |
+| `updateMs`        | number | `200`     | 0–60000        | Min ms between streaming partial updates; `0` disables throttling             |
+| `tailLines`       | number | `5`       | 1–200          | TUI folded-preview line count — independent of agent head/tail                |
+| `describeMax`     | number | `48`      | 8–200          | Max chars of the `describe` summary shown in the UI                           |
 
-These values are reflected in the tool's schema description, guidelines, and
-validation logic at runtime, so the model always sees the effective limits.
+`tailLines` (TUI folding) and `maxPreviewLines`/`previewMaxBytes` (agent
+truncation) are independent: changing one never affects the other.
 
 ## Fallback Providers Config
 

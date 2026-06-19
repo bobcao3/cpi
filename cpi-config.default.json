@@ -1,7 +1,13 @@
 {
   "shell": {
     "defaultWaitfor": 5,
-    "maxWaitfor": 30
+    "maxWaitfor": 30,
+    "maxPreviewLines": 500,
+    "previewMaxBytes": 10240,
+    "maxAcc": 4194304,
+    "updateMs": 200,
+    "tailLines": 5,
+    "describeMax": 48
   },
   "caveman": {
     "system_prompt": "Respond like smart caveman. Cut all filler, keep technical substance.\n- Drop articles (a, an, the), filler (just, really, basically, actually).\n- Drop pleasantries (sure, certainly, happy to).\n- No hedging. Fragments fine. Short synonyms.\n- Technical terms stay exact. Code blocks unchanged.\n- Pattern: [thing] [action] [reason]. [next step].\n",

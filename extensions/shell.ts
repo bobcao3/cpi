@@ -31,6 +31,7 @@ import {
   setCompletionHook,
   signalChild,
   silenceChild,
+  type OutputTruncation,
 } from "./shell/exec.ts";
 import { createRepeatTool, getActiveRepeats } from "./shell/repeat.ts";
 import { registerShellTranscriptRenderers } from "./shell/transcript.ts";
@@ -42,11 +43,10 @@ import { checkRules, formatRuleMatches } from "./shell/rules.ts";
 const SH_TOOL = "sh",
   SH_SEND_SIGNAL_TOOL = "sh_send_signal",
   SH_REPEAT_TOOL = "sh_repeat_until",
-  SH_BACKGROUND_PS_TOOL = "sh_background_ps",
-  TAIL_LINES = 5;
+  SH_BACKGROUND_PS_TOOL = "sh_background_ps";
 const SLEEP_UNITS: Record<string, number> = { s: 1, m: 60, h: 3600, d: 86400 };
-const truncateDescribe = (t: string, max = 48) => (t.length <= max ? t : t.slice(0, max - 1) + "…");
 const fmtDiags = (diags: any[], fmt: (d: any[]) => string) => (diags.length ? fmt(diags) : "");
+const errReturn = (text: string) => ({ content: [{ type: "text" as const, text }], isError: true });
 let shellStatus: ShellStatusRefresher | null = null;
 
 function disableBuiltinBash(pi: ExtensionAPI): void {
@@ -62,7 +62,21 @@ function disableBuiltinBash(pi: ExtensionAPI): void {
 }
 
 export default async function (pi: ExtensionAPI) {
-  const { defaultWaitfor: DEFAULT_WAITFOR, maxWaitfor: MAX_WAITFOR } = loadShellConfig();
+  const cfg = loadShellConfig();
+  const {
+    defaultWaitfor: DEFAULT_WAITFOR,
+    maxWaitfor: MAX_WAITFOR,
+    maxPreviewLines: MAX_PREVIEW_LINES,
+    tailLines: TAIL_LINES,
+    describeMax: DESCRIBE_MAX,
+  } = cfg;
+  const truncateDescribe = (t: string) =>
+    t.length <= DESCRIBE_MAX ? t : t.slice(0, DESCRIBE_MAX - 1) + "…";
+  const tunables = {
+    previewMaxBytes: cfg.previewMaxBytes,
+    maxAcc: cfg.maxAcc,
+    updateMs: cfg.updateMs,
+  };
 
   const shSchema = Type.Object({
     command: Type.String({ description: "Command to run" }),
@@ -73,6 +87,16 @@ export default async function (pi: ExtensionAPI) {
     ),
     describe: Type.Optional(
       Type.String({ description: "Short description of what this command is doing (a few words)" }),
+    ),
+    head: Type.Optional(
+      Type.Number({
+        description: `Agent output: keep first N lines (max ${MAX_PREVIEW_LINES}). Mutually exclusive with tail; omit for default tail behavior.`,
+      }),
+    ),
+    tail: Type.Optional(
+      Type.Number({
+        description: `Agent output: keep last N lines (default ${MAX_PREVIEW_LINES}, max ${MAX_PREVIEW_LINES}). Mutually exclusive with head.`,
+      }),
     ),
   });
 
@@ -112,6 +136,7 @@ export default async function (pi: ExtensionAPI) {
     "Each sh call = fresh `bash -c`. No session reuse; env/cwd/shell state don't persist.",
     "For sh and sh_repeat_until, always pass a short `describe` parameter (a few words) explaining the command's purpose.",
     `Keep waitfor <=${MAX_WAITFOR}s. On overflow, sh returns PID + partial output.`,
+    `head/tail optionally cap agent-facing output to first/last N lines (max ${MAX_PREVIEW_LINES}, default tail ${MAX_PREVIEW_LINES}); mutually exclusive.`,
     "Signal a bg shell via sh_send_signal with its PID; send SIGKILL to terminate.",
     "You will receive a notification once a background shell completes, feel free to relinquish control if you need to wait.",
     "Do not set alarm for 'checking on backgrounded shell', you will be waken up once background notifies",
@@ -155,6 +180,26 @@ export default async function (pi: ExtensionAPI) {
           ],
           isError: true,
         };
+      if (params.head !== undefined && params.tail !== undefined)
+        return errReturn("head and tail are mutually exclusive; pass at most one.");
+      if (
+        params.head !== undefined &&
+        (!Number.isInteger(params.head) || params.head < 1 || params.head > MAX_PREVIEW_LINES)
+      )
+        return errReturn(
+          `head must be an integer in 1..${MAX_PREVIEW_LINES} (got ${params.head}).`,
+        );
+      if (
+        params.tail !== undefined &&
+        (!Number.isInteger(params.tail) || params.tail < 1 || params.tail > MAX_PREVIEW_LINES)
+      )
+        return errReturn(
+          `tail must be an integer in 1..${MAX_PREVIEW_LINES} (got ${params.tail}).`,
+        );
+      const truncation: OutputTruncation =
+        params.head !== undefined
+          ? { mode: "head", maxLines: params.head }
+          : { mode: "tail", maxLines: params.tail ?? MAX_PREVIEW_LINES };
       const effectiveWaitfor = params.waitfor ?? DEFAULT_WAITFOR;
       // Inline sleep guard
       const sleepMatch = [
@@ -195,6 +240,8 @@ export default async function (pi: ExtensionAPI) {
         const { text, fullOutputPath } = await buildOutputText(errParts.join("\n"), {
           persistIfTruncated: true,
           emptyText: "(no detail)",
+          truncation: { mode: "tail", maxLines: MAX_PREVIEW_LINES },
+          tunables,
         });
         const count = (lint.available ? lint.errors.length : 0) + ruleResult.rejections.length;
         return {
@@ -224,6 +271,8 @@ export default async function (pi: ExtensionAPI) {
         (t) => onUpdate?.({ content: [{ type: "text", text: t }], details: undefined }),
         describe,
         MAX_WAITFOR,
+        truncation,
+        tunables,
       );
 
       const tag = describe ? ` (${truncateDescribe(describe)})` : "";
@@ -288,7 +337,9 @@ export default async function (pi: ExtensionAPI) {
     },
   });
 
-  pi.registerTool(createRepeatTool(pi, DEFAULT_WAITFOR, MAX_WAITFOR, TAIL_LINES, availability));
+  pi.registerTool(
+    createRepeatTool(pi, DEFAULT_WAITFOR, MAX_WAITFOR, TAIL_LINES, DESCRIBE_MAX, availability),
+  );
   registerShellTranscriptRenderers();
 
   pi.registerTool({

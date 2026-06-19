@@ -216,15 +216,16 @@ const fmtDiags = (diags: any[], fmt: (d: any[]) => string) => (diags.length ? fm
 
 // ── Tool factory ───────────────────────────────────────────────────────────────
 
-const truncateDescribe = (t: string, max = 48) => (t.length <= max ? t : t.slice(0, max - 1) + "…");
-
 export function createRepeatTool(
   pi: ExtensionAPI,
   DEFAULT_WAITFOR: number,
   MAX_WAITFOR: number,
   TAIL_LINES: number,
+  DESCRIBE_MAX: number,
   availability: ToolAvailability,
 ) {
+  const truncateDescribe = (t: string) =>
+    t.length <= DESCRIBE_MAX ? t : t.slice(0, DESCRIBE_MAX - 1) + "…";
   const schema = Type.Object({
     command: Type.String({ description: "Command to run repeatedly" }),
     interval: Type.Number({

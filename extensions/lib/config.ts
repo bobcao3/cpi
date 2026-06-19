@@ -1,8 +1,9 @@
 /**
  * Shared cpi configuration loader.
  *
- * Reads from two JSON files, merged at load time:
+ * Reads from three JSON files, deep-merged at load time (later layers win):
  *
+ *   cpi-config.default.json       (shipped defaults — the documented base)
  *   ~/.pi/agent/cpi-config.json   (user-level, all projects)
  *   <cwd>/.pi/cpi-config.json     (project-level, overrides user)
  *
@@ -11,7 +12,7 @@
  * value replaces the user value. Arrays are replaced wholesale (project wins).
  *
  * Each extension imports {@link loadCpiConfig} and reads its own section,
- * falling back to built-in defaults for any missing field. This keeps
+ * falling back to the shipped default config for any missing field. This keeps
  * extensions decoupled — they only know about their own config shape.
  *
  * Why a separate file (not pi's settings.json)?
@@ -26,6 +27,7 @@
 
 import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 // ── types ────────────────────────────────────────────────────────────────────
 
@@ -34,6 +36,21 @@ export interface ShellConfig {
   defaultWaitfor: number;
   /** Maximum allowed waitfor value; larger values error (default: 30). */
   maxWaitfor: number;
+  /**
+   * Maximum lines of agent-facing command output kept by head/tail (default:
+   * 500). Independent of the TUI's folded preview (tailLines).
+   */
+  maxPreviewLines: number;
+  /** Maximum bytes of agent-facing output kept by head/tail (default: 10240). */
+  previewMaxBytes: number;
+  /** Max bytes accumulated in memory per shell before trimming (default: 4194304). */
+  maxAcc: number;
+  /** Minimum ms between streaming partial updates; 0 disables throttling (default: 200). */
+  updateMs: number;
+  /** TUI folded-preview line count, independent of agent head/tail (default: 5). */
+  tailLines: number;
+  /** Max chars of the `describe` summary shown in the UI (default: 48). */
+  describeMax: number;
 }
 
 export interface CavemanConfig {
@@ -53,30 +70,27 @@ export interface CpiConfig {
 
 // ── defaults ─────────────────────────────────────────────────────────────────
 
-export const DEFAULTS: CpiConfig = {
-  shell: {
-    defaultWaitfor: 5,
-    maxWaitfor: 30,
-  },
-  // Joined with "\n" so the literal newlines match the former caveman-micro.yaml
-  // `|` block scalar exactly (trailing newline included); keeps the appended
-  // system-prompt block byte-identical to the prior yaml-driven output.
-  caveman: {
-    system_prompt: [
-      "Respond like smart caveman. Cut all filler, keep technical substance.",
-      "- Drop articles (a, an, the), filler (just, really, basically, actually).",
-      "- Drop pleasantries (sure, certainly, happy to).",
-      "- No hedging. Fragments fine. Short synonyms.",
-      "- Technical terms stay exact. Code blocks unchanged.",
-      "- Pattern: [thing] [action] [reason]. [next step].",
-      "",
-    ].join("\n"),
-    mid_convo_nudge_positive:
-      "From now on, respond in caveman style. Cut all filler, keep technical substance. Drop articles (a, an, the), pleasantries, and hedging. Use fragments. Short synonyms. Technical terms stay exact. Code blocks unchanged.",
-    mid_convo_nudge_negative:
-      "From now on, speak normally. Ignore any previous caveman-style instructions.",
-  },
-};
+let defaultCache: CpiConfig | null = null;
+
+/**
+ * Load the shipped default config (`cpi-config.default.json`, resolved relative
+ * to this module). This is the documented base layer that user/project configs
+ * deep-merge over. Cached after first read. Throws if missing or invalid — it
+ * ships with the package, so absence is a packaging error worth surfacing rather
+ * than silently degrading every extension that reads config.
+ */
+export function loadDefaultConfig(): CpiConfig {
+  if (defaultCache) return defaultCache;
+  const path = fileURLToPath(new URL("../../cpi-config.default.json", import.meta.url));
+  const raw = loadConfigFile(path);
+  if (!raw) {
+    throw new Error(
+      `[cpi-config] default config missing or invalid at ${path}; restore cpi-config.default.json.`,
+    );
+  }
+  defaultCache = raw as unknown as CpiConfig;
+  return defaultCache;
+}
 
 // ── loading & merging ────────────────────────────────────────────────────────
 
@@ -134,10 +148,10 @@ export function loadCpiConfig(cwd: string = process.cwd()): CpiConfig {
   const user = loadConfigFile(userPath);
   const project = loadConfigFile(projectPath);
 
-  // Deep-merge user + project, then merge defaults under the result so that
-  // any missing fields fall back to built-in defaults.
+  // Deep-merge user + project, then merge the shipped defaults under the
+  // result so any missing fields fall back to cpi-config.default.json.
   const merged = deepMerge(user ?? {}, project ?? {});
-  const config = deepMerge(DEFAULTS, merged);
+  const config = deepMerge(loadDefaultConfig(), merged);
 
   return config;
 }
@@ -146,20 +160,28 @@ export function loadCpiConfig(cwd: string = process.cwd()): CpiConfig {
  * Load and validate the shell section of the config.
  * Ensures numeric fields are sane and clamped to reasonable ranges.
  */
+function intInRange(v: unknown, fallback: number, min: number, max: number): number {
+  const n = Number(v);
+  return Number.isInteger(n) && n >= min && n <= max ? n : fallback;
+}
+
 export function loadShellConfig(cwd: string = process.cwd()): ShellConfig {
   const config = loadCpiConfig(cwd);
-  const shell = config.shell ?? DEFAULTS.shell!;
-
-  const defaultWaitfor = Number(shell.defaultWaitfor);
-  const maxWaitfor = Number(shell.maxWaitfor);
-
+  const defaults = loadDefaultConfig();
+  const s = config.shell ?? defaults.shell!;
+  const d = defaults.shell!;
+  const defaultWaitfor = Number(s.defaultWaitfor);
+  const maxWaitfor = Number(s.maxWaitfor);
   return {
     defaultWaitfor:
-      Number.isFinite(defaultWaitfor) && defaultWaitfor > 0
-        ? defaultWaitfor
-        : DEFAULTS.shell!.defaultWaitfor,
-    maxWaitfor:
-      Number.isFinite(maxWaitfor) && maxWaitfor > 0 ? maxWaitfor : DEFAULTS.shell!.maxWaitfor,
+      Number.isFinite(defaultWaitfor) && defaultWaitfor > 0 ? defaultWaitfor : d.defaultWaitfor,
+    maxWaitfor: Number.isFinite(maxWaitfor) && maxWaitfor > 0 ? maxWaitfor : d.maxWaitfor,
+    maxPreviewLines: intInRange(s.maxPreviewLines, d.maxPreviewLines, 1, 10000),
+    previewMaxBytes: intInRange(s.previewMaxBytes, d.previewMaxBytes, 1024, 1048576),
+    maxAcc: intInRange(s.maxAcc, d.maxAcc, 65536, 67108864),
+    updateMs: intInRange(s.updateMs, d.updateMs, 0, 60000),
+    tailLines: intInRange(s.tailLines, d.tailLines, 1, 200),
+    describeMax: intInRange(s.describeMax, d.describeMax, 8, 200),
   };
 }
 
@@ -169,13 +191,14 @@ function str(value: unknown): string {
 }
 
 /**
- * Load the caveman section: DEFAULTS.caveman deep-merged with the user/project
- * `caveman` config, with each string field coerced to a string ("" if missing
- * or non-string). Cheap file read; callers may invoke per-turn without caching.
+ * Load the caveman section: the default config's `caveman` deep-merged with the
+ * user/project `caveman` config, with each string field coerced to a string
+ * ("" if missing or non-string). Cheap file read; callers may invoke per-turn
+ * without caching.
  */
 export function loadCavemanConfig(cwd: string = process.cwd()): CavemanConfig {
   const config = loadCpiConfig(cwd);
-  const merged = deepMerge(DEFAULTS.caveman!, config.caveman);
+  const merged = deepMerge(loadDefaultConfig().caveman!, config.caveman);
   return {
     system_prompt: str(merged.system_prompt),
     mid_convo_nudge_positive: str(merged.mid_convo_nudge_positive),

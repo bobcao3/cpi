@@ -9,7 +9,7 @@ import { rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { StringDecoder } from "node:string_decoder";
-import { truncateTail } from "@earendil-works/pi-coding-agent";
+import { truncateHead, truncateTail } from "@earendil-works/pi-coding-agent";
 import {
   getActiveRepeats,
   hasActiveRepeats,
@@ -18,10 +18,16 @@ import {
   signalRepeat,
 } from "./repeat.ts";
 
-const PREVIEW_MAX_BYTES = 10 * 1024,
-  PREVIEW_MAX_LINES = 500,
-  MAX_ACC = 4 * 1024 * 1024,
-  UPDATE_MS = 200;
+export interface OutputTruncation {
+  mode: "head" | "tail";
+  maxLines: number;
+}
+
+export interface ShellTunables {
+  previewMaxBytes: number;
+  maxAcc: number;
+  updateMs: number;
+}
 
 interface BackgroundChild {
   id: string;
@@ -77,19 +83,40 @@ const fmtSize = (b: number) =>
 
 export async function buildOutputText(
   acc: string,
-  opts: { persistIfTruncated?: boolean; emptyText?: string; logPath?: string } = {},
+  opts: {
+    persistIfTruncated?: boolean;
+    emptyText?: string;
+    logPath?: string;
+    truncation: OutputTruncation;
+    tunables: ShellTunables;
+  },
 ): Promise<{ text: string; fullOutputPath?: string }> {
-  const { persistIfTruncated = true, emptyText = "(no output)", logPath } = opts;
-  const snap = truncateTail(acc, { maxBytes: PREVIEW_MAX_BYTES, maxLines: PREVIEW_MAX_LINES });
+  const {
+    persistIfTruncated = true,
+    emptyText = "(no output)",
+    logPath,
+    truncation,
+    tunables,
+  } = opts;
+  const limits = { maxBytes: tunables.previewMaxBytes, maxLines: truncation.maxLines };
+  const snap = truncation.mode === "head" ? truncateHead(acc, limits) : truncateTail(acc, limits);
   if (!snap.truncated) return { text: snap.content || emptyText };
-  const s = snap.totalLines - snap.outputLines + 1,
-    e = snap.totalLines;
-  let text = snap.content + `\n\n[L${s}-${e}/${snap.totalLines}`;
-  if (snap.lastLinePartial) {
-    const lastNl = acc.lastIndexOf("\n");
-    text += ` (${fmtSize(snap.outputBytes)} tail, L=${fmtSize(Buffer.byteLength(lastNl === -1 ? acc : acc.slice(lastNl + 1), "utf-8"))})`;
-  } else if (snap.truncatedBy === "bytes") {
-    text += ` (${fmtSize(PREVIEW_MAX_BYTES)} cap)`;
+  const total = snap.totalLines;
+  let text: string;
+  if (truncation.mode === "head") {
+    text = snap.content + `\n\n[L1-${snap.outputLines}/${total}`;
+    if (snap.firstLineExceedsLimit) text += ` (first line > ${fmtSize(tunables.previewMaxBytes)})`;
+    else if (snap.truncatedBy === "bytes") text += ` (${fmtSize(tunables.previewMaxBytes)} cap)`;
+  } else {
+    const s = total - snap.outputLines + 1,
+      e = total;
+    text = snap.content + `\n\n[L${s}-${e}/${total}`;
+    if (snap.lastLinePartial) {
+      const lastNl = acc.lastIndexOf("\n");
+      text += ` (${fmtSize(snap.outputBytes)} tail, L=${fmtSize(Buffer.byteLength(lastNl === -1 ? acc : acc.slice(lastNl + 1), "utf-8"))})`;
+    } else if (snap.truncatedBy === "bytes") {
+      text += ` (${fmtSize(tunables.previewMaxBytes)} cap)`;
+    }
   }
   let full: string | undefined;
   if (persistIfTruncated) {
@@ -107,7 +134,9 @@ export async function runShell(
   signal?: AbortSignal,
   onPartial?: (t: string) => void,
   describe?: string,
-  maxWaitfor = 30,
+  maxWaitfor: number,
+  truncation: OutputTruncation,
+  tunables: ShellTunables,
 ): Promise<ShResult> {
   const child = spawn(existsSync("/bin/bash") ? "/bin/bash" : "bash", ["-c", command], {
     detached: true,
@@ -147,17 +176,19 @@ export async function runShell(
     }
     entry.acc += entry.decoder.write(chunk);
     const blen = Buffer.byteLength(entry.acc);
-    if (blen > MAX_ACC) {
-      while (Buffer.byteLength(entry.acc) > MAX_ACC) {
+    if (blen > tunables.maxAcc) {
+      while (Buffer.byteLength(entry.acc) > tunables.maxAcc) {
         entry.acc = entry.acc.slice(Math.max(1, Math.ceil(entry.acc.length * 0.1)));
       }
       const c0 = entry.acc.charCodeAt(0);
       if (c0 >= 0xdc00 && c0 <= 0xdfff) entry.acc = entry.acc.slice(1); // drop lone low surrogate
     }
     const now = Date.now();
-    if (onPartial && now - lastUpd >= UPDATE_MS) {
+    if (onPartial && now - lastUpd >= tunables.updateMs) {
       lastUpd = now;
-      void buildOutputText(entry.acc, { persistIfTruncated: false }).then((r) => onPartial(r.text));
+      void buildOutputText(entry.acc, { persistIfTruncated: false, truncation, tunables }).then(
+        (r) => onPartial(r.text),
+      );
     }
   };
   child.stdout?.on("data", onChunk);
@@ -214,12 +245,16 @@ export async function runShell(
   clearTimeout(timer!);
 
   if (done || entry.done) {
-    const { text, fullOutputPath } = await buildOutputText(entry.acc, { logPath });
+    const { text, fullOutputPath } = await buildOutputText(entry.acc, {
+      logPath,
+      truncation,
+      tunables,
+    });
     if (!fullOutputPath) await rm(logPath, { force: true }).catch(() => {});
     return { id: null, status: "completed", exitCode: entry.exitCode, text, fullOutputPath };
   }
   bg.set(id, entry);
-  const { text } = await buildOutputText(entry.acc, { logPath });
+  const { text } = await buildOutputText(entry.acc, { logPath, truncation, tunables });
   return {
     id,
     status: "running",
