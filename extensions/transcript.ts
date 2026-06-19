@@ -1,24 +1,45 @@
 /**
- * Streaming markdown transcript writer.
+ * Print-mode transcript + run-summary streamer.
  *
- * When `PI_TRANSCRIPT_MD` is set (the subagent.sh helper sets it), this writes a
- * friendly markdown transcript LIVE as the session runs — one block appended per
- * message as it completes — so an orchestrating agent can tail it while the
- * subagent is still working. No post-hoc `.jsonl` parsing.
+ * Active only in print mode (`pi -p`, i.e. subagent runs): streams the live
+ * markdown transcript (one block per message, tool calls rendered via
+ * lib/transcript-registry.ts) to stderr — the subagent's logs — instead of a
+ * separate transcript file. The orchestrating agent tails the sh background log
+ * (stderr) for the live transcript and the jsonl path; pi's stdout stays the
+ * clean final answer.
  *
- * Sessions launched without `PI_TRANSCRIPT_MD` (e.g. the main agent itself) are
- * a no-op.
+ *   session_start      -> stderr: `jsonl: <session jsonl path>`   (beginning)
+ *   message_end (each) -> stderr: formatted transcript block       (live)
+ *   session_shutdown   -> conclusion summary (jsonl path + time/turns/tokens),
+ *                         written to $PI_SUBAGENT_SUMMARY (a temp file the
+ *                         subagent wrapper cats after the answer) so it lands
+ *                         at the very end, deterministically after the answer.
  *
- * Tool-call rendering is delegated to lib/transcript-registry.ts: extensions
- * register per-tool renderers there (e.g. shell renders `sh` as a ```bash
- * block); tools without a registered renderer fall back to pretty-printed XML.
+ * Inactive (no-op) in tui/rpc/json modes.
  */
 
-import { appendFileSync, existsSync } from "node:fs";
+import { writeFileSync } from "node:fs";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { renderToolCallMarkdown, type ToolCallBlock } from "./lib/transcript-registry.ts";
 
-const MD_PATH = process.env.PI_TRANSCRIPT_MD;
+const SUMMARY_PATH = process.env.PI_SUBAGENT_SUMMARY;
+
+// Per-run state. Print mode is single-shot (one session per process), so a
+// plain module-level slot is sufficient (no cross-extension sharing needed).
+let active = false;
+let sessionFile = "(unknown)";
+let startTimeMs = 0;
+let turns = 0;
+let inTokens = 0;
+let outTokens = 0;
+
+function stderr(s: string): void {
+  try {
+    process.stderr.write(s);
+  } catch {
+    // best effort; never break the session over transcript I/O
+  }
+}
 
 function textOf(content: unknown): string {
   if (typeof content === "string") return content;
@@ -61,34 +82,63 @@ function renderMessage(m: any): string {
   return out.length ? out.join("\n") + "\n" : "";
 }
 
+// Accumulate token usage from an assistant message (canonical: sum across turns,
+// matching pi's own export-html stats).
+function tallyUsage(m: any): void {
+  const u = m?.usage;
+  if (!u) return;
+  if (typeof u.input === "number") inTokens += u.input;
+  if (typeof u.output === "number") outTokens += u.output;
+}
+
+function conclusionSummary(): string {
+  const elapsed = ((Date.now() - startTimeMs) / 1000).toFixed(1);
+  return `jsonl: ${sessionFile}\nsummary: time=${elapsed}s turns=${turns} in=${inTokens} out=${outTokens}\n`;
+}
+
 export default async function (pi: ExtensionAPI) {
-  if (!MD_PATH) return; // only active when a target path is provided
-
-  const append = (s: string) => {
-    try {
-      appendFileSync(MD_PATH, s);
-    } catch {
-      // best effort; never break the session over transcript I/O
-    }
-  };
-
   pi.on("session_start", async (_event, ctx) => {
-    // Header once per file; on resume we just keep appending.
-    if (!existsSync(MD_PATH)) {
-      const model = ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : "(none)";
-      append(`# Subagent transcript\n\ncwd: \`${ctx.cwd}\`  •  model: ${model}\n\n`);
-    }
+    active = ctx.mode === "print";
+    if (!active) return;
+    sessionFile = ctx.sessionManager.getSessionFile() ?? "(unknown)";
+    startTimeMs = Date.now();
+    turns = 0;
+    inTokens = 0;
+    outTokens = 0;
+    stderr(`jsonl: ${sessionFile}\n`);
+  });
+
+  pi.on("turn_end", async (event) => {
+    if (active) turns = event.turnIndex + 1;
   });
 
   pi.on("message_end", async (event) => {
-    // Best effort: a render error must never skip the append or break the
-    // session (the runner also guards, but we avoid losing the message line).
+    if (!active) return;
+    const m = (event as { message: any }).message;
+    if (m?.role === "assistant") tallyUsage(m);
+    // Best effort: a render error must never skip the line or break the session.
     let md = "";
     try {
-      md = renderMessage((event as { message: unknown }).message);
+      md = renderMessage(m);
     } catch {
       md = "";
     }
-    append(md);
+    stderr(md);
+  });
+
+  pi.on("session_shutdown", async () => {
+    if (!active) return;
+    const summary = conclusionSummary();
+    // Write to the wrapper's temp file so it lands after the answer; fall back to
+    // stderr when no wrapper is involved (e.g. a direct `pi -p` run).
+    if (SUMMARY_PATH) {
+      try {
+        writeFileSync(SUMMARY_PATH, summary);
+        return;
+      } catch {
+        // fall through to stderr
+      }
+    }
+    stderr(summary);
   });
 }

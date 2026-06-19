@@ -1,12 +1,16 @@
 #!/usr/bin/env bash
 # Launch (or resume) a pi sub-agent in this repo.
 #
-#   stdout line 1 : "transcript: <path to the streaming markdown transcript>"
-#   stdout rest   : the sub-agent's clean final message
+#   stdout : the sub-agent's clean final answer, followed (at conclusion) by a
+#            `jsonl:` line (the raw session log path) and a `summary:` line
+#            (time, turns, input/output tokens).
+#   stderr : the LIVE streaming markdown transcript (one block per message),
+#            prefixed at the start by a `jsonl:` line for the same raw log.
 #
-# The transcript is written live by the transcript.ts extension (one block per
-# message), so the orchestrator can tail it while the sub-agent is still working.
-# Resume by re-running with the same -s <session-id> (pi restores prior context).
+# No separate transcript file: the transcript streams straight into the logs
+# (stderr -> the sh background log), and pi's native session jsonl is the raw
+# log surfaced at start and end. The orchestrator tails the sh log for the live
+# transcript; pi's stdout is the clean answer.
 #
 # Usage: subagent.sh [-p provider] [-s session-id] [task...]
 #   Preferred: pass the task on stdin via a QUOTED heredoc so backticks, $, and
@@ -18,7 +22,7 @@
 set -euo pipefail
 
 main() {
-    local provider="meshy-sglang-kimi" session_id="" proto md out err rc=0
+    local provider="meshy-sglang-kimi" session_id="" proto out summary rc=0
 
     while getopts "p:s:" opt; do
         case "$opt" in
@@ -40,28 +44,24 @@ main() {
     fi
     [[ -n "$session_id" ]] || session_id="sub-$(date +%Y%m%d-%H%M%S)-$$"
     proto="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/output-protocol.md"
-    md="${TMPDIR:-/tmp}/pi-transcript-${session_id}.md"
-
-    # Announce the streaming transcript path first so it can be tailed live.
-    printf 'transcript: %s\n' "$md"
 
     out="$(mktemp)"
-    err="$(mktemp)"
+    summary="$(mktemp)"
     # shellcheck disable=SC2064
-    trap "rm -f '$out' '$err'" EXIT
+    trap "rm -f '$out' '$summary'" EXIT
 
-    # pi print-mode writes only the final assistant message to stdout; capture it.
-    # PI_TRANSCRIPT_MD tells the transcript.ts extension where to stream markdown.
-    PI_TRANSCRIPT_MD="$md" pi --provider "$provider" --session-id "$session_id" \
+    # pi print-mode writes only the final assistant message to stdout (captured
+    # to $out); the transcript.ts extension streams the live transcript + jsonl
+    # path to stderr (inherited -> the sh background log) and writes the
+    # conclusion summary to $summary for us to emit after the answer.
+    PI_SUBAGENT_SUMMARY="$summary" pi --provider "$provider" --session-id "$session_id" \
         --append-system-prompt "@$proto" \
-        -p "$task" >"$out" 2>"$err" || rc=$?
+        -p "$task" >"$out" || rc=$?
 
+    # Clean answer first, then the conclusion jsonl path + summary at the very end.
     cat "$out"
+    cat "$summary" 2>/dev/null || true
 
-    if [[ "$rc" -ne 0 ]]; then
-        printf 'subagent exited %s:\n' "$rc" >&2
-        cat "$err" >&2
-    fi
     return "$rc"
 }
 

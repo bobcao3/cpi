@@ -7,9 +7,12 @@ description: "Use when delegating to a sub-agent, fanning out parallel or backgr
 
 A subagent is another `pi` process launched through the `sh` tool with the
 `subagent.sh` helper. Run it via `sh`; if it outlives `waitfor` it backgrounds,
-and `sh` returns its PID + a logfile and fires a completion follow-up on exit. `pi`
-print-mode stdout is clean (only the final assistant message), so the helper
-prints the **transcript path as line 1**, then that answer. No wrapping tags.
+and `sh` returns its PID + a logfile and fires a completion follow-up on exit.
+There is **no separate transcript file**: `pi` print-mode stdout is the clean
+final answer, while the helper streams the live markdown transcript to stderr
+(the `sh` background log) and prints the raw session `jsonl` path at start and
+end, with a run summary (time, turns, input/output tokens) at the very end of
+stdout.
 
 ## Launch / resume
 
@@ -26,7 +29,7 @@ TASK
 
 - `-s <session-id>`: pick a slug to enable resume; **re-run with the same `-s`**
   to continue (pi restores prior context). Omit to auto-generate, then read the
-  id back from the transcript filename.
+  id back from the `jsonl:` line (the jsonl filename contains the session id).
 - `-p <provider>`: default `meshy-sglang-kimi`; pass to match your own.
 - Injects `output-protocol.md` (keeps the subagent terse, full answer in its
   final message). Force background now with `sh` `waitfor=1`. Fan out via several
@@ -40,20 +43,23 @@ just wait for the shell completion notification.
 
 ## Read the result
 
-Line 1 is `transcript: <path>`, the rest is the answer — inline in the `sh`
-result if it finished within `waitfor`, else from the background log
-`/tmp/pi-sh-output-<PID>.log` (`<PID>` = the id `sh` / the completion notice
-gave):
+The `sh` result — inline if it finished within `waitfor`, else the background
+log `/tmp/pi-sh-output-<PID>.log` (`<PID>` = the id `sh` / the completion notice
+gave) — merges stdout + stderr:
+
+- **stderr, live during the run:** a `jsonl: <path>` line at the start, then the
+  streaming markdown transcript (one block per message; tool calls render as
+  ```bash or ```xml). `tail -f` the log while a backgrounded subagent works.
+- **stdout, at the end:** the clean final answer, then a `jsonl: <path>` line and
+  a `summary: time=<s> turns=<n> in=<tok> out=<tok>` line.
+
+The `jsonl` path is pi's native raw session log (full-fidelity, structured) —
+read it for deep inspection. `rm` stale logs when finished.
 
 ```
-head -n1 /tmp/pi-sh-output-<PID>.log    # transcript path
-tail -n +2 /tmp/pi-sh-output-<PID>.log   # the answer
+grep '^jsonl:' /tmp/pi-sh-output-<PID>.log   # raw session log path
+tail -n3 /tmp/pi-sh-output-<PID>.log          # answer tail + summary
 ```
-
-For the subagent's full reasoning, read its transcript — the `transcript: <path>`
-from line 1. It's markdown, written live (one block per message), so you can
-`tail -f` it while a backgrounded subagent is still working, or `cat` it when
-done. `rm` stale logs/transcripts when finished.
 
 ## Boundaries
 
