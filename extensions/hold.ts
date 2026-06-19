@@ -12,12 +12,11 @@
  * Owns: per-turn tracking reset, stop-reason capture, the single hold notice,
  * the single shutdown await + abort. Sources (alarm, shell) only
  * `registerHoldSource` and own their `onAbort` cleanup (e.g. clear timers,
- * kill backgrounds). Also ensures the shared notification renderer is
- * registered exactly once (idempotent via globalThis flag).
+ * kill backgrounds). Notification rendering is owned by the dedicated
+ * `notification` extension.
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { ensureNotificationRenderer } from "./lib/notification.ts";
 import {
   consumeHoldNotice,
   getHoldSources,
@@ -28,8 +27,6 @@ import {
 } from "./lib/session-hold.ts";
 
 export default function (pi: ExtensionAPI): void {
-  ensureNotificationRenderer(pi);
-
   pi.on("agent_start", () => resetHoldTracking());
 
   pi.on("agent_end", (event: any, ctx: any) => {

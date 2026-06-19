@@ -104,7 +104,15 @@ export function sendNotification(
 }
 
 /**
- * Register the shared TUI renderer for notifications.
+ * Register the TUI renderer for notifications on this extension instance.
+ *
+ * Called by the dedicated `extensions/notification.ts` owner at load. pi stores
+ * message renderers on the *extension instance* (its `messageRenderers` Map),
+ * which is transient — a fresh, empty Map is created on every (re)load — so the
+ * owner re-registers on each load of its own instance (idempotent `Map.set`;
+ * `getMessageRenderer` resolves by first match across live instances). Sender
+ * extensions (shell/alarm/hold) call only `sendNotification` and never register.
+ *
  * Produces a minimal one-liner distinct from tool output and conversation.
  */
 export function registerNotificationRenderer(pi: ExtensionAPI): void {
@@ -140,20 +148,3 @@ export function registerNotificationRenderer(pi: ExtensionAPI): void {
   });
 }
 
-/**
- * Ensure the shared notification renderer is registered exactly once across all
- * jiti-loaded extension instances.
- *
- * pi loads each extension via jiti with `moduleCache: false`, so a module-level
- * boolean would NOT be shared between importers and each load would re-register.
- * The flag therefore lives on `globalThis`, process-wide and identical across
- * jiti loads (same pattern as lib/footer.ts and lib/transcript-registry.ts).
- */
-const NOTIFICATION_RENDERER_FLAG = "__cpiNotificationRendererEnsured";
-
-export function ensureNotificationRenderer(pi: ExtensionAPI): void {
-  const g = globalThis as Record<string, unknown>;
-  if (g[NOTIFICATION_RENDERER_FLAG]) return;
-  registerNotificationRenderer(pi);
-  g[NOTIFICATION_RENDERER_FLAG] = true;
-}

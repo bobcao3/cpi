@@ -32,31 +32,9 @@ Shared extensions and skills for the [pi coding agent](https://github.com/earend
 
 ## How it works
 
-`install.sh` is a **one-time** setup. It patches `~/.pi/agent/settings.json` to
-point pi directly at the cpi source **directories**:
+cpi is a proper [pi package](https://pi.dev/docs/latest/packages). The `pi` manifest in `package.json` declares its `extensions/` and `skills/` directories, so `pi install` discovers every resource automatically — no settings patching, no symlinks, no per-file entries.
 
-```json
-{
-  "extensions": ["/home/you/cpi/extensions"],
-  "enableSkillCommands": true,
-  "skills": ["/home/you/cpi/skills"]
-}
-```
-
-<details>
-<summary><strong>Why directories, not globs?</strong></summary>
-
-In pi's settings, a _plain_ path entry (file or directory) is what gets
-**discovered** — pi collects the extension/skill files under it. An entry
-containing `*`/`?` (or starting with `!`/`+`/`-`) is treated as a _filter
-pattern_ applied to the discovered set; it does **not** discover files itself.
-So a bare glob like `extensions/*.ts` with no plain path matches nothing and
-**loads zero extensions** — the bug this install fixes. The directory entry is
-the live link.
-
-</details>
-
-No symlinks are created. Pi reads from the source files at runtime, so:
+Pi reads the source files from disk at runtime (jiti, `moduleCache: false`), so:
 
 | Action                             | Result                                         |
 | ---------------------------------- | ---------------------------------------------- |
@@ -69,45 +47,66 @@ No symlinks are created. Pi reads from the source files at runtime, so:
 
 **Prerequisites:** The [pi coding agent](https://github.com/earendil-works/pi-coding-agent) must be installed and accessible as `pi` on your `PATH`.
 
+### Dev (editable) install — local path
+
+Point pi at this checkout. Source is read live, edits take effect on the next session, no tarball involved:
+
 ```bash
-~/cpi/install.sh
+pi install /path/to/cpi          # user scope (~/.pi/agent), every project inherits
+pi install -l .                   # project scope (.pi/settings.json), shareable + committed
 ```
 
-Run **once**. Re-running is safe (idempotent) — it cleans up old symlinks and
-stale glob entries from previous versions, re-syncs the settings.json directory
-entries, then invokes `pi` non-interactively to verify the extensions actually
-loaded (custom `sh`/`alarm` tools present, builtin `bash` stripped, providers
-registered).
+Try without persisting:
 
-After installation, start `pi` normally. The custom `sh` tool replaces the
-builtin `bash`, the `alarm` tool is available for scheduled wake-ups, and
-configured providers are registered automatically.
+```bash
+pi -e /path/to/cpi
+```
+
+### Full install — published npm package
+
+Once published to npm as `cpi`:
+
+```bash
+pi install npm:cpi                # floats; pi update --extensions picks up new versions
+pi install npm:cpi@0.1.0          # pinned to a version
+```
+
+Publishing:
+
+```bash
+npm publish
+```
+
+The `files` field ships only `extensions/`, `skills/`, `cpi-config.default.json`, and `fallback-providers.example.json`. Core pi modules (`@earendil-works/*`, `typebox`) are `peerDependencies` and are **not** bundled — pi provides them at runtime.
+
+After installation, start `pi` normally. The custom `sh` tool replaces the builtin `bash`, the `alarm` tool is available for scheduled wake-ups, and configured providers are registered automatically.
 
 ## Uninstall
 
 ```bash
-~/cpi/uninstall.sh
+pi remove /path/to/cpi            # dev install (use the same path you installed with)
+pi remove npm:cpi                 # npm install
 ```
 
-Removes the cpi entries from `settings.json` and cleans up any remaining
-symlinks from the old install method.
+If you are migrating from the old `install.sh` method (directory entries patched directly into `settings.json`), run the bundled cleaner once to strip those legacy entries and any leftover symlinks:
+
+```bash
+/path/to/cpi/uninstall.sh
+```
 
 ## Excluding extensions
 
-To disable a specific extension without deleting the file, add a `!` exclusion
-pattern to the `extensions` array in `~/.pi/agent/settings.json`:
+To disable a specific extension without deleting the file, use `pi config` (interactive) or add a `!` exclusion filter to the package entry in `~/.pi/agent/settings.json`:
 
 ```json
 {
-  "extensions": ["/home/you/cpi/extensions", "!/home/you/cpi/extensions/disable-read-write-edit.ts"]
+  "packages": [
+    { "source": "/home/you/cpi", "extensions": ["extensions", "!extensions/disable-read-write-edit.ts"] }
+  ]
 }
 ```
 
-The directory entry discovers all cpi extensions; the `!` pattern then filters
-out `disable-read-write-edit.ts`. `install.sh` preserves any `!`/`+`/`-` filter patterns
-you add here when it re-syncs. See the
-[pi settings docs](https://pi.dev/docs/latest/settings) for full glob/exclusion
-syntax.
+The directory discovers all cpi extensions; the `!` pattern filters out `disable-read-write-edit.ts`. See the [pi settings docs](https://pi.dev/docs/latest/settings) for full glob/exclusion syntax.
 
 ## cpi Config
 
@@ -213,7 +212,7 @@ Two distinct behaviors, one per extension:
 
 **Behavior 1 — startup (`provider-strip.ts`):** upon pi start, all providers from merged config are registered, then unusable ones are **stripped** via configurable provider:auth matching (`strip` rules; defaults to env-based `amazon-bedrock` / `huggingface`, whose ambient cloud creds shadow real providers). If the active model is missing or was just stripped, the first fallback candidate whose context window fits is selected.
 
-**Behavior 2 — runtime (`provider-failover.ts`):** when an endpoint fails repeatedly — assistant turns ending with `stopReason: "error"` (pi surfaces these after exhausting its own retries, i.e. "pi's limits") — the active model is switched to the **next** fallback candidate, but only if that candidate's `contextWindow` fits the current context ("if context allows"). The switch is armed at the failure threshold and applied on the next user `input` (agent idle), never mid-retry, to avoid racing pi's in-flight request or misattributing the old model's errors.
+**Behavior 2 — runtime (`provider-failover.ts`):** when an endpoint fails repeatedly — assistant turns ending with `stopReason: "error"` (pi surfaces these after exhausting its own retries, i.e. "pi's limits") — the active model is switched to the **next** fallback candidate, but only if that candidate's `contextWindow` fits the current context ("if context allows"). The switch is applied at the `turn_end` where the failure threshold is crossed: the failed call is complete by then, so swapping is race-free, and pi's remaining retries run against the new model — seamless failover with no need to re-send the prompt. The error just counted is attributed to the provider active at the time of the failure (read before the swap); subsequent turns attribute to the new provider, so there is no misattribution.
 
 ### Config: `strip` and `failover`
 
@@ -239,9 +238,9 @@ Set `PF_DEBUG=1` (e.g., `PF_DEBUG=1 pi`) to trace decisions: strip/failover logs
 ## Adding new extensions/skills
 
 1. Drop the `.ts` file into `extensions/` (or create a `skills/<name>/` directory).
-2. Restart pi — the new file is auto-discovered from the directory entry already in `settings.json`.
+2. Restart pi — the package manifest already points pi at `extensions/` and `skills/`, so the new file is auto-discovered.
 
-No need to re-run `install.sh`.
+No re-install needed (dev install reads from disk; npm consumers update with `pi update --extensions`).
 
 ## Contributing
 

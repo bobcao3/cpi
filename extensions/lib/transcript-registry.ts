@@ -146,7 +146,7 @@ export function parseArgs(block: ToolCallBlock): unknown {
 }
 
 function defaultXmlLines(block: ToolCallBlock): string[] {
-  const head = `🔧 **${block.name}** \`${block.id ?? ""}\``;
+  const head = `**${block.name}** \`${block.id ?? ""}\``;
   const xml: string[] = [];
   pushXml(sanitizeTag(block.name), parseArgs(block), 0, xml);
   return [head, "```xml", ...xml, "```", ""];

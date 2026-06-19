@@ -1,5 +1,5 @@
 /**
- * cpi shell extension: `sh`, `sh_send_signal`, and `sh_repeat_until`.
+ * cpi shell extension: `sh`, `sh_signal`, and `sh_repeat_until`.
  *
  * Wraps bash execution with linting (shuck), AST rule checks, TUI rendering,
  * and async completion notifications.
@@ -10,13 +10,13 @@ import { renderShCall, renderShResult } from "./shell/render.ts";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { loadShellConfig } from "./lib/config.ts";
 import {
-  ensureNotificationRenderer,
   sendNotification,
   type NotificationKind,
 } from "./lib/notification.ts";
 import { registerHoldSource } from "./lib/session-hold.ts";
 import {
   ensureShellTools,
+  buildShellEnv,
   getToolEnv,
   getShuckBinPath,
   type ToolAvailability,
@@ -39,9 +39,10 @@ import { createShellStatusRefresher, type ShellStatusRefresher } from "./shell/s
 import { lintCommand, formatDiagnostics, disposeLspClient } from "./shell/lint.ts";
 import { parseCommand } from "./shell/parse.ts";
 import { checkRules, formatRuleMatches } from "./shell/rules.ts";
-
+import { surfaceCdAgents } from "./shell/cd-targets.ts";
+import { formatAgentsBlock } from "./lib/agents.ts";
 const SH_TOOL = "sh",
-  SH_SEND_SIGNAL_TOOL = "sh_send_signal",
+  SH_SIGNAL_TOOL = "sh_signal",
   SH_REPEAT_TOOL = "sh_repeat_until",
   SH_BACKGROUND_PS_TOOL = "sh_background_ps";
 const SLEEP_UNITS: Record<string, number> = { s: 1, m: 60, h: 3600, d: 86400 };
@@ -60,6 +61,7 @@ function disableBuiltinBash(pi: ExtensionAPI): void {
     pi.setActiveTools(withoutBash);
   }
 }
+
 
 export default async function (pi: ExtensionAPI) {
   const cfg = loadShellConfig();
@@ -85,9 +87,7 @@ export default async function (pi: ExtensionAPI) {
         description: `Seconds to wait before backgrounding (default ${DEFAULT_WAITFOR}, max ${MAX_WAITFOR}; >${MAX_WAITFOR} errors)`,
       }),
     ),
-    describe: Type.Optional(
-      Type.String({ description: "Short description of what this command is doing (a few words)" }),
-    ),
+    describe: Type.String({ description: "Short description of what this command is doing (a few words)" }),
     head: Type.Optional(
       Type.Number({
         description: `Agent output: keep first N lines (max ${MAX_PREVIEW_LINES}). Mutually exclusive with tail; omit for default tail behavior.`,
@@ -103,7 +103,6 @@ export default async function (pi: ExtensionAPI) {
   const availability = await ensureShellTools().catch(
     () => ({ fd: false, rg: false, shuck: false, treeSitter: false }) as ToolAvailability,
   );
-  ensureNotificationRenderer(pi);
   setCompletionHook((id, _cmd, code, reason, log) => {
     const isRepeat = id.startsWith("rpt-");
     const kind: NotificationKind = isRepeat
@@ -136,8 +135,8 @@ export default async function (pi: ExtensionAPI) {
     "Each sh call = fresh `bash -c`. No session reuse; env/cwd/shell state don't persist.",
     "For sh and sh_repeat_until, always pass a short `describe` parameter (a few words) explaining the command's purpose.",
     `Keep waitfor <=${MAX_WAITFOR}s. On overflow, sh returns PID + partial output.`,
-    `head/tail optionally cap agent-facing output to first/last N lines (max ${MAX_PREVIEW_LINES}, default tail ${MAX_PREVIEW_LINES}); mutually exclusive.`,
-    "Signal a bg shell via sh_send_signal with its PID; send SIGKILL to terminate.",
+    `Set sh tool's native head or tail argument, instead of piping to head/tail, to cap preview output to first/last N lines (default & max: ${MAX_PREVIEW_LINES})`,
+    "Signal a bg shell via sh_signal with its PID; send SIGKILL to terminate.",
     "You will receive a notification once a background shell completes, feel free to relinquish control if you need to wait.",
     "Do not set alarm for 'checking on backgrounded shell', you will be waken up once background notifies",
     "Avoid polling, but if you really have to, use the `alarm` tool instead of a long `sleep &&` command.",
@@ -152,7 +151,7 @@ export default async function (pi: ExtensionAPI) {
       : []),
     ...(availability.shuck
       ? [
-          "Every `sh` command is auto-linted by shuck before execution. Errors block; fix and retry. Warnings surface to you only.",
+          "Every `sh` command is auto-linted by the shell linter before execution. Errors block; fix and retry. Warnings surface to you only.",
         ]
       : []),
   ];
@@ -167,7 +166,7 @@ export default async function (pi: ExtensionAPI) {
     promptSnippet: "Run shell commands",
     promptGuidelines: commonGuidelines,
     parameters: shSchema,
-    async execute(_toolCallId, params, signal, onUpdate, _ctx) {
+    async execute(_toolCallId, params, signal, onUpdate, ctx) {
       if (signal?.aborted)
         return { content: [{ type: "text", text: "Aborted before start." }], isError: true };
       if (params.waitfor !== undefined && params.waitfor > MAX_WAITFOR)
@@ -261,12 +260,13 @@ export default async function (pi: ExtensionAPI) {
         fmtDiags(ruleResult.warnings, formatRuleMatches),
       ].filter(Boolean);
       const shuckWarnings = warnParts.length ? warnParts.join("\n") : undefined;
+      const cdAgents = surfaceCdAgents(parse.node);
 
       onUpdate?.({ content: [], details: undefined });
       const res = await runShell(
         params.command,
         effectiveWaitfor,
-        getToolEnv(),
+        buildShellEnv(ctx?.sessionManager),
         signal,
         (t) => onUpdate?.({ content: [{ type: "text", text: t }], details: undefined }),
         describe,
@@ -281,7 +281,8 @@ export default async function (pi: ExtensionAPI) {
           ? `running PID=${res.id}${tag}${res.cursor ? ` | ${res.cursor.bytes}B at L${res.cursor.line}:${res.cursor.column} -> ${res.fullOutputPath}` : ""}`
           : `exit ${res.exitCode ?? "unknown"}${tag}`;
       let text = res.text ? `${res.text}\n---\n${status}` : status;
-      if (shuckWarnings) text = `⚠ shuck warnings:\n${shuckWarnings}\n---\n${text}`;
+      if (shuckWarnings) text = `linter warnings:\n${shuckWarnings}\n---\n${text}`;
+      text += formatAgentsBlock(cdAgents);
 
       return {
         content: [{ type: "text", text }],
@@ -294,6 +295,7 @@ export default async function (pi: ExtensionAPI) {
           describe,
           shuckWarnings,
           tsAst: parse.ast,
+          cdAgentsFiles: cdAgents.map((f) => f.path),
         },
         isError: res.status === "completed" && res.exitCode !== 0 && res.exitCode !== null,
       };
@@ -307,14 +309,14 @@ export default async function (pi: ExtensionAPI) {
   });
 
   pi.registerTool({
-    name: SH_SEND_SIGNAL_TOOL,
-    label: "sh_send_signal",
+    name: SH_SIGNAL_TOOL,
+    label: "sh_signal",
     description:
       "Signal a background shell command by its PID (sh-returned). Send SIGKILL to terminate background shell process-group.",
     promptSnippet: "Signal background shell commands",
     promptGuidelines: [
-      "sh_send_signal defaults to SIGINT, delivered to the whole process group.",
-      "Avoid using `sh $ kill` against background shell PIDs, use `sh_send_signal` instead.",
+      "sh_signal defaults to SIGINT, delivered to the whole process group.",
+      "Avoid using `sh $ kill` against background shell PIDs, use `sh_signal` instead.",
     ],
     parameters: Type.Object({
       id: Type.String({ description: "Background shell PID (as returned by sh)" }),
@@ -381,7 +383,7 @@ export default async function (pi: ExtensionAPI) {
         new Set([
           ...pi.getActiveTools().filter((n) => n !== "bash"),
           SH_TOOL,
-          SH_SEND_SIGNAL_TOOL,
+          SH_SIGNAL_TOOL,
           SH_REPEAT_TOOL,
           SH_BACKGROUND_PS_TOOL,
         ]),

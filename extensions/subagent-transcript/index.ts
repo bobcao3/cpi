@@ -55,13 +55,13 @@ function renderMessage(m: any): string {
   const out: string[] = [];
   const role = m?.role;
   if (role === "user") {
-    out.push("## 👤 User", "", textOf(m.content) || "_(no text)_", "");
+    out.push("## User", "", textOf(m.content) || "_(no text)_", "");
   } else if (role === "assistant") {
     const tag = m.model ? ` _(${m.provider ?? "?"}/${m.model})_` : "";
-    out.push(`## 🤖 Assistant${tag}`, "");
+    out.push(`## Assistant${tag}`, "");
     for (const c of Array.isArray(m.content) ? m.content : []) {
       if (c.type === "thinking" && c.thinking) {
-        out.push("> 💭 " + String(c.thinking).replace(/\n/g, "\n> "), "");
+        out.push("> " + String(c.thinking).replace(/\n/g, "\n> "), "");
       } else if (c.type === "text" && c.text) {
         out.push(c.text, "");
       } else if (c.type === "toolCall") {
@@ -69,9 +69,9 @@ function renderMessage(m: any): string {
       }
     }
   } else if (role === "toolResult") {
-    const flag = m.isError ? " ❌" : "";
+    const flag = m.isError ? " [error]" : "";
     out.push(
-      `↳ **result** ${m.toolName ?? ""} \`${m.toolCallId ?? ""}\`${flag}`,
+      `**result** ${m.toolName ?? ""} \`${m.toolCallId ?? ""}\`${flag}`,
       "",
       "```",
       textOf(m.content) || "(no output)",

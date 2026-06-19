@@ -233,9 +233,7 @@ export function createRepeatTool(
       maximum: 60,
       description: "Seconds between repetitions (5-60)",
     }),
-    describe: Type.Optional(
-      Type.String({ description: "Short description of what this monitor is doing (a few words)" }),
-    ),
+    describe: Type.String({ description: "Short description of what this monitor is doing (a few words)" }),
   });
 
   const guidelines = [
@@ -245,7 +243,7 @@ export function createRepeatTool(
     "For sh_repeat_until, exit code 0 means the condition is not met yet; keep polling. Any non-zero exit code stops the monitor.",
     "When the monitor stops on a non-zero exit, a single notification is emitted regardless of whether the command succeeded or errored.",
     "The notification includes the monitor log file path and the line range for the stopping invocation.",
-    "Cancel a repeat monitor with sh_send_signal using its rpt- ID; SIGKILL terminates immediately.",
+    "Cancel a repeat monitor with sh_signal using its rpt- ID; SIGKILL terminates immediately.",
   ];
 
   return {
@@ -306,7 +304,7 @@ export function createRepeatTool(
         fmtDiags(ruleResult.warnings, formatRuleMatches),
       ].filter(Boolean);
       const warningPrefix = warnParts.length
-        ? `⚠ shuck warnings:\n${warnParts.join("\n")}\n---\n`
+        ? `linter warnings:\n${warnParts.join("\n")}\n---\n`
         : "";
 
       const id = startRepeat(params.command, interval, getToolEnv(), describe);

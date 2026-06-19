@@ -29,6 +29,7 @@
  */
 
 import { FooterComponent } from "@earendil-works/pi-coding-agent";
+import { getCwd } from "./cwd.ts";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { TUI, Theme } from "@earendil-works/pi-tui";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
@@ -202,7 +203,7 @@ function renderLine1(
   footerData: FooterData,
 ): string {
   const s = state();
-  const cwd = formatCwd(ctx.sessionManager.getCwd(), process.env.HOME || process.env.USERPROFILE);
+  const cwd = formatCwd(getCwd(), process.env.HOME || process.env.USERPROFILE);
   const branch = s.branchResolver?.produce() ?? footerData.getGitBranch();
   const groups: string[] = [];
   if (branch) groups.push(branch);

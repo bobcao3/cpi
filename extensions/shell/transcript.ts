@@ -26,7 +26,7 @@ interface ShellCallArgs {
 function renderShellTranscriptCall(block: ToolCallBlock): string[] | null {
   const args = parseArgs(block) as ShellCallArgs;
   if (typeof args.command !== "string") return null;
-  const head = `🔧 **${block.name}** \`${block.id ?? ""}\``;
+  const head = `**${block.name}** \`${block.id ?? ""}\``;
   const meta: string[] = [];
   const desc = args.describe?.trim();
   if (desc) meta.push(`_${desc}_`);

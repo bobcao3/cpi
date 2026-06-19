@@ -1,9 +1,25 @@
 {
   "name": "cpi",
-  "private": true,
+  "version": "0.1.0",
+  "description": "Cheng Cao's shared extensions and skills for the pi coding agent.",
   "type": "module",
+  "keywords": ["pi-package"],
+  "files": [
+    "extensions",
+    "skills",
+    "cpi-config.default.json",
+    "fallback-providers.example.json"
+  ],
+  "pi": {
+    "extensions": ["./extensions"],
+    "skills": ["./skills"]
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-tui": "*",
+    "typebox": "*"
+  },
   "devDependencies": {
     "prettier": "^3"
-  },
-  "dependencies": {}
+  }
 }

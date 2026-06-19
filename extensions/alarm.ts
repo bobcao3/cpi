@@ -14,7 +14,7 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { Text } from "@earendil-works/pi-tui";
-import { ensureNotificationRenderer, sendNotification } from "./lib/notification.ts";
+import { sendNotification } from "./lib/notification.ts";
 import { registerHoldSource } from "./lib/session-hold.ts";
 
 const ALARM_TOOL = "alarm";
@@ -172,7 +172,6 @@ function rescheduleFromState(): void {
 export default function (pi: ExtensionAPI) {
   piRef = pi;
 
-  ensureNotificationRenderer(pi);
 
   pi.registerTool({
     name: ALARM_TOOL,

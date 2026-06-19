@@ -14,6 +14,7 @@
  */
 
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { getCwd } from "../lib/cwd.ts";
 import { setBranchResolver, clearBranchResolver } from "../lib/footer.ts";
 import { existsSync } from "node:fs";
 import { spawnSync } from "node:child_process";
@@ -66,7 +67,7 @@ function resolveJjLabel(root: string): string | null {
 
 function install(ctx: ExtensionContext): void {
   const refresh = () => {
-    const root = findJjRoot(ctx.sessionManager.getCwd());
+    const root = findJjRoot(getCwd());
     labelCache = root ? resolveJjLabel(root) : null;
   };
   refresh(); // prime synchronously so the first render already shows jj

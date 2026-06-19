@@ -30,6 +30,12 @@ TASK
 - `-s <session-id>`: pick a slug to enable resume; **re-run with the same `-s`**
   to continue (pi restores prior context). Omit to auto-generate, then read the
   id back from the `jsonl:` line (the jsonl filename contains the session id).
+  Sessions are nested under the parent's session dir in
+  `subagents_<PI_SESSION>/` (set by the cpi shell tool via `PI_SESSION` +
+  `PI_SESSION_DIR`), so they stay out of the parent's `/resume`. To **resume a
+  subagent manually** (outside the parent's `sh` env), pass its session dir
+  derived from the `jsonl:` path:
+  `pi --session-dir "$(dirname <jsonl-path>)" --session-id <id> -c`.
 - `-p <provider>`: default `meshy-sglang-kimi`; pass to match your own.
 - Injects `output-protocol.md` (keeps the subagent terse, full answer in its
   final message). Force background now with `sh` `waitfor=1`. Fan out via several

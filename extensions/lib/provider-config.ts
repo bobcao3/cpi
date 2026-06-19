@@ -100,8 +100,6 @@ interface ProviderState {
   fails: Map<string, number>;
   config: FallbackConfig | null;
   configCwd: string;
-  /** Provider that crossed the failure threshold; switch at next turn_start. */
-  pendingSwitchFrom: string | null;
 }
 
 export function getState(): ProviderState {
@@ -112,7 +110,6 @@ export function getState(): ProviderState {
       fails: new Map(),
       config: null,
       configCwd: "",
-      pendingSwitchFrom: null,
     };
   }
   return g.__cpiProvider;

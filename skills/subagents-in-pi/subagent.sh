@@ -54,7 +54,19 @@ main() {
     # to $out); the transcript.ts extension streams the live transcript + jsonl
     # path to stderr (inherited -> the sh background log) and writes the
     # conclusion summary to $summary for us to emit after the answer.
+    # Nest this sub-agent's session under the parent's session dir, in a
+    # subagents_<PI_SESSION>/ folder, so it stays out of the parent's /resume
+    # (pi lists sessions flat per dir; subfolders are not recursed). Absent
+    # for ephemeral (--no-session) parents -> falls back to pi's default.
+    local session_dir_args=()
+    if [[ -n "${PI_SESSION_DIR:-}" && -n "${PI_SESSION:-}" ]]; then
+        local sub_dir="$PI_SESSION_DIR/subagents_$PI_SESSION"
+        mkdir -p "$sub_dir"
+        session_dir_args=(--session-dir "$sub_dir")
+    fi
+
     PI_SUBAGENT_SUMMARY="$summary" pi --provider "$provider" --session-id "$session_id" \
+        "${session_dir_args[@]}" \
         --append-system-prompt "@$proto" \
         -p "$task" >"$out" || rc=$?
 

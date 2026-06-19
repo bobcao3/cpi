@@ -131,3 +131,64 @@ Great names are the essence of great code, capturing what a thing is or does, fo
 - Don't abbreviate
 
 ---
+
+
+# Developing extensions
+
+cpi extensions run inside pi, which loads each via jiti with `moduleCache: false`
+and can hot-reload a single extension file mid-session. Two facts shape every
+extension design decision:
+
+1. **Per-instance registration is transient.** pi stores message renderers and
+   event handlers on the *extension instance* (`extension.messageRenderers`,
+   `extension.handlers` — a fresh `new Map()` on every load). On a hot-reload,
+   the old instance (and its Map) is discarded; the new instance starts empty.
+2. **`globalThis` is persistent.** It survives jiti reloads and is shared across
+   all extension module copies in the process.
+
+## Anti-pattern: a `globalThis` "done" flag guarding per-instance registration
+
+```ts
+// WRONG — breaks on reload
+function ensureThing(pi) {
+  const g = globalThis as Record<string, unknown>;
+  if (g.DONE) return;        // flag persists across reload...
+  pi.registerMessageRenderer(...);  // ...but this Map entry does not
+  g.DONE = true;
+}
+```
+
+**Why it's bad.** The flag says "already done" forever; the renderer/handler it
+guards lives only on the instance that registered it. After a hot-reload, the
+flag is still `true` so re-registration is **skipped**, but the new instance's
+Map is empty. Result: the feature silently breaks — pi falls back to the
+default `[customType]` + raw-content render, or queued messages never drain.
+This is not theoretical: it bit `ensureNotificationRenderer`,
+`ensureDrains` (prepend-message), and `ensureRenderer` (cwd).
+
+## Sound patterns
+
+- **Guard on real resource state, not a boolean flag.** Check the thing itself:
+  `if (timer) return` (`lib/footer.ts`), `existsSync(bin)`
+  (`shell/tools.ts`), re-merge state per call (`cwd.ensureToolActive`).
+- **Own per-instance registration in a dedicated extension.** When registration
+  has no queryable state (a renderer, a drain handler), one thin extension
+  registers it at load and re-registers on its own reload. Producers are pure
+  clients — they never register. See `extensions/notification.ts` (renderer
+  owner) and `extensions/prepend-message.ts` (drain owner).
+- **Unconditional register at load when the extension is the sole owner.**
+  `pi.registerMessageRenderer` / `pi.on` are idempotent `Map.set` / append;
+  calling once per load is fine. Use this only when one extension owns the
+  feature (else multiple owners double-register; prefer a dedicated owner for
+  shared plumbing).
+
+## `globalThis` is fine for shared *state*, not for dedup *flags*
+
+`globalThis` is correct when it holds **shared mutable state** re-read on every
+call — e.g. the footer singleton (`lib/footer.ts`), the transcript renderer
+registry (`lib/transcript-registry.ts`), the prepend-message queues. That state
+is *data*; reloads re-populate it and it is never used to skip registration.
+The anti-pattern is specifically a **boolean dedup flag** gating registration on
+**transient per-instance** state. If you find yourself writing `ensure*` with a
+`globalThis` boolean, stop: either check real state, or move registration into a
+dedicated owner extension.

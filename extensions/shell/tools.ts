@@ -106,6 +106,32 @@ export function getToolEnv(): NodeJS.ProcessEnv {
   return { ...process.env, [key]: [BIN_DIR, process.env[key] ?? ""].join(delimiter) };
 }
 
+/**
+ * Env for the `sh` tool: base PATH env plus the parent session identity so
+ * sub-agents (launched via subagent.sh) can nest their sessions under the
+ * parent's session dir in `subagents_${PI_SESSION}/` — hidden from the
+ * parent's `/resume` (flat listers don't recurse subfolders).
+ *
+ *   PI_SESSION     short id of the parent's pi session (first 8 of its uuid;
+ *                  stable across resume so sub-agent sessions persist)
+ *   PI_SESSION_DIR the parent's session dir (default or custom); absent for
+ *                  ephemeral (--no-session) parents
+ *
+ * `sm` is duck-typed to keep this module a pure leaf (no pi imports).
+ */
+export function buildShellEnv(
+  sm?: { getSessionId(): string | undefined; getSessionDir(): string | undefined },
+): NodeJS.ProcessEnv {
+  const env = getToolEnv();
+  if (sm) {
+    const id = sm.getSessionId();
+    if (id) env.PI_SESSION = id.slice(0, 8);
+    const dir = sm.getSessionDir();
+    if (dir) env.PI_SESSION_DIR = dir;
+  }
+  return env;
+}
+
 export function getShuckBinPath(): string | null {
   const p = join(BIN_DIR, binName("shuck"));
   return existsSync(p) ? p : null;

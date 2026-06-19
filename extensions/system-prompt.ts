@@ -12,6 +12,6 @@ import { applySystemPromptTransforms } from "./lib/system-prompt.ts";
  */
 export default function systemPromptOwnerExtension(pi: ExtensionAPI): void {
   pi.on("before_agent_start", async (event: any, ctx: any) => {
-    return { systemPrompt: applySystemPromptTransforms(event.systemPrompt, ctx) };
+    return { systemPrompt: applySystemPromptTransforms(event.systemPrompt, ctx, event.systemPromptOptions) };
   });
 }

@@ -49,7 +49,7 @@ function registry(): Registry {
  */
 export function registerSystemPromptTransform(
   id: string,
-  apply: (systemPrompt: string, ctx: any) => string,
+  apply: (systemPrompt: string, ctx: any, options: any) => string,
   order: number = DEFAULT_ORDER,
 ): void {
   assert(typeof id === "string" && id.length > 0, "id must be a non-empty string");
@@ -64,13 +64,13 @@ export function registerSystemPromptTransform(
  * a transform that throws is skipped and logged to stderr, so one faulty
  * extension cannot blank the system prompt for the whole process.
  */
-export function applySystemPromptTransforms(systemPrompt: string, ctx: any): string {
+export function applySystemPromptTransforms(systemPrompt: string, ctx: any, options: any): string {
   const entries = Array.from(registry().transforms.values());
   entries.sort((a, b) => a.order - b.order);
   let out = systemPrompt;
   for (const entry of entries) {
     try {
-      out = entry.apply(out, ctx);
+      out = entry.apply(out, ctx, options);
     } catch (err) {
       process.stderr.write(`[system-prompt] transform "${entry.order}" threw: ${err}\n`);
     }
