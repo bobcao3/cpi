@@ -8,18 +8,15 @@ Shared extensions and skills for the [pi coding agent](https://github.com/earend
 | ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `lib/config.ts`                | Shared config loader: reads `cpi-config.json` (user + project), deep-merges, provides typed accessors for each extension.                               |
 | `lib/footer.ts`                | Shared footer engine: `setBranchResolver`/`registerLineSegment` let extensions add line-1 data without owning the footer.                               |
-| `footer/index.ts`              | Owns pi's custom footer: renders line 1, splices built-in footer lines 2/3. Other extensions must not call `setFooter`.                                 |
+| `core.ts`                     | Single owner of all shared cpi plumbing: footer, notification renderer, prepend-message drains, system-prompt transforms, session-hold. Producers call `lib/*` only.                 |
 | `vcs-jj/index.ts`              | Shows jj change id/bookmark on footer line 1, overriding git branch. Bounded cached `.jj` lookup; no shell-out at render.                               |
 | `shell.ts`                     | Replaces builtin `bash` with stateless `sh` tool: backgrounding, signalling, busy-wait detection; strips bash on reload.                                |
-| `hold.ts`                      | Single owner of session-hold: one combined hold notice + one deadline await across alarm/shell (no stacked shutdown holds).                             |
-| `system-prompt.ts`             | Single owner of `before_agent_start` system-prompt transforms (strip-skills, caveman-append) in declared order.                                         |
 | `shell/status.ts`              | Adds background-shell / repeat-monitor counts (`bg:N` / `mon:N`) flush-right on footer line 1 via `registerRightSegment`.                               |
 | `caveman-micro/index.ts`       | Toggles caveman-micro token-compression prompt (default on); shows `🪨` flush-right on footer line 1. Reads `caveman` config from `cpi-config.json`.    |
 | `alarm.ts`                     | `alarm` tool for scheduled wake-ups (relative or absolute time). Survives session resume.                                                               |
 | `skill.ts`                     | `skill` tool: loads full `SKILL.md` by name so the agent can use skills even though builtin `read` is stripped.                                         |
 | `disable-read-write-edit.ts`   | Strips builtin `read`/`write`/`edit` — all file I/O goes through `sh`.                                                                                  |
-| `provider-strip.ts`            | Startup (behavior 1): registers providers from JSON config; strips unusable ones via configurable provider:auth rules (defaults: env-based Bedrock/HF). |
-| `provider-failover.ts`         | Runtime (behavior 2): on repeated endpoint failures (errored turns ≥ threshold), switches to the next fallback candidate whose context window fits.     |
+| `provider.ts`                 | Provider/model lifecycle: startup strip (register + strip unusable + pick first fitting fallback) and runtime failover on repeated errored turns.                                  |
 | `subagent-transcript/index.ts` | Streams live markdown transcript to stderr in print mode (`pi -p` / subagent runs); surfaces jsonl path + run summary.                                  |
 | `glm52-sglang-thinking.ts`     | Bridges GLM-5.2 thinking to SGLang `chat_template_kwargs`.                                                                                              |
 
@@ -166,7 +163,7 @@ truncation) are independent: changing one never affects the other.
 
 ## Fallback Providers Config
 
-`provider-strip.ts` + `provider-failover.ts` read provider/model definitions and fallback order
+`provider.ts` reads provider/model definitions and fallback order
 from two JSON files, merged at session start:
 
 | Scope   | Path                                    | Purpose                                               |
@@ -208,11 +205,11 @@ See `fallback-providers.example.json` for a template. Key fields:
 
 ### Behavior
 
-Two distinct behaviors, one per extension:
+Two distinct behaviors, both in `provider.ts`:
 
-**Behavior 1 — startup (`provider-strip.ts`):** upon pi start, all providers from merged config are registered, then unusable ones are **stripped** via configurable provider:auth matching (`strip` rules; defaults to env-based `amazon-bedrock` / `huggingface`, whose ambient cloud creds shadow real providers). If the active model is missing or was just stripped, the first fallback candidate whose context window fits is selected.
+**Behavior 1 — startup (`provider.ts`):** upon pi start, all providers from merged config are registered, then unusable ones are **stripped** via configurable provider:auth matching (`strip` rules; defaults to env-based `amazon-bedrock` / `huggingface`, whose ambient cloud creds shadow real providers). If the active model is missing or was just stripped, the first fallback candidate whose context window fits is selected.
 
-**Behavior 2 — runtime (`provider-failover.ts`):** when an endpoint fails repeatedly — assistant turns ending with `stopReason: "error"` (pi surfaces these after exhausting its own retries, i.e. "pi's limits") — the active model is switched to the **next** fallback candidate, but only if that candidate's `contextWindow` fits the current context ("if context allows"). The switch is applied at the `turn_end` where the failure threshold is crossed: the failed call is complete by then, so swapping is race-free, and pi's remaining retries run against the new model — seamless failover with no need to re-send the prompt. The error just counted is attributed to the provider active at the time of the failure (read before the swap); subsequent turns attribute to the new provider, so there is no misattribution.
+**Behavior 2 — runtime (`provider.ts`):** when an endpoint fails repeatedly — assistant turns ending with `stopReason: "error"` (pi surfaces these after exhausting its own retries, i.e. "pi's limits") — the active model is switched to the **next** fallback candidate, but only if that candidate's `contextWindow` fits the current context ("if context allows"). The switch is applied at the `turn_end` where the failure threshold is crossed: the failed call is complete by then, so swapping is race-free, and pi's remaining retries run against the new model — seamless failover with no need to re-send the prompt. The error just counted is attributed to the provider active at the time of the failure (read before the swap); subsequent turns attribute to the new provider, so there is no misattribution.
 
 ### Config: `strip` and `failover`
 

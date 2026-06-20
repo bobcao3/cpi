@@ -2,10 +2,10 @@
  * Shared provider-fallback config + helpers.
  *
  * Two extensions consume this:
- *   - provider-strip.ts    : startup — register providers, strip unusable
+ *   - provider.ts (startup)  : register providers, strip unusable
  *                            (configurable provider:auth rules), pick first
  *                            fallback if the active model is unusable.
- *   - provider-failover.ts : runtime — count provider failures and switch to
+ *   - provider.ts (runtime)  : count provider failures and switch to
  *                            the next fallback candidate (if context allows).
  *
  * Config files (JSON, merged — project overrides user):
