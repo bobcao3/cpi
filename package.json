@@ -3,7 +3,9 @@
   "version": "0.1.0",
   "description": "Cheng Cao's shared extensions and skills for the pi coding agent.",
   "type": "module",
-  "keywords": ["pi-package"],
+  "keywords": [
+    "pi-package"
+  ],
   "files": [
     "extensions",
     "skills",
@@ -11,13 +13,18 @@
     "fallback-providers.example.json"
   ],
   "pi": {
-    "extensions": ["./extensions"],
-    "skills": ["./skills"]
+    "extensions": [
+      "./extensions"
+    ],
+    "skills": [
+      "./skills"
+    ]
   },
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": "*",
     "@earendil-works/pi-tui": "*",
-    "typebox": "*"
+    "typebox": "*",
+    "yaml": "*"
   },
   "devDependencies": {
     "prettier": "^3"

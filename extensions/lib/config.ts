@@ -62,9 +62,34 @@ export interface CavemanConfig {
   mid_convo_nudge_negative: string;
 }
 
+export interface EditorChainRule {
+  /** Raw JavaScript RegExp source applied to the main model id; bare `(...)` captures, `|` alternation. */
+  search: string;
+  /** Replacement producing the candidate model id via `mainId.replace(search, replace)`. Supports `$1`..`$9` backrefs and `$&` (whole match). */
+  replace: string;
+}
+
+export interface EditorConfig {
+  /** Model id for the Viewer/Editor subagents (e.g. "claude-sonnet-4-5-20250929"). Omit to derive from the main model. */
+  model?: string;
+  /** Provider for the editor model; inferred from the model id when absent. */
+  provider?: string;
+  /** Max file size (bytes) read/edited before refusing (default 262144). */
+  maxFileBytes?: number;
+  /** Hard kill timeout for a subagent pi call, in ms (default 120000). */
+  subagentTimeoutMs?: number;
+  /** Directory for persisted subagent transcripts (default ~/.pi/agent/cpi-editor). */
+  transcriptDir?: string;
+  /** Max transcript files retained; oldest rotated (default 200). */
+  maxTranscripts?: number;
+  /** Ordered {search,replace} rules producing candidate editor model ids from the main model id. Shipped defaults are a cost+recency ladder: a ≤0.6x-cost (primary ~0.2x) model that is also ≤6 months old, then a fallback, then implicit identity (fall-through = "if not available"). Stale/retired models are never targets. */
+  chain?: EditorChainRule[];
+}
+
 export interface CpiConfig {
   shell?: ShellConfig;
   caveman?: CavemanConfig;
+  editor?: EditorConfig;
   // Future extensions add their sections here.
 }
 
@@ -203,5 +228,33 @@ export function loadCavemanConfig(cwd: string = process.cwd()): CavemanConfig {
     system_prompt: str(merged.system_prompt),
     mid_convo_nudge_positive: str(merged.mid_convo_nudge_positive),
     mid_convo_nudge_negative: str(merged.mid_convo_nudge_negative),
+  };
+}
+
+/**
+ * Load and validate the editor section. Defaults from cpi-config.default.json
+ * deep-merged under the user/project `editor` config; numeric fields clamped.
+ */
+export function loadEditorConfig(cwd: string = process.cwd()): EditorConfig {
+  const config = loadCpiConfig(cwd);
+  const d = loadDefaultConfig().editor ?? {};
+  const e = deepMerge(d, config.editor ?? {}) as EditorConfig;
+  const maxFileBytes = Number(e.maxFileBytes);
+  const subagentTimeoutMs = Number(e.subagentTimeoutMs);
+  const maxTranscripts = Number(e.maxTranscripts);
+  const chain: EditorChainRule[] = Array.isArray(e.chain)
+    ? e.chain
+        .filter((r) => r && typeof r.search === "string" && typeof r.replace === "string")
+        .map((r) => ({ search: r.search as string, replace: r.replace as string }))
+    : [];
+  return {
+    model: typeof e.model === "string" ? e.model : undefined,
+    provider: typeof e.provider === "string" ? e.provider : undefined,
+    maxFileBytes: Number.isFinite(maxFileBytes) && maxFileBytes > 0 ? maxFileBytes : 262144,
+    subagentTimeoutMs:
+      Number.isFinite(subagentTimeoutMs) && subagentTimeoutMs > 0 ? subagentTimeoutMs : 120000,
+    transcriptDir: typeof e.transcriptDir === "string" ? e.transcriptDir : "",
+    maxTranscripts: Number.isFinite(maxTranscripts) && maxTranscripts > 0 ? maxTranscripts : 200,
+    chain,
   };
 }

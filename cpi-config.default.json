@@ -13,5 +13,21 @@
     "system_prompt": "Respond like smart caveman. Cut all filler, keep technical substance.\n- Drop articles (a, an, the), filler (just, really, basically, actually).\n- Drop pleasantries (sure, certainly, happy to).\n- No hedging. Fragments fine. Short synonyms.\n- Technical terms stay exact. Code blocks unchanged.\n- Write docs and comments tersely but normally, for max clarity.\n- Pattern: [thing] [action] [reason]. [next step].\n",
     "mid_convo_nudge_positive": "From now on, respond in caveman style. Cut all filler, keep technical substance. Drop articles (a, an, the), pleasantries, and hedging. Use fragments. Short synonyms. Technical terms stay exact. Code blocks unchanged.",
     "mid_convo_nudge_negative": "From now on, speak normally. Ignore any previous caveman-style instructions."
+  },
+  "editor": {
+    "maxFileBytes": 262144,
+    "subagentTimeoutMs": 120000,
+    "maxTranscripts": 200,
+    "chain": [
+      { "search": "(claude-)(fable|opus)[0-9.-]*", "replace": "$1sonnet-4-6" },
+      { "search": "gpt-5.[0-9].*", "replace": "gpt-5.4-mini" },
+      { "search": "gpt-5(-pro|-codex)?$", "replace": "gpt-5.4-mini" },
+      { "search": "gpt-4o.*", "replace": "gpt-5.4-mini" },
+      { "search": "(o3-pro|o[34]-deep-research).*", "replace": "gpt-5.4-mini" },
+      { "search": "gemini-.*", "replace": "gemma-4-31b-it" },
+      { "search": "gemini-.*", "replace": "gemini-3.1-flash-lite" },
+      { "search": "grok-3.*", "replace": "grok-4.3" },
+      { "search": "(deepseek-v[0-9]*-)pro", "replace": "$1flash" }
+    ]
   }
 }

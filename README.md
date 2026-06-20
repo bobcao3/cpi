@@ -24,7 +24,6 @@ Shared extensions and skills for the [pi coding agent](https://github.com/earend
 
 | Skill              | Purpose                                                                                                                                                                        |
 | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `editing-files/`   | Teaches the model a fuzzy patch application workflow for applying file edits without exact line numbers.                                                                       |
 | `subagents-in-pi/` | Orchestrates subagent sessions — spawning child pi instances with a custom system prompt (`output-protocol.md`) via `subagent.sh`, with results captured in a live transcript. |
 
 ## How it works
