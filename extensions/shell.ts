@@ -49,6 +49,8 @@ const SLEEP_UNITS: Record<string, number> = { s: 1, m: 60, h: 3600, d: 86400 };
 const fmtDiags = (diags: any[], fmt: (d: any[]) => string) => (diags.length ? fmt(diags) : "");
 const errReturn = (text: string) => ({ content: [{ type: "text" as const, text }], isError: true });
 let shellStatus: ShellStatusRefresher | null = null;
+// Last command that reached execute (post schema-validation); `!!` replays it.
+let lastShCommand: string | null = null;
 
 function disableBuiltinBash(pi: ExtensionAPI): void {
   const active = pi.getActiveTools();
@@ -81,13 +83,12 @@ export default async function (pi: ExtensionAPI) {
   };
 
   const shSchema = Type.Object({
-    command: Type.String({ description: "Command to run" }),
+    description: Type.String({ description: "Short description of what this command is doing (a few words)" }),
     waitfor: Type.Optional(
       Type.Number({
         description: `Seconds to wait before backgrounding (default ${DEFAULT_WAITFOR}, max ${MAX_WAITFOR}; >${MAX_WAITFOR} errors)`,
       }),
     ),
-    describe: Type.String({ description: "Short description of what this command is doing (a few words)" }),
     head: Type.Optional(
       Type.Number({
         description: `Agent output: keep first N lines (max ${MAX_PREVIEW_LINES}). Mutually exclusive with tail; omit for default tail behavior.`,
@@ -98,6 +99,7 @@ export default async function (pi: ExtensionAPI) {
         description: `Agent output: keep last N lines (default ${MAX_PREVIEW_LINES}, max ${MAX_PREVIEW_LINES}). Mutually exclusive with head.`,
       }),
     ),
+    command: Type.String({ description: "Command to run; `!!` replays the previous command" }),
   });
 
   const availability = await ensureShellTools().catch(
@@ -133,14 +135,15 @@ export default async function (pi: ExtensionAPI) {
 
   const commonGuidelines = [
     "Each sh call = fresh `bash -c`. No session reuse; env/cwd/shell state don't persist.",
-    "For sh and sh_repeat_until, always pass a short `describe` parameter (a few words) explaining the command's purpose.",
+    "For sh, always pass a short `description` parameter (a few words) explaining the command's purpose; sh_repeat_until uses `describe`.",
+    "`!!` as the `command` replays the previous sh command regardless of its exit status or lint/schema rejection; use it to retry after a transient error or after fixing unrelated args (head/tail/description) without retyping the command.",
     `Keep waitfor <=${MAX_WAITFOR}s. On overflow, sh returns PID + partial output.`,
     `Set sh tool's native head or tail argument, instead of piping to head/tail, to cap preview output to first/last N lines (default & max: ${MAX_PREVIEW_LINES})`,
-    "Signal a bg shell via sh_signal with its PID; send SIGKILL to terminate.",
-    "You will receive a notification once a background shell completes, feel free to relinquish control if you need to wait.",
-    "Do not set alarm for 'checking on backgrounded shell', you will be waken up once background notifies",
+    "Signal a background shell via sh_signal with its PID; send SIGKILL to terminate.",
+    "A completion notification fires when a background shell finishes; you may yield control while waiting.",
+    "Do not use alarm to poll a backgrounded shell; a completion notification fires on its own.",
     "Avoid polling, but if you really have to, use the `alarm` tool instead of a long `sleep &&` command.",
-    "If a background shell completes and you decide no follow up needed, say 'ACK' exactly.",
+    "If a background shell completes and no follow-up is needed, reply `ACK` and nothing else.",
     ...(availability.fd
       ? ["Search files with `$ fd` not `$ find`: fd [OPTS] [-H] [-I] [pattern] [path]..."]
       : []),
@@ -160,7 +163,7 @@ export default async function (pi: ExtensionAPI) {
     name: SH_TOOL,
     label: "sh",
     description:
-      "Run a command via `bash -c`. Stateless: no env/cwd persistence. Outliving waitfor backgrounds it and returns an id for signalling. Maximum waitfor is " +
+      "Run a command via `bash -c`. Stateless: no env/cwd persistence. If the command runs longer than `waitfor`, sh backgrounds it and returns an id for signalling. Maximum waitfor is " +
       MAX_WAITFOR +
       "s.",
     promptSnippet: "Run shell commands",
@@ -169,6 +172,12 @@ export default async function (pi: ExtensionAPI) {
     async execute(_toolCallId, params, signal, onUpdate, ctx) {
       if (signal?.aborted)
         return { content: [{ type: "text", text: "Aborted before start." }], isError: true };
+      if (params.command === "!!") {
+        if (lastShCommand === null)
+          return errReturn("No previous command to replay (!!): this is the first sh call in the session.");
+        params.command = lastShCommand;
+      }
+      lastShCommand = params.command;
       if (params.waitfor !== undefined && params.waitfor > MAX_WAITFOR)
         return {
           content: [
@@ -217,7 +226,7 @@ export default async function (pi: ExtensionAPI) {
           isError: true,
         };
 
-      const describe = params.describe?.trim();
+      const describe = params.description?.trim();
       const shuckPath = availability.shuck ? getShuckBinPath() : null;
       const [lint, parse] = await Promise.all([
         shuckPath
@@ -316,7 +325,7 @@ export default async function (pi: ExtensionAPI) {
     promptSnippet: "Signal background shell commands",
     promptGuidelines: [
       "sh_signal defaults to SIGINT, delivered to the whole process group.",
-      "Avoid using `sh $ kill` against background shell PIDs, use `sh_signal` instead.",
+      "Do not run `kill` via sh on background PIDs; use `sh_signal` instead.",
     ],
     parameters: Type.Object({
       id: Type.String({ description: "Background shell PID (as returned by sh)" }),

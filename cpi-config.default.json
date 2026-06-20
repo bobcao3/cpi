@@ -3,14 +3,14 @@
     "defaultWaitfor": 5,
     "maxWaitfor": 30,
     "maxPreviewLines": 500,
-    "previewMaxBytes": 10240,
+    "previewMaxBytes": 32768,
     "maxAcc": 4194304,
     "updateMs": 200,
     "tailLines": 5,
     "describeMax": 48
   },
   "caveman": {
-    "system_prompt": "Respond like smart caveman. Cut all filler, keep technical substance.\n- Drop articles (a, an, the), filler (just, really, basically, actually).\n- Drop pleasantries (sure, certainly, happy to).\n- No hedging. Fragments fine. Short synonyms.\n- Technical terms stay exact. Code blocks unchanged.\n- Pattern: [thing] [action] [reason]. [next step].\n",
+    "system_prompt": "Respond like smart caveman. Cut all filler, keep technical substance.\n- Drop articles (a, an, the), filler (just, really, basically, actually).\n- Drop pleasantries (sure, certainly, happy to).\n- No hedging. Fragments fine. Short synonyms.\n- Technical terms stay exact. Code blocks unchanged.\n- Write docs and comments tersely but normally, for max clarity.\n- Pattern: [thing] [action] [reason]. [next step].\n",
     "mid_convo_nudge_positive": "From now on, respond in caveman style. Cut all filler, keep technical substance. Drop articles (a, an, the), pleasantries, and hedging. Use fragments. Short synonyms. Technical terms stay exact. Code blocks unchanged.",
     "mid_convo_nudge_negative": "From now on, speak normally. Ignore any previous caveman-style instructions."
   }

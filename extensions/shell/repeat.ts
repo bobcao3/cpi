@@ -241,7 +241,7 @@ export function createRepeatTool(
     "sh_repeat_until interval must be between 5 and 60 seconds.",
     "If a sh_repeat_until invocation takes longer than its interval, the monitor stops and emits a repeat-breach notification.",
     "For sh_repeat_until, exit code 0 means the condition is not met yet; keep polling. Any non-zero exit code stops the monitor.",
-    "When the monitor stops on a non-zero exit, a single notification is emitted regardless of whether the command succeeded or errored.",
+    "When the monitor stops (any non-zero exit), exactly one notification fires; it does not say whether the final run succeeded or failed.",
     "The notification includes the monitor log file path and the line range for the stopping invocation.",
     "Cancel a repeat monitor with sh_signal using its rpt- ID; SIGKILL terminates immediately.",
   ];
