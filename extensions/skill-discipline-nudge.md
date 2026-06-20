@@ -8,7 +8,7 @@ This is not negotiable. This is not optional. You cannot rationalize your way ou
 
 ## How to Access Skills
 
-Use the `Skill` tool. When you invoke a skill, its content is loaded and presented to you—follow it directly. Never use the Read tool on skill files.
+Use the `skill` tool. When you invoke a skill, its content is loaded and presented to you—follow it directly. Skill files are loaded only via the `skill` tool; do not shell-read them.
 
 If a skill is already loaded, no need to re-invoke it.
 When compacting, direct the agent to immediately re-invoke relevant skills in the summary, don't put skill content into summary.

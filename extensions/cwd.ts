@@ -88,7 +88,7 @@ function applyCwd(pi: ExtensionAPI, target: string, reason: string): void {
   pi.appendEntry(STATE_ENTRY, { cwd: target });
   queueMessage({
     customType: REMINDER_TYPE,
-    content: `system-reminder | Current cwd=${target} (${reason})`,
+    content: `system reminder | Current cwd: ${target} (${reason})`,
     display: true,
     details: { cwd: target, reason },
     deliverAs: "afterToolResult",
@@ -97,9 +97,10 @@ function applyCwd(pi: ExtensionAPI, target: string, reason: string): void {
 
 function enqueueBoundaryReminder(pi: ExtensionAPI): void {
   const cwd = getCwd();
+  const reason = "context-threshold";
   queueMessage({
     customType: REMINDER_TYPE,
-    content: `system reminder | Current cwd=${cwd}`,
+    content: `system reminder | Current cwd: ${cwd} (${reason})`,
     display: true,
     details: { cwd, reason: "context-threshold" },
     deliverAs: "beforeUser",
@@ -152,7 +153,7 @@ export default function (pi: ExtensionAPI): void {
     promptSnippet: "Change the cwd for all subsequent tool calls or shell commands.",
     promptGuidelines: [
       "Use set_cwd when the user asks to switch projects, or when work has clearly moved to a different tree, and the current CWD is no longer the right root for shell commands.",
-      "You should use set_cwd when you repeatedly need to prepend `cd path/to/prject && ...` in shell"
+      "Use set_cwd when you keep prefixing `cd path/to/project && ...` on every sh call."
     ],
     parameters: cwdSchema,
     async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {

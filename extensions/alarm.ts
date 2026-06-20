@@ -3,7 +3,7 @@
  *
  * Registers an `alarm` tool that schedules a one-shot wake-up message for the
  * model at a future time. Accept either:
- *   - relative_seconds: seconds from now (T+ time)
+ *   - relative_seconds: seconds from now
  *   - target_time: absolute target as ISO 8601 or Unix epoch seconds
  *
  * When the alarm fires, a custom `alarm` message is delivered as a steer so the
@@ -34,7 +34,7 @@ interface AlarmDetails {
 const alarmSchema = Type.Object({
   relative_seconds: Type.Optional(
     Type.Number({
-      description: "Seconds from now for the alarm to fire (T+ time)",
+      description: "Seconds from now for the alarm to fire",
       minimum: 1,
       maximum: MAX_ALARM_SECONDS,
     }),
@@ -177,7 +177,7 @@ export default function (pi: ExtensionAPI) {
     name: ALARM_TOOL,
     label: "Alarm",
     description:
-      "Schedule a one-shot alarm to wake the model at a future time, or cancel active alarms. Provide either relative_seconds (T+ time) or target_time (ISO 8601 or Unix epoch seconds). Pass cancel=true or cancel=<alarm_id> to cancel. When the alarm fires, a custom message is sent to wake up the model.",
+      "Schedule a one-shot alarm to wake the model at a future time, or cancel active alarms. Provide either relative_seconds (seconds from now) or target_time (ISO 8601 or Unix epoch seconds). Pass cancel=true or cancel=<alarm_id> to cancel. When the alarm fires, a notification is sent to wake the model.",
     promptSnippet: "Schedule future wake-up alarms for the model",
     promptGuidelines: [
       "Use alarm when the user wants to be reminded or woken after a delay or at a specific time.",

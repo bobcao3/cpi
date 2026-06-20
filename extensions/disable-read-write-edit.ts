@@ -22,7 +22,7 @@ export default function (pi: ExtensionAPI) {
   // Block any attempt to call them, e.g. from a resumed session.
   pi.on("tool_call", async (event) => {
     if (DISABLED.has(event.toolName)) {
-      return { block: true, reason: `${event.toolName} is disabled in this project` };
+      return { block: true, reason: `${event.toolName} is disabled in cpi; use the \`sh\` tool instead` };
     }
   });
 }

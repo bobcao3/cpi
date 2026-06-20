@@ -100,7 +100,7 @@ export default function (pi: ExtensionAPI) {
         "Use the skill tool when a skill description matches the current task and you need the full SKILL.md instructions.",
         "Pass the exact skill name as shown in the skill tool description.",
         "To read a sub-document referenced by the skill, pass its relative path from the skill directory as subdoc.",
-        "If the skill name is unknown, the tool returns the list of available skill names.",
+        "If the skill name is unknown, the result is an error listing the available skill names.",
       ],
       parameters: Type.Object({
         name: Type.String({ description: "Exact name of the skill to load" }),

@@ -36,10 +36,11 @@ TASK
   subagent manually** (outside the parent's `sh` env), pass its session dir
   derived from the `jsonl:` path:
   `pi --session-dir "$(dirname <jsonl-path>)" --session-id <id> -c`.
-- `-p <provider>`: default `meshy-sglang-kimi`; pass to match your own.
+- `-p <provider>`: provider id to use (default `meshy-sglang-kimi`; override with one available in your config).
 - Injects `output-protocol.md` (keeps the subagent terse, full answer in its
-  final message). Force background now with `sh` `waitfor=1`. Fan out via several
-  `sh` launches; collect each result.
+  final message). To run a subagent in the background, pass `waitfor=1` to `sh`;
+  it backgrounds and you collect its result from the completion notification / log.
+  Fan out via several `sh` launches; collect each result.
 
 <VERY_IMPORTANT>
 The subagent is like any other backgrounded shell command:
@@ -50,8 +51,7 @@ just wait for the shell completion notification.
 ## Read the result
 
 The `sh` result — inline if it finished within `waitfor`, else the background
-log `/tmp/pi-sh-output-<PID>.log` (`<PID>` = the id `sh` / the completion notice
-gave) — merges stdout + stderr:
+log `/tmp/pi-sh-output-<PID>.log` (`<PID>` = the id returned by `sh`, reused in the completion notification) — merges stdout + stderr:
 
 - **stderr, live during the run:** a `jsonl: <path>` line at the start, then the
   streaming markdown transcript (one block per message; tool calls render as
@@ -70,5 +70,4 @@ tail -n3 /tmp/pi-sh-output-<PID>.log          # answer tail + summary
 ## Boundaries
 
 Subagents inherit this repo's `.pi` config (they get `sh` + these skills) — keep
-nesting one level deep. This is only spawn mechanics; for what to delegate and
-stage sequencing, use the QRSPI orchestration skill.
+nesting one level deep. This is only spawn mechanics; plan what to delegate and stage sequencing yourself.
