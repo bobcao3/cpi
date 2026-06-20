@@ -6,13 +6,13 @@
 //!   dealloc(ptr)                — free memory
 //!   parse(ptr, len) -> ptr      — parse source, return JSON AST pointer
 //!   result_len() -> u32         — length of last parse result
+//!   highlight(source_ptr, source_len) -> ptr  — run highlight query, return JSON captures
 
 const std = @import("std");
 const Writer = std.Io.Writer;
 
-const c = @cImport({
-    @cInclude("tree_sitter/api.h");
-});
+const c = @import("c.zig").c;
+const highlight_mod = @import("highlight.zig");
 
 extern fn tree_sitter_bash() ?*const c.TSLanguage;
 
@@ -49,6 +49,17 @@ export fn parse(source_ptr: [*]const u8, source_len: u32) ?[*]const u8 {
     };
     result_len_val = @intCast(w.buffered().len);
 
+    return &result_buf;
+}
+
+export fn highlight(source_ptr: [*]const u8, source_len: u32) ?[*]const u8 {
+    const source = source_ptr[0..source_len];
+    var w: Writer = .fixed(&result_buf);
+    highlight_mod.run(source, &w) catch {
+        result_len_val = 0;
+        return null;
+    };
+    result_len_val = @intCast(w.buffered().len);
     return &result_buf;
 }
 

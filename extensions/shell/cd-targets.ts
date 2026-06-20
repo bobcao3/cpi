@@ -20,7 +20,7 @@
  * process cwd — so this surfaces context without side-effecting `getCwd()`.
  */
 
-import type { JsonNode as Node } from "./parse.ts";
+import type { JsonNode as Node } from "../lib/tree-sitter.ts";
 import { getCwd } from "../lib/cwd.ts";
 import { surfaceNewAgents, type AgentsFile } from "../lib/agents.ts";
 import { homedir } from "node:os";

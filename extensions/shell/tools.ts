@@ -11,6 +11,7 @@ import { delimiter, join } from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
+import { initTreeSitterWasm, ensureTreeSitterReady } from "../lib/tree-sitter.ts";
 
 const execFileAsync = promisify(execFile);
 const DL_TIMEOUT = 60_000;
@@ -18,7 +19,7 @@ const CACHE_DIR = join(getAgentDir(), "cache", "shell-tools");
 const BIN_DIR = join(CACHE_DIR, "bin");
 const WASM_DIR = join(CACHE_DIR, "wasm");
 const WASM_PATH = join(WASM_DIR, "tree-sitter-wasm.wasm");
-const WASM_VERSION = "2026.06.18";
+const WASM_VERSION = "2026.06.20";
 const IS_WIN = process.platform === "win32";
 const PLATFORM_KEY = `${process.platform}-${process.arch}`;
 const binName = (n: string) => (IS_WIN ? `${n}.exe` : n);
@@ -87,15 +88,20 @@ export async function ensureShellTools(): Promise<ToolAvailability> {
   const [fd, rg, shuck, treeSitter] = await Promise.all([
     ...TOOLS.map(ensureTool),
     (async () => {
-      try { await readFile(WASM_PATH); return true; } catch {}
-      try {
-        await mkdir(WASM_DIR, { recursive: true });
-        await download(
-          `https://github.com/bobcao3/cpi/releases/download/${WASM_VERSION}/tree-sitter-wasm.wasm`,
-          WASM_PATH,
-        );
-        return true;
-      } catch (err) { console.warn("[shell-ext] Failed to download tree-sitter-wasm:", err); return false; }
+      let have = true;
+      try { await readFile(WASM_PATH); } catch {
+        have = false;
+        try {
+          await mkdir(WASM_DIR, { recursive: true });
+          await download(
+            `https://github.com/bobcao3/cpi/releases/download/${WASM_VERSION}/tree-sitter-wasm.wasm`,
+            WASM_PATH,
+          );
+          have = true;
+        } catch (err) { console.warn("[shell-ext] Failed to download tree-sitter-wasm:", err); }
+      }
+      if (have) await ensureTreeSitterReady(); // eager: lets renderCall highlight sync on first paint
+      return have;
     })(),
   ]);
   return { fd, rg, shuck, treeSitter };
@@ -140,4 +146,6 @@ export function getShuckBinPath(): string | null {
 export function getWasmPath(): string | null {
   return existsSync(WASM_PATH) ? WASM_PATH : null;
 }
+
+initTreeSitterWasm(getWasmPath);
 

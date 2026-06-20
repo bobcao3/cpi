@@ -4,6 +4,8 @@
  */
 
 import { Text, truncateToWidth } from "@earendil-works/pi-tui";
+import { highlightCommandSync } from "../lib/tree-sitter.ts";
+import { highlightRange, byteLen, lineBounds } from "./highlight.ts";
 
 const truncateLine = (line: string, width: number) =>
   truncateToWidth(line, width, "…").replace("\x1b[0m…", "…");
@@ -32,40 +34,38 @@ export function renderShCall(
   const waitforSuffix = waitfor ? theme.fg("muted", ` (waitfor ${waitfor}s)`) : "";
   const repeatSuffix =
     args.interval != null
-      ? theme.fg(
-          "muted",
-          ` (every ${args.interval}s · stop on non-zero exit)`,
-        )
+      ? theme.fg("muted", ` (every ${args.interval}s · stop on non-zero exit)`)
       : "";
   const cmdLines: string[] = args.command.split("\n");
+  const prefix = theme.fg("toolTitle", theme.bold("$ "));
+  const captures = highlightCommandSync(args.command);
 
   if (cmdLines.length <= tailLines) {
-    text.setText(
-      theme.fg("toolTitle", theme.bold(`$ ${args.command}`)) + waitforSuffix + repeatSuffix,
-    );
+    const body = captures
+      ? highlightRange(args.command, captures, theme, 0, byteLen(args.command))
+      : theme.fg("toolTitle", theme.bold(args.command));
+    text.setText(prefix + body + waitforSuffix + repeatSuffix);
   } else if (context.expanded) {
-    const rest = cmdLines
-      .slice(1)
-      .map((l: string) => theme.fg("toolTitle", l))
-      .join("\n");
+    const body = captures
+      ? highlightRange(args.command, captures, theme, 0, byteLen(args.command))
+      : cmdLines.map((l: string) => theme.fg("toolTitle", l)).join("\n");
     text.setText(
-      theme.fg("toolTitle", theme.bold(`$ ${cmdLines[0]}`)) +
-        "\n" +
-        rest +
-        theme.fg("dim", " · Ctrl+O to collapse") +
-        waitforSuffix +
-        repeatSuffix,
+      prefix + body + theme.fg("dim", " · Ctrl+O to collapse") + waitforSuffix + repeatSuffix,
     );
   } else {
-    const tailStart = cmdLines.length - 3;
-    const hint = theme.fg("dim", ` showing ${tailStart}-${cmdLines.length} (Ctrl+O to expand)`);
-    const tail = cmdLines
-      .slice(-4)
-      .map((l: string) => theme.fg("toolTitle", theme.bold(l)))
-      .join("\n");
+    const { starts, ends } = lineBounds(args.command);
+    const n = cmdLines.length;
+    const head = captures
+      ? highlightRange(args.command, captures, theme, starts[0], ends[0])
+      : theme.fg("toolTitle", theme.bold(cmdLines[0]));
+    const tailByteStart = starts[Math.max(0, n - 4)];
+    const tail = captures
+      ? highlightRange(args.command, captures, theme, tailByteStart, byteLen(args.command))
+      : cmdLines.slice(-4).map((l: string) => theme.fg("toolTitle", theme.bold(l))).join("\n");
     text.setText(
-      theme.fg("toolTitle", theme.bold(`$ ${cmdLines[0]}`)) +
-        hint +
+      prefix +
+        head +
+        theme.fg("dim", ` showing ${n - 3}-${n} (Ctrl+O to expand)`) +
         waitforSuffix +
         repeatSuffix +
         "\n" +

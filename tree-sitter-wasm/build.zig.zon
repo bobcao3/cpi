@@ -12,6 +12,10 @@
             .url = "https://github.com/tree-sitter/tree-sitter-bash/archive/refs/tags/v0.25.1.tar.gz",
             .hash = "N-V-__8AANjenwCy_cXlIbU8nqBzGxMlEHVokLZJYrmIXtoz",
         },
+        .@"nvim-treesitter-queries-bash" = .{
+            .url = "https://github.com/neovim-treesitter/nvim-treesitter-queries-bash/archive/6e198671f2e8de504c2099f92d52cc2a68f13410.tar.gz",
+            .hash = "N-V-__8AABA1AABcR9eBWzNCkVTDJEXyoHHClvuOTosBq0Qc",
+        },
     },
     .paths = .{
         "build.zig",

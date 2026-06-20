@@ -37,7 +37,7 @@ import { createRepeatTool, getActiveRepeats } from "./shell/repeat.ts";
 import { registerShellTranscriptRenderers } from "./shell/transcript.ts";
 import { createShellStatusRefresher, type ShellStatusRefresher } from "./shell/status.ts";
 import { lintCommand, formatDiagnostics, disposeLspClient } from "./shell/lint.ts";
-import { parseCommand } from "./shell/parse.ts";
+import { parseCommand } from "./lib/tree-sitter.ts";
 import { checkRules, formatRuleMatches } from "./shell/rules.ts";
 import { surfaceCdAgents } from "./shell/cd-targets.ts";
 import { formatAgentsBlock } from "./lib/agents.ts";

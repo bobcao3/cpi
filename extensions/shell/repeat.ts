@@ -15,7 +15,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { renderShCall, renderShResult } from "./render.ts";
 import { getShuckBinPath, getToolEnv, type ToolAvailability } from "./tools.ts";
 import { lintCommand, formatDiagnostics } from "./lint.ts";
-import { parseCommand } from "./parse.ts";
+import { parseCommand } from "../lib/tree-sitter.ts";
 import { checkRules, formatRuleMatches } from "./rules.ts";
 
 export interface RepeatLogRange {

@@ -19,6 +19,14 @@ pub fn build(b: *std.Build) void {
 
     const bash = b.dependency("tree-sitter-bash", .{});
 
+    // Vendored bash highlight query (neovim-treesitter-queries-bash, fetched,
+    // not copied). Embedded into the wasm via a generated @embedFile wrapper so
+    // the query ships inside the binary with no runtime file dependency.
+    const queries = b.dependency("nvim-treesitter-queries-bash", .{});
+    const wf = b.addWriteFiles();
+    _ = wf.addCopyFile(queries.path("queries/highlights.scm"), "highlights.scm");
+    _ = wf.add("highlights_wrap.zig", "pub const scm: []const u8 = @embedFile(\"highlights.scm\");\n");
+
     const mod = b.createModule(.{
         .root_source_file = b.path("src/main.zig"),
         .target = target,
@@ -31,6 +39,10 @@ pub fn build(b: *std.Build) void {
     mod.addIncludePath(bash.path("src"));
     mod.addCSourceFile(.{ .file = bash.path("src/parser.c"), .flags = &.{"-std=c11"} });
     mod.addCSourceFile(.{ .file = bash.path("src/scanner.c"), .flags = &.{"-std=c11"} });
+
+    mod.addAnonymousImport("bash_highlights", .{
+        .root_source_file = wf.getDirectory().path(b, "highlights_wrap.zig"),
+    });
 
     const exe = b.addExecutable(.{
         .name = "tree-sitter-wasm",
