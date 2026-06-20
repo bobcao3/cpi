@@ -1,0 +1,168 @@
+/**
+ * cpi core — the single owner extension for all shared cpi plumbing.
+ *
+ * Bundles the five per-instance "owners" that previously lived as separate
+ * thin extensions (system-prompt, prepend-message, notification, hold, footer).
+ * Each owns a piece of process-wide plumbing whose producers (shell, alarm,
+ * cwd, skill, caveman-micro, vcs-jj, …) are *clients* — they only call into
+ * `lib/*` and never register handlers/renderers themselves.
+ *
+ * Why bundle the owners into one extension instead of N:
+ *
+ *   - Coherence: a producer without its owner is silently broken (pi falls
+ *     back to raw `[customType]` + content, or queued messages never drain).
+ *     When owner + producers are scattered across independent files, removing
+ *     one owner file disables every producer. One core file means the plumbing
+ *     is present iff cpi is present at all — no dangling halves.
+ *   - Hot-reload soundness (per AGENTS.md): each owner re-registers on its own
+ *     extension instance at load (`pi.on` / `registerMessageRenderer` are
+ *     idempotent `Map.set` / append on a fresh instance). Bundling means a
+ *     single reload re-registers ALL owners atomically — strictly stronger
+ *     than five independent reloads. No `globalThis` dedup flag is used (the
+ *     anti-pattern): registration is unconditional at load.
+ *   - Shared mutable state still lives in `lib/*` on `globalThis` slots
+ *     (footer singleton, prepend queues, hold registry, system-prompt
+ *     transform registry). Reloads re-populate it; it is never used to skip
+ *     registration.
+ *
+ * Producers must NOT register any of these owners; they call `lib/*` only.
+ */
+
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { applySystemPromptTransforms } from "./lib/system-prompt.ts";
+import { drainAfterTool, drainBeforeUser } from "./lib/prepend-message.ts";
+import { registerNotificationRenderer } from "./lib/notification.ts";
+import { setupCpiFooter, disposeCpiFooter } from "./lib/footer.ts";
+import {
+  consumeHoldNotice,
+  getHoldSources,
+  getLastStopReason,
+  resetHoldTracking,
+  setLastStopReason,
+  type HoldSource,
+} from "./lib/session-hold.ts";
+
+export default function coreExtension(pi: ExtensionAPI): void {
+  // ── Footer owner ────────────────────────────────────────────────────────
+  // Owns pi's custom footer for all cpi extensions. Contributors (vcs-jj,
+  // caveman-micro, shell/status) push data via lib/footer.ts; they never
+  // call setFooter. Re-setup on session_start/tree is idempotent.
+  pi.on("session_start", async (_event, ctx: ExtensionContext) => {
+    setupCpiFooter(pi, ctx);
+  });
+  pi.on("session_tree", async (_event, ctx: ExtensionContext) => {
+    setupCpiFooter(pi, ctx);
+  });
+  pi.on("session_shutdown", async () => {
+    disposeCpiFooter();
+  });
+
+  // ── Notification renderer owner ────────────────────────────────────────
+  // Owns the <notification> message renderer. Senders (shell/alarm/hold) use
+  // `sendNotification` from lib/notification.ts; they never register.
+  registerNotificationRenderer(pi);
+
+  // ── Prepend-message drain owner ────────────────────────────────────────
+  // Owns the two drain points for the queued-message plumbing. Producers
+  // (cwd, skill, caveman-micro) only `queueMessage()`; they never install
+  // handlers.
+  pi.on("before_agent_start", () => drainBeforeUser(pi));
+  pi.on("tool_execution_end", () => drainAfterTool(pi));
+
+  // ── System-prompt owner ────────────────────────────────────────────────
+  // The SINGLE before_agent_start handler that returns a mutated
+  // systemPrompt, after applying every registered transform (from skill,
+  // caveman-micro, …) in declared `order`. No other handler here returns a
+  // value, so this is the sole systemPrompt return across all of cpi.
+  pi.on("before_agent_start", async (event: any, ctx: any) => {
+    return {
+      systemPrompt: applySystemPromptTransforms(
+        event.systemPrompt,
+        ctx,
+        event.systemPromptOptions,
+      ),
+    };
+  });
+
+  // ── Session-hold owner ─────────────────────────────────────────────────
+  // The SINGLE extension that owns hold logic: one combined hold notice +
+  // one deadline await across all hold sources (alarm, shell). Sources only
+  // `registerHoldSource` + own their `onAbort` cleanup; they never run hold
+  // awaits or emit notices themselves.
+  pi.on("agent_start", () => resetHoldTracking());
+
+  pi.on("agent_end", (event: any, ctx: any) => {
+    for (let i = event.messages.length - 1; i >= 0; i--) {
+      const m = event.messages[i];
+      if (m.role === "assistant") {
+        setLastStopReason(m.stopReason);
+        break;
+      }
+    }
+    if (ctx.hasUI) return;
+    const reason = getLastStopReason();
+    if (reason === "error" || reason === "aborted") return;
+    const pending = getHoldSources().filter((s) => s.hasPending());
+    if (pending.length === 0) return;
+    if (!consumeHoldNotice()) return;
+    emitHoldNotice(ctx, pending);
+  });
+
+  pi.on("session_shutdown", async (event: any, ctx: any) => {
+    const reason = getLastStopReason();
+    const sources = getHoldSources();
+    const abortAll = () => {
+      for (const s of sources) {
+        try {
+          s.onAbort();
+        } catch {
+          // onAbort is best-effort; never let one failure skip the rest.
+        }
+      }
+    };
+    if (ctx.hasUI || event.reason !== "quit" || reason === "error" || reason === "aborted") {
+      abortAll();
+      return;
+    }
+    const pending = sources.filter((s) => s.hasPending());
+    if (pending.length === 0) {
+      abortAll();
+      return;
+    }
+    if (consumeHoldNotice()) emitHoldNotice(ctx, pending);
+    const deadline = Date.now() + Math.max(...pending.map((s) => s.deadlineMs));
+    await new Promise<void>((resolve) => {
+      const check = () => {
+        if (Date.now() >= deadline) return resolve();
+        const still = sources.some((s) => s.hasPending());
+        if (!still && ctx.isIdle()) {
+          // Grace beat: confirm no follow-up turn is starting before resolving.
+          setTimeout(
+            () =>
+              sources.some((s) => s.hasPending()) || !ctx.isIdle()
+                ? setTimeout(check, 100)
+                : resolve(),
+            500,
+          );
+        } else {
+          setTimeout(check, 100);
+        }
+      };
+      check();
+    });
+    abortAll();
+  });
+}
+
+function emitHoldNotice(ctx: any, pending: HoldSource[]): void {
+  const text = pending
+    .map((s) => s.noticeText())
+    .filter(Boolean)
+    .join(" ; ");
+  try {
+    process.stderr.write(`[hold] ${text}\n`);
+  } catch {
+    // stderr writes must never break the hold flow.
+  }
+  if (ctx.hasUI) ctx.ui.notify(text, "info");
+}

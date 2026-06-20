@@ -2,7 +2,7 @@
  * caveman-micro: append a "caveman" system-prompt directive and toggle it
  * on/off via /caveman. Reads its prompt strings from the shared cpi-config.json
  * (`caveman` section via lib/config.ts); the actual system-prompt mutation is
- * delegated to the single owner extension (extensions/system-prompt.ts) through
+ * delegated to the single owner (in `extensions/core.ts`) through
  * a registered transform (lib/system-prompt.ts).
  *
  * /caveman on|off|status toggles a module-level flag; toggling mid-conversation
@@ -10,7 +10,7 @@
  */
 
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { prependMessage, isFirstTurn } from "../lib/prepend-message";
+import { isFirstTurn } from "../lib/prepend-message";
 import { registerRightSegment, requestFooterRender } from "../lib/footer.ts";
 import { loadCavemanConfig, type CavemanConfig } from "../lib/config.ts";
 import { registerSystemPromptTransform } from "../lib/system-prompt.ts";
@@ -159,14 +159,11 @@ export default function cavemanMicroExtension(pi: ExtensionAPI) {
     },
   });
 
-  // ── Prepend nudge before first user message ──────────────────────
-
-  prependMessage(pi, {
-    customType: "caveman-micro-nudge",
-    content: loadConfig().mid_convo_nudge_positive || "From now on, respond in caveman style.",
-    when: isFirstTurn,
-    once: true,
-  });
+  // ── System-prompt transform is the canonical caveman carrier ──────────
+  // (see registerSystemPromptTransform below). A first-turn prependMessage
+  // is intentionally NOT used: it would duplicate the system-prompt block on
+  // turn 1. Mid-conversation toggling still sends an explicit user nudge via
+  // pi.sendUserMessage() in the /caveman handler.
 
   // ── Register system-prompt transform (applied by the owner extension) ──
   // order 200: runs after strip-skills (100) so the appended block is never

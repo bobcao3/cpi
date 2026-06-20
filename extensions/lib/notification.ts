@@ -106,7 +106,7 @@ export function sendNotification(
 /**
  * Register the TUI renderer for notifications on this extension instance.
  *
- * Called by the dedicated `extensions/notification.ts` owner at load. pi stores
+ * Called by the dedicated owner in `extensions/core.ts` at load. pi stores
  * message renderers on the *extension instance* (its `messageRenderers` Map),
  * which is transient — a fresh, empty Map is created on every (re)load — so the
  * owner re-registers on each load of its own instance (idempotent `Map.set`;

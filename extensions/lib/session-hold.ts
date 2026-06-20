@@ -11,7 +11,7 @@
  * double-registering the notification renderer.
  *
  * Fix: hold sources register here; a SINGLE owner extension
- * (extensions/hold.ts) reads them at `agent_end` / `session_shutdown` time and
+ * (`extensions/core.ts`) reads them at `agent_end` / `session_shutdown` time and
  * runs one await. This module is pure data + accessors — no pi imports —
  * mirroring lib/footer.ts and lib/transcript-registry.ts.
  *

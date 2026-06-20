@@ -41,8 +41,7 @@
  *
  * The two queues live on `globalThis` slots so they survive jiti reloads and
  * are shared across importing extensions (same pattern as lib/notification.ts
- * and lib/system-prompt.ts). Drain handlers are owned by the dedicated
- * `extensions/prepend-message.ts` extension (installed at load, re-installed on
+ * and lib/system-prompt.ts). Drain handlers are owned by the dedicated owner in `extensions/core.ts` (installed at load, re-installed on
  * its own reload); producers enqueue only and never install handlers.
  */
 
@@ -173,7 +172,7 @@ function deliver(
 /**
  * Drain the before-user queue: deliver all enqueued "beforeUser" messages.
  * Lands before the next user message (no turn). Called by the dedicated owner
- * extension (extensions/prepend-message.ts) at `before_agent_start`.
+ * owner in `extensions/core.ts` at `before_agent_start`.
  */
 export function drainBeforeUser(pi: ExtensionAPI): void {
   const items = queue(Q_BEFORE_USER).splice(0);
@@ -184,7 +183,7 @@ export function drainBeforeUser(pi: ExtensionAPI): void {
  * Drain the after-tool queue: deliver all enqueued "afterToolResult" messages
  * via steer (lands after the current turn's tool results, before the next LLM
  * call). The last item triggers an idle wake. Called by the dedicated owner
- * extension (extensions/prepend-message.ts) at `tool_execution_end`.
+ * owner in `extensions/core.ts` at `tool_execution_end`.
  */
 export function drainAfterTool(pi: ExtensionAPI): void {
   const items = queue(Q_AFTER_TOOL).splice(0);
@@ -195,7 +194,7 @@ export function drainAfterTool(pi: ExtensionAPI): void {
 
 /**
  * Enqueue a custom message for deferred delivery. Does not install drain
- * handlers — that is owned by `extensions/prepend-message.ts`.
+ * handlers — that is owned by `extensions/core.ts`.
  *
  * - `deliverAs: "beforeUser"` (default): delivered before the next user
  *   message, at the next `before_agent_start`. Use for notifications raised

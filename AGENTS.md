@@ -171,11 +171,17 @@ This is not theoretical: it bit `ensureNotificationRenderer`,
 - **Guard on real resource state, not a boolean flag.** Check the thing itself:
   `if (timer) return` (`lib/footer.ts`), `existsSync(bin)`
   (`shell/tools.ts`), re-merge state per call (`cwd.ensureToolActive`).
-- **Own per-instance registration in a dedicated extension.** When registration
-  has no queryable state (a renderer, a drain handler), one thin extension
-  registers it at load and re-registers on its own reload. Producers are pure
-  clients — they never register. See `extensions/notification.ts` (renderer
-  owner) and `extensions/prepend-message.ts` (drain owner).
+- **Own per-instance registration in one core extension.** When registration
+  has no queryable state (a renderer, a drain handler, a system-prompt
+  transform owner, session-hold), it is registered unconditionally at load and
+  re-registered on its own reload. Producers are pure clients — they never
+  register. All such owners live together in `extensions/core.ts` (footer,
+  notification renderer, prepend-message drains, system-prompt transforms,
+  session-hold): one extension means the shared plumbing is present iff cpi is
+  present at all — no producer can be left dangling without its owner, and a
+  single hot-reload re-registers every owner atomically. Each registers
+  unconditionally at load (no `globalThis` dedup flag); `pi.registerMessageRenderer`
+  / `pi.on` are idempotent `Map.set` / append on the fresh instance.
 - **Unconditional register at load when the extension is the sole owner.**
   `pi.registerMessageRenderer` / `pi.on` are idempotent `Map.set` / append;
   calling once per load is fine. Use this only when one extension owns the

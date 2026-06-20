@@ -1,7 +1,7 @@
 /**
  * Shared registry for system-prompt transforms.
  *
- * One owner extension (extensions/system-prompt.ts) listens to
+ * One owner (in `extensions/core.ts`) listens to
  * `before_agent_start` and applies every registered transform to the incoming
  * system prompt, in ascending `order`. Other extensions (caveman, skill)
  * register transforms at factory load instead of each mutating
