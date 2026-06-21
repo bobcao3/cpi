@@ -13,6 +13,8 @@ import { promisify } from "node:util";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { initTreeSitterWasm, ensureTreeSitterReady } from "../lib/tree-sitter.ts";
 import { parsePubKey, parseSig, verifyMinisign } from "../lib/minisig.ts";
+import { parseDotEnv } from "../lib/dotenv.ts";
+import { resolveCwdPath } from "../lib/cwd.ts";
 import { brotliDecompressSync } from "node:zlib";
 
 const execFileAsync = promisify(execFile);
@@ -158,6 +160,24 @@ export function buildShellEnv(
     const dir = sm.getSessionDir();
     if (dir) env.PI_SESSION_DIR = dir;
   }
+  return env;
+}
+
+/**
+ * Env for `sh` / `sh_repeat_until` with an optional dotenv overlay.
+ *
+ * Base = `buildShellEnv(sm)` (process env ← tool PATH bins ← `PI_SESSION*`).
+ * When `envPath` is given, `parseDotEnv(resolveCwdPath(envPath))` is merged on
+ * top so dotenv wins over process env. `envPath` undefined/null → base only.
+ */
+export function buildShellEnvWithDotenv(
+  sm?: { getSessionId(): string | undefined; getSessionDir(): string | undefined },
+  envPath?: string | null,
+): NodeJS.ProcessEnv {
+  const env = buildShellEnv(sm);
+  if (!envPath) return env;
+  const parsed = parseDotEnv(resolveCwdPath(envPath));
+  for (const [k, v] of Object.entries(parsed)) env[k] = v;
   return env;
 }
 

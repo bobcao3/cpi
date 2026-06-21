@@ -13,7 +13,7 @@ import { join } from "node:path";
 import { Type } from "typebox";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { renderShCall, renderShResult } from "./render.ts";
-import { getShuckBinPath, getToolEnv, type ToolAvailability } from "./tools.ts";
+import { getShuckBinPath, buildShellEnvWithDotenv, type ToolAvailability } from "./tools.ts";
 import { lintCommand, formatDiagnostics } from "./lint.ts";
 import { parseCommand } from "../lib/tree-sitter.ts";
 import { checkRules, formatRuleMatches } from "./rules.ts";
@@ -234,6 +234,7 @@ export function createRepeatTool(
       description: "Seconds between repetitions (5-60)",
     }),
     describe: Type.String({ description: "Short description of what this monitor is doing (a few words)" }),
+    env: Type.Optional(Type.String({ description: "Dotenv merged into monitor env; dotenv wins" })),
   });
 
   const guidelines = [
@@ -259,7 +260,7 @@ export function createRepeatTool(
       params: any,
       _signal: AbortSignal | undefined,
       _onUpdate: any,
-      _ctx: any,
+      ctx: any,
     ) {
       const interval = params.interval;
       const describe = params.describe?.trim();
@@ -307,7 +308,12 @@ export function createRepeatTool(
         ? `linter warnings:\n${warnParts.join("\n")}\n---\n`
         : "";
 
-      const id = startRepeat(params.command, interval, getToolEnv(), describe);
+      const id = startRepeat(
+        params.command,
+        interval,
+        buildShellEnvWithDotenv(ctx?.sessionManager, params.env),
+        describe,
+      );
       const status = `repeating PID=${id} every ${interval}s · stop on non-zero exit`;
       const tag = describe ? ` (${truncateDescribe(describe)})` : "";
       return {
