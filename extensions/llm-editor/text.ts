@@ -18,7 +18,7 @@ import { deepMerge } from "../lib/config.ts";
 
 export interface EditorText {
   system: { viewer: string; editor: string };
-  tasks: { viewer: string; editor: string };
+  tasks: { viewer: string; editor: string; editor_reconcile: string };
   tool: {
     label: string;
     description: string;

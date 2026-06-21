@@ -36,7 +36,7 @@ import {
 import { createRepeatTool, getActiveRepeats } from "./shell/repeat.ts";
 import { registerShellTranscriptRenderers } from "./shell/transcript.ts";
 import { createShellStatusRefresher, type ShellStatusRefresher } from "./shell/status.ts";
-import { lintCommand, formatDiagnostics, disposeLspClient } from "./shell/lint.ts";
+import { lintCommand, formatDiagnostics } from "./shell/lint.ts";
 import { parseCommand } from "./lib/tree-sitter.ts";
 import { checkRules, formatRuleMatches } from "./shell/rules.ts";
 import { surfaceCdAgents } from "./shell/cd-targets.ts";
@@ -420,6 +420,5 @@ export default async function (pi: ExtensionAPI) {
   pi.on("session_shutdown", async () => {
     shellStatus?.dispose();
     shellStatus = null;
-    disposeLspClient();
   });
 }

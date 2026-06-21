@@ -2,30 +2,17 @@
  * Language registry — `LspServerSpec` per language (pure node, design §6.2).
  *
  * One spec per language describing how to discover, install, spawn, and
- * full-check its LSP server. Version pins come from {@link loadLspConfig} so a
+ * spawn its LSP server. Version pins come from {@link loadLspConfig} so a
  * config pin bump re-provisions on the next session (the version-match check
  * in provision.ts, Layer 3). Pure node — imports only config + discover types.
- *
- * Python `fullCheckCommand` runs `pyrefly check` with `cwd = root` (project
- * mode from cwd), **not** `pyrefly check <root>` (which is per-file mode).
- * Typescript `fullCheckCommand` runs `tsc --noEmit -p <root>`, with `tsc`
- * resolved from the server env's `node_modules/.bin` (sibling of the server
- * binary); env-provided reuse is a Layer 3 concern.
  */
 
-import { dirname, extname, join } from "node:path";
+import { extname } from "node:path";
 import { type Language, LANGUAGE_EXTENSIONS, LANGUAGE_MARKERS } from "./discover.ts";
 import { type LspConfig, loadLspConfig } from "../config.ts";
 
 /** Spawn directive: command + args (+ optional cwd override). */
 export interface SpawnDirective {
-  cmd: string;
-  args: string[];
-  cwd?: string;
-}
-
-/** Full-package check directive (CLI checker, e.g. `tsc --noEmit -p <root>`). */
-export interface FullCheck {
   cmd: string;
   args: string[];
   cwd?: string;
@@ -56,10 +43,6 @@ export interface LspServerSpec {
   serverCommand: (bin: string, root: string) => SpawnDirective;
   /** `initialize` options (passed through by the worker, Layer 3). */
   initOptions?: unknown;
-  /** Whether a full-package CLI check exists for this language. */
-  supportsFullPackageCheck: boolean;
-  /** Build the full-package check directive, or undefined when unsupported. */
-  fullCheckCommand?: (bin: string, root: string) => FullCheck;
 }
 
 function typescriptSpec(cfg: LspConfig): LspServerSpec {
@@ -74,11 +57,6 @@ function typescriptSpec(cfg: LspConfig): LspServerSpec {
     binName: "typescript-language-server",
     serverCommand: (bin) => ({ cmd: bin, args: ["--stdio"] }),
     initOptions: { hostInfo: "cpi" },
-    supportsFullPackageCheck: true,
-    fullCheckCommand: (bin, root) => ({
-      cmd: join(dirname(bin), "tsc"),
-      args: ["--noEmit", "-p", root],
-    }),
   };
 }
 
@@ -92,10 +70,6 @@ function pythonSpec(cfg: LspConfig): LspServerSpec {
     install: { method: "uv", package: py.package, version: py.version },
     binName: "pyrefly",
     serverCommand: (bin) => ({ cmd: bin, args: ["lsp"] }),
-    supportsFullPackageCheck: true,
-    // `pyrefly check` with cwd=root → project mode. Passing <root> as a file
-    // arg would be per-file mode, so cwd (not an arg) carries the root.
-    fullCheckCommand: (bin, root) => ({ cmd: bin, args: ["check"], cwd: root }),
   };
 }
 
@@ -111,7 +85,6 @@ function shellSpec(cfg: LspConfig): LspServerSpec {
     install: { method: "reuse" },
     binName: "shuck",
     serverCommand: (bin) => ({ cmd: bin, args: ["server", "--isolated"] }),
-    supportsFullPackageCheck: false,
   };
 }
 

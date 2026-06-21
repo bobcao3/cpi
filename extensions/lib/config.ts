@@ -112,8 +112,6 @@ export interface LspToolsConfig {
   uv: LspUvToolConfig;
 }
 export interface LspConfig {
-  checkMaxLines: number;
-  checkMaxBytes: number;
   startupTimeoutMs: number;
   lintTimeoutMs: number;
   installTimeoutMs: number;
@@ -319,8 +317,6 @@ export function loadLspConfig(cwd: string = process.cwd()): LspConfig {
   const ms = merged.servers?.shell;
   const mu = merged.tools?.uv;
   return {
-    checkMaxLines: intInRange(merged.checkMaxLines, d.checkMaxLines, 1, 10000),
-    checkMaxBytes: intInRange(merged.checkMaxBytes, d.checkMaxBytes, 1024, 1048576),
     startupTimeoutMs: intInRange(merged.startupTimeoutMs, d.startupTimeoutMs, 1000, 300000),
     lintTimeoutMs: intInRange(merged.lintTimeoutMs, d.lintTimeoutMs, 500, 120000),
     installTimeoutMs: intInRange(merged.installTimeoutMs, d.installTimeoutMs, 1000, 600000),
