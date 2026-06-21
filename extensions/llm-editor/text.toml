@@ -136,6 +136,12 @@ no_output = "(no output)"
 head_more = "... ({n} more lines; pass a query to view relevant ranges)"
 lines_omitted = "... ({n} lines omitted) ..."
 
+# ── LSP result-field strings (design §9; {placeholder} substituted via fmt) ──
+[lsp]
+diagnostics_none = "none"
+install_failed = "run 'lsp start file={path}' to provision"
+restart_hint = "LSP auto-started for {root}. If the env is wrong, run 'lsp start file={path} env=<dotenv>' to restart."
+
 # ── Error message templates ({placeholder} substituted at runtime) ──
 [errors]
 aborted = "Aborted before start."

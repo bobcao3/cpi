@@ -35,9 +35,13 @@ import { registerNotificationRenderer } from "./lib/notification.ts";
 import { setupCpiFooter, disposeCpiFooter } from "./lib/footer.ts";
 import {
   awaitPendingHolds,
+  buildHoldReminderText,
+  clearReminderDelivered,
   consumeHoldNotice,
   getHoldSources,
   getLastStopReason,
+  isReminderDelivered,
+  markReminderDelivered,
   resetHoldTracking,
   setLastStopReason,
   type HoldSource,
@@ -105,7 +109,23 @@ export default function coreExtension(pi: ExtensionAPI): void {
     if (reason === "error" || reason === "aborted") return;
     const sources = getHoldSources();
     const pending = sources.filter((s) => s.hasPending());
-    if (pending.length === 0) return;
+    if (pending.length === 0) {
+      clearReminderDelivered();
+      return;
+    }
+    // When the agent stops without explicitly yielding via wait_any while hold
+    // sources are pending, surface the hold to the agent as a "system reminder"
+    // (headless-only) so it can decide — wait_any to yield, or sh_signal SIGKILL
+    // to return control. Delivered once per hold episode (reminderDelivered flag,
+    // cleared when pending hits zero) so a normally-stopping agent is not nagged
+    // into a reminder loop; the reminder's follow-up turn keeps the session alive,
+    // so no await here. The wait_any / already-reminded paths fall back to the
+    // deadline-bounded passive hold.
+    if (!endedViaWaitAny(event.messages) && !isReminderDelivered()) {
+      markReminderDelivered();
+      deliverHoldReminder(pi, pending);
+      return;
+    }
     if (consumeHoldNotice()) emitHoldNotice(ctx, pending);
     // Hold the run open until pending alarms/background shells fire. While we await,
     // isStreaming stays true, so their sendNotification queues a steer/followUp that
@@ -118,6 +138,7 @@ export default function coreExtension(pi: ExtensionAPI): void {
     const reason = getLastStopReason();
     const sources = getHoldSources();
     const abortAll = () => {
+      clearReminderDelivered();
       for (const s of sources) {
         try {
           s.onAbort();
@@ -171,4 +192,37 @@ function emitHoldNotice(ctx: any, pending: HoldSource[]): void {
     // stderr writes must never break the hold flow.
   }
   if (ctx.hasUI) ctx.ui.notify(text, "info");
+}
+
+const WAIT_ANY_TOOL = "wait_any";
+const HOLD_REMINDER_TYPE = "hold-reminder";
+
+// Detects whether the agent explicitly yielded via wait_any (so we skip the
+// reminder) vs ended its turn normally. wait_any returns terminate:true, so
+// it is always the last tool of a turn when used; scanning from the end for
+// the most recent toolResult and checking its toolName is sufficient.
+function endedViaWaitAny(messages: any[]): boolean {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i];
+    if (m.role === "toolResult") {
+      return m.toolName === WAIT_ANY_TOOL;
+    }
+  }
+  return false;
+}
+
+// Delivered during agent_end while isStreaming is true, so deliverAs:"followUp"
+// queues it; the run loop's hasQueuedMessages->continue drives the follow-up
+// turn that wakes the agent to decide (no await — the turn itself holds the
+// session).
+function deliverHoldReminder(pi: ExtensionAPI, pending: HoldSource[]): void {
+  const text = buildHoldReminderText(pending);
+  try {
+    pi.sendMessage(
+      { customType: HOLD_REMINDER_TYPE, content: text, display: true },
+      { triggerTurn: true, deliverAs: "followUp" },
+    );
+  } catch {
+    // Delivery failure must never break the hold flow.
+  }
 }

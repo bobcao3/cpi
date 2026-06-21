@@ -27,6 +27,7 @@ import { editFile } from "./editor.ts";
 import { withPathLock } from "./cas.ts";
 import { shortSha } from "./id.ts";
 import { resultXml, field } from "./result-xml.ts";
+import { lspFields } from "./lsp.ts";
 import { renderLlmEditorCall, renderLlmEditorResult } from "./render.ts";
 
 export const LLM_EDITOR_TOOL = "llm_editor";
@@ -211,13 +212,14 @@ export async function execute(
           fmt(T.errors.create_failed, { reason: (e as Error).message }),
         );
       }
-      return okResult(
+      const body = [field("created", undefined, { bytes: Buffer.byteLength(fileText, "utf-8") })];
+      const lsp = await lspFields(abs);
+      if (lsp) body.push(lsp);
+      return okResult(id, params.command, abs, body, {
         id,
-        params.command,
-        abs,
-        [field("created", undefined, { bytes: Buffer.byteLength(fileText, "utf-8") })],
-        { id, kind: "create", bytes: Buffer.byteLength(fileText, "utf-8") },
-      );
+        kind: "create",
+        bytes: Buffer.byteLength(fileText, "utf-8"),
+      });
     });
   }
 
@@ -240,27 +242,23 @@ export async function execute(
     maxFileBytes: cfg.maxFileBytes,
   });
   if (!r.ok) return errorResult(id, params.command, abs, r.error);
-  return okResult(
+  const body = [
+    field("blocks", String(r.applied)),
+    field("rewrite", String(r.wholeFileRewrite)),
+    field("diff", r.diff),
+  ];
+  if (r.lsp) body.push(r.lsp);
+  return okResult(id, params.command, abs, body, {
     id,
-    params.command,
-    abs,
-    [
-      field("blocks", String(r.applied)),
-      field("rewrite", String(r.wholeFileRewrite)),
-      field("diff", r.diff),
-    ],
-    {
-      id,
-      kind: "edit",
-      diff: r.diff,
-      blocks: r.applied,
-      rewrite: r.wholeFileRewrite,
-      patch: r.patch,
-      firstChangedLine: r.firstChangedLine,
-      diffOps: r.diffOps,
-      usage: r.usage,
-    },
-  );
+    kind: "edit",
+    diff: r.diff,
+    blocks: r.applied,
+    rewrite: r.wholeFileRewrite,
+    patch: r.patch,
+    firstChangedLine: r.firstChangedLine,
+    diffOps: r.diffOps,
+    usage: r.usage,
+  });
 }
 
 export const llmEditorTool = {

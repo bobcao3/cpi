@@ -28,6 +28,7 @@ import { loadEditorText, fmt, type EditorText } from "./text.ts";
 import { parseBlocks, applyBlocks, type ApplyError } from "./apply.ts";
 import { editDiffOps, type DiffOp } from "./diff.ts";
 import { withPathLock, fingerprintOf, unchangedSince, type Fingerprint } from "./cas.ts";
+import { lspFields } from "./lsp.ts";
 
 /** Max reconcile attempts after a drift; past it the drift is surfaced to the main agent (no write). Exactly one. */
 const MAX_RECONCILES = 1;
@@ -55,6 +56,7 @@ export type EditFileResult =
       firstChangedLine: number | undefined;
       applied: number;
       wholeFileRewrite: boolean;
+      lsp: string;
       usage?: { input: number; output: number };
     }
   | { ok: false; error: string };
@@ -146,6 +148,7 @@ export async function editFile(path: string, opts: EditFileOptions): Promise<Edi
         return { ok: false, error: fmt(T.errors.write_failed, { reason: (err as Error).message }) };
       }
 
+      const lsp = await lspFields(abs);
       const { diff, firstChangedLine } = generateDiffString(content, applied.content);
       const diffOps = editDiffOps(content, applied.content, 3, 2);
       const patch = generateUnifiedPatch(abs, content, applied.content);
@@ -157,6 +160,7 @@ export async function editFile(path: string, opts: EditFileOptions): Promise<Edi
         firstChangedLine,
         applied: applied.applied,
         wholeFileRewrite: applied.wholeFileRewrite,
+        lsp,
         usage: res.usage,
       };
     }
