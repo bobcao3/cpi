@@ -1,0 +1,6 @@
+<%# Snapshot: collapse the event stream into Block (boxed, sectioned) + Event
+    (inline, T+Ns) units via TranscriptBlock. Tool lifecycles merge into one
+    Block at the start position; message_start/update and toolResult message_end
+    are dropped. Live deltas arrive via the channel as append (start/message/
+    event) or replace (tool update/end). The verifier verdict is appended as a
+    final Block for completed trials. %><% TranscriptBlock.build(events).each do |u| %><% if u.is_a?(TranscriptBlock::Block) %><%= render "monitors/block", block: u %><% else %><%= render "monitors/event", event: u %><% end %><% end %><% if job && trial.present? %><% v = Verifier.for(job, trial) %><% unless v.reward.nil? && v.stdout.nil? %><%= render "monitors/block", block: TranscriptBlock.verifier_block(v) %><% end %><% end %>

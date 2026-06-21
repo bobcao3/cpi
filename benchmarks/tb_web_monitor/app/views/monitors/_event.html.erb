@@ -1,0 +1,3 @@
+<%# Inline lifecycle event the agent never sees: no box, T+Ns when the
+    timestamp is known. Restyled as a dimmed horizontal separator (≤50%
+    width) with the label centered between two flexible rule lines. %><div class="evt" data-controller="autoscroll-item"><span class="rule"></span><% tp = tplus(event) %><% if tp.present? %><span class="t"><%= tp %></span><% end %><span class="kind"><%= event_label(event) %></span><% if event_detail(event).present? %><span class="dt"><%= event_detail(event) %></span><% end %><span class="rule"></span></div>

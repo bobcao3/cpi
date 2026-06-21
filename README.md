@@ -2,27 +2,7 @@
 
 Shared extensions and skills for the [pi coding agent](https://github.com/earendil-works/pi-coding-agent), installed at the **user-home level** (`~/.pi/agent/`) so every project inherits them.
 
-## Project structure
-
-```
-cpi/
-├── extensions/        # pi extensions, loaded live via jiti (hot-reloadable)
-│   ├── lib/           # shared leaf modules: config, footer, agents, tree-sitter, cwd, …
-│   ├── shell/         # the `sh` tool family: exec, lint, rules, highlight, cd-targets, status, repeat, transcript
-│   ├── llm-editor/   # the AI-mediated `llm_editor` tool
-│   └── *.ts          # owners/wrappers: core, shell, cwd, alarm, skill, effort, provider, vcs-jj, caveman-micro, …
-├── skills/            # pi skills (subagents-in-pi)
-├── tree-sitter-wasm/  # Zig build of tree-sitter-wasm.wasm (WASI: tree-sitter + bash + highlight query)
-├── scripts/           # build / sign helpers
-└── benchmarks/        # terminal-bench-3 harness
-```
-
-Two conventions shape every extension (full reasoning in `AGENTS.md`):
-
-- **One owner per shared resource.** Shared plumbing — footer, notification renderer, prepend-message drains, system-prompt transforms, session-hold — lives in `core.ts`; every producer is a pure client of `lib/*`.
-- **`globalThis` holds shared _state_, never dedup _flags_.** State survives jiti reloads; registration is guarded on real resource state (a live timer, an existing binary), not a boolean that would skip re-registration after a hot-reload.
-
-## Headline features
+## Features
 
 - **AI-mediated file I/O.** The builtin `read`/`write`/`edit` are stripped and replaced by one `llm_editor` tool. `view`/`create`/`edit` delegate the reasoning to tool-less pi subagents (SWE-Edit); edits come back as search-replace blocks (whole-file rewrite fallback) and every view/edit is transcribed to `<dir>/<id>.md`.
 - **A shell that corrects itself.** `sh` is stateless `bash -c` with backgrounding, signalling, and busy-wait detection. Each command is parsed with tree-sitter, then **linted** (a worker-thread Shuck LSP — no temp files, no per-call spawning) and checked against **AST rules** (`reject` blocks execution, `warn` surfaces to the agent) before it runs — e.g. enforcing `fd`/`rg` over `find`/`grep`. The same tree-sitter captures **syntax-highlight** the command in the TUI.
@@ -46,20 +26,40 @@ Pi reads the source files from disk at runtime (jiti, `moduleCache: false`), so:
 | Edit an existing file              | Already live (pi reads from disk)              |
 | Add a skill directory to `skills/` | Live on next pi session                        |
 
-## Install
+## Installation
 
 **Prerequisites:** The [pi coding agent](https://github.com/earendil-works/pi-coding-agent) must be installed and accessible as `pi` on your `PATH`.
 
 ### Dev (editable) install — local path
 
-Point pi at this checkout. Source is read live, edits take effect on the next session, no tarball involved:
+`pi install -l .` only registers cpi's manifest with pi (project scope, `.pi/settings.json`); it does **not** install npm dependencies. Two things must be in place first: the `pi` coding agent on your `PATH`, and cpi's own runtime dependencies.
+
+**1. `pi` (prerequisite, once).** Install the coding agent globally with bun — lean (`--ignore-scripts` skips lifecycle scripts) and bun-managed, matching the rest of the toolchain:
 
 ```bash
-pi install /path/to/cpi          # user scope (~/.pi/agent), every project inherits
-pi install -l .                   # project scope (.pi/settings.json), shareable + committed
+bun install -g --ignore-scripts @earendil-works/pi-coding-agent
+which pi            # should resolve to ~/.bun/bin/pi
 ```
 
-Try without persisting:
+If you already have `pi` (e.g. via npm/nvm), either uninstall it or make sure `~/.bun/bin` precedes it on `PATH` so the bun-managed one wins.
+
+**2. cpi's own dependencies.** pi's own modules (`@earendil-works/*`, `typebox`) are `peerDependencies` — at runtime pi loads cpi through jiti with an `alias` map that redirects those imports to **pi's own copies**, so they must not be installed here. `bun install --omit=peer` installs only cpi's real runtime deps (`mustache`, `smol-toml`) plus dev tooling (`@types/mustache`, `prettier`) — ~9 MB instead of duplicating pi's ~180 MB dependency tree:
+
+```bash
+bun install --omit=peer
+```
+
+**3. Link cpi into pi's project scope** (shareable, committed):
+
+```bash
+pi install -l .
+```
+
+Source is read live by jiti (`moduleCache: false`), so edits take effect on the next `pi` session — no build step.
+
+> **Editor / LSP type-resolution.** With peers omitted, an editor's `tsserver` cannot resolve `@earendil-works/*` / `typebox` imports — those resolve at runtime through pi's jiti alias, not from this checkout. For full editor type-checking, run a one-off `bun install` (without `--omit=peer`) to materialize the peers; it only affects the editor, never runtime.
+
+Try without persisting the link:
 
 ```bash
 pi -e /path/to/cpi
@@ -82,9 +82,9 @@ npm publish
 
 The `files` field ships only `extensions/`, `skills/`, `cpi-config.default.json`, and `fallback-providers.example.json`. Core pi modules (`@earendil-works/*`, `typebox`) are `peerDependencies` and are **not** bundled — pi provides them at runtime.
 
-After installation, start `pi` normally. The custom `sh` tool replaces the builtin `bash`, the `llm_editor` tool replaces `read`/`write`/`edit`, the `alarm` tool is available for scheduled wake-ups, and configured providers are registered automatically.
+After installation, start `pi` normally: the custom `sh` tool replaces the builtin `bash`, `llm_editor` replaces `read`/`write`/`edit`, `alarm` is available for scheduled wake-ups, and configured providers register automatically.
 
-## Uninstall
+### Uninstall
 
 ```bash
 pi remove /path/to/cpi            # dev install (use the same path you installed with)
@@ -97,7 +97,7 @@ If you are migrating from the old `install.sh` method (directory entries patched
 /path/to/cpi/uninstall.sh
 ```
 
-## Excluding extensions
+### Excluding extensions
 
 To disable a specific extension without deleting the file, use `pi config` (interactive) or add a `!` exclusion filter to the package entry in `~/.pi/agent/settings.json`:
 
@@ -114,10 +114,13 @@ To disable a specific extension without deleting the file, use `pi config` (inte
 
 The directory discovers all cpi extensions; the `!` pattern filters out `disable-read-write-edit.ts`. See the [pi settings docs](https://pi.dev/docs/latest/settings) for full glob/exclusion syntax.
 
-## cpi Config
+## Configuration
 
-Extensions read their tunable parameters from a shared JSON config file,
-merged from two locations:
+cpi is configured through three independent mechanisms. Each has a **user** scope (defaults for all projects, under `~/.pi/agent/`) and an optional **project** scope (under `<project>/.pi/`) that overrides it.
+
+### Shell — `cpi-config.json`
+
+Tunable parameters for the `sh` tool's execution and output truncation. All values are reflected in the tool's schema description, guidelines, and validation at runtime, so the model always sees the effective limits.
 
 | Scope   | Path                            | Purpose                                      |
 | ------- | ------------------------------- | -------------------------------------------- |
@@ -125,13 +128,7 @@ merged from two locations:
 | User    | `~/.pi/agent/cpi-config.json`   | Defaults for all projects                    |
 | Project | `<project>/.pi/cpi-config.json` | Override/add settings for a specific project |
 
-### Merge rules
-
-- **Deep merge**: nested objects are merged recursively; project values override user values for the same key.
-- **Arrays**: project array replaces user array wholesale (same as pi's settings.json behavior).
-- **Defaults**: any field absent from user/project config falls back to `cpi-config.default.json` (shipped, documented below).
-
-### Schema
+**Merge rules:** nested objects merge recursively (project overrides user); project arrays replace user arrays wholesale; any absent field falls back to `cpi-config.default.json`.
 
 See `cpi-config.default.json` for the full documented defaults. Current sections:
 
@@ -150,12 +147,6 @@ See `cpi-config.default.json` for the full documented defaults. Current sections
 }
 ```
 
-### Shell
-
-Controls the `sh` tool's execution and output truncation. All values are
-reflected in the tool's schema description, guidelines, and validation at
-runtime, so the model always sees the effective limits.
-
 | Setting           | Type   | Default   | Range          | Description                                                                   |
 | ----------------- | ------ | --------- | -------------- | ----------------------------------------------------------------------------- |
 | `defaultWaitfor`  | number | `5`       | > 0            | Seconds to wait before backgrounding when no `waitfor` is passed              |
@@ -167,10 +158,9 @@ runtime, so the model always sees the effective limits.
 | `tailLines`       | number | `5`       | 1–200          | TUI folded-preview line count — independent of agent head/tail                |
 | `describeMax`     | number | `48`      | 8–200          | Max chars of the `describe` summary shown in the UI                           |
 
-`tailLines` (TUI folding) and `maxPreviewLines`/`previewMaxBytes` (agent
-truncation) are independent: changing one never affects the other.
+`tailLines` (TUI folding) and `maxPreviewLines`/`previewMaxBytes` (agent truncation) are independent: changing one never affects the other.
 
-## Rules
+### Rules — `rules/*.md`
 
 Markdown rules files are appended to the system prompt every turn.
 
@@ -188,24 +178,18 @@ Each file is appended as:
 
 `<label>` is `user-rules` for `~/.pi/agent/rules/` files and `rules` for `<cwd>/rules/` files. Files are read fresh each turn, so edits take effect immediately.
 
-## Fallback Providers Config
+### Fallback providers — `fallback-providers.json`
 
-`provider.ts` reads provider/model definitions and fallback order
-from two JSON files, merged at session start:
+`provider.ts` reads provider/model definitions and fallback order from two JSON files, merged at session start:
 
 | Scope   | Path                                    | Purpose                                               |
 | ------- | --------------------------------------- | ----------------------------------------------------- |
 | User    | `~/.pi/agent/fallback-providers.json`   | Default providers + fallback order for all projects   |
 | Project | `<project>/.pi/fallback-providers.json` | Override/add providers; reorder fallbacks per-project |
 
-### Merge rules
+**Merge rules:** `providers` deep-merge — project entries override user entries by provider key, and within a provider the project's full config replaces the user's. `fallbacks` — the project list replaces the user list entirely (so projects can reorder or prune); if the project has no `fallbacks` key, the user's are kept.
 
-- **`providers`**: deep merge — project entries override user entries by provider key. Within a provider, project's full config replaces user's.
-- **`fallbacks`**: project list replaces user list entirely (so projects can reorder or prune). If project has no `fallbacks` key, user's are kept.
-
-### Schema
-
-See `fallback-providers.example.json` for a template. Key fields:
+**Schema** (see `fallback-providers.example.json` for a template):
 
 ```jsonc
 {
@@ -230,15 +214,12 @@ See `fallback-providers.example.json` for a template. Key fields:
 }
 ```
 
-### Behavior
+**Behavior.** Two distinct behaviors, both in `provider.ts`:
 
-Two distinct behaviors, both in `provider.ts`:
+- **Startup:** upon pi start, all providers from merged config are registered, then unusable ones are **stripped** via configurable `strip` rules (defaults to env-based `amazon-bedrock` / `huggingface`, whose ambient cloud creds shadow real providers). If the active model is missing or was just stripped, the first fallback candidate whose context window fits is selected.
+- **Runtime failover:** when an endpoint fails repeatedly — assistant turns ending with `stopReason: "error"` (pi surfaces these after exhausting its own retries) — the active model is switched to the **next** fallback candidate, but only if that candidate's `contextWindow` fits the current context. The switch is applied at the `turn_end` where the failure threshold is crossed: the failed call is complete by then, so swapping is race-free, and pi's remaining retries run against the new model — seamless failover with no need to re-send the prompt. The error just counted is attributed to the provider active at the time of the failure (read before the swap); subsequent turns attribute to the new provider, so there is no misattribution.
 
-**Behavior 1 — startup (`provider.ts`):** upon pi start, all providers from merged config are registered, then unusable ones are **stripped** via configurable provider:auth matching (`strip` rules; defaults to env-based `amazon-bedrock` / `huggingface`, whose ambient cloud creds shadow real providers). If the active model is missing or was just stripped, the first fallback candidate whose context window fits is selected.
-
-**Behavior 2 — runtime (`provider.ts`):** when an endpoint fails repeatedly — assistant turns ending with `stopReason: "error"` (pi surfaces these after exhausting its own retries, i.e. "pi's limits") — the active model is switched to the **next** fallback candidate, but only if that candidate's `contextWindow` fits the current context ("if context allows"). The switch is applied at the `turn_end` where the failure threshold is crossed: the failed call is complete by then, so swapping is race-free, and pi's remaining retries run against the new model — seamless failover with no need to re-send the prompt. The error just counted is attributed to the provider active at the time of the failure (read before the swap); subsequent turns attribute to the new provider, so there is no misattribution.
-
-### Config: `strip` and `failover`
+**`strip` and `failover` config:**
 
 ```jsonc
 {
@@ -259,18 +240,24 @@ Two distinct behaviors, both in `provider.ts`:
 
 Set `PF_DEBUG=1` (e.g., `PF_DEBUG=1 pi`) to trace decisions: strip/failover logs to stderr, config loads to `/tmp/provider-fallback-debug.log`.
 
-## Adding new extensions/skills
+## Development
+
+### Extension conventions
+
+Two conventions shape every extension (full reasoning in `AGENTS.md`):
+
+- **One owner per shared resource.** Shared plumbing — footer, notification renderer, prepend-message drains, system-prompt transforms, session-hold — lives in `core.ts`; every producer is a pure client of `lib/*`.
+- **`globalThis` holds shared _state_, never dedup _flags_.** State survives jiti reloads; registration is guarded on real resource state (a live timer, an existing binary), not a boolean that would skip re-registration after a hot-reload.
+
+### Adding extensions or skills
 
 1. Drop the `.ts` file into `extensions/` (or create a `skills/<name>/` directory).
 2. Restart pi — the package manifest already points pi at `extensions/` and `skills/`, so the new file is auto-discovered.
 
 No re-install needed (dev install reads from disk; npm consumers update with `pi update --extensions`).
 
-## Contributing
+### Contributing
 
-This repo is managed with [**Jujutsu (`jj`)**](https://jj-vcs.dev), a
-Git-compatible VCS. Using `jj` is recommended — `jj fix` runs Prettier
-automatically on `.ts`/`.js`/`.json`/`.md` files via `bun`. To get started:
-`jj fix` after making changes, and `jj log` to explore history.
+This repo is managed with [**Jujutsu (`jj`)**](https://jj-vcs.dev), a Git-compatible VCS. Using `jj` is recommended — `jj fix` runs Prettier automatically on `.ts`/`.js`/`.json`/`.md` files via `bun`. To get started: `jj fix` after making changes, and `jj log` to explore history.
 
 <!-- vim: set nowrap tabstop=4 shiftwidth=4 expandtab spell: -->

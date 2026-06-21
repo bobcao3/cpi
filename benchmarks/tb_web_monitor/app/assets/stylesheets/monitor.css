@@ -1,0 +1,103 @@
+  :root { --bg:#0d1117; --panel:#161b22; --border:#30363d; --txt:#c9d1d9; --mut:#8b949e; --acc:#58a6ff; --ok:#3fb950; --warn:#d29922; --err:#f85149; }
+  * { box-sizing: border-box; }
+  body { margin:0; font:13px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace; background:var(--bg); color:var(--txt); height:100vh; overflow:hidden; display:block; }
+  header { display:flex; gap:14px; align-items:center; padding:8px 12px; background:var(--panel); border-bottom:1px solid var(--border); flex-wrap:wrap; flex:0 0 auto; position:sticky; top:0; }
+  header h1 { font-size:14px; margin:0; }
+  header select, header button { background:#0d1117; color:var(--txt); border:1px solid var(--border); padding:4px 8px; border-radius:4px; font:inherit; cursor:pointer; }
+  .stats { display:flex; gap:14px; color:var(--mut); }
+  .stats b { color:var(--txt); }
+  #wsdot { width:8px; height:8px; border-radius:50%; background:var(--mut); display:inline-block; }
+  #wsdot.live { background:var(--ok); } #wsdot.dead { background:var(--err); }
+  main { height:calc(100vh - var(--header-h, 44px)); display:flex; overflow:hidden; }
+  #trials { width:320px; overflow-y:auto; overflow-x:hidden; border-right:1px solid var(--border); }
+  #trials table { width:100%; border-collapse:collapse; }
+  #trials td, #trials th { padding:5px 8px; border-bottom:1px solid var(--border); white-space:nowrap; }
+  #trials tr { cursor:pointer; }
+  #trials tr.sel { background:#1f6feb33; }
+  #trials tr:hover { background:#ffffff0a; }
+  .badge { padding:1px 6px; border-radius:8px; font-size:11px; }
+  .b-pass{background:#238636;color:#fff} .b-fail{background:#da3633;color:#fff}
+  .b-run{background:#d29922;color:#000} .b-err{background:#da3633;color:#fff} .b-pend{background:#30363d;color:var(--mut)}
+  .b-ep{background:#8957e5;color:#fff} .b-to{background:#db6d28;color:#000} .b-infra{background:#6e7681;color:#fff}
+  .task-row { background:#21262d; }
+  .task-row td { font-weight:bold; padding:6px 8px; background:transparent; }
+  .task-name { font-weight:bold; text-shadow:0 1px 2px rgba(0,0,0,.7); }
+  .task-row .toggle { display:inline-block; width:14px; color:var(--mut); cursor:pointer; user-select:none; }
+  .sub-row td { font-size:12px; padding:0; }
+  .sub-row td:first-child { width:1px; white-space:nowrap; padding:5px 8px; }
+  .sub-row td:nth-child(2) { color:var(--mut); }
+  .sub-cols { display:grid; grid-template-columns: minmax(0,1fr) auto auto; gap:10px; align-items:center; padding:5px 8px; }
+  .sub-id { color:var(--txt); }
+  .sub-tok { color:var(--mut); }
+  .sub-dur { color:var(--mut); }
+  #detail { flex:1; overflow:hidden; display:flex; flex-direction:column; min-height:0; }
+  .pane { flex:1; overflow:auto; padding:10px 14px; display:none; min-height:0; }
+  .pane.active { display:block; }
+  pre { white-space:pre-wrap; word-break:break-word; }
+  .mono { color:var(--mut); }
+  #trial-status { display:flex; gap:10px; align-items:center; padding:4px 10px; background:var(--panel); border-bottom:1px solid var(--border); font-size:12px; color:var(--mut); min-height:26px; flex:0 0 auto; }
+  #trial-status .tname { color:var(--txt); font-weight:bold; }
+  #trial-status button { padding:2px 6px; }
+  .score-cell { color:#fff; font-weight:bold; text-shadow:0 1px 2px rgba(0,0,0,.7); }
+  .dim { color:var(--mut); opacity:.55; font-size:11px; }
+
+/* transcript: Block (boxed, sectioned) + Event (inline, no box) */
+.blk { margin:6px 0; border-radius:6px; border:1px solid var(--border); border-left:3px solid var(--mut); background:#161b22; overflow:hidden; }
+/* left-border accent is the ONLY per-block visual difference (kind + state). */
+.blk.msg.user { border-left-color:var(--acc); }       /* user: blue */
+.blk.msg.assistant { border-left-color:var(--mut); }  /* assistant: gray */
+.blk.tool.streaming { border-left-color:var(--warn); } /* tool streaming: yellow */
+.blk.tool.finalized { border-left-color:var(--ok); }   /* tool finalized: green */
+.blk.tool.err { border-left-color:var(--err); }       /* tool error: red (overrides finalized) */
+.blk.verifier { border-left-color:var(--acc); }       /* verifier: blue */
+.blk pre { margin:2px 0; white-space:pre-wrap; word-break:break-word; max-height:420px; overflow:auto; }
+.c-think { color:var(--warn); font-style:italic; }
+.c-call-hdr { color:var(--acc); font-size:11px; margin-bottom:2px; }
+
+/* sections: ONE uniform <details> per section (title always first). The summary
+   bar chrome is identical for every block kind; components only provide
+   title/open/blocks. A body-less section (message/verifier title) is "static" —
+   same bar, twisty hidden, nothing to toggle. */
+.blk .sec { margin:0; }
+.blk .sec > summary { padding:5px 8px; background:#21262d; cursor:pointer; font-size:11px; color:var(--mut); list-style:none; display:flex; gap:8px; align-items:center; }
+.blk .sec > summary::-webkit-details-marker { display:none; }
+.blk .sec > summary::before { content:"▸"; color:var(--mut); width:10px; }
+.blk .sec[open] > summary::before { content:"▾"; }
+.blk .sec.static > summary { cursor:default; }
+.blk .sec.static > summary::before { visibility:hidden; }
+.blk .sec.title > summary { color:var(--txt); font-weight:bold; }
+.blk .sec.title .status, .blk .sec.title .exit, .blk .sec.title .updates, .blk .sec.title .reward, .blk .sec.title .ts { color:var(--mut); font-weight:normal; }
+.blk .sec:not(.title) > summary { border-top:1px solid var(--border); }
+.blk .sec .sec-body { padding:6px 8px; }
+.blk .sec.progress > summary { color:var(--warn); }
+.blk .sec.thinking > summary { color:var(--warn); }
+.blk .sec.result > summary { color:var(--ok); }
+.blk .sec.result.err > summary { color:var(--err); }
+.blk .sec .sec-body pre { margin:0; max-height:320px; overflow:auto; }
+
+/* title-bar meta: primary left, meta pushed right — ts for messages, status for
+   verifier. The tool title keeps status left (its body carries the invoke). */
+.blk.msg .sec.title .ts,
+.blk.verifier .sec.title .status { margin-left:auto; }
+.blk.verifier .sec.title .status { font-weight:bold; }
+.blk.verifier .sec.title .kind { color:var(--acc); }
+.blk.verifier .sec.title .status.pass { color:var(--ok); }
+.blk.verifier .sec.title .status.fail { color:var(--err); }
+.blk.msg .sec.title .role { text-transform:uppercase; font-size:10px; }
+
+/* content-run preview (collapsed summary): the first line of the content.
+   Thinking: bold label + the line (nowrap, ellipsis). Text: the line as a <pre>
+   (expanded styling — same look as the open body); hidden when open so the full
+   body shows instead of duplicating the first line. */
+.blk .sec > summary .prev { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0; flex:1; }
+.blk .sec[open] > summary .prev { display:none; }
+.blk .sec.text > summary { background:transparent; color:var(--txt); }
+.blk .sec.text > summary pre.line { margin:0; flex:1; min-width:0; white-space:pre-wrap; word-break:break-word; }
+.blk .sec.text[open] > summary pre.line { display:none; }
+
+/* events: centered separator with flanking dashed rules and inline label (T+Ns). */
+.evt { display:flex; align-items:center; gap:8px; max-width:50%; margin:6px auto; color:var(--mut); font-size:11px; opacity:.7; }
+.evt .rule { flex:1 1 auto; border-top:1px dashed var(--border); height:0; min-width:8px; }
+.evt .t { color:var(--mut); white-space:nowrap; margin-right:6px; }
+.evt .kind { color:var(--mut); white-space:nowrap; }
+.evt .dt { color:var(--mut); white-space:nowrap; }

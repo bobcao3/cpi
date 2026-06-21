@@ -5,10 +5,15 @@
 node_modules/
 *.js
 *.js.map
+# Rails app JS sources are tracked (override global *.js)
+!benchmarks/tb_web_monitor/**/*.js
+!benchmarks/tb_web_monitor/config/importmap.rb
 *.d.ts
 tsconfig.tsbuildinfo
 .npm/
 .pnpm-store/
+# bun is the package manager — no npm lockfile
+package-lock.json
 
 # ── Environment & secrets ────────────────────────────
 .env
@@ -37,9 +42,9 @@ desktop.ini
 *.sublime-workspace
 
 # ── Misc ────────────────────────────────────────────
-.cache/
-.tmp/
-tmp/
+/.cache/
+/.tmp/
+/tmp/
 
 # minisign signatures are release assets (never committed); secret lives in ~/.ssh/ + Actions secret
 *.minisig
