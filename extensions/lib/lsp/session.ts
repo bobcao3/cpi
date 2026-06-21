@@ -12,7 +12,9 @@
  */
 
 import { Worker } from "node:worker_threads";
+import { mkdirSync } from "node:fs";
 import { delimiter, dirname, join } from "node:path";
+import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { type Language } from "./discover.ts";
 import { type Diagnostic } from "./diagnostics.ts";
@@ -173,6 +175,8 @@ export function spawnSession(
   cfg: LspConfig,
 ): void {
   const rootUri = root ? pathToFileURL(root).href : null;
+  const logPath = join(getAgentDir(), "lsp_logs", `${session.id}.log`);
+  mkdirSync(dirname(logPath), { recursive: true });
   const directive = spec.serverCommand(session.bin, root);
   const spawnEnv = buildSpawnEnv(mergeSpawnEnv(session.envPath), session.pathDir);
   const worker = new Worker(WORKER_PATH, {
@@ -182,6 +186,7 @@ export function spawnSession(
         args: directive.args,
         cwd: directive.cwd ?? root,
         env: spawnEnv,
+        logPath,
       },
       initOptions: spec.initOptions,
       source: sourceName(session.language),

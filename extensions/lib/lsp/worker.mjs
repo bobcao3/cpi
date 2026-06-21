@@ -25,6 +25,8 @@
  */
 
 import { spawn } from "node:child_process";
+import { appendFileSync, mkdirSync } from "node:fs";
+import { dirname } from "node:path";
 import { parentPort, workerData } from "node:worker_threads";
 
 const RECV_BUF_MAX = 16 * 1024 * 1024;
@@ -35,6 +37,7 @@ const source = d.source;
 const startupTimeoutMs = d.startupTimeoutMs;
 const lintTimeoutMs = d.lintTimeoutMs;
 const rootUri = d.rootUri;
+const logPath = spawnDir.logPath || null;
 
 let proc = null;
 let initialized = false;
@@ -42,6 +45,20 @@ let buffer = "";
 let nextId = 1;
 const reqs = new Map();
 const diags = new Map();
+
+function openLog() {
+  if (!logPath) return;
+  try {
+    mkdirSync(dirname(logPath), { recursive: true });
+  } catch {}
+}
+
+function log(tag, msg) {
+  if (!logPath) return;
+  try {
+    appendFileSync(logPath, `${new Date().toISOString()} [${source}] ${tag}: ${msg}\n`, "utf8");
+  } catch {}
+}
 
 function post(msg) {
   parentPort.postMessage(msg);
@@ -111,7 +128,7 @@ function onData(data) {
   if (buffer.length > RECV_BUF_MAX) {
     // breach: a single framed response exceeded the budget; reset and let the
     // server exit handler (or next lint's timeout) surface the failure.
-    console.error("[lsp-worker] recv buffer breach (>16MiB); resetting");
+    log("lsp-worker", "recv buffer breach (>16MiB); resetting");
     buffer = "";
     return;
   }
@@ -126,7 +143,7 @@ function onData(data) {
     const len = Number(m[1]);
     // assert: Content-Length parsed as a finite positive integer (design §13)
     if (!Number.isFinite(len) || len <= 0) {
-      console.error("[lsp-worker] malformed Content-Length; resetting");
+      log("lsp-worker", "malformed Content-Length; resetting");
       buffer = "";
       return;
     }
@@ -166,6 +183,7 @@ function toDiag(d, file) {
 }
 
 async function start() {
+  openLog();
   try {
     proc = spawn(spawnDir.cmd, spawnDir.args, {
       cwd: spawnDir.cwd,
@@ -181,14 +199,15 @@ async function start() {
     process.exit(1);
   }
   proc.stdin.on("error", (e) => {
-    if (e.code !== "EPIPE") console.warn("[lsp-worker] stdin:", e.message);
+    if (e.code !== "EPIPE") log("lsp-worker", `stdin: ${e.message}`);
   });
   proc.stdout.on("data", onData);
   proc.stderr.on("data", (b) => {
     const m = b.toString().trim();
-    if (m) console.debug("[lsp-worker] stderr:", m);
+    if (m) log("stderr", m);
   });
   proc.on("exit", (code) => {
+    log("lsp-worker", `server exited (${code})`);
     proc = null;
     initialized = false;
     reqs.forEach((p) => p.reject(new Error(`server exited (${code})`)));
