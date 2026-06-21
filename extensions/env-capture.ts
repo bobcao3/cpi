@@ -160,12 +160,12 @@ export default async function envCaptureExtension(pi: ExtensionAPI): Promise<voi
     name: "sh_env_capture",
     label: "sh_env_capture",
     description:
-      "Capture the current process environment (optionally after running a bash command such as sourcing a venv) into a session-scoped dotenv file, reloadable via `env=<path>` on sh / sh_repeat_until.",
+      "Capture the current process environment (optionally after running a bash command such as sourcing a venv) into a session-scoped dotenv file, reloadable via `env=<path>` on sh / sh_repeat_until / lsp.",
     promptSnippet: "Capture env into a dotenv file",
     promptGuidelines: [
       "Use sh_env_capture to snapshot env (e.g. after `source .venv/bin/activate`) into a file, then reload it via `env=<path>` on sh or sh_repeat_until.",
       "The returned `env=<path>` snippet is reusable across later commands; the file path is absolute and session-scoped.",
-      "An `lsp` reload target via `env=` also exists (lands in a later layer); the same captured file will be usable there.",
+      "Reload the same captured file via `env=<path>` on sh / sh_repeat_until / `lsp start`.",
     ],
     parameters: Type.Object({
       command: Type.Optional(

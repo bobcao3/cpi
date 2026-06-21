@@ -12,24 +12,15 @@
  * degrade instead of stalling (design §9/§13). `checkFile`/`lintText` open one
  * doc, await `publishDiagnostics` (bounded by `lintTimeoutMs`), close, return
  * normalized `Diagnostic[]`. `lintText` uses a synthetic `/tmp/cpi-lsp-<n>.<ext>`
- * doc with `rootUri=null` (the shuck inline path). `fullCheck` spawns the
- * language CLI (`tsc --noEmit -p <root>` / `pyrefly check` cwd=root), truncates
- * via pi's `truncateTail`, persists overflow to a session-dir log.
- *
- * Allowed pi imports (design §5 correction): `getAgentDir` (cache/log dirs) +
- * `truncateTail` (pure truncation). No tui / ExtensionAPI / session coupling.
+ * doc with `rootUri=null` (the shuck inline path).
  */
 
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { basename, join } from "node:path";
+import { readFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
-import { getAgentDir, truncateTail } from "@earendil-works/pi-coding-agent";
 import { type Language, discoverProjectRoot, languageByPath } from "./discover.ts";
 import { type Diagnostic } from "./diagnostics.ts";
 import { getLspServerSpec } from "./registry.ts";
-import { resolveBin, whichOnPath } from "./provision.ts";
+import { resolveBin } from "./provision.ts";
 import { type LspConfig, loadLspConfig } from "../config.ts";
 import {
   awaitReady,
@@ -46,9 +37,6 @@ import {
   type SessionState,
 } from "./session.ts";
 
-const FULLCHECK_TIMEOUT_MS = 120_000;
-const FULLCHECK_MAX_BUFFER = 10 * 1024 * 1024;
-
 interface LspState {
   sessions: Map<string, LspSession>;
   draining: boolean;
@@ -57,11 +45,6 @@ interface LspState {
 export interface EnsureOptions {
   envPath?: string;
   force?: boolean;
-}
-
-export interface FullCheckResult {
-  text: string;
-  logPath?: string;
 }
 
 function assert(cond: unknown, msg: string): asserts cond {
@@ -175,61 +158,6 @@ export async function lintText(language: Language, text: string): Promise<Diagno
   return sessionLint(session, uri, spec.languageId(uri), text, "", seq, cfg.lintTimeoutMs);
 }
 
-const execFileAsync = promisify(execFile);
-
-export async function fullCheck(language: Language, root: string): Promise<FullCheckResult> {
-  const cfg = loadLspConfig();
-  const spec = getLspServerSpec(language);
-  if (!spec.supportsFullPackageCheck || !spec.fullCheckCommand) {
-    return { text: `(fullCheck: not supported for ${language})` };
-  }
-  const session = await ensureSession(language, root);
-  const fc = spec.fullCheckCommand(session.bin, root);
-  // tsc resolves from dirname(bin) (the env's node_modules/.bin); an env-PROVIDED
-  // server (source="env", no envDir) may lack tsc there — fall back to tsc on
-  // PATH, else skip with a note. (RISK flagged for Layer 4.)
-  let cmd = fc.cmd;
-  if (!existsSync(cmd)) {
-    const onPath = whichOnPath(basename(cmd), mergeSpawnEnv(session.envPath));
-    if (!onPath) {
-      return {
-        text: `(fullCheck skipped: ${basename(cmd)} not found — env-provided server has no bundled checker)`,
-      };
-    }
-    cmd = onPath;
-  }
-  const env = mergeSpawnEnv(session.envPath);
-  let out: string;
-  try {
-    const r = await execFileAsync(cmd, fc.args, {
-      cwd: fc.cwd ?? root,
-      maxBuffer: FULLCHECK_MAX_BUFFER,
-      env,
-      timeout: FULLCHECK_TIMEOUT_MS,
-    });
-    out = (r.stdout ?? "") + (r.stderr ?? "");
-  } catch (err: unknown) {
-    const e = err as { stdout?: string; stderr?: string; message?: string };
-    out = (e.stdout ?? "") + (e.stderr ?? "");
-    if (!out) out = String(e.message ?? err);
-  }
-  return truncateCheckOutput(out, cfg, session.id);
-}
-
-function truncateCheckOutput(out: string, cfg: LspConfig, sid: string): FullCheckResult {
-  const snap = truncateTail(out, { maxLines: cfg.checkMaxLines, maxBytes: cfg.checkMaxBytes });
-  if (!snap.truncated) return { text: snap.content || "(no output)" };
-  const logDir = join(getAgentDir(), "lsp", sid);
-  mkdirSync(logDir, { recursive: true });
-  const logPath = join(logDir, `fullcheck-${Date.now()}.log`);
-  writeFileSync(logPath, out);
-  const start = snap.totalLines - snap.outputLines + 1;
-  let text = snap.content + `\n\n[L${start}-${snap.totalLines}/${snap.totalLines}`;
-  if (snap.truncatedBy === "bytes") text += ` (${cfg.checkMaxBytes}B cap)`;
-  text += ` full: ${logPath}]`;
-  return { text, logPath };
-}
-
 export async function stop(target: string): Promise<void> {
   const st = getState();
   let session = st.sessions.get(target);
@@ -272,7 +200,6 @@ export interface LspManager {
   ensureSession(language: Language, root: string, opts?: EnsureOptions): Promise<LspSession>;
   checkFile(absPath: string): Promise<Diagnostic[]>;
   lintText(language: Language, text: string): Promise<Diagnostic[]>;
-  fullCheck(language: Language, root: string): Promise<FullCheckResult>;
   stop(target: string): Promise<void>;
   findSession(language: Language, root: string): SessionInfo | undefined;
   list(): SessionInfo[];
@@ -284,7 +211,6 @@ export function getLspManager(): LspManager {
     ensureSession,
     checkFile,
     lintText,
-    fullCheck,
     stop,
     findSession,
     list,

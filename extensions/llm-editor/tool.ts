@@ -14,7 +14,7 @@
  */
 
 import { Type } from "typebox";
-import { readFile, stat, writeFile, access, mkdir, readdir } from "node:fs/promises";
+import { readFile, stat, writeFile, mkdir, readdir } from "node:fs/promises";
 import type { Dirent } from "node:fs";
 import { resolve, dirname, relative, join } from "node:path";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
@@ -24,6 +24,7 @@ import { resolveEditorModel } from "./model-select.ts";
 import { loadEditorText, fmt } from "./text.ts";
 import { viewFile } from "./viewer.ts";
 import { editFile } from "./editor.ts";
+import { withPathLock } from "./cas.ts";
 import { shortSha } from "./id.ts";
 import { resultXml, field } from "./result-xml.ts";
 import { renderLlmEditorCall, renderLlmEditorResult } from "./render.ts";
@@ -194,30 +195,30 @@ export async function execute(
   if (params.command === "create") {
     if (params.file_text === undefined)
       return errorResult(id, params.command, abs, T.errors.create_requires_text);
-    try {
-      await access(abs);
-      return errorResult(id, params.command, abs, fmt(T.errors.file_exists, { path: abs }));
-    } catch {
-      // absent — proceed
-    }
-    try {
-      await mkdir(dirname(abs), { recursive: true });
-      await writeFile(abs, params.file_text, "utf-8");
-    } catch (e) {
-      return errorResult(
+    const fileText = params.file_text;
+    return withPathLock(abs, async () => {
+      try {
+        await mkdir(dirname(abs), { recursive: true });
+        await writeFile(abs, fileText, { flag: "wx" });
+      } catch (e) {
+        const code = (e as Error & { code?: string }).code;
+        if (code === "EEXIST")
+          return errorResult(id, params.command, abs, fmt(T.errors.file_exists, { path: abs }));
+        return errorResult(
+          id,
+          params.command,
+          abs,
+          fmt(T.errors.create_failed, { reason: (e as Error).message }),
+        );
+      }
+      return okResult(
         id,
         params.command,
         abs,
-        fmt(T.errors.create_failed, { reason: (e as Error).message }),
+        [field("created", undefined, { bytes: Buffer.byteLength(fileText, "utf-8") })],
+        { id, kind: "create", bytes: Buffer.byteLength(fileText, "utf-8") },
       );
-    }
-    return okResult(
-      id,
-      params.command,
-      abs,
-      [field("created", undefined, { bytes: Buffer.byteLength(params.file_text, "utf-8") })],
-      { id, kind: "create", bytes: Buffer.byteLength(params.file_text, "utf-8") },
-    );
+    });
   }
 
   // edit

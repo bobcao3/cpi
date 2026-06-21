@@ -31,8 +31,6 @@
     ]
   },
   "lsp": {
-    "checkMaxLines": 500,
-    "checkMaxBytes": 32768,
     "startupTimeoutMs": 30000,
     "lintTimeoutMs": 10000,
     "installTimeoutMs": 60000,

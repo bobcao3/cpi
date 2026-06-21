@@ -52,6 +52,7 @@ export interface SessionInfo {
   state: SessionState;
   source: string;
   bin: string;
+  envPath?: string;
 }
 
 export type WorkerMsg =
@@ -273,5 +274,6 @@ export function toInfo(s: LspSession): SessionInfo {
     state: s.state,
     source: s.source,
     bin: s.bin,
+    envPath: s.envPath,
   };
 }

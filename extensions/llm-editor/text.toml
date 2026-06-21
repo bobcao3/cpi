@@ -106,6 +106,7 @@ def new_function():
 [tasks]
 viewer = "Here is the file with numbered lines:\n\n{content}\n\nQuery: {query}"
 editor = "Here is the current file content:\n```\n{content}\n```\n\nInstruction: {instruction}\n\nPlease provide the search-replace blocks needed to make these changes."
+editor_reconcile = "A concurrent edit changed the file on disk since your previous attempt, so those blocks were not applied. Here is the CURRENT file content:\n```\n{content}\n```\n\nInstruction: {instruction}\n\nRe-apply the instruction against this current content. Output ONLY the search-replace blocks."
 
 # ── Tool metadata shown to the main agent ──
 [tool]
@@ -153,6 +154,7 @@ viewer_timeout = "Viewer subagent timed out after {ms}ms."
 editor_timeout = "Editor subagent timed out after {ms}ms."
 viewer_bad_output = "Viewer did not return a JSON line-range array.\nOutput: {tail}"
 write_failed = "Write failed: {reason}"
+file_drifted = "File changed on disk mid-edit (concurrent edit); not patched even after one automatic reconcile. Re-read {path} and apply the change again."
 spawn_not_found = "pi binary not found on PATH: {reason}"
 apply_no_blocks = "No search-replace blocks found in editor output."
 apply_not_found = "Block {i}: SEARCH text not found in file. It must match exactly (whitespace/indentation)."

@@ -4,9 +4,8 @@
  * Computes the agent-facing preview body for a captured stdout/stderr buffer
  * using the same `truncateHead` / `truncateTail` primitives `sh` uses. This
  * module holds ONLY the pure computation — no fs writes, no pi/ExtensionAPI
- * import — so both `shell/exec.ts` (persist-if-truncated `buildOutputText`)
- * and `lib/lsp/manager.ts` (fullCheck overflow path, §7.4) can consume it
- * without pulling shell or pi coupling into the LSP layer.
+ * import — so `shell/exec.ts` (persist-if-truncated `buildOutputText`) can
+ * consume it without pulling shell or pi coupling into callers.
  *
  * Contract of {@link truncateOutput}:
  *   - not truncated → `body` is the full content, or `emptyText` when empty;
