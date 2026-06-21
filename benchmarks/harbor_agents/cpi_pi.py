@@ -19,6 +19,7 @@ run_terminal_bench_2_1.py with --agent cpi).
 """
 from __future__ import annotations
 
+import base64
 import json
 import shlex
 from pathlib import Path
@@ -213,12 +214,14 @@ class CpiPi(BaseInstalledAgent):
     ) -> None:
         del context  # token accounting done in populate_context_post_run
         flags = self.build_cli_flags()
-        cmd = f"{_NVM_BOOTSTRAP}; pi --print --mode json --no-session"
+        # Pass the instruction via stdin (base64) so a leading '-' in the
+        # instruction is not parsed by pi as a CLI option.
+        b64 = base64.b64encode(instruction.encode()).decode()
+        cmd = f"{_NVM_BOOTSTRAP}; printf %s {shlex.quote(b64)} | base64 -d | pi --print --mode json --no-session"
         if flags:
             cmd += f" {flags}"
         cmd += (
-            f" {shlex.quote(instruction)} "
-            f"2>&1 </dev/null | grep -v '\"type\":\"message_update\"' "
+            f" 2>&1 | grep -v '\"type\":\"message_update\"' "
             f"| stdbuf -oL tee /logs/agent/{_OUTPUT_FILENAME}"
         )
         await self.exec_as_agent(environment, command=cmd)
