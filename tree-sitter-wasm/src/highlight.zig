@@ -1,8 +1,8 @@
-//! Bash highlight query execution.
+//! Highlight query execution.
 //!
-//! Compiles the embedded `highlights.scm` (vendored from
-//! neovim-treesitter-queries-bash via `zig fetch`) once, runs it over a parsed
-//! command, evaluates the `#eq?` / `#any-of?` / `#lua-match?` predicates the C
+//! Compiles each language's embedded `highlights.scm` (vendored from
+//! neovim-treesitter-queries via `zig fetch`) once, runs it over a parsed
+//! source, evaluates the `#eq?` / `#any-of?` / `#lua-match?` predicates the C
 //! library leaves to the consumer, and emits capture byte-ranges as JSON:
 //!   [{"s":<u32>,"e":<u32>,"c":"<capture>"},...]
 //!
@@ -11,31 +11,30 @@
 
 const std = @import("std");
 const Writer = std.Io.Writer;
-const c = @import("c.zig").c;
+const c = @import("c");
 const lua_match = @import("lua_match.zig");
-const highlights = @import("bash_highlights");
+const languages = @import("languages.zig");
 
-extern fn tree_sitter_bash() ?*const c.TSLanguage;
-
-const MAX_SOURCE: usize = 65536; // bound work for pathological long commands
+const MAX_SOURCE: usize = 65536; // bound work for pathological long sources
 const MAX_OPERANDS: usize = 32;
+const LANG_COUNT = languages.LANGS.len;
 
-var query: ?*c.TSQuery = null;
-var query_attempted: bool = false;
-var query_ok: bool = false;
+var queries: [LANG_COUNT]?*c.TSQuery = [_]?*c.TSQuery{null} ** LANG_COUNT;
+var attempted: [LANG_COUNT]bool = [_]bool{false} ** LANG_COUNT;
+var ok: [LANG_COUNT]bool = [_]bool{false} ** LANG_COUNT;
 
-pub fn run(source: []const u8, w: *Writer) !void {
+pub fn run(lang_index: usize, source: []const u8, w: *Writer) !void {
     try w.writeByte('[');
-    if (source.len > MAX_SOURCE) {
+    if (source.len > MAX_SOURCE or lang_index >= LANG_COUNT) {
         try w.writeByte(']');
         return;
     }
-    if (!ensureQuery()) {
+    if (!ensureQuery(lang_index)) {
         try w.writeByte(']');
         return;
     }
-    const q = query.?;
-    const lang = tree_sitter_bash() orelse {
+    const q = queries[lang_index].?;
+    const lang = languages.LANGS[lang_index].lang() orelse {
         try w.writeByte(']');
         return;
     };
@@ -85,24 +84,26 @@ pub fn run(source: []const u8, w: *Writer) !void {
     try w.writeByte(']');
 }
 
-fn ensureQuery() bool {
-    if (query_attempted) return query_ok;
-    query_attempted = true;
-    const lang = tree_sitter_bash() orelse return false;
+fn ensureQuery(idx: usize) bool {
+    if (attempted[idx]) return ok[idx];
+    attempted[idx] = true;
+    const lang = languages.LANGS[idx].lang() orelse return false;
+    const scm = languages.LANGS[idx].query;
     var err_off: u32 = 0;
     var err_type: c.TSQueryError = c.TSQueryErrorNone;
-    const q = c.ts_query_new(lang, highlights.scm.ptr, @intCast(highlights.scm.len), &err_off, &err_type);
+    const q = c.ts_query_new(lang, scm.ptr, @intCast(scm.len), &err_off, &err_type);
     if (q == null) return false; // node-type / field / syntax mismatch vs grammar
-    query = q;
-    query_ok = true;
-    disableCapture("none");
-    disableCapture("spell");
-    disableCapture("nospell");
+    const qp: *c.TSQuery = q.?;
+    queries[idx] = qp;
+    ok[idx] = true;
+    disableCapture(qp, "none");
+    disableCapture(qp, "spell");
+    disableCapture(qp, "nospell");
     return true;
 }
 
-fn disableCapture(name: []const u8) void {
-    if (query) |q| c.ts_query_disable_capture(q, name.ptr, name.len);
+fn disableCapture(q: *c.TSQuery, name: []const u8) void {
+    c.ts_query_disable_capture(q, name.ptr, name.len);
 }
 
 const Operand = struct { is_str: bool, str: []const u8, cap_id: u32 };
@@ -168,7 +169,7 @@ fn evalOp(q: *c.TSQuery, m: *c.TSQueryMatch, source: []const u8, op: []const u8,
         const t0 = captureText(m, ops[0], source) orelse return false;
         return lua_match.luaMatch(t0, ops[1].str);
     }
-    return true; // unknown predicate / directive (#set!, #offset!, ...): ignore
+    return true; // unknown predicate / directive (#set!, #offset!, #match?, ...): ignore
 }
 
 fn captureText(m: *c.TSQueryMatch, op: Operand, source: []const u8) ?[]const u8 {

@@ -105,6 +105,9 @@ interface Parser {
   alloc: CallableFunction;
   parse: CallableFunction;
   highlight: CallableFunction;
+  highlightLang: CallableFunction;
+  langIdByName: CallableFunction;
+  langCount: CallableFunction;
   resultLen: CallableFunction;
   memory: WebAssembly.Memory;
 }
@@ -132,6 +135,9 @@ function wrap(instance: WebAssembly.Instance): Parser {
     alloc: e.alloc as CallableFunction,
     parse: e.parse as CallableFunction,
     highlight: e.highlight as CallableFunction,
+    highlightLang: e.highlight_lang as CallableFunction,
+    langIdByName: e.lang_id_by_name as CallableFunction,
+    langCount: e.lang_count as CallableFunction,
     resultLen: e.result_len as CallableFunction,
     memory: e.memory as WebAssembly.Memory,
   };
@@ -212,6 +218,45 @@ export function highlightCommandSync(command: string): Highlight[] | null {
     const result = raw.map((r) => ({ start: r.s, end: r.e, capture: r.c }));
     if (captureCache.size >= CAPTURE_CACHE_MAX) captureCache.delete(captureCache.keys().next().value!);
     captureCache.set(command, result);
+    return result;
+  } catch (err) {
+    console.warn("[tree-sitter] Highlight failed:", err);
+    return null;
+  }
+}
+
+/** Synchronous highlight of `source` as `lang` (e.g. "python"). Returns null
+ *  if the wasm is not instantiated or `lang` is unknown. Capture offsets are
+ *  UTF-8 byte ranges, same as highlightCommandSync. */
+export function highlightLangSync(lang: string, source: string): Highlight[] | null {
+  const parser = parserSync();
+  if (!parser) return null;
+  const cacheKey = lang + "\0" + source;
+  const cached = captureCache.get(cacheKey);
+  if (cached) return cached;
+  try {
+    const name = new TextEncoder().encode(lang);
+    const namePtr = parser.alloc(name.length) as number;
+    if (!namePtr) return null;
+    new Uint8Array(parser.memory.buffer, namePtr, name.length).set(name);
+    const langId = parser.langIdByName(namePtr, name.length) as number;
+    if (langId < 0) return null;
+
+    const encoded = new TextEncoder().encode(source);
+    const ptr = parser.alloc(encoded.length) as number;
+    if (!ptr) return null;
+    new Uint8Array(parser.memory.buffer, ptr, encoded.length).set(encoded);
+
+    const resultPtr = parser.highlightLang(langId, ptr, encoded.length) as number;
+    if (!resultPtr) return null;
+
+    const len = parser.resultLen() as number;
+    const resultBytes = new Uint8Array(parser.memory.buffer, resultPtr, len);
+    const json = new TextDecoder().decode(resultBytes);
+    const raw = JSON.parse(json) as { s: number; e: number; c: string }[];
+    const result = raw.map((r) => ({ start: r.s, end: r.e, capture: r.c }));
+    if (captureCache.size >= CAPTURE_CACHE_MAX) captureCache.delete(captureCache.keys().next().value!);
+    captureCache.set(cacheKey, result);
     return result;
   } catch (err) {
     console.warn("[tree-sitter] Highlight failed:", err);

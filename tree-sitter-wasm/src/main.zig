@@ -1,20 +1,26 @@
-//! tree-sitter-wasm — Self-contained WASM module that parses shell commands
-//! using tree-sitter + tree-sitter-bash, compiled with Zig.
+//! tree-sitter-wasm — Self-contained WASM module that parses and highlights
+//! source code using tree-sitter, compiled with Zig.
+//!
+//! Bundles multiple grammars (see src/languages.zig); index 0 is bash, so the
+//! default `parse`/`highlight` exports are bash-only conveniences, while
+//! `highlight_lang`/`lang_id_by_name`/`lang_count` expose the full set.
 //!
 //! Exports:
 //!   alloc(size) -> ptr          — allocate memory (for source string input)
 //!   dealloc(ptr)                — free memory
-//!   parse(ptr, len) -> ptr      — parse source, return JSON AST pointer
+//!   parse(ptr, len) -> ptr      — parse source as bash, return JSON AST pointer
 //!   result_len() -> u32         — length of last parse result
-//!   highlight(source_ptr, source_len) -> ptr  — run highlight query, return JSON captures
+//!   highlight(ptr, len) -> ptr  — run bash highlight query, return JSON captures
+//!   highlight_lang(lang_id, ptr, len) -> ptr — run highlight query for the given language
+//!   lang_count() -> u32         — number of bundled languages
+//!   lang_id_by_name(ptr, len) -> i32 — look up a language id by name, or -1
 
 const std = @import("std");
 const Writer = std.Io.Writer;
 
-const c = @import("c.zig").c;
+const c = @import("c");
 const highlight_mod = @import("highlight.zig");
-
-extern fn tree_sitter_bash() ?*const c.TSLanguage;
+const languages = @import("languages.zig");
 
 const TSNode = c.TSNode;
 
@@ -35,7 +41,7 @@ export fn parse(source_ptr: [*]const u8, source_len: u32) ?[*]const u8 {
     const parser = c.ts_parser_new() orelse return null;
     defer c.ts_parser_delete(parser);
 
-    if (!c.ts_parser_set_language(parser, tree_sitter_bash())) return null;
+    if (!c.ts_parser_set_language(parser, languages.LANGS[0].lang())) return null;
 
     const tree = c.ts_parser_parse_string(parser, null, source.ptr, source_len) orelse return null;
     defer c.ts_tree_delete(tree);
@@ -55,12 +61,33 @@ export fn parse(source_ptr: [*]const u8, source_len: u32) ?[*]const u8 {
 export fn highlight(source_ptr: [*]const u8, source_len: u32) ?[*]const u8 {
     const source = source_ptr[0..source_len];
     var w: Writer = .fixed(&result_buf);
-    highlight_mod.run(source, &w) catch {
+    highlight_mod.run(0, source, &w) catch {
         result_len_val = 0;
         return null;
     };
     result_len_val = @intCast(w.buffered().len);
     return &result_buf;
+}
+
+export fn highlight_lang(lang_id: u32, source_ptr: [*]const u8, source_len: u32) ?[*]const u8 {
+    const source = source_ptr[0..source_len];
+    var w: Writer = .fixed(&result_buf);
+    highlight_mod.run(lang_id, source, &w) catch {
+        result_len_val = 0;
+        return null;
+    };
+    result_len_val = @intCast(w.buffered().len);
+    return &result_buf;
+}
+
+export fn lang_count() u32 {
+    return languages.LANGS.len;
+}
+
+export fn lang_id_by_name(name_ptr: [*]const u8, name_len: u32) i32 {
+    const name = name_ptr[0..name_len];
+    if (languages.idByName(name)) |id| return @intCast(id);
+    return -1;
 }
 
 export fn result_len() u32 {

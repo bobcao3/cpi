@@ -16,6 +16,53 @@
             .url = "https://github.com/neovim-treesitter/nvim-treesitter-queries-bash/archive/6e198671f2e8de504c2099f92d52cc2a68f13410.tar.gz",
             .hash = "N-V-__8AABA1AABcR9eBWzNCkVTDJEXyoHHClvuOTosBq0Qc",
         },
+        .@"tree-sitter-javascript" = .{
+            .url = "https://github.com/tree-sitter/tree-sitter-javascript/archive/58404d8cf191d69f2674a8fd507bd5776f46cb11.tar.gz",
+            .hash = "N-V-__8AANlfOQDpOAP-6YMQeJ2nQetX1OpUshQr903bnIHU",
+        },
+        .@"tree-sitter-typescript" = .{
+            .url = "https://github.com/tree-sitter/tree-sitter-typescript/archive/75b3874edb2dc714fb1fd77a32013d0f8699989f.tar.gz",
+            .hash = "N-V-__8AAJZtIQHTLStHg_0TegWiaX-N1przeeHzJp9x9b6z",
+        },
+        .@"tree-sitter-python" = .{
+            .url = "https://github.com/tree-sitter/tree-sitter-python/archive/26855eabccb19c6abf499fbc5b8dc7cc9ab8bc64.tar.gz",
+            .hash = "N-V-__8AAOiqPgC9tH5tYSAYNsMWLoPiSxcmkHvIhMnezomx",
+        },
+        .@"tree-sitter-c" = .{
+            .url = "https://github.com/tree-sitter/tree-sitter-c/archive/b780e47fc780ddc8da13afa35a3f4ed5c157823d.tar.gz",
+            .hash = "tree_sitter_c-0.24.2-y5boS-ptQADHoCoVfjGT_nFtFQ5LbomIkW0fxG3_cmdB",
+        },
+        .@"tree-sitter-cpp" = .{
+            .url = "https://github.com/tree-sitter/tree-sitter-cpp/archive/8b5b49eb196bec7040441bee33b2c9a4838d6967.tar.gz",
+            .hash = "N-V-__8AAMePmwGeojPhBaBC10aGwaQIOU4vg1H17IWakWs-",
+        },
+        .@"tree-sitter-cuda" = .{
+            .url = "https://github.com/tree-sitter-grammars/tree-sitter-cuda/archive/48b066f334f4cf2174e05a50218ce2ed98b6fd01.tar.gz",
+            .hash = "N-V-__8AAG9xQQEZ_jjhIPMUbpodxL5m1EWpD8XbOfPo-H8W",
+        },
+        .@"tree-sitter-go" = .{
+            .url = "https://github.com/tree-sitter/tree-sitter-go/archive/2346a3ab1bb3857b48b29d779a1ef9799a248cd7.tar.gz",
+            .hash = "N-V-__8AAM9cIgDttbrvbwLWFB0JPplu_2KtCWu7__79EjIT",
+        },
+        .@"tree-sitter-rust" = .{
+            .url = "https://github.com/tree-sitter/tree-sitter-rust/archive/77a3747266f4d621d0757825e6b11edcbf991ca5.tar.gz",
+            .hash = "N-V-__8AAHJYbgAipcanYj2A6rnj9wtGzjGzANkrOsqiFAxm",
+        },
+        .@"tree-sitter-toml" = .{
+            .url = "https://github.com/tree-sitter/tree-sitter-toml/archive/342d9be207c2dba869b9967124c679b5e6fd0ebe.tar.gz",
+            .hash = "N-V-__8AAMtqCQCykAyf_lLiTrZxn8riQ5KXZIhej9Rop5Nw",
+        },
+        .@"tree-sitter-yaml" = .{
+            .url = "https://github.com/tree-sitter-grammars/tree-sitter-yaml/archive/a1c4812a73ec5e089de8e441fdea3a921e8d5079.tar.gz",
+            .hash = "N-V-__8AAEkcHQB61IN4Zp5o83gmDa69AUnJUBSFIVM9lGg-",
+        },        .@"tree-sitter-json" = .{
+            .url = "https://github.com/tree-sitter/tree-sitter-json/archive/001c28d7a29832b06b0e831ec77845553c89b56d.tar.gz",
+            .hash = "N-V-__8AAHNaAgD6kjK3HX6lAf89chPqS5zIm0tLpvBQLOtX",
+        },
+        .@"tree-sitter-zig" = .{
+            .url = "https://github.com/tree-sitter-grammars/tree-sitter-zig/archive/refs/tags/v1.1.2.tar.gz",
+            .hash = "N-V-__8AAN6NXgCZxLUnqe4620P_FqHrEY8PHTA1-VlOn4yX",
+        },
     },
     .paths = .{
         "build.zig",
