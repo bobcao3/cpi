@@ -14,7 +14,7 @@ import {
   sendNotification,
   type NotificationKind,
 } from "./lib/notification.ts";
-import { registerHoldSource } from "./lib/session-hold.ts";
+import { registerHoldSource, signalHoldEvent } from "./lib/session-hold.ts";
 import {
   ensureShellTools,
   buildShellEnvWithDotenv,
@@ -108,6 +108,7 @@ export default async function (pi: ExtensionAPI) {
     () => ({ fd: false, rg: false, shuck: false, treeSitter: false }) as ToolAvailability,
   );
   setCompletionHook((id, _cmd, code, reason, log) => {
+    signalHoldEvent();
     const isRepeat = id.startsWith("rpt-");
     const kind: NotificationKind = isRepeat
       ? reason === "breach"
