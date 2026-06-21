@@ -170,6 +170,24 @@ runtime, so the model always sees the effective limits.
 `tailLines` (TUI folding) and `maxPreviewLines`/`previewMaxBytes` (agent
 truncation) are independent: changing one never affects the other.
 
+## Rules
+
+Markdown rules files are appended to the system prompt every turn.
+
+| Scope   | Path                     | Order            |
+| ------- | ------------------------ | ---------------- |
+| User    | `~/.pi/agent/rules/*.md` | First            |
+| Project | `<cwd>/rules/*.md`       | After user rules |
+
+Each file is appended as:
+
+```text
+--- <label>/<file>.md ---
+<content>
+```
+
+`<label>` is `user-rules` for `~/.pi/agent/rules/` files and `rules` for `<cwd>/rules/` files. Files are read fresh each turn, so edits take effect immediately.
+
 ## Fallback Providers Config
 
 `provider.ts` reads provider/model definitions and fallback order

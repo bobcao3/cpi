@@ -29,7 +29,7 @@ const STATUS_TEXT = "🪨";
 
 // ── Module-level state (reset on extension reload) ──────────────────────────
 
-let cavemanEnabled = true;
+let cavemanEnabled = false;
 let pi_appendState: (data: CavemanState) => void = () => {};
 
 // ── Config loading ───────────────────────────────────────────────────────────
