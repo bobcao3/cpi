@@ -240,11 +240,13 @@ export async function execute(
     transcriptDir: resolveTranscriptDir(cfg.transcriptDir, ctx.cwd),
     maxTranscripts: cfg.maxTranscripts,
     maxFileBytes: cfg.maxFileBytes,
+    fuzzyMatch: cfg.fuzzyMatch,
   });
   if (!r.ok) return errorResult(id, params.command, abs, r.error);
   const body = [
     field("blocks", String(r.applied)),
     field("rewrite", String(r.wholeFileRewrite)),
+    field("match", r.match),
     field("diff", r.diff),
   ];
   if (r.lsp) body.push(r.lsp);
@@ -254,6 +256,7 @@ export async function execute(
     diff: r.diff,
     blocks: r.applied,
     rewrite: r.wholeFileRewrite,
+    match: r.match,
     patch: r.patch,
     firstChangedLine: r.firstChangedLine,
     diffOps: r.diffOps,

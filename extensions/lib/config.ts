@@ -82,6 +82,8 @@ export interface EditorConfig {
   transcriptDir?: string;
   /** Max transcript files retained; oldest rotated (default 200). */
   maxTranscripts?: number;
+  /** Aider-style fuzzy SEARCH/REPLACE fallback (uniform-indent tolerance + `...` elision) when an exact SEARCH misses. Default true. */
+  fuzzyMatch?: boolean;
   /** Ordered {search,replace} rules producing candidate editor model ids from the main model id. Shipped defaults are a cost+recency ladder: a ≤0.6x-cost (primary ~0.2x) model that is also ≤6 months old, then a fallback, then implicit identity (fall-through = "if not available"). Stale/retired models are never targets. */
   chain?: EditorChainRule[];
 }
@@ -294,6 +296,7 @@ export function loadEditorConfig(cwd: string = process.cwd()): EditorConfig {
       Number.isFinite(subagentTimeoutMs) && subagentTimeoutMs > 0 ? subagentTimeoutMs : 120000,
     transcriptDir: typeof e.transcriptDir === "string" ? e.transcriptDir : "",
     maxTranscripts: Number.isFinite(maxTranscripts) && maxTranscripts > 0 ? maxTranscripts : 200,
+    fuzzyMatch: bool(e.fuzzyMatch, true),
     chain,
   };
 }

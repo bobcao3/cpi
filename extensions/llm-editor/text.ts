@@ -17,7 +17,7 @@ import { parse as parseToml } from "smol-toml";
 import { deepMerge } from "../lib/config.ts";
 
 export interface EditorText {
-  system: { viewer: string; editor: string };
+  system: { viewer: string; editor: string; editor_fuzzy: string };
   tasks: { viewer: string; editor: string; editor_reconcile: string };
   tool: {
     label: string;

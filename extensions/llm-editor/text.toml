@@ -101,6 +101,30 @@ def new_function():
     pass
 >>>>>>> REPLACE
 '''
+editor_fuzzy = '''
+ADDITIONAL CAPABILITIES (fuzzy matching is enabled for this edit):
+
+You MAY use ellipsis (`...`) on its own line inside a SEARCH block to elide unchanged code that sits BETWEEN two regions you are editing within the same block. This lets you skip restating long unchanged spans. Rules:
+- Put `...` alone on a line (optional leading whitespace) where code was omitted.
+- The number of `...` lines MUST match between SEARCH and REPLACE.
+- Each non-`...` chunk must appear EXACTLY ONCE in the file.
+- `...` means "leave this region unchanged"; it is not a wildcard — the surrounding chunks must still match the file exactly.
+
+Example — edit the first and last lines of a long function, omitting the unchanged middle:
+<<<<<<< SEARCH
+def f(x):
+    a = setup(x)
+...
+    return result
+=======
+def f(x):
+    a = setup(x, verbose=True)
+...
+    return result
+>>>>>>> REPLACE
+
+Additionally, matching tolerates a UNIFORM leading-whitespace offset between SEARCH and the file (you may omit indentation that is consistent across the whole block); REPLACE is re-indented to the file's level. Prefer exact matches; use these only when an exact SEARCH would be impractical.
+'''
 
 # ── User-message task templates fed to the subagents on stdin ({placeholder}) ──
 [tasks]
@@ -164,6 +188,7 @@ file_drifted = "File changed on disk mid-edit (concurrent edit); not patched eve
 spawn_not_found = "pi binary not found on PATH: {reason}"
 apply_no_blocks = "No search-replace blocks found in editor output."
 apply_not_found = "Block {i}: SEARCH text not found in file. It must match exactly (whitespace/indentation)."
+apply_not_found_fuzzy = "Block {i}: SEARCH text not found in file. Both exact match and fuzzy fallback (uniform-indent tolerance + ... elision) failed."
 apply_not_unique = "Block {i}: SEARCH text is not unique ({n} matches). Add more surrounding context."
 apply_empty_with_others = "Empty SEARCH (whole-file rewrite) cannot coexist with other blocks."
 apply_overlap = "Block {i} overlaps block {j}. Merge or separate them."
