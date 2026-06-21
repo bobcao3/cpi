@@ -66,7 +66,7 @@ export function renderRanges(lines: string[], ranges: number[][], linesOmitted: 
 export async function viewFile(
   path: string,
   opts: ViewFileOptions,
-): Promise<{ text: string; error?: string }> {
+): Promise<{ text: string; error?: string; usage?: { input: number; output: number } }> {
   const T = loadEditorText(opts.cwd);
   const abs = resolve(opts.cwd, path);
   let content: string;
@@ -116,5 +116,8 @@ export async function viewFile(
     };
   }
   if (ranges.length === 0) return { text: T.messages.view_no_ranges };
-  return { text: renderRanges(lines, ranges, T.messages.lines_omitted) };
+  return {
+    text: renderRanges(lines, ranges, T.messages.lines_omitted),
+    usage: res.usage,
+  };
 }

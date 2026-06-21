@@ -187,6 +187,7 @@ export async function execute(
       id,
       kind: "view",
       text: r.text,
+      usage: r.usage,
     });
   }
 
@@ -256,6 +257,7 @@ export async function execute(
       patch: r.patch,
       firstChangedLine: r.firstChangedLine,
       diffOps: r.diffOps,
+      usage: r.usage,
     },
   );
 }
