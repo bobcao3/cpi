@@ -40,6 +40,7 @@ interface HoldState {
   holdNoticeSent: boolean;
   reminderDelivered: boolean;
   holdIntervalMs: number;
+  holdResolve: ((value: boolean) => void) | null;
 }
 
 const GLOBAL_KEY = "__cpiHold";
@@ -53,6 +54,7 @@ function state(): HoldState {
       holdNoticeSent: false,
       reminderDelivered: false,
       holdIntervalMs: 60000,
+      holdResolve: null,
     } satisfies HoldState;
   }
   return g[GLOBAL_KEY] as HoldState;
@@ -156,15 +158,33 @@ export function buildHoldReminderText(pending: HoldSource[]): string {
 }
 
 /**
+ * Resolved by a hold source (e.g. the shell completion hook in shell.ts) the
+ * instant a real event fires during an active hold. The authoritative 'a
+ * message was queued' signal — agent.hasQueuedMessages() — is not exposed to
+ * extensions (ctx.hasPendingMessages only tracks user-queued steers, not
+ * extension sends), so hold sources that aggregate multiple sub-sources (one
+ * shell source for all background shells) call this on each completion to
+ * resolve the hold immediately rather than waiting for the 60s timeout. No-op
+ * when no hold is awaiting.
+ */
+export function signalHoldEvent(): void {
+  const resolve = state().holdResolve;
+  state().holdResolve = null;
+  if (resolve) resolve(true);
+}
+
+/**
  * Wait one backoff interval for a hold source to fire.
  *
  * Polls every 100ms. Resolves `true` as soon as a source's `hasPending()`
  * drops below the initial count (a real event fired — e.g. a background shell
- * completed or an alarm fired) or pending reaches zero. Resolves `false` if the
- * interval elapses with no event (timeout). Unlike the old deadline-bounded
- * awaitPendingHolds, this NEVER ends the session on its own — a timeout is
- * reported to the caller (core.ts), which doubles the interval and nudges the
- * agent with a reminder, keeping the session alive until the agent/trial timeout.
+ * completed or an alarm fired), pending reaches zero, or `signalHoldEvent`
+ * fires during the wait (a real event was signalled by a hold source). Resolves
+ * `false` if the interval elapses with no event (timeout). Unlike the old
+ * deadline-bounded awaitPendingHolds, this NEVER ends the session on its own —
+ * a timeout is reported to the caller (core.ts), which doubles the interval
+ * and nudges the agent with a reminder, keeping the session alive until the
+ * agent/trial timeout.
  */
 export async function awaitHoldInterval(
   sources: HoldSource[],
@@ -175,10 +195,20 @@ export async function awaitHoldInterval(
   const count = pending.length;
   const deadline = Date.now() + intervalMs;
   return new Promise<boolean>((resolve) => {
+    let settled = false;
+    const done = (value: boolean) => {
+      if (settled) return;
+      settled = true;
+      if (state().holdResolve === done) {
+        state().holdResolve = null;
+      }
+      resolve(value);
+    };
+    state().holdResolve = done;
     const tick = () => {
-      if (Date.now() >= deadline) return resolve(false);
+      if (Date.now() >= deadline) return done(false);
       const nowPending = sources.filter((s) => s.hasPending()).length;
-      if (nowPending < count || nowPending === 0) return resolve(true);
+      if (nowPending < count || nowPending === 0) return done(true);
       setTimeout(tick, 100);
     };
     tick();
