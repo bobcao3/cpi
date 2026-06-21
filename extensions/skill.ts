@@ -3,7 +3,7 @@ import type { AgentToolResult, ExtensionAPI, Skill } from "@earendil-works/pi-co
 import { Text } from "@earendil-works/pi-tui";
 import { readFileSync } from "node:fs";
 import { resolve, sep } from "node:path";
-import { prependMessage } from "./lib/prepend-message.ts";
+
 import { registerSystemPromptTransform } from "./lib/system-prompt.ts";
 
 const SKILL_TOOL = "skill";
@@ -73,14 +73,7 @@ function skillBlurb(name: string, subdoc: string | undefined, theme: any): strin
   return text;
 }
 
-const SKILL_DISCIPLINE_NUDGE = readFileSync(
-  new URL("./skill-discipline-nudge.md", import.meta.url),
-  "utf8",
-);
-
 export default function (pi: ExtensionAPI) {
-  prependMessage(pi, { customType: "skill-discipline-nudge", content: SKILL_DISCIPLINE_NUDGE });
-
   // Strip pi's auto-injected "Available skills" block from the system prompt.
   // Applied by the single system-prompt owner extension; order 100 runs before
   // caveman-append (200) so the appended caveman block is never stripped.
