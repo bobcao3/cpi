@@ -100,6 +100,7 @@ export default async function (pi: ExtensionAPI) {
       }),
     ),
     command: Type.String({ description: "Command to run; `!!` replays the previous command" }),
+    env: Type.Optional(Type.String({ description: "Dotenv merged into sh env; dotenv wins" })),
   });
 
   const availability = await ensureShellTools().catch(
@@ -157,6 +158,7 @@ export default async function (pi: ExtensionAPI) {
           "Every `sh` command is auto-linted by the shell linter before execution. Errors block; fix and retry. Warnings surface to you only.",
         ]
       : []),
+    "Editing commands trigger LSP auto-lint when a session is up; else run `lsp start`.",
   ];
 
   pi.registerTool({
@@ -276,7 +278,7 @@ export default async function (pi: ExtensionAPI) {
       const res = await runShell(
         params.command,
         effectiveWaitfor,
-        buildShellEnvWithDotenv(ctx?.sessionManager),
+        buildShellEnvWithDotenv(ctx?.sessionManager, params.env),
         signal,
         (t) => onUpdate?.({ content: [{ type: "text", text: t }], details: undefined }),
         describe,
