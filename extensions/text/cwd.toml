@@ -1,0 +1,13 @@
+# Model-facing text for the set_cwd tool. Layered (project > user > shipped).
+
+[tool]
+description = "Change the cwd for all subsequent tool calls or shell commands."
+prompt_snippet = "Change the cwd for all subsequent tool calls or shell commands."
+
+[schema]
+path = "Target directory, absolute, or relative to cwd"
+
+[guidelines]
+bullets = '''
+Use set_cwd when the user asks to switch projects, or when work has clearly moved to a different tree, and the current CWD is no longer the right root for shell commands.
+Use set_cwd when you keep prefixing `cd path/to/project && ...` on every sh call.'''

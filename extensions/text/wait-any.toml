@@ -1,0 +1,11 @@
+# Model-facing text for the wait_any tool. Layered (project > user > shipped).
+
+[tool]
+description = "Yield and wait until any event triggers (user message, shell completion or error, alarm wakeups)."
+prompt_snippet = "Yield control until an event wakes you"
+
+[guidelines]
+bullets = '''
+Use wait_any to explicitly yield control instead of polling: call it once, then stop — do not call other tools alongside it.
+After wait_any the turn ends; you are woken by the next event — a user message, a shell-completion/error notification, or an alarm firing.
+Do not pair wait_any with alarm-as-poller loops; the background event itself wakes you. If you need active polling at a fixed interval, use sh_repeat_until instead.'''

@@ -1,0 +1,21 @@
+# Model-facing text for the alarm tool. Layered (project > user > shipped).
+# Switch conditionals (if any) use mustache standalone tags; see lib/text.ts.
+
+[tool]
+description = "Schedule a one-shot alarm to wake the model at a future time, or cancel active alarms. Provide either relative_seconds (seconds from now) or target_time (ISO 8601 or Unix epoch seconds). Pass cancel=true or cancel=<alarm_id> to cancel. When the alarm fires, a notification is sent to wake the model."
+prompt_snippet = "Schedule future wake-up alarms for the model"
+
+[schema]
+relative_seconds = "Seconds from now for the alarm to fire"
+target_time = "Absolute target time as ISO 8601 string or Unix epoch seconds"
+message = "Custom message to include when the alarm fires"
+alarm_id = "Optional stable id for the alarm; replaces any existing alarm with the same id"
+cancel_all = "Cancel all active alarms"
+cancel_id = "Cancel the alarm with this id"
+
+[guidelines]
+bullets = '''
+Use alarm when the user wants to be reminded or woken after a delay or at a specific time.
+For alarm, provide exactly one of relative_seconds or target_time, not both.
+Pass cancel=true to cancel all active alarms, or cancel=<alarm_id> to cancel a specific alarm.
+When an alarm fires and no follow-up is needed, simply invoke wait_any.'''

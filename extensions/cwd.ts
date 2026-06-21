@@ -35,6 +35,7 @@ import { statSync } from "node:fs";
 import { queueMessage } from "./lib/prepend-message.ts";
 import { getCwd, resolveCwdPath, setCwd } from "./lib/cwd.ts";
 import { discoverAgentsFiles, formatAgentsBlock, type AgentsFile } from "./lib/agents.ts";
+import { loadText, render, textPath, type ToolText } from "./lib/text.ts";
 
 // Re-export the live-cwd API so other tools import it from the cwd feature.
 export { getCwd, resolveCwdPath } from "./lib/cwd.ts";
@@ -45,6 +46,7 @@ const STATE_ENTRY = "cwd-state";
 const BOUNDARY_STEP = 25; // percent of context window
 const BOUNDARY_KEY = "__cpiCwdBoundary";
 const SEEN_AGENTS_KEY = "__cpiCwdSeenAgents";
+
 
 /**
  * Paths of AGENTS.md/CLAUDE.md files already seen by the agent — seeded
@@ -136,25 +138,21 @@ function registerReminderRenderer(pi: ExtensionAPI): void {
   });
 }
 
-const cwdSchema = Type.Object({
-  path: Type.String({
-    description: "Target directory, absolute, or relative to cwd",
-  }),
-});
-
 export default function (pi: ExtensionAPI): void {
   registerReminderRenderer(pi);
+
+  const T = loadText<ToolText>("cwd", textPath("cwd"));
+  const guidelines = render(T.guidelines.bullets, {}).split("\n");
+  const cwdSchema = Type.Object({
+    path: Type.String({ description: T.schema!.path }),
+  });
 
   pi.registerTool({
     name: CWD_TOOL,
     label: "Set cwd",
-    description:
-      "Change the cwd for all subsequent tool calls or shell commands.",
-    promptSnippet: "Change the cwd for all subsequent tool calls or shell commands.",
-    promptGuidelines: [
-      "Use set_cwd when the user asks to switch projects, or when work has clearly moved to a different tree, and the current CWD is no longer the right root for shell commands.",
-      "Use set_cwd when you keep prefixing `cd path/to/project && ...` on every sh call."
-    ],
+    description: render(T.tool.description, {}),
+    promptSnippet: T.tool.prompt_snippet,
+    promptGuidelines: guidelines,
     parameters: cwdSchema,
     async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
       const target = resolveCwdPath(params.path);

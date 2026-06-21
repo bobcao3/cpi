@@ -3,10 +3,12 @@ import type { AgentToolResult, ExtensionAPI, Skill } from "@earendil-works/pi-co
 import { Text } from "@earendil-works/pi-tui";
 import { readFileSync } from "node:fs";
 import { resolve, sep } from "node:path";
+import { loadText, render, textPath, type ToolText } from "./lib/text.ts";
 
 import { registerSystemPromptTransform } from "./lib/system-prompt.ts";
 
 const SKILL_TOOL = "skill";
+const SKILL_TEXT = loadText<ToolText>("skill", textPath("skill"));
 
 interface SkillRef {
   filePath: string;
@@ -39,20 +41,8 @@ function visibleSkillsSignature(list: Skill[]): string {
 
 function buildSkillToolDescription(list: Skill[] | undefined): string {
   const visible = (list ?? []).filter((s) => !s.disableModelInvocation);
-  const lines = [
-    "Load the full SKILL.md of a discovered skill by exact name. " +
-      "Pass subdoc to load a relative sub-document inside the skill directory.",
-    "",
-    "Available skills:",
-  ];
-  if (visible.length === 0) {
-    lines.push("  (none)");
-  } else {
-    for (const skill of visible) {
-      lines.push(`- ${skill.name}: ${skill.description}`);
-    }
-  }
-  return lines.join("\n");
+  const skills = visible.map((s) => ({ name: s.name, description: s.description }));
+  return render(SKILL_TEXT.tool.description, { skills }).trimEnd();
 }
 
 function resolveSubdoc(baseDir: string, subdoc: string): string {
@@ -88,19 +78,12 @@ export default function (pi: ExtensionAPI) {
       name: SKILL_TOOL,
       label: "Skill",
       description: buildSkillToolDescription(skillList),
-      promptSnippet: "Load a skill by name to read its full instructions",
-      promptGuidelines: [
-        "Use the skill tool when a skill description matches the current task and you need the full SKILL.md instructions.",
-        "Pass the exact skill name as shown in the skill tool description.",
-        "To read a sub-document referenced by the skill, pass its relative path from the skill directory as subdoc.",
-        "If the skill name is unknown, the result is an error listing the available skill names.",
-      ],
+      promptSnippet: SKILL_TEXT.tool.prompt_snippet,
+      promptGuidelines: render(SKILL_TEXT.guidelines.bullets, {}).split("\n"),
       parameters: Type.Object({
-        name: Type.String({ description: "Exact name of the skill to load" }),
+        name: Type.String({ description: SKILL_TEXT.schema!.name }),
         subdoc: Type.Optional(
-          Type.String({
-            description: "Relative path to a sub-document inside the skill directory",
-          }),
+          Type.String({ description: SKILL_TEXT.schema!.subdoc }),
         ),
       }),
       renderShell: "self",

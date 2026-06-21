@@ -13,6 +13,7 @@
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { loadText, render, textPath, type ToolText } from "./lib/text.ts";
 
 const LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh"] as const;
 type Level = (typeof LEVELS)[number];
@@ -21,8 +22,11 @@ const isLevel = (s: string): s is Level =>
   (LEVELS as readonly string[]).includes(s.toLowerCase());
 
 export default function effortExtension(pi: ExtensionAPI): void {
+  const T = loadText<ToolText>("effort", textPath("effort"));
+  const levels = LEVELS.join("|");
+
   pi.registerCommand("effort", {
-    description: `Tune thinking effort (no arg = show; levels: ${LEVELS.join("|")})`,
+    description: render(T.tool.description, { levels }),
 
     getArgumentCompletions(prefix: string) {
       const p = prefix.toLowerCase();

@@ -17,6 +17,7 @@ import { getShuckBinPath, buildShellEnvWithDotenv, type ToolAvailability } from 
 import { lintCommand, formatDiagnostics } from "./lint.ts";
 import { parseCommand } from "../lib/tree-sitter.ts";
 import { checkRules, formatRuleMatches } from "./rules.ts";
+import { loadText, render, textPath, type ToolText } from "../lib/text.ts";
 
 export interface RepeatLogRange {
   path: string;
@@ -54,6 +55,7 @@ interface RepeatMonitor {
 const rpt = new Map<string, RepeatMonitor>();
 let rptCounter = 0;
 let hook: RepeatCompletionHook | undefined;
+
 
 export const setRepeatCompletionHook = (fn: RepeatCompletionHook) => {
   hook = fn;
@@ -226,33 +228,24 @@ export function createRepeatTool(
 ) {
   const truncateDescribe = (t: string) =>
     t.length <= DESCRIBE_MAX ? t : t.slice(0, DESCRIBE_MAX - 1) + "…";
+  const T = loadText<ToolText>("sh-repeat", textPath("sh-repeat"));
+  const guidelines = render(T.guidelines.bullets, {}).split("\n");
   const schema = Type.Object({
-    command: Type.String({ description: "Command to run repeatedly" }),
+    command: Type.String({ description: T.schema!.command }),
     interval: Type.Number({
       minimum: 5,
       maximum: 60,
-      description: "Seconds between repetitions (5-60)",
+      description: T.schema!.interval,
     }),
-    describe: Type.String({ description: "Short description of what this monitor is doing (a few words)" }),
-    env: Type.Optional(Type.String({ description: "Dotenv merged into monitor env; dotenv wins" })),
+    describe: Type.String({ description: T.schema!.describe }),
+    env: Type.Optional(Type.String({ description: T.schema!.env })),
   });
-
-  const guidelines = [
-    "Use sh_repeat_until for active polling, not for passive waits; prefer the `alarm` tool for simple delayed wake-ups.",
-    "sh_repeat_until interval must be between 5 and 60 seconds.",
-    "If a sh_repeat_until invocation takes longer than its interval, the monitor stops and emits a repeat-breach notification.",
-    "For sh_repeat_until, exit code 0 means the condition is not met yet; keep polling. Any non-zero exit code stops the monitor.",
-    "When the monitor stops (any non-zero exit), exactly one notification fires; it does not say whether the final run succeeded or failed.",
-    "The notification includes the monitor log file path and the line range for the stopping invocation.",
-    "Cancel a repeat monitor with sh_signal using its rpt- ID; SIGKILL terminates immediately.",
-  ];
 
   return {
     name: "sh_repeat_until",
     label: "sh_repeat_until",
-    description:
-      "Run a command repeatedly until it exits non-zero; exit code 0 continues looping. Stateless, detached process group. Backgrounded by default.",
-    promptSnippet: "Poll with repeated shell commands",
+    description: render(T.tool.description, {}),
+    promptSnippet: T.tool.prompt_snippet,
     promptGuidelines: guidelines,
     parameters: schema,
     async execute(

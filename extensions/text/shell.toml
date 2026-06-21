@@ -1,0 +1,73 @@
+# Model-facing text for the shell extension (sh, sh_signal, sh_background_ps,
+# sh_repeat_until guidelines live in shell/repeat.toml).
+#
+# Layered, last-wins (project > user > shipped default), matching cpi's config
+# convention:
+#   extensions/shell/text.toml              (shipped defaults)
+#   ~/.pi/agent/shell.toml                  (user, all projects)
+#   <cwd>/.pi/shell.toml                    (project, overrides user)
+#
+# Templates use the mustache subset from lib/text.ts:
+#   {{name}}            interpolate (unescaped)
+#   {{#name}}...{{/}}   render when truthy; loops over arrays
+#   {{^name}}...{{/}}   render when falsy
+#   {{!comment}}        dropped
+# Conditionals here are driven by global switches resolved at tool registration:
+#   fd / rg / shuck / tree_sitter  (binary availability, process-stable)
+#   max_waitfor / max_preview_lines  (tunables from cpi-config.json)
+# Vision-gated content belongs in system-prompt transforms (per-turn, ctx.model),
+# not in these static tool fields.
+
+# ── Tool metadata shown to the main agent ──
+[sh]
+description = "Run a command via `bash -c`. Stateless: no env/cwd persistence. If the command runs longer than `waitfor`, sh backgrounds it and returns an id for signalling. Maximum waitfor is {{max_waitfor}}s."
+prompt_snippet = "Run shell commands"
+
+[sh_signal]
+description = "Signal a background shell command by its PID (sh-returned). Send SIGKILL to terminate background shell process-group."
+prompt_snippet = "Signal background shell commands"
+
+[sh_background_ps]
+description = "List active background shells and repeat_until monitors."
+prompt_snippet = "List active background jobs"
+
+[schema.sh]
+description = "Short description of what this command is doing (a few words)"
+waitfor = "Seconds to wait before backgrounding (default {{max_waitfor}}, max {{max_waitfor}}; >{{max_waitfor}} errors)"
+head = "Agent output: keep first N lines (max {{max_preview_lines}}). Mutually exclusive with tail; omit for default tail behavior."
+tail = "Agent output: keep last N lines (default {{max_preview_lines}}, max {{max_preview_lines}}). Mutually exclusive with head; omit for default tail behavior."
+command = "Command to run; `!!` replays the previous command"
+env = "Dotenv merged into sh env; dotenv wins"
+
+[schema.sh_signal]
+id = "Background shell PID (as returned by sh)"
+signal = "Signal name/number (default SIGINT; SIGKILL to terminate)"
+
+# ── promptGuidelines ──
+[guidelines]
+sh = '''
+Each sh call = fresh `bash -c`. No session reuse; env/cwd/shell state don't persist.
+For sh, always pass a short `description` parameter (a few words) explaining the command's purpose; sh_repeat_until uses `describe`.
+`!!` as the `command` replays the previous sh command regardless of its exit status or lint/schema rejection; use it to retry after a transient error or after fixing unrelated args (head/tail/description) without retyping the command.
+Keep waitfor <={{max_waitfor}}s. On overflow, sh returns PID + partial output.
+Set sh tool's native head or tail argument, instead of piping to head/tail, to cap preview output to first/last N lines (default & max: {{max_preview_lines}})
+Signal a background shell via sh_signal with its PID; send SIGKILL to terminate.
+A completion notification fires when a background shell finishes; you may yield control while waiting.
+Do not use alarm to poll a backgrounded shell; a completion notification fires on its own.
+Avoid polling, but if you really have to, use the `alarm` tool instead of a long `sleep &&` command.
+If a background shell completes and no follow-up is needed, simply invoke wait_any.
+{{#fd}}
+Search files with `$ fd` not `$ find`: fd [OPTS] [-H] [-I] [pattern] [path]...
+{{/fd}}
+{{#rg}}
+Search content with `$ rg` not `$ grep`: rg [OPTS] [--hidden] [--no-ignore] PATTERN [path]...
+{{/rg}}
+{{#shuck}}
+Every `sh` command is auto-linted by the shell linter before execution. Errors block; fix and retry. Warnings surface to you only.
+{{/shuck}}
+Editing commands trigger LSP auto-lint when a session is up; else run `lsp start`.'''
+sh_signal = '''
+sh_signal defaults to SIGINT, delivered to the whole process group.
+Do not run `kill` via sh on background PIDs; use `sh_signal` instead.'''
+sh_background_ps = '''
+Use sh_background_ps to check running background shells and monitors.'''

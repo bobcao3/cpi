@@ -23,13 +23,13 @@ import { Type } from "typebox";
 import { getAgentDir, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { buildShellEnv } from "./shell/tools.ts";
 import { DOTENV_MAX_KEYS, DOTENV_MAX_VALUE_BYTES } from "./lib/dotenv.ts";
+import { loadText, render, textPath, type ToolText } from "./lib/text.ts";
 
 const CAPTURE_TIMEOUT_MS = 30_000;
 const STDOUT_CAP = 2 * 1024 * 1024; // 2 MiB — env output is normally a few KB
 const MAX_KEYS = DOTENV_MAX_KEYS; // 4096 — shared with the parse side
 const MAX_VALUE_BYTES = DOTENV_MAX_VALUE_BYTES; // 32 KiB
 const KEY_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
-
 interface CaptureResult {
   stdout: string;
   exitCode: number | null;
@@ -156,25 +156,19 @@ function runCapture(
 }
 
 export default async function envCaptureExtension(pi: ExtensionAPI): Promise<void> {
+  const T = loadText<ToolText>("env-capture", textPath("env-capture"));
+  const guidelines = render(T.guidelines.bullets, {}).split("\n");
   pi.registerTool({
     name: "sh_env_capture",
     label: "sh_env_capture",
-    description:
-      "Capture the current process environment (optionally after running a bash command such as sourcing a venv) into a session-scoped dotenv file, reloadable via `env=<path>` on sh / sh_repeat_until / lsp.",
-    promptSnippet: "Capture env into a dotenv file",
-    promptGuidelines: [
-      "Use sh_env_capture to snapshot env (e.g. after `source .venv/bin/activate`) into a file, then reload it via `env=<path>` on sh or sh_repeat_until.",
-      "The returned `env=<path>` snippet is reusable across later commands; the file path is absolute and session-scoped.",
-      "Reload the same captured file via `env=<path>` on sh / sh_repeat_until / `lsp start`.",
-    ],
+    description: render(T.tool.description, {}),
+    promptSnippet: T.tool.prompt_snippet,
+    promptGuidelines: guidelines,
     parameters: Type.Object({
       command: Type.Optional(
-        Type.String({
-          description:
-            "Optional bash to run before capturing (e.g. 'source .venv/bin/activate'). Omit = capture current process env.",
-        }),
+        Type.String({ description: T.schema!.command }),
       ),
-      label: Type.Optional(Type.String({ description: "Optional name for the dotenv file" })),
+      label: Type.Optional(Type.String({ description: T.schema!.label })),
     }),
     async execute(_toolCallId, params, signal, _onUpdate, ctx) {
       const command = params.command?.trim() || undefined;

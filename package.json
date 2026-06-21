@@ -21,6 +21,7 @@
     ]
   },
   "dependencies": {
+    "mustache": "^4.2.0",
     "smol-toml": "^1.6.1"
   },
   "peerDependencies": {
@@ -29,6 +30,7 @@
     "typebox": "*"
   },
   "devDependencies": {
+    "@types/mustache": "^4.2.6",
     "prettier": "^3"
   }
 }

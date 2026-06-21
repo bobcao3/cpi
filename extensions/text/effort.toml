@@ -1,0 +1,9 @@
+# Model-/user-facing text for the /effort command. Layered (project > user > shipped).
+# {{levels}} is the pipe-joined level list, rendered at registration.
+
+[tool]
+description = "Tune thinking effort (no arg = show; levels: {{levels}})"
+prompt_snippet = ""
+
+[guidelines]
+bullets = ""

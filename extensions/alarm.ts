@@ -17,10 +17,10 @@ import { Text } from "@earendil-works/pi-tui";
 import { sendNotification } from "./lib/notification.ts";
 import { registerHoldSource } from "./lib/session-hold.ts";
 import { recordAlarmSetup } from "./lib/poll-guard.ts";
+import { loadText, render, textPath, type ToolText } from "./lib/text.ts";
 
 const ALARM_TOOL = "alarm";
 const MAX_ALARM_SECONDS = 365 * 24 * 60 * 60; // ~1 year
-
 interface Alarm {
   id: string;
   targetMs: number;
@@ -31,35 +31,6 @@ interface Alarm {
 interface AlarmDetails {
   alarms: Alarm[];
 }
-
-const alarmSchema = Type.Object({
-  relative_seconds: Type.Optional(
-    Type.Number({
-      description: "Seconds from now for the alarm to fire",
-      minimum: 1,
-      maximum: MAX_ALARM_SECONDS,
-    }),
-  ),
-  target_time: Type.Optional(
-    Type.String({
-      description: "Absolute target time as ISO 8601 string or Unix epoch seconds",
-    }),
-  ),
-  message: Type.Optional(
-    Type.String({ description: "Custom message to include when the alarm fires" }),
-  ),
-  alarm_id: Type.Optional(
-    Type.String({
-      description: "Optional stable id for the alarm; replaces any existing alarm with the same id",
-    }),
-  ),
-  cancel: Type.Optional(
-    Type.Union([
-      Type.Boolean({ description: "Cancel all active alarms" }),
-      Type.String({ description: "Cancel the alarm with this id" }),
-    ]),
-  ),
-});
 
 let piRef: ExtensionAPI;
 let alarms: Alarm[] = [];
@@ -173,19 +144,40 @@ function rescheduleFromState(): void {
 export default function (pi: ExtensionAPI) {
   piRef = pi;
 
+  const T = loadText<ToolText>("alarm", textPath("alarm"));
+  const guidelines = render(T.guidelines.bullets, {}).split("\n");
+
+  const alarmSchema = Type.Object({
+    relative_seconds: Type.Optional(
+      Type.Number({
+        description: T.schema!.relative_seconds,
+        minimum: 1,
+        maximum: MAX_ALARM_SECONDS,
+      }),
+    ),
+    target_time: Type.Optional(
+      Type.String({ description: T.schema!.target_time }),
+    ),
+    message: Type.Optional(
+      Type.String({ description: T.schema!.message }),
+    ),
+    alarm_id: Type.Optional(
+      Type.String({ description: T.schema!.alarm_id }),
+    ),
+    cancel: Type.Optional(
+      Type.Union([
+        Type.Boolean({ description: T.schema!.cancel_all }),
+        Type.String({ description: T.schema!.cancel_id }),
+      ]),
+    ),
+  });
 
   pi.registerTool({
     name: ALARM_TOOL,
     label: "Alarm",
-    description:
-      "Schedule a one-shot alarm to wake the model at a future time, or cancel active alarms. Provide either relative_seconds (seconds from now) or target_time (ISO 8601 or Unix epoch seconds). Pass cancel=true or cancel=<alarm_id> to cancel. When the alarm fires, a notification is sent to wake the model.",
-    promptSnippet: "Schedule future wake-up alarms for the model",
-    promptGuidelines: [
-      "Use alarm when the user wants to be reminded or woken after a delay or at a specific time.",
-      "For alarm, provide exactly one of relative_seconds or target_time, not both.",
-      "Pass cancel=true to cancel all active alarms, or cancel=<alarm_id> to cancel a specific alarm.",
-      "When an alarm fires and no follow-up is needed, simply invoke wait_any.",
-    ],
+    description: render(T.tool.description, {}),
+    promptSnippet: T.tool.prompt_snippet,
+    promptGuidelines: guidelines,
     parameters: alarmSchema,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       reconstructAlarms(ctx);

@@ -9,7 +9,7 @@
 # strings ('''...''') preserve the exact text the model sees (no escape
 # processing, so `\t` stays literal); basic strings ("...") interpret \n. A
 # newline right after the opening ''' is trimmed, so content starts on the next
-# line. Templates use {placeholder} tokens substituted at runtime.
+# line. Templates use {{placeholder}} tokens substituted at runtime.
 
 # ── System prompts for the Viewer/Editor subagents (near-verbatim SWE-Edit) ──
 [system]
@@ -126,11 +126,11 @@ def f(x):
 Additionally, matching tolerates a UNIFORM leading-whitespace offset between SEARCH and the file (you may omit indentation that is consistent across the whole block); REPLACE is re-indented to the file's level. Prefer exact matches; use these only when an exact SEARCH would be impractical.
 '''
 
-# ── User-message task templates fed to the subagents on stdin ({placeholder}) ──
+# ── User-message task templates fed to the subagents on stdin ({{placeholder}}) ──
 [tasks]
-viewer = "Here is the file with numbered lines:\n\n{content}\n\nQuery: {query}"
-editor = "Here is the current file content:\n```\n{content}\n```\n\nInstruction: {instruction}\n\nPlease provide the search-replace blocks needed to make these changes."
-editor_reconcile = "A concurrent edit changed the file on disk since your previous attempt, so those blocks were not applied. Here is the CURRENT file content:\n```\n{content}\n```\n\nInstruction: {instruction}\n\nRe-apply the instruction against this current content. Output ONLY the search-replace blocks."
+viewer = "Here is the file with numbered lines:\n\n{{content}}\n\nQuery: {{query}}"
+editor = "Here is the current file content:\n```\n{{content}}\n```\n\nInstruction: {{instruction}}\n\nPlease provide the search-replace blocks needed to make these changes."
+editor_reconcile = "A concurrent edit changed the file on disk since your previous attempt, so those blocks were not applied. Here is the CURRENT file content:\n```\n{{content}}\n```\n\nInstruction: {{instruction}}\n\nRe-apply the instruction against this current content. Output ONLY the search-replace blocks."
 
 # ── Tool metadata shown to the main agent ──
 [tool]
@@ -138,10 +138,10 @@ label = "LLM editor"
 description = "View, create, and edit files. view on a directory lists it; view on a file with a query returns only the relevant ranges (AI-filtered); create writes a new file; edit applies a natural-language instruction via a subagent that emits exact search-replace blocks. Prefer this over sh for reading and editing files."
 prompt_snippet = "View/create/edit files (AI-mediated)"
 guidelines = [
-  "Use llm_editor for file reads and edits in preference to sh; use sh for git, build, test, search, and process control.",
-  "llm_editor view on a file takes a `query` describing what you are looking for; it returns only the relevant line ranges with line numbers (AI-filtered), not the whole file.",
-  "llm_editor edit takes a natural-language `instruction` naming the function/class/method to change; the subagent produces exact search-replace blocks. Be specific: 'In MyClass.my_method, change X to Y' beats 'fix the bug'.",
-  "llm_editor create fails if the path already exists; use llm_editor edit to modify existing files.",
+	"Use llm_editor for file reads and edits in preference to sh; use sh for git, build, test, search, and process control.",
+	"llm_editor view on a file takes a `query` describing what you are looking for; it returns only the relevant line ranges with line numbers (AI-filtered), not the whole file.",
+	"llm_editor edit takes a natural-language `instruction` naming the function/class/method to change; the subagent produces exact search-replace blocks. Be specific: 'In MyClass.my_method, change X to Y' beats 'fix the bug'.",
+	"llm_editor create fails if the path already exists; use llm_editor edit to modify existing files.",
 ]
 
 # ── Schema field descriptions (injected into the TypeBox tool schema) ──
@@ -157,45 +157,45 @@ file_text = "create: full content of the new file."
 view_no_ranges = "(no relevant ranges)"
 empty_dir = "(empty)"
 no_output = "(no output)"
-head_more = "... ({n} more lines; pass a query to view relevant ranges)"
-lines_omitted = "... ({n} lines omitted) ..."
+head_more = "... ({{n}} more lines; pass a query to view relevant ranges)"
+lines_omitted = "... ({{n}} lines omitted) ..."
 
-# ── LSP result-field strings (design §9; {placeholder} substituted via fmt) ──
+# ── LSP result-field strings (design §9; {{placeholder}} substituted via fmt) ──
 [lsp]
 diagnostics_none = "none"
-install_failed = "run 'lsp start file={path}' to provision"
-restart_hint = "LSP auto-started for {root}. If the env is wrong, run 'lsp start file={path} env=<dotenv>' to restart."
+install_failed = "run 'lsp start file={{path}}' to provision"
+restart_hint = "LSP auto-started for {{root}}. If the env is wrong, run 'lsp start file={{path}} env=<dotenv>' to restart."
 
-# ── Error message templates ({placeholder} substituted at runtime) ──
+# ── Error message templates ({{placeholder}} substituted at runtime) ──
 [errors]
 aborted = "Aborted before start."
-not_found = "Not found: {path}"
-not_a_file = "Not a file: {path}"
-file_too_large = "File is {size} bytes (limit {limit}); too large for llm_editor to load ({path}). Use sh to inspect regions (`rg` to locate, `sed -n 'M,Np'` to read a range); llm_editor cannot load this file."
-cannot_read = "Cannot read {path}: {reason}"
+not_found = "Not found: {{path}}"
+not_a_file = "Not a file: {{path}}"
+file_too_large = "File is {{size}} bytes (limit {{limit}}); too large for llm_editor to load ({{path}}). Use sh to inspect regions (`rg` to locate, `sed -n 'M,Np'` to read a range); llm_editor cannot load this file."
+cannot_read = "Cannot read {{path}}: {{reason}}"
 create_requires_text = "create requires file_text."
-file_exists = "File already exists: {path}. Use llm_editor edit to modify it."
-create_failed = "Create failed: {reason}"
+file_exists = "File already exists: {{path}}. Use llm_editor edit to modify it."
+create_failed = "Create failed: {{reason}}"
 edit_requires_instruction = "edit requires an instruction."
 no_editor_model = "llm_editor: no editor model (no editor config and no main model)."
-invalid_chain_regex = '[llm-editor] chain rule {i}: invalid regex "{pattern}"; skipping.'
-configured_unavailable = '[llm-editor] configured editor.model "{model}" not available/authed; falling back to chain.'
-viewer_timeout = "Viewer subagent timed out after {ms}ms."
-editor_timeout = "Editor subagent timed out after {ms}ms."
-viewer_bad_output = "Viewer did not return a JSON line-range array.\nOutput: {tail}"
-write_failed = "Write failed: {reason}"
-file_drifted = "File changed on disk mid-edit (concurrent edit); not patched even after one automatic reconcile. Re-read {path} and apply the change again."
-spawn_not_found = "pi binary not found on PATH: {reason}"
+invalid_chain_regex = '[llm-editor] chain rule {{i}}: invalid regex "{{pattern}}"; skipping.'
+configured_unavailable = '[llm-editor] configured editor.model "{{model}}" not available/authed; falling back to chain.'
+viewer_timeout = "Viewer subagent timed out after {{ms}}ms. Consider fewer query statements & use concrete keywords."
+editor_timeout = "Editor subagent timed out after {{ms}}ms. Consider reducing scope & increase specificity"
+viewer_bad_output = "Viewer did not return a JSON line-range array.\nOutput: {{tail}}"
+write_failed = "Write failed: {{reason}}"
+file_drifted = "File changed on disk mid-edit (concurrent edit); not patched even after one automatic reconcile. Re-read {{path}} and apply the change again."
+spawn_not_found = "pi binary not found on PATH: {{reason}}"
 apply_no_blocks = "No search-replace blocks found in editor output."
-apply_not_found = "Block {i}: SEARCH text not found in file. It must match exactly (whitespace/indentation)."
-apply_not_found_fuzzy = "Block {i}: SEARCH text not found in file. Both exact match and fuzzy fallback (uniform-indent tolerance + ... elision) failed."
-apply_not_unique = "Block {i}: SEARCH text is not unique ({n} matches). Add more surrounding context."
+apply_not_found = "Block {{i}}: SEARCH text not found in file. It must match exactly (whitespace/indentation)."
+apply_not_found_fuzzy = "Block {{i}}: SEARCH text not found in file. Both exact match and fuzzy fallback (uniform-indent tolerance + ... elision) failed."
+apply_not_unique = "Block {{i}}: SEARCH text is not unique ({{n}} matches). Add more surrounding context."
 apply_empty_with_others = "Empty SEARCH (whole-file rewrite) cannot coexist with other blocks."
-apply_overlap = "Block {i} overlaps block {j}. Merge or separate them."
+apply_overlap = "Block {{i}} overlaps block {{j}}. Merge or separate them."
 
 # ── Transcript (persisted subagent log) labels ──
 [transcript]
-title = "# llm_editor {role} subagent"
+title = "# llm_editor {{role}} subagent"
 section_system = "## System Prompt"
 section_user = "## User"
 section_assistant = "## Assistant"
@@ -205,5 +205,5 @@ section_stderr = "## stderr"
 [system_prompt]
 transcript_block = '''
 Each llm_editor result includes an `<id>` = short-sha of its args (command, path, query/instruction/file_text).
-For `view` with a query and `edit`, the subagent transcript is persisted at {dir}/{id}.md.
+For `view` with a query and `edit`, the subagent transcript is persisted at {{dir}}/<id>.md.
 '''

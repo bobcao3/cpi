@@ -33,10 +33,12 @@ import {
 import { loadLspConfig } from "./lib/config.ts";
 import { formatDiagnostics } from "./lib/lsp/diagnostics.ts";
 import { registerSystemPromptTransform } from "./lib/system-prompt.ts";
+import { loadText, render, textPath, type ToolText } from "./lib/text.ts";
 
 const TRANSFORM_ID = "lsp-behavior";
 const BLOCK_START = "<lsp-behavior>";
 const BLOCK_END = "</lsp-behavior>";
+
 
 /** Strip a prior block so re-application never stacks duplicates (llm-editor pattern). */
 function stripBlock(prompt: string): string {
@@ -180,17 +182,14 @@ async function doCheck(p: LspParams) {
 }
 
 export default async function lspExtension(pi: ExtensionAPI): Promise<void> {
+  const T = loadText<ToolText>("lsp", textPath("lsp"));
+  const guidelines = render(T.guidelines.bullets, {}).split("\n");
   pi.registerTool({
     name: "lsp",
     label: "lsp",
-    description:
-      "Manage LSP sessions: list_sessions, start (resolve project + provision), stop, check (file diagnostics or full-package CLI check).",
-    promptSnippet: "LSP sessions: start/check/stop",
-    promptGuidelines: [
-      "`lsp start file=<path>` starts a session for the file's project; `lsp check file=<path>` auto-starts and returns diagnostics.",
-      "`lsp start file=<path> env=<dotenv>` restarts with a merged env — re-invoke to reload a captured dot_env (e.g. after sh_env_capture).",
-      "`lsp list_sessions` lists active sessions; `lsp stop file=<path>` stops one. An env-provided LSP binary (on PATH, incl. via env=) is reused as-is.",
-    ],
+    description: render(T.tool.description, {}),
+    promptSnippet: T.tool.prompt_snippet,
+    promptGuidelines: guidelines,
     parameters: Type.Object({
       command: Type.Union([
         Type.Literal("list_sessions"),
@@ -199,14 +198,14 @@ export default async function lspExtension(pi: ExtensionAPI): Promise<void> {
         Type.Literal("check"),
       ]),
       project_dir: Type.Optional(
-        Type.String({ description: "Project root (start/stop)." }),
+        Type.String({ description: T.schema!.project_dir }),
       ),
       file: Type.Optional(
-        Type.String({ description: "File path; project auto-discovered. start/stop/check." }),
+        Type.String({ description: T.schema!.file }),
       ),
       env: Type.Optional(
         Type.String({
-          description: "Path to a .env file to load for the server (restart on change).",
+          description: T.schema!.env,
         }),
       ),
     }),
