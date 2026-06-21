@@ -33,6 +33,7 @@ export interface EditorText {
     head_more: string;
     lines_omitted: string;
   };
+  lsp: { diagnostics_none: string; install_failed: string; restart_hint: string };
   errors: Record<string, string>;
   transcript: {
     title: string;

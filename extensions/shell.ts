@@ -40,6 +40,7 @@ import { lintCommand, formatDiagnostics } from "./shell/lint.ts";
 import { parseCommand } from "./lib/tree-sitter.ts";
 import { checkRules, formatRuleMatches } from "./shell/rules.ts";
 import { surfaceCdAgents } from "./shell/cd-targets.ts";
+import { runLspHook } from "./shell/lsp-hook.ts";
 import { formatAgentsBlock } from "./lib/agents.ts";
 const SH_TOOL = "sh",
   SH_SIGNAL_TOOL = "sh_signal",
@@ -296,6 +297,7 @@ export default async function (pi: ExtensionAPI) {
       if (shuckWarnings) text = `linter warnings:\n${shuckWarnings}\n---\n${text}`;
       if (slowDown) text = `${slowDown}\n---\n${text}`;
       text += formatAgentsBlock(cdAgents);
+      text += await runLspHook(availability.treeSitter ? parse.node : null);
 
       return {
         content: [{ type: "text", text }],

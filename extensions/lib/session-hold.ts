@@ -38,6 +38,7 @@ interface HoldState {
   sources: HoldSource[];
   lastStopReason: string | undefined;
   holdNoticeSent: boolean;
+  reminderDelivered: boolean;
 }
 
 const GLOBAL_KEY = "__cpiHold";
@@ -49,6 +50,7 @@ function state(): HoldState {
       sources: [],
       lastStopReason: undefined,
       holdNoticeSent: false,
+      reminderDelivered: false,
     } satisfies HoldState;
   }
   return g[GLOBAL_KEY] as HoldState;
@@ -95,6 +97,44 @@ export function consumeHoldNotice(): boolean {
   if (s.holdNoticeSent) return false;
   s.holdNoticeSent = true;
   return true;
+}
+
+/**
+ * Per-episode flag: has the hold reminder been delivered to the agent for the
+ * current set of pending sources? Set when the owner delivers a "system
+ * reminder" to a normally-stopping agent; cleared when pending reaches zero
+ * (hold clears) or on shutdown. Deliberately NOT reset by resetHoldTracking
+ * (which runs at every agent_start, including the reminder's follow-up turn) —
+ * otherwise the agent ending normally again would re-trigger the reminder
+ * forever. The flag bounds the reminder to once per episode; later normal stops
+ * fall back to the deadline-bounded passive hold.
+ */
+export function markReminderDelivered(): void {
+  state().reminderDelivered = true;
+}
+
+export function isReminderDelivered(): boolean {
+  return state().reminderDelivered;
+}
+
+export function clearReminderDelivered(): void {
+  state().reminderDelivered = false;
+}
+
+/**
+ * Build the two-line "system reminder" body delivered to the agent when it ends
+ * its turn normally (without yielding via wait_any) while hold sources are
+ * pending. Line 1 lists what is being held (each source's noticeText); line 2
+ * tells the agent how to resolve: wait_any to yield, or disarm/kill to return
+ * control. Pure — no pi dependency; the owner does the actual delivery.
+ */
+export function buildHoldReminderText(pending: HoldSource[]): string {
+  const parts = pending.map((s) => s.noticeText()).filter(Boolean);
+  const holding = parts.length > 0 ? `Holding, ${parts.join("; ")}` : "Holding";
+  return [
+    `system reminder | ${holding}`,
+    "system reminder | Invoke wait_any to yield and wait, or disarm / kill background shell if you want to return control back to caller.",
+  ].join("\n");
 }
 
 /**

@@ -70,6 +70,11 @@ function pythonSpec(cfg: LspConfig): LspServerSpec {
     install: { method: "uv", package: py.package, version: py.version },
     binName: "pyrefly",
     serverCommand: (bin) => ({ cmd: bin, args: ["lsp"] }),
+    // displayTypeErrors:"force-on" — emit type-check diagnostics even with no
+    // pyrefly.toml (the default "basic" preset silences them on unconfigured
+    // projects). A project pyrefly.toml (preset=default/strict) still controls
+    // which checks run; this only stops the basic preset from hiding them.
+    initOptions: { pyrefly: { displayTypeErrors: "force-on" } },
   };
 }
 
