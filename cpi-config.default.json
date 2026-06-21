@@ -18,6 +18,7 @@
     "maxFileBytes": 262144,
     "subagentTimeoutMs": 120000,
     "maxTranscripts": 200,
+    "fuzzyMatch": true,
     "chain": [
       { "search": "(claude-)(fable|opus)[0-9.-]*", "replace": "$1sonnet-4-6" },
       { "search": "gpt-5.[0-9].*", "replace": "gpt-5.4-mini" },

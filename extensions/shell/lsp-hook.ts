@@ -61,7 +61,7 @@ export async function postRunLspCheck(edits: EditTarget[]): Promise<LspHookResul
         if (!warned.has(key)) {
           warned.add(key);
           if (warning === undefined) {
-            warning = `(no LSP for ${t.path}; run \`lsp start file=${t.path}\` to enable auto-lint)`;
+            warning = `(no active LSP for ${t.path}; we suggest calling lsp tool \`lsp start file=${t.path}\` to enable auto-lint)`;
           }
         }
       }

@@ -44,6 +44,8 @@ export interface EditFileOptions {
   transcriptDir: string;
   maxTranscripts: number;
   maxFileBytes: number;
+  /** Toggles Aider-style fuzzy fallback for block matching (default on). */
+  fuzzyMatch?: boolean;
   onStream?: (accumulated: string) => void;
 }
 
@@ -56,6 +58,7 @@ export type EditFileResult =
       firstChangedLine: number | undefined;
       applied: number;
       wholeFileRewrite: boolean;
+      match: "exact" | "fuzzy";
       lsp: string;
       usage?: { input: number; output: number };
     }
@@ -68,7 +71,9 @@ function formatApplyError(T: EditorText, e: ApplyError): string {
     case "empty_with_others":
       return T.errors.apply_empty_with_others;
     case "not_found":
-      return fmt(T.errors.apply_not_found, { i: e.block });
+      return e.fuzzy
+        ? fmt(T.errors.apply_not_found_fuzzy, { i: e.block })
+        : fmt(T.errors.apply_not_found, { i: e.block });
     case "not_unique":
       return fmt(T.errors.apply_not_unique, { i: e.block, n: e.occurrences });
     case "overlap":
@@ -104,9 +109,11 @@ export async function editFile(path: string, opts: EditFileOptions): Promise<Edi
       const task = reconcile
         ? fmt(T.tasks.editor_reconcile, { content, instruction: opts.instruction })
         : fmt(T.tasks.editor, { content, instruction: opts.instruction });
+      const systemPrompt =
+        opts.fuzzyMatch === false ? T.system.editor : T.system.editor + T.system.editor_fuzzy;
       const res = await runSubagent({
         role: "editor",
-        systemPrompt: T.system.editor,
+        systemPrompt,
         task,
         provider: opts.provider,
         modelId: opts.modelId,
@@ -125,7 +132,7 @@ export async function editFile(path: string, opts: EditFileOptions): Promise<Edi
         return { ok: false, error: fmt(T.errors.editor_timeout, { ms: opts.timeoutMs }) };
 
       const blocks = parseBlocks(res.answer);
-      const applied = applyBlocks(content, blocks);
+      const applied = applyBlocks(content, blocks, { fuzzy: opts.fuzzyMatch });
       if (!applied.ok) {
         return {
           ok: false,
@@ -160,6 +167,7 @@ export async function editFile(path: string, opts: EditFileOptions): Promise<Edi
         firstChangedLine,
         applied: applied.applied,
         wholeFileRewrite: applied.wholeFileRewrite,
+        match: applied.match,
         lsp,
         usage: res.usage,
       };

@@ -131,9 +131,10 @@ interface LspServerSpec {
   `initOptions={ hostInfo:"cpi" }`.
 - **python**: `uv`; `binName="pyrefly"`; `serverCommand` → `{ cmd: bin, args:
   ["lsp"] }`; `languageId` → `"python"`; `initOptions={ pyrefly:{
-  displayTypeErrors:"force-on" } }` — emit type-check diagnostics even with no
-  `pyrefly.toml` (the default `basic` preset silences them on unconfigured
-  projects; a project toml's `preset` still controls which checks run).
+  typeCheckingMode:"default" } }` — set the preset to default (full standard
+  type checking) for implicit projects (no `pyrefly.toml`); the non-deprecated
+  replacement for displayTypeErrors (deprecated in pyrefly v1.0). A project
+  toml's `preset` still overrides. Requires pyrefly >=1.0.
 - **shell (shuck)**: `reuse`; `binName="shuck"`; resolution reuses
   `getShuckBinPath()` (+ `ensureShellTools()`); `serverCommand` → `{ cmd: bin,
   args: ["server","--isolated"] }`; `languageId` → `"bash"`.
