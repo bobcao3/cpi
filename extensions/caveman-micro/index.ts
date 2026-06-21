@@ -14,6 +14,7 @@ import { isFirstTurn } from "../lib/prepend-message";
 import { registerRightSegment, requestFooterRender } from "../lib/footer.ts";
 import { loadCavemanConfig, type CavemanConfig } from "../lib/config.ts";
 import { registerSystemPromptTransform } from "../lib/system-prompt.ts";
+import { loadText, render, textPath, type ToolText } from "../lib/text.ts";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -84,10 +85,12 @@ export default function cavemanMicroExtension(pi: ExtensionAPI) {
     pi.appendEntry<CavemanState>(STATE_KEY, data);
   };
 
+  const T = loadText<ToolText>("caveman", textPath("caveman"));
+
   // ── /caveman command ──────────────────────────────────────────────────
 
   pi.registerCommand("caveman", {
-    description: "Toggle caveman-micro compression on/off (or: /caveman on|off|status)",
+    description: render(T.tool.description, {}),
 
     getArgumentCompletions(prefix: string) {
       const options = ["on", "off", "status"];

@@ -1,0 +1,16 @@
+# Model-facing text for the lsp tool. Layered (project > user > shipped).
+
+[tool]
+description = "Manage LSP sessions: list_sessions, start (resolve project + provision), stop, check (file diagnostics or full-package CLI check)."
+prompt_snippet = "LSP sessions: start/check/stop"
+
+[schema]
+project_dir = "Project root (start/stop)."
+file = "File path; project auto-discovered. start/stop/check."
+env = "Path to a .env file to load for the server (restart on change)."
+
+[guidelines]
+bullets = '''
+`lsp start file=<path>` starts a session for the file's project; `lsp check file=<path>` auto-starts and returns diagnostics.
+`lsp start file=<path> env=<dotenv>` restarts with a merged env — re-invoke to reload a captured dot_env (e.g. after sh_env_capture).
+`lsp list_sessions` lists active sessions; `lsp stop file=<path>` stops one. An env-provided LSP binary (on PATH, incl. via env=) is reused as-is.'''

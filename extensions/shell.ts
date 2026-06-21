@@ -42,10 +42,18 @@ import { checkRules, formatRuleMatches } from "./shell/rules.ts";
 import { surfaceCdAgents } from "./shell/cd-targets.ts";
 import { runLspHook } from "./shell/lsp-hook.ts";
 import { formatAgentsBlock } from "./lib/agents.ts";
+import { loadText, render, textPath } from "./lib/text.ts";
 const SH_TOOL = "sh",
   SH_SIGNAL_TOOL = "sh_signal",
   SH_REPEAT_TOOL = "sh_repeat_until",
   SH_BACKGROUND_PS_TOOL = "sh_background_ps";
+interface ShellText {
+  sh: { description: string; prompt_snippet: string };
+  sh_signal: { description: string; prompt_snippet: string };
+  sh_background_ps: { description: string; prompt_snippet: string };
+  guidelines: { sh: string; sh_signal: string; sh_background_ps: string };
+  schema: { sh: Record<string, string>; sh_signal: Record<string, string> };
+}
 const SLEEP_UNITS: Record<string, number> = { s: 1, m: 60, h: 3600, d: 86400 };
 const fmtDiags = (diags: any[], fmt: (d: any[]) => string) => (diags.length ? fmt(diags) : "");
 const errReturn = (text: string) => ({ content: [{ type: "text" as const, text }], isError: true });
@@ -83,27 +91,6 @@ export default async function (pi: ExtensionAPI) {
     updateMs: cfg.updateMs,
   };
 
-  const shSchema = Type.Object({
-    description: Type.String({ description: "Short description of what this command is doing (a few words)" }),
-    waitfor: Type.Optional(
-      Type.Number({
-        description: `Seconds to wait before backgrounding (default ${DEFAULT_WAITFOR}, max ${MAX_WAITFOR}; >${MAX_WAITFOR} errors)`,
-      }),
-    ),
-    head: Type.Optional(
-      Type.Number({
-        description: `Agent output: keep first N lines (max ${MAX_PREVIEW_LINES}). Mutually exclusive with tail; omit for default tail behavior.`,
-      }),
-    ),
-    tail: Type.Optional(
-      Type.Number({
-        description: `Agent output: keep last N lines (default ${MAX_PREVIEW_LINES}, max ${MAX_PREVIEW_LINES}). Mutually exclusive with head.`,
-      }),
-    ),
-    command: Type.String({ description: "Command to run; `!!` replays the previous command" }),
-    env: Type.Optional(Type.String({ description: "Dotenv merged into sh env; dotenv wins" })),
-  });
-
   const availability = await ensureShellTools().catch(
     () => ({ fd: false, rg: false, shuck: false, treeSitter: false }) as ToolAvailability,
   );
@@ -136,41 +123,37 @@ export default async function (pi: ExtensionAPI) {
     sendNotification(pi, { kind, summary, payload }, { deliverAs: "steer" });
   });
 
-  const commonGuidelines = [
-    "Each sh call = fresh `bash -c`. No session reuse; env/cwd/shell state don't persist.",
-    "For sh, always pass a short `description` parameter (a few words) explaining the command's purpose; sh_repeat_until uses `describe`.",
-    "`!!` as the `command` replays the previous sh command regardless of its exit status or lint/schema rejection; use it to retry after a transient error or after fixing unrelated args (head/tail/description) without retyping the command.",
-    `Keep waitfor <=${MAX_WAITFOR}s. On overflow, sh returns PID + partial output.`,
-    `Set sh tool's native head or tail argument, instead of piping to head/tail, to cap preview output to first/last N lines (default & max: ${MAX_PREVIEW_LINES})`,
-    "Signal a background shell via sh_signal with its PID; send SIGKILL to terminate.",
-    "A completion notification fires when a background shell finishes; you may yield control while waiting.",
-    "Do not use alarm to poll a backgrounded shell; a completion notification fires on its own.",
-    "Avoid polling, but if you really have to, use the `alarm` tool instead of a long `sleep &&` command.",
-    "If a background shell completes and no follow-up is needed, simply invoke wait_any.",
-    ...(availability.fd
-      ? ["Search files with `$ fd` not `$ find`: fd [OPTS] [-H] [-I] [pattern] [path]..."]
-      : []),
-    ...(availability.rg
-      ? [
-          "Search content with `$ rg` not `$ grep`: rg [OPTS] [--hidden] [--no-ignore] PATTERN [path]...",
-        ]
-      : []),
-    ...(availability.shuck
-      ? [
-          "Every `sh` command is auto-linted by the shell linter before execution. Errors block; fix and retry. Warnings surface to you only.",
-        ]
-      : []),
-    "Editing commands trigger LSP auto-lint when a session is up; else run `lsp start`.",
-  ];
+  const T = loadText<ShellText>("shell", textPath("shell"));
+  const switches = {
+    max_waitfor: MAX_WAITFOR,
+    max_preview_lines: MAX_PREVIEW_LINES,
+    fd: availability.fd,
+    rg: availability.rg,
+    shuck: availability.shuck,
+    tree_sitter: availability.treeSitter,
+  };
+  const commonGuidelines = render(T.guidelines.sh, switches).split("\n");
+
+  const shSchema = Type.Object({
+    description: Type.String({ description: T.schema.sh.description }),
+    waitfor: Type.Optional(
+      Type.Number({ description: render(T.schema.sh.waitfor, switches) }),
+    ),
+    head: Type.Optional(
+      Type.Number({ description: render(T.schema.sh.head, switches) }),
+    ),
+    tail: Type.Optional(
+      Type.Number({ description: render(T.schema.sh.tail, switches) }),
+    ),
+    command: Type.String({ description: T.schema.sh.command }),
+    env: Type.Optional(Type.String({ description: T.schema.sh.env })),
+  });
 
   pi.registerTool({
     name: SH_TOOL,
     label: "sh",
-    description:
-      "Run a command via `bash -c`. Stateless: no env/cwd persistence. If the command runs longer than `waitfor`, sh backgrounds it and returns an id for signalling. Maximum waitfor is " +
-      MAX_WAITFOR +
-      "s.",
-    promptSnippet: "Run shell commands",
+    description: render(T.sh.description, switches),
+    promptSnippet: T.sh.prompt_snippet,
     promptGuidelines: commonGuidelines,
     parameters: shSchema,
     async execute(_toolCallId, params, signal, onUpdate, ctx) {
@@ -327,17 +310,13 @@ export default async function (pi: ExtensionAPI) {
   pi.registerTool({
     name: SH_SIGNAL_TOOL,
     label: "sh_signal",
-    description:
-      "Signal a background shell command by its PID (sh-returned). Send SIGKILL to terminate background shell process-group.",
-    promptSnippet: "Signal background shell commands",
-    promptGuidelines: [
-      "sh_signal defaults to SIGINT, delivered to the whole process group.",
-      "Do not run `kill` via sh on background PIDs; use `sh_signal` instead.",
-    ],
+    description: render(T.sh_signal.description, switches),
+    promptSnippet: T.sh_signal.prompt_snippet,
+    promptGuidelines: render(T.guidelines.sh_signal, switches).split("\n"),
     parameters: Type.Object({
-      id: Type.String({ description: "Background shell PID (as returned by sh)" }),
+      id: Type.String({ description: T.schema.sh_signal.id }),
       signal: Type.Optional(
-        Type.String({ description: "Signal name/number (default SIGINT; SIGKILL to terminate)" }),
+        Type.String({ description: T.schema.sh_signal.signal }),
       ),
     }),
     async execute(_toolCallId, params) {
@@ -363,9 +342,9 @@ export default async function (pi: ExtensionAPI) {
   pi.registerTool({
     name: SH_BACKGROUND_PS_TOOL,
     label: "sh_background_ps",
-    description: "List active background shells and repeat_until monitors.",
-    promptSnippet: "List active background jobs",
-    promptGuidelines: ["Use sh_background_ps to check running background shells and monitors."],
+    description: render(T.sh_background_ps.description, switches),
+    promptSnippet: T.sh_background_ps.prompt_snippet,
+    promptGuidelines: render(T.guidelines.sh_background_ps, switches).split("\n"),
     parameters: Type.Object({}),
     async execute() {
       const bgs = getShellBackgrounds();

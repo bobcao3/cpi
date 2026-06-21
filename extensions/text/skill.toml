@@ -1,0 +1,29 @@
+# Model-facing text for the skill tool. Layered (project > user > shipped).
+# The description is dynamic: the visible-skills list is rendered via a
+# {{#skills}}...{{/skills}} array loop (standalone tags). The consumer passes
+# { skills: [{name, description}, ...] } and trimEnd()s the result (mustache
+# array loops leave a trailing newline after the last item).
+
+[tool]
+description = '''
+Load the full SKILL.md of a discovered skill by exact name. Pass subdoc to load a relative sub-document inside the skill directory.
+
+Available skills:
+{{#skills}}
+- {{name}}: {{description}}
+{{/skills}}
+{{^skills}}
+  (none)
+{{/skills}}'''
+prompt_snippet = "Load a skill by name to read its full instructions"
+
+[schema]
+name = "Exact name of the skill to load"
+subdoc = "Relative path to a sub-document inside the skill directory"
+
+[guidelines]
+bullets = '''
+Use the skill tool when a skill description matches the current task and you need the full SKILL.md instructions.
+Pass the exact skill name as shown in the skill tool description.
+To read a sub-document referenced by the skill, pass its relative path from the skill directory as subdoc.
+If the skill name is unknown, the result is an error listing the available skill names.'''

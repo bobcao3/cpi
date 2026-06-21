@@ -1,0 +1,8 @@
+# User-facing text for the /caveman command. Layered (project > user > shipped).
+
+[tool]
+description = "Toggle caveman-micro compression on/off (or: /caveman on|off|status)"
+prompt_snippet = ""
+
+[guidelines]
+bullets = ""

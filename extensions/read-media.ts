@@ -45,6 +45,7 @@ import {
   isVideoPath,
   resolveMediaPath,
 } from "./lib/media.ts";
+import { loadText, render, textPath, type ToolText } from "./lib/text.ts";
 
 const TOOL = "read_media";
 
@@ -55,12 +56,6 @@ interface MediaDetails {
   height?: number;
   note: string;
 }
-
-const schema = Type.Object({
-  path: Type.String({
-    description: "Path to the image file to read (relative or absolute, ~ expanded)",
-  }),
-});
 
 function textResult(note: string, details: MediaDetails): AgentToolResult<MediaDetails> {
   return { content: [{ type: "text", text: note }], details };
@@ -85,17 +80,17 @@ function reconcileActive(pi: ExtensionAPI, model: Model<any> | undefined): void 
 }
 
 export default function readMediaExtension(pi: ExtensionAPI): void {
+  const T = loadText<ToolText>("read-media", textPath("read-media"));
+  const guidelines = render(T.guidelines.bullets, {}).split("\n");
+  const schema = Type.Object({
+    path: Type.String({ description: T.schema!.path }),
+  });
   pi.registerTool({
     name: TOOL,
     label: "read-media",
-    description:
-      "Read an image file (jpg, png, gif, webp) and return it as an inline image attachment for the model to view. Only available when the current model supports vision. Video files cannot be inlined; extract frames via bash (ffmpeg) and read those instead.",
-    promptSnippet: "Read image files inline",
-    promptGuidelines: [
-      "Use read_media to view image files (jpg, png, gif, webp); do not cat/sed/base64 them.",
-      "read_media is vision-gated: if it is unavailable the current model cannot see images.",
-      "For video, extract frames with ffmpeg via bash, then read_media the frames.",
-    ],
+    description: render(T.tool.description, {}),
+    promptSnippet: T.tool.prompt_snippet,
+    promptGuidelines: guidelines,
     parameters: schema,
     async execute(_id, params, signal, _onUpdate, ctx): Promise<AgentToolResult<MediaDetails>> {
       if (signal?.aborted) throw aborted();

@@ -24,21 +24,19 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
+import { loadText, render, textPath, type ToolText } from "./lib/text.ts";
 
 const WAIT_ANY_TOOL = "wait_any";
 
 export default function waitAnyExtension(pi: ExtensionAPI): void {
+  const T = loadText<ToolText>("wait-any", textPath("wait-any"));
+  const guidelines = render(T.guidelines.bullets, {}).split("\n");
   pi.registerTool({
     name: WAIT_ANY_TOOL,
     label: "Wait (any event)",
-    description:
-      "Yield and wait until any event triggers (user message, shell completion or error, alarm wakeups).",
-    promptSnippet: "Yield control until an event wakes you",
-    promptGuidelines: [
-      "Use wait_any to explicitly yield control instead of polling: call it once, then stop — do not call other tools alongside it.",
-      "After wait_any the turn ends; you are woken by the next event — a user message, a shell-completion/error notification, or an alarm firing.",
-      "Do not pair wait_any with alarm-as-poller loops; the background event itself wakes you. If you need active polling at a fixed interval, use sh_repeat_until instead.",
-    ],
+    description: render(T.tool.description, {}),
+    promptSnippet: T.tool.prompt_snippet,
+    promptGuidelines: guidelines,
     parameters: Type.Object({}),
     async execute() {
       return {

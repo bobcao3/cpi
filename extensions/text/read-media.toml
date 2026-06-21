@@ -1,0 +1,16 @@
+# Model-facing text for the read_media tool. Layered (project > user > shipped).
+# Vision is gated via active-set membership (reconcileActive on model_select),
+# not via template conditionals — the static text stays accurate either way.
+
+[tool]
+description = "Read an image file (jpg, png, gif, webp) and return it as an inline image attachment for the model to view. Only available when the current model supports vision. Video files cannot be inlined; extract frames via bash (ffmpeg) and read those instead."
+prompt_snippet = "Read image files inline"
+
+[schema]
+path = "Path to the image file to read (relative or absolute, ~ expanded)"
+
+[guidelines]
+bullets = '''
+Use read_media to view image files (jpg, png, gif, webp); do not cat/sed/base64 them.
+read_media is vision-gated: if it is unavailable the current model cannot see images.
+For video, extract frames with ffmpeg via bash, then read_media the frames.'''
