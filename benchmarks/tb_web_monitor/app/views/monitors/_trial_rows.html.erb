@@ -1,0 +1,23 @@
+<% grouped_trials(trials).each do |task, subs| %>
+  <% r = task_reward(subs) %>
+  <tr class="task-row" data-row-key="t:<%= task %>"<%= " style=\"background-color:#{reward_bg(r)}\"".html_safe if r %>>
+    <td class="num"><%= r ? format("%.1f", r) : "—" %></td>
+    <td><div class="task-name"><%= task %></div></td>
+  </tr>
+  <% subs.each do |s| %>
+    <% cls, label = trial_badge(s) %>
+    <tr class="sub-row<%= " sel" if s.trial == selected %>"
+        data-trial="<%= s.trial %>"
+        data-row-key="s:<%= s.trial %>"
+        title="reward <%= s.reward || "—" %> · tokens <%= fmt(s.in_tokens) %> / <%= fmt(s.out_tokens) %> · dur <%= fmt_dur(s.duration_s) %>">
+      <td><span class="badge <%= cls %>" title="<%= badge_title(label) %>"><%= label %></span></td>
+      <td>
+        <div class="sub-cols">
+          <span><%= sub_label(s.trial) %></span>
+          <span class="num"><%= fmt(s.in_tokens) %> / <%= fmt(s.out_tokens) %></span>
+          <span class="num"><%= fmt_dur(s.duration_s) %></span>
+        </div>
+      </td>
+    </tr>
+  <% end %>
+<% end %>

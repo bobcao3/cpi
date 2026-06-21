@@ -1,0 +1,3 @@
+<%# One render unit: a boxed Block carrying ordered Sections (title first).
+    State (streaming/finalized) + section open/error come from the registry
+    handler via block_sections. Only tool blocks carry a stable id (live replace). %><div<% if block.id %> id="<%= block.id %>"<% end %> class="<%= blk_class(block) %>" data-controller="autoscroll-item"><% block_sections(block).each do |s| %><%= render "monitors/section", section: s %><% end %></div>

@@ -1,0 +1,44 @@
+# Rails 8 canonical ignores.
+# Track: Gemfile.lock, .ruby-version, config/importmap.rb, CLAUDE.md, app/javascript/**.js
+
+# Bundler
+/.bundle
+/vendor/bundle
+
+# Environment files
+/.env*
+!/.env.example
+
+# Uploaded files
+/storage/*
+!/storage/.keep
+
+# Ignore all logfiles and tempfiles.
+/log/*
+/tmp/*
+!/log/.keep
+!/tmp/.keep
+
+# Ignore pidfiles, but keep the directory.
+/tmp/pids/*
+!/tmp/pids/
+!/tmp/pids/.keep
+
+# Ignore tmp/storage, but keep the directory.
+/tmp/storage/*
+!/tmp/storage/
+!/tmp/storage/.keep
+
+# SQLite databases
+/db/*.sqlite3
+/db/*.sqlite3-*
+
+# Ignore precompiled assets.
+/public/assets
+
+# Credentials
+/config/master.key
+/config/credentials/*.key
+
+# Node modules (if ever added)
+/node_modules

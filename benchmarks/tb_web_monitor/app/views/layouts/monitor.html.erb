@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>TB2.1 Monitor</title>
+<%= csrf_meta_tags %>
+<%= csp_meta_tag %>
+<meta name="turbo-refresh-method" content="morph">
+<meta name="turbo-refresh-scroll" content="preserve">
+<%= stylesheet_link_tag "monitor", "data-turbo-track": "reload" %>
+<%= javascript_importmap_tags %>
+</head>
+<body data-controller="monitor" data-action="resize@window->monitor#layout" data-monitor-job="<%= @job %>" data-monitor-trial="<%= @selected %>">
+<div id="root">
+<%= yield %>
+</div>
+</body>
+</html>

@@ -1,0 +1,29 @@
+<header>
+  <h1>TB2.1 Monitor</h1>
+  <span id="wsdot" class="dead" title="ws" data-monitor-target="wsdot"></span>
+  <select id="jobSel" data-monitor-target="jobSel" data-action="change->monitor#changeJob">
+    <option value="">—</option>
+    <% @jobs.each do |j| %>
+      <option value="<%= j.name %>"<%= " selected" if j.name == @job %>><%= j.name %></option>
+    <% end %>
+  </select>
+  <span class="stats" id="stats"><%= render "stats", trials: @trials %></span>
+</header>
+<main>
+  <div id="trials" data-controller="shuffle" data-monitor-target="trials" data-action="click->monitor#selectTrial">
+    <table>
+      <thead>
+        <tr><th>reward</th><th>task</th></tr>
+      </thead>
+      <tbody id="tbody">
+        <%= render "trial_rows", trials: @trials, selected: @selected %>
+      </tbody>
+    </table>
+  </div>
+  <div id="detail">
+    <div id="trial-status"><%= @selected.presence || "select a trial" %></div>
+    <div class="pane active" id="p-transcript" data-controller="autoscroll" data-autoscroll-running-value="<%= @trial_running %>">
+      <%= render "transcript", events: @transcript, job: @job, trial: @selected %>
+    </div>
+  </div>
+</main>

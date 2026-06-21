@@ -48,14 +48,6 @@ When off, the indicator is cleared (the segment produces nothing).
 
 If you toggle caveman while a conversation is in progress, an explicit user message is injected so the model receives a strong in-context instruction. Prior turns remain in their original style.
 
-## Files
-
-```
-caveman-micro/
-├── index.ts           # Extension logic (reads `caveman` section from cpi-config.json)
-└── README.md
-```
-
 ## State persistence
 
 The toggle state is persisted to the session via `pi.appendEntry()` and restored on:

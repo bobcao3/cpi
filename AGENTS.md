@@ -18,6 +18,7 @@ Hard rules:
 
 1. No source code file exceeds 397 sourcecode lines (ignore whitespaces and comments).
 2. No source code file exceeds 355 AST statements.
+3. Do not write file/module trees in any documentation — the filesystem itself is already the tree, and the folder structure should be self-explanatory.
 
 Guideline: When refactoring, aim for at least 30%-50% AST statements reduction (instead of line count).
 
