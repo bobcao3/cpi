@@ -39,6 +39,7 @@ interface HoldState {
   lastStopReason: string | undefined;
   holdNoticeSent: boolean;
   reminderDelivered: boolean;
+  holdIntervalMs: number;
 }
 
 const GLOBAL_KEY = "__cpiHold";
@@ -51,6 +52,7 @@ function state(): HoldState {
       lastStopReason: undefined,
       holdNoticeSent: false,
       reminderDelivered: false,
+      holdIntervalMs: 60000,
     } satisfies HoldState;
   }
   return g[GLOBAL_KEY] as HoldState;
@@ -77,6 +79,22 @@ export function resetHoldTracking(): void {
   const s = state();
   s.lastStopReason = undefined;
   s.holdNoticeSent = false;
+  s.holdIntervalMs = 60000;
+}
+
+/** Current hold interval (ms) for the agent_end backoff hold. Starts at 60s, doubles on each eventless timeout, resets to 60s on a real event or agent_start. */
+export function getHoldInterval(): number {
+  return state().holdIntervalMs;
+}
+
+/** Reset the backoff interval to the base 60s (called on real event / agent_start). */
+export function resetHoldInterval(): void {
+  state().holdIntervalMs = 60000;
+}
+
+/** Double the backoff interval (called when a hold interval elapses with no event). */
+export function doubleHoldInterval(): void {
+  state().holdIntervalMs *= 2;
 }
 
 export function setLastStopReason(reason: string | undefined): void {
@@ -138,29 +156,29 @@ export function buildHoldReminderText(pending: HoldSource[]): string {
 }
 
 /**
- * Await pending hold sources. Called from the headless agent_end owner.
+ * Wait one backoff interval for a hold source to fire.
  *
- * While this awaits, `isStreaming` stays true (AgentState contract: remains
- * true until agent_end listeners settle), so a source firing via
- * sendNotification queues a steer/followUp rather than starting a concurrent
- * prompt. On resolve, the run loop's `hasQueuedMessages` sees the queued
- * message and `continue()` drives the follow-up turn — passive waiting
- * without polling.
- *
- * Resolves when: the deadline (max of all source deadlines) is reached, OR a
- * source fires (pending count drops below the initial snapshot), OR pending
- * reaches zero.
+ * Polls every 100ms. Resolves `true` as soon as a source's `hasPending()`
+ * drops below the initial count (a real event fired — e.g. a background shell
+ * completed or an alarm fired) or pending reaches zero. Resolves `false` if the
+ * interval elapses with no event (timeout). Unlike the old deadline-bounded
+ * awaitPendingHolds, this NEVER ends the session on its own — a timeout is
+ * reported to the caller (core.ts), which doubles the interval and nudges the
+ * agent with a reminder, keeping the session alive until the agent/trial timeout.
  */
-export async function awaitPendingHolds(sources: HoldSource[]): Promise<void> {
+export async function awaitHoldInterval(
+  sources: HoldSource[],
+  intervalMs: number,
+): Promise<boolean> {
   const pending = sources.filter((s) => s.hasPending());
-  if (pending.length === 0) return;
-  const deadline = Date.now() + Math.max(...pending.map((s) => s.deadlineMs));
+  if (pending.length === 0) return true;
   const count = pending.length;
-  await new Promise<void>((resolve) => {
+  const deadline = Date.now() + intervalMs;
+  return new Promise<boolean>((resolve) => {
     const tick = () => {
-      if (Date.now() >= deadline) return resolve();
+      if (Date.now() >= deadline) return resolve(false);
       const nowPending = sources.filter((s) => s.hasPending()).length;
-      if (nowPending < count || nowPending === 0) return resolve();
+      if (nowPending < count || nowPending === 0) return resolve(true);
       setTimeout(tick, 100);
     };
     tick();
