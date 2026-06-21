@@ -40,3 +40,6 @@ desktop.ini
 .cache/
 .tmp/
 tmp/
+
+# minisign signatures are release assets (never committed); secret lives in ~/.ssh/ + Actions secret
+*.minisig

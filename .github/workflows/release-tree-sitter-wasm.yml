@@ -28,9 +28,19 @@ jobs:
           file zig-out/bin/tree-sitter-wasm.wasm
           file zig-out/bin/tree-sitter-wasm.wasm | grep -q "WebAssembly" || exit 1
 
+      - name: Sign wasm (minisign)
+        env:
+          CPI_MINISIGN_SECRET: ${{ secrets.CPI_MINISIGN_SECRET }}
+        run: node scripts/sign-wasm.mjs tree-sitter-wasm/zig-out/bin/tree-sitter-wasm.wasm
+
+      - name: Compress wasm (brotli)
+        run: node scripts/compress-wasm.mjs tree-sitter-wasm/zig-out/bin/tree-sitter-wasm.wasm
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: tree-sitter-wasm/zig-out/bin/tree-sitter-wasm.wasm
+          files: |
+            tree-sitter-wasm/zig-out/bin/tree-sitter-wasm.wasm.br
+            tree-sitter-wasm/zig-out/bin/tree-sitter-wasm.wasm.minisig
           name: tree-sitter-wasm ${{ github.ref_name }}
           generate_release_notes: true

@@ -4,14 +4,16 @@
  * Pure leaf module — no pi/tui imports.
  */
 
-import { createWriteStream, existsSync } from "node:fs";
-import { chmod, copyFile, mkdir, readFile, rm } from "node:fs/promises";
+import { createWriteStream, existsSync, readFileSync } from "node:fs";
+import { chmod, copyFile, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { initTreeSitterWasm, ensureTreeSitterReady } from "../lib/tree-sitter.ts";
+import { parsePubKey, parseSig, verifyMinisign } from "../lib/minisig.ts";
+import { brotliDecompressSync } from "node:zlib";
 
 const execFileAsync = promisify(execFile);
 const DL_TIMEOUT = 60_000;
@@ -20,6 +22,21 @@ const BIN_DIR = join(CACHE_DIR, "bin");
 const WASM_DIR = join(CACHE_DIR, "wasm");
 const WASM_PATH = join(WASM_DIR, "tree-sitter-wasm.wasm");
 const WASM_VERSION = "2026.06.20";
+const WASM_PUBKEY_B64 = "RWQWdcLzFjpLqtjewtcZo71AHJVUFws3irxz2ColvNW/r0m4tHyxzDX5";
+const WASM_SIG_PATH = join(WASM_DIR, "tree-sitter-wasm.wasm.minisig");
+const WASM_URL = `https://github.com/bobcao3/cpi/releases/download/${WASM_VERSION}/tree-sitter-wasm.wasm.br`;
+const WASM_SIG_URL = `https://github.com/bobcao3/cpi/releases/download/${WASM_VERSION}/tree-sitter-wasm.wasm.minisig`;
+const WASM_PUB = parsePubKey(WASM_PUBKEY_B64);
+
+/** True iff the cached wasm is present and its minisign signature verifies. */
+function wasmVerifiedSync(): boolean {
+  if (!existsSync(WASM_PATH) || !existsSync(WASM_SIG_PATH)) return false;
+  try {
+    return verifyMinisign(readFileSync(WASM_PATH), parseSig(readFileSync(WASM_SIG_PATH, "utf8")), WASM_PUB);
+  } catch {
+    return false;
+  }
+}
 const IS_WIN = process.platform === "win32";
 const PLATFORM_KEY = `${process.platform}-${process.arch}`;
 const binName = (n: string) => (IS_WIN ? `${n}.exe` : n);
@@ -88,16 +105,22 @@ export async function ensureShellTools(): Promise<ToolAvailability> {
   const [fd, rg, shuck, treeSitter] = await Promise.all([
     ...TOOLS.map(ensureTool),
     (async () => {
-      let have = true;
-      try { await readFile(WASM_PATH); } catch {
-        have = false;
+      let have = wasmVerifiedSync();
+      if (!have) {
         try {
           await mkdir(WASM_DIR, { recursive: true });
-          await download(
-            `https://github.com/bobcao3/cpi/releases/download/${WASM_VERSION}/tree-sitter-wasm.wasm`,
-            WASM_PATH,
-          );
-          have = true;
+          const tmpBr = join(tmpdir(), `pi-sh-wasm-${Date.now()}.br`);
+          await download(WASM_URL, tmpBr);
+          const compressed = await readFile(tmpBr);
+          await rm(tmpBr, { force: true });
+          await writeFile(WASM_PATH, brotliDecompressSync(compressed));
+          try { await download(WASM_SIG_URL, WASM_SIG_PATH); } catch (err) { /* sig fetch failed; verify will fail below */ }
+          have = wasmVerifiedSync();
+          if (!have) {
+            await rm(WASM_PATH, { force: true });
+            await rm(WASM_SIG_PATH, { force: true });
+            console.warn("[shell-ext] tree-sitter-wasm signature verification failed; highlighting disabled");
+          }
         } catch (err) { console.warn("[shell-ext] Failed to download tree-sitter-wasm:", err); }
       }
       if (have) await ensureTreeSitterReady(); // eager: lets renderCall highlight sync on first paint
@@ -144,7 +167,7 @@ export function getShuckBinPath(): string | null {
 }
 
 export function getWasmPath(): string | null {
-  return existsSync(WASM_PATH) ? WASM_PATH : null;
+  return wasmVerifiedSync() ? WASM_PATH : null;
 }
 
 initTreeSitterWasm(getWasmPath);
