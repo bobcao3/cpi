@@ -26,8 +26,10 @@
   .b-pass{background:#238636;color:#fff} .b-fail{background:#da3633;color:#fff}
   .b-run{background:#d29922;color:#000} .b-err{background:#da3633;color:#fff} .b-pend{background:#30363d;color:var(--mut)}
   .task-row td { font-weight:bold; background:#21262d; }
+  .task-row .toggle { display:inline-block; width:14px; color:var(--mut); cursor:pointer; user-select:none; }
   .trial-row td { font-size:12px; }
-  .trial-row td:first-child { padding-left:28px; font-weight:normal; }
+  .trial-row td:first-child { padding-left:30px; font-weight:normal; color:var(--mut); }
+  .trial-row td:first-child::before { content:"└ "; color:var(--border); }
   #detail { display:flex; flex-direction:column; overflow:hidden; }
   .tabs { display:flex; gap:2px; padding:6px 8px 0; background:var(--panel); border-bottom:1px solid var(--border); }
   .tabs button { background:transparent; border:none; color:var(--mut); padding:6px 12px; cursor:pointer; border-radius:4px 4px 0 0; font:inherit; }
@@ -42,6 +44,8 @@
   .tool-h .exit { float:right; color:var(--mut); }
   .tool-h .exit.ok { color:var(--ok); } .tool-h .exit.err { color:var(--err); }
   .tool-c { padding:8px 10px; white-space:pre-wrap; word-break:break-word; max-height:300px; overflow:auto; color:var(--mut); }
+  .diff { white-space:pre; max-height:500px; }
+  .d-add{color:var(--ok)} .d-del{color:var(--err)} .d-ctx{color:var(--mut)} .d-hunk{color:var(--border)}
   details { margin:4px 0; }
   details summary { color:var(--warn); cursor:pointer; }
   details .think { padding:6px 10px; color:var(--mut); white-space:pre-wrap; }
@@ -81,6 +85,8 @@
 const $ = s => document.querySelector(s);
 let job = "", trial = "", tab = "transcript", ws = null;
 let lOff = 0;
+let expanded = new Set();
+let autoScroll = true;
 let trialsData = [];
 
 async function api(p) { const r = await fetch(p); return r.json(); }
@@ -140,6 +146,11 @@ function renderTrials(trials) {
     if (!map.has(t.task)) map.set(t.task, []);
     map.get(t.task).push(t);
   }
+  // ensure selected trial's task is expanded
+  if (trial) {
+    const cur = trials.find(t => t.trial === trial);
+    if (cur && map.has(cur.task)) expanded.add(cur.task);
+  }
   let html = "";
   for (const [task, ts] of map) {
     const total = ts.length;
@@ -157,8 +168,9 @@ function renderTrials(trials) {
     const outTok = ts.reduce((a, t) => a + (t.out_tokens || 0), 0);
     const maxDur = ts.reduce((m, t) => Math.max(m, t.duration_s || 0), 0);
     const pct = total ? Math.round((successes / total) * 100) : 0;
-    html += `<tr class="task-row">
-      <td>${esc(task)}</td>
+    const isOpen = expanded.has(task);
+    html += `<tr class="task-row" data-task="${esc(task)}">
+      <td><span class="toggle">${isOpen?"▼":"▶"}</span>${esc(task)}</td>
       <td><span class="badge ${bc}">${bl}</span></td>
       <td class="mono">${successes}/${total} (${pct}%)</td>
       <td class="mono">${fmtK(inTok)}/${fmtK(outTok)}</td>
@@ -166,7 +178,7 @@ function renderTrials(trials) {
     for (const t of ts) {
       const [tbc, tbl] = badge(t);
       const sel = trial === t.trial ? "sel" : "";
-      html += `<tr class="trial-row ${sel}" data-trial="${t.trial}">
+      html += `<tr class="trial-row ${sel}" data-trial="${t.trial}" style="display:${isOpen?"":"none"}">
         <td>${esc(t.trial)}</td>
         <td><span class="badge ${tbc}">${tbl}</span></td>
         <td>${t.reward==null?"—":t.reward}</td>
@@ -178,11 +190,24 @@ function renderTrials(trials) {
   $("#tbody").querySelectorAll("tr[data-trial]").forEach(tr => {
     tr.onclick = () => selectTrial(tr.dataset.trial);
   });
+  $("#tbody").querySelectorAll("tr.task-row").forEach(tr => {
+    tr.onclick = () => toggleExpand(tr.dataset.task);
+  });
   if (trial && !trials.some(t => t.trial === trial)) trial = "";
+}
+
+function toggleExpand(task) {
+  const sc = $("#trials").scrollTop;
+  if (expanded.has(task)) expanded.delete(task);
+  else expanded.add(task);
+  renderTrials(trialsData);
+  $("#trials").scrollTop = sc;
 }
 
 function selectTrial(t) {
   trial = t;
+  const td = trialsData.find(x => x.trial === t);
+  if (td) expanded.add(td.task);
   $("#tbody").querySelectorAll("tr").forEach(r => r.classList.toggle("sel", r.dataset.trial === t));
   if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: "select", trial: t }));
   fetchVerifier();
@@ -218,33 +243,44 @@ function stepTrial(delta) {
   if (list[ni]) selectTrial(list[ni].trial);
 }
 
+function toggleTool(h) { const cs = h.parentElement.querySelectorAll(".tool-c"); const show = !cs.length || cs[0].style.display === "none"; cs.forEach(c => { c.style.display = show ? "block" : "none"; }); }
+function toolCmd(a) { if (a.path) return (a.command||"") + " " + a.path + (a.query ? "\nquery: " + a.query : "") + (a.instruction ? "\ninstruction: " + a.instruction : ""); return a.command || a.description || JSON.stringify(a); }
+function renderDiff(diff) { const html = esc(diff).split("\n").map(l => { let cls = "d-ctx"; const t = l.trim(); if (l.startsWith("+")) cls = "d-add"; else if (l.startsWith("-")) cls = "d-del"; else if (t === "..." || t.startsWith("...")) cls = "d-hunk"; return `<span class="${cls}">${l || " "}</span>`; }).join("\n"); return `<pre class="tool-c diff">${html}</pre>`; }
+
+function collapseTurn(root) {
+  root.querySelectorAll(".tool:not([data-done]), details:not(.dim):not([data-done])").forEach(b => {
+    if (b.tagName === "DETAILS") { b.open = false; }
+    else { b.querySelectorAll(".tool-c").forEach(c => { c.style.display = "none"; }); }
+    b.dataset.done = "1";
+  });
+}
+
 function renderEvents(ev) {
   const root = $("#p-transcript");
   for (const e of ev) {
     if (e.type === "message_start" && e.message?.role === "user") {
       const txt = (e.message.content||[]).map(c=>c.text||"").join("\n");
-      if (txt.trim()) root.insertAdjacentHTML("beforeend", `<div class="msg msg-user">${esc(txt)}</div>`);
+      if (txt.trim()) { root.insertAdjacentHTML("beforeend", `<div class="msg msg-user">${esc(txt)}</div>`); }
     } else if (e.type === "message_end" && e.message?.role === "assistant") {
       const parts = e.message.content || [];
       const think = parts.filter(c=>c.type==="thinking").map(c=>c.thinking).join("\n");
       const text = parts.filter(c=>c.type==="text").map(c=>c.text).join("\n");
       let h = "";
-      if (think) h += `<details><summary>thinking</summary><div class="think">${esc(think)}</div></details>`;
+      if (think) h += `<details open><summary>thinking</summary><div class="think">${esc(think)}</div></details>`;
       if (text) h += `<div>${esc(text)}</div>`;
-      if (h) root.insertAdjacentHTML("beforeend", `<div class="msg msg-ast">${h}</div>`);
+      if (h) { root.insertAdjacentHTML("beforeend", `<div class="msg msg-ast">${h}</div>`); }
     } else if (e.type === "message_end" && e.message?.role === "custom") {
       const customType = e.message.customType || "custom";
       const content = e.message.content;
       const text = typeof content === "string" ? content : (content||[]).map(c=>c.text||"").join("\n");
-      root.insertAdjacentHTML("beforeend", `<details class="dim"><summary>⟨${esc(customType)}⟩</summary><div class="think">${esc(text)}</div></details>`);
+    root.insertAdjacentHTML("beforeend", `<details class="dim"><summary>⟨${esc(customType)}⟩</summary><div class="think">${esc(text)}</div></details>`);
     } else if (e.type === "tool_execution_start") {
       const a = e.args || {};
-      const cmd = a.command || a.description || JSON.stringify(a);
       const id = e.toolCallId || Math.random();
       root.insertAdjacentHTML("beforeend",
         `<div class="tool" id="t-${CSS.escape(id)}">
-          <div class="tool-h" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'block':'none'">$ ${esc((a.description||e.toolName||'sh').slice(0,80))}<span class="exit" data-x></span></div>
-          <div class="tool-c">${esc(cmd)}</div></div>`);
+          <div class="tool-h" onclick="toggleTool(this)">$ ${esc((a.description||e.toolName||'sh').slice(0,80))}<span class="exit" data-x></span></div>
+          <div class="tool-c">${esc(toolCmd(a))}</div></div>`);
     } else if (e.type === "tool_execution_update") {
       const id = e.toolCallId;
       if (!id) continue;
@@ -265,20 +301,29 @@ function renderEvents(ev) {
     } else if (e.type === "tool_execution_end") {
       const id = e.toolCallId;
       const box = id ? root.querySelector(`#t-${CSS.escape(id)}`) : null;
-      const txt = (e.result?.content||[]).map(c=>c.text||"").join("\n");
-      const exit = e.result?.details?.exitCode;
+      const det = e.result?.details || {};
+      const isEdit = e.toolName === "llm_editor" && det.kind === "edit" && det.diff;
       if (box) {
-        if (txt) box.insertAdjacentHTML("beforeend", `<div class="tool-c">${esc(txt).slice(0,20000)}</div>`);
         const x = box.querySelector(".exit");
-        if (x && exit != null) { x.textContent = `exit ${exit}`; x.className = "exit " + (exit===0?"ok":"err"); }
+        if (isEdit) {
+          box.insertAdjacentHTML("beforeend", renderDiff(det.diff));
+          if (x) { x.textContent = `✓ ${det.blocks||1}`; x.className = "exit ok"; }
+        } else {
+          const txt = (e.result?.content||[]).map(c=>c.text||"").join("\n");
+          if (txt) box.insertAdjacentHTML("beforeend", `<div class="tool-c">${esc(txt).slice(0,20000)}</div>`);
+          const exit = det.exitCode;
+          if (x && exit != null) { x.textContent = `exit ${exit}`; x.className = "exit " + (exit===0?"ok":"err"); }
+          else if (det.kind === "error" && x) { x.textContent = "err"; x.className = "exit err"; }
+        }
       }
     } else if (e.type === "turn_end") {
+      collapseTurn(root);
       root.insertAdjacentHTML("beforeend", `<div class="sep">── turn ──</div>`);
     } else if (e.type === "raw") {
       root.insertAdjacentHTML("beforeend", `<div class="dim raw-line">${esc(e.text||"").slice(0,300)}</div>`);
     }
   }
-  root.scrollTop = root.scrollHeight;
+  if (autoScroll) root.scrollTop = root.scrollHeight;
 }
 
 async function fetchVerifier() {
@@ -312,6 +357,7 @@ document.querySelectorAll(".tabs button").forEach(b => {
     if (tab === "log") pollLog();
   };
 });
+$("#p-transcript").addEventListener("scroll", () => { const r = $("#p-transcript"); autoScroll = (r.scrollTop + r.clientHeight >= r.scrollHeight - 24); });
 
 async function loadJobs() {
   const jobs = await api("/api/jobs");

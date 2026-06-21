@@ -141,6 +141,9 @@ class CpiPi(BaseInstalledAgent):
                                 "cacheRead": 0,
                                 "cacheWrite": 0,
                             },
+                            "compat": {
+                                "supportsDeveloperRole": False,
+                            },
                         }
                     ],
                 }
