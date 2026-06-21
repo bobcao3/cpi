@@ -29,6 +29,7 @@ Usage examples:
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import subprocess
 import sys
@@ -156,13 +157,19 @@ def _cpi_agent_block(args: argparse.Namespace) -> list[str]:
         "  - import_path: harbor_agents.cpi_pi:CpiPi",
         f"    model_name: {args.provider}/{args.model}",
         "    kwargs:",
-        f"      api_base: {args.endpoint}",
-        f'      api_key: "{args.api_key}"',
-        f"      provider: {args.provider}",
-        f"      context_window: {args.max_input_tokens}",
-        f"      max_output_tokens: {args.max_output_tokens}",
-        f"      reasoning: {str(args.reasoning).lower()}",
     ]
+    model_config_path = getattr(args, "model_config_path", None)
+    if model_config_path:
+        lines.append(f"      model_config: {json.dumps(model_config_path)}")
+    else:
+        lines.extend([
+            f"      api_base: {args.endpoint}",
+            f'      api_key: "{args.api_key}"',
+            f"      provider: {args.provider}",
+            f"      context_window: {args.max_input_tokens}",
+            f"      max_output_tokens: {args.max_output_tokens}",
+            f"      reasoning: {str(args.reasoning).lower()}",
+        ])
     if args.thinking:
         lines.append(f"      thinking: {args.thinking}")
     if args.cpi_ref:
@@ -200,22 +207,53 @@ def _dataset_block(args: argparse.Namespace) -> list[str]:
     return lines
 
 
-def default_job_name(model: str) -> str:
-    safe = model.replace("/", "-").replace(":", "-") or "model"
+def default_job_name(model: str | None) -> str:
+    safe = (model or "model").replace("/", "-").replace(":", "-")
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
     return f"tb21-{safe}-{stamp}"
+
+
+def _resolve_model_config(value: str, jobs_dir: Path, job_name: str) -> str:
+    """Resolve --model-config to an absolute path to a JSON file.
+
+    Accepts a path to an existing file, or inline JSON (written to jobs_dir).
+    """
+    v = value.strip()
+    if v.startswith("{"):
+        try:
+            data = json.loads(v)
+        except json.JSONDecodeError as e:
+            raise SystemExit(f"error: --model-config inline JSON parse error: {e}")
+        out = jobs_dir / f"{job_name}.models.json"
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(json.dumps(data, indent=2))
+        return str(out.resolve())
+    p = Path(value).expanduser().resolve()
+    if not p.is_file():
+        raise SystemExit(f"error: --model-config file not found: {value}")
+    return str(p)
+
+
+def _config_first_provider_model(cfg: dict) -> tuple[str, str]:
+    """Return (provider, model_id) of the first provider/model in a models.json dict."""
+    providers = cfg["providers"]
+    provider = next(iter(providers))
+    model_list = providers[provider].get("models") or []
+    if not model_list:
+        raise SystemExit(f"error: provider '{provider}' has no models in --model-config")
+    return provider, model_list[0]["id"]
 
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(
         description="Run TerminalBench 2.1 via Harbor against an OpenAI-compatible endpoint.",
     )
-    p.add_argument("--endpoint", required=True,
-                   help="OpenAI-compatible base URL (e.g. http://localhost:30000/v1)")
+    p.add_argument("--endpoint", required=False, default=None,
+                   help="OpenAI-compatible base URL. Required unless --model-config is given (--agent cpi).")
     p.add_argument("--api-key", default=os.environ.get("OPENAI_API_KEY", "NO"),
                    help="API key. Defaults to OPENAI_API_KEY env var or 'NO'.")
-    p.add_argument("--model", required=True,
-                   help="Model name served by the endpoint (e.g. moonshotai/Kimi-K2.7-Code)")
+    p.add_argument("--model", required=False, default=None,
+                   help="Model name served by the endpoint (e.g. moonshotai/Kimi-K2.7-Code). Required unless --model-config is given (--agent cpi).")
     p.add_argument("--dataset", default=None,
                    help="Harbor Hub dataset name (e.g. terminal-bench/terminal-bench-2-1). "
                         "If omitted, uses local clone.")
@@ -265,23 +303,45 @@ def parse_args() -> argparse.Namespace:
                    help="git ref (branch/tag/commit) to clone cpi at. Default: default branch.")
     p.add_argument("--cpi-repo", default=DEFAULT_CPI_REPO,
                    help=f"cpi git repo URL. Default: {DEFAULT_CPI_REPO}")
+    p.add_argument("--model-config", default=None,
+                   help="Path to a JSON file (or inline JSON) with the FULL pi models.json "
+                        "(providers/models, incl. compat, cost). --agent cpi only. "
+                        "When given, overrides --endpoint/--model/--api-key/--provider/"
+                        "--max-input-tokens/--max-output-tokens/--reasoning for the cpi models.json.")
     p.add_argument("--force-clone", action="store_true",
                    help="Re-clone TB2.1 repo even if it exists.")
     p.add_argument("--dry-run", action="store_true",
                    help="Write config and print command without running.")
     args = p.parse_args()
-    if args.job_name is None:
-        args.job_name = default_job_name(args.model)
     return args
 
 
 def main() -> int:
     args = parse_args()
     project_dir = Path(__file__).parent.resolve()
+    jobs_dir = project_dir / args.jobs_dir
+    args.model_config_path = None
+    if args.agent == "cpi" and args.model_config:
+        args.model_config_path = _resolve_model_config(
+            args.model_config, jobs_dir, args.job_name
+        )
+        cfg = json.loads(Path(args.model_config_path).read_text())
+        provider, model_id = _config_first_provider_model(cfg)
+        args.provider = provider
+        args.model = model_id
+        args.endpoint = cfg["providers"][provider].get("baseUrl", "")
+        args.api_key = cfg["providers"][provider].get("apiKey", "NO")
+    if not args.model_config_path and (not args.endpoint or not args.model):
+        raise SystemExit(
+            "error: --endpoint and --model are required "
+            "(or pass --model-config for --agent cpi)"
+        )
+    if args.job_name is None:
+        args.job_name = default_job_name(args.model)
     if not args.dry_run:
         ensure_tb21(Path(args.tasks_path), args.force_clone)
     config_text = build_config(args, project_dir)
-    config_path = project_dir / args.jobs_dir / f"{args.job_name}.yaml"
+    config_path = jobs_dir / f"{args.job_name}.yaml"
     config_path.parent.mkdir(parents=True, exist_ok=True)
     config_path.write_text(config_text)
     print(f"Wrote Harbor job config: {config_path}")

@@ -1,0 +1,3 @@
+# Model/provider config JSON (passed via --model-config).
+# Contains environment-specific endpoints/keys; kept local, never committed.
+*.models.json

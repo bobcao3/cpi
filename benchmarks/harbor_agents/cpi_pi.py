@@ -63,13 +63,14 @@ class CpiPi(BaseInstalledAgent):
         logs_dir: Path,
         *,
         provider: str = "tb21",
-        api_base: str,
+        api_base: str = "",
         api_key: str = "NO",
         context_window: int = 262144,
         max_output_tokens: int = 32768,
         reasoning: bool = True,
         cpi_ref: str | None = None,
         cpi_repo: str = _DEFAULT_CPI_REPO,
+        model_config: str | None = None,
         **kwargs,
     ) -> None:
         super().__init__(logs_dir, **kwargs)
@@ -81,6 +82,7 @@ class CpiPi(BaseInstalledAgent):
         self._reasoning = reasoning
         self._cpi_ref = cpi_ref
         self._cpi_repo = cpi_repo
+        self._model_config = model_config
 
     @staticmethod
     @override
@@ -122,36 +124,41 @@ class CpiPi(BaseInstalledAgent):
         )
 
     async def _write_pi_config(self, environment: BaseEnvironment) -> None:
-        model_id = self._model_id()
-        models = {
-            "providers": {
-                self._provider: {
-                    "baseUrl": self._api_base,
-                    "api": "openai-completions",
-                    "apiKey": self._api_key,
-                    "models": [
-                        {
-                            "id": model_id,
-                            "reasoning": self._reasoning,
-                            "contextWindow": self._context_window,
-                            "maxTokens": self._max_output_tokens,
-                            "cost": {
-                                "input": 0,
-                                "output": 0,
-                                "cacheRead": 0,
-                                "cacheWrite": 0,
-                            },
-                            "compat": {
-                                "supportsDeveloperRole": False,
-                            },
-                        }
-                    ],
+        if self._model_config:
+            models = self._load_models_config()
+            provider, model_id = self._first_provider_model(models)
+        else:
+            provider = self._provider
+            model_id = self._model_id()
+            models = {
+                "providers": {
+                    provider: {
+                        "baseUrl": self._api_base,
+                        "api": "openai-completions",
+                        "apiKey": self._api_key,
+                        "models": [
+                            {
+                                "id": model_id,
+                                "reasoning": self._reasoning,
+                                "contextWindow": self._context_window,
+                                "maxTokens": self._max_output_tokens,
+                                "cost": {
+                                    "input": 0,
+                                    "output": 0,
+                                    "cacheRead": 0,
+                                    "cacheWrite": 0,
+                                },
+                                "compat": {
+                                    "supportsDeveloperRole": False,
+                                },
+                            }
+                        ],
+                    }
                 }
             }
-        }
         settings = {
             "packages": ["../../cpi"],
-            "defaultProvider": self._provider,
+            "defaultProvider": provider,
             "defaultModel": model_id,
             "defaultProjectTrust": "always",
             "enableSkillCommands": True,
@@ -170,6 +177,25 @@ class CpiPi(BaseInstalledAgent):
                 "__CPI_SETTINGS__\n"
             ),
         )
+
+    def _load_models_config(self) -> dict:
+        assert self._model_config is not None
+        path = Path(self._model_config)
+        if not path.is_file():
+            raise FileNotFoundError(f"model_config JSON not found: {path}")
+        data = json.loads(path.read_text())
+        if not isinstance(data, dict) or not data.get("providers"):
+            raise ValueError("model_config JSON must be an object with a 'providers' key")
+        return data
+
+    @staticmethod
+    def _first_provider_model(models: dict) -> tuple[str, str]:
+        providers = models["providers"]
+        provider = next(iter(providers))
+        model_list = providers[provider].get("models") or []
+        if not model_list:
+            raise ValueError(f"provider '{provider}' has no models in model_config")
+        return provider, model_list[0]["id"]
 
     def _model_id(self) -> str:
         if not self.model_name or "/" not in self.model_name:
