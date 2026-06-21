@@ -2,29 +2,36 @@
 
 Shared extensions and skills for the [pi coding agent](https://github.com/earendil-works/pi-coding-agent), installed at the **user-home level** (`~/.pi/agent/`) so every project inherits them.
 
-## What each extension does
+## Project structure
 
-| Extension                      | Purpose                                                                                                                                                 |
-| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `lib/config.ts`                | Shared config loader: reads `cpi-config.json` (user + project), deep-merges, provides typed accessors for each extension.                               |
-| `lib/footer.ts`                | Shared footer engine: `setBranchResolver`/`registerLineSegment` let extensions add line-1 data without owning the footer.                               |
-| `core.ts`                     | Single owner of all shared cpi plumbing: footer, notification renderer, prepend-message drains, system-prompt transforms, session-hold. Producers call `lib/*` only.                 |
-| `vcs-jj/index.ts`              | Shows jj change id/bookmark on footer line 1, overriding git branch. Bounded cached `.jj` lookup; no shell-out at render.                               |
-| `shell.ts`                     | Replaces builtin `bash` with stateless `sh` tool: backgrounding, signalling, busy-wait detection; strips bash on reload.                                |
-| `shell/status.ts`              | Adds background-shell / repeat-monitor counts (`bg:N` / `mon:N`) flush-right on footer line 1 via `registerRightSegment`.                               |
-| `caveman-micro/index.ts`       | Toggles caveman-micro token-compression prompt (default on); shows `🪨` flush-right on footer line 1. Reads `caveman` config from `cpi-config.json`.    |
-| `alarm.ts`                     | `alarm` tool for scheduled wake-ups (relative or absolute time). Survives session resume.                                                               |
-| `skill.ts`                     | `skill` tool: loads full `SKILL.md` by name so the agent can use skills even though builtin `read` is stripped.                                         |
-| `disable-read-write-edit.ts`   | Strips builtin `read`/`write`/`edit` — all file I/O goes through `sh`.                                                                                  |
-| `provider.ts`                 | Provider/model lifecycle: startup strip (register + strip unusable + pick first fitting fallback) and runtime failover on repeated errored turns.                                  |
-| `subagent-transcript/index.ts` | Streams live markdown transcript to stderr in print mode (`pi -p` / subagent runs); surfaces jsonl path + run summary.                                  |
-| `glm52-sglang-thinking.ts`     | Bridges GLM-5.2 thinking to SGLang `chat_template_kwargs`.                                                                                              |
+```
+cpi/
+├── extensions/        # pi extensions, loaded live via jiti (hot-reloadable)
+│   ├── lib/           # shared leaf modules: config, footer, agents, tree-sitter, cwd, …
+│   ├── shell/         # the `sh` tool family: exec, lint, rules, highlight, cd-targets, status, repeat, transcript
+│   ├── llm-editor/   # the AI-mediated `llm_editor` tool
+│   └── *.ts          # owners/wrappers: core, shell, cwd, alarm, skill, effort, provider, vcs-jj, caveman-micro, …
+├── skills/            # pi skills (subagents-in-pi)
+├── tree-sitter-wasm/  # Zig build of tree-sitter-wasm.wasm (WASI: tree-sitter + bash + highlight query)
+├── scripts/           # build / sign helpers
+└── benchmarks/        # terminal-bench-3 harness
+```
 
-## Skills
+Two conventions shape every extension (full reasoning in `AGENTS.md`):
 
-| Skill              | Purpose                                                                                                                                                                        |
-| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `subagents-in-pi/` | Orchestrates subagent sessions — spawning child pi instances with a custom system prompt (`output-protocol.md`) via `subagent.sh`, with results captured in a live transcript. |
+- **One owner per shared resource.** Shared plumbing — footer, notification renderer, prepend-message drains, system-prompt transforms, session-hold — lives in `core.ts`; every producer is a pure client of `lib/*`.
+- **`globalThis` holds shared _state_, never dedup _flags_.** State survives jiti reloads; registration is guarded on real resource state (a live timer, an existing binary), not a boolean that would skip re-registration after a hot-reload.
+
+## Headline features
+
+- **AI-mediated file I/O.** The builtin `read`/`write`/`edit` are stripped and replaced by one `llm_editor` tool. `view`/`create`/`edit` delegate the reasoning to tool-less pi subagents (SWE-Edit); edits come back as search-replace blocks (whole-file rewrite fallback) and every view/edit is transcribed to `<dir>/<id>.md`.
+- **A shell that corrects itself.** `sh` is stateless `bash -c` with backgrounding, signalling, and busy-wait detection. Each command is parsed with tree-sitter, then **linted** (a worker-thread Shuck LSP — no temp files, no per-call spawning) and checked against **AST rules** (`reject` blocks execution, `warn` surfaces to the agent) before it runs — e.g. enforcing `fd`/`rg` over `find`/`grep`. The same tree-sitter captures **syntax-highlight** the command in the TUI.
+- **Live CWD + automatic project context.** `set_cwd` moves the working directory and re-announces it at 25/50/75% context-window boundaries. Since pi never reloads project context on a cwd change, cpi parses `cd <dir>` targets out of shell commands (and `set_cwd`) and surfaces the newly-entered tree's `AGENTS.md`/`CLAUDE.md` — each file at most once per process.
+- **Resilient providers.** Configured providers register at startup; unusable ones are stripped (e.g. ambient cloud creds shadowing a real provider); on repeated errored turns the active model fails over to the next fitting fallback — race-free at `turn_end`.
+- **A footer that tells the truth.** Line 1 shows the jj change/bookmark (overriding git), background-shell / repeat-monitor counts (`bg:N` / `mon:N`), and the caveman 🪨 marker when token compression is on.
+- **Subagent orchestration.** The `subagents-in-pi` skill spawns child pi instances with a custom output protocol and a live transcript — used internally by `llm_editor` and available to the agent.
+
+Plus: `alarm` (scheduled wake-ups that survive session resume), `/effort` (thinking-level tuning with clamp reporting), and the GLM-5.2 ↔ SGLang thinking bridge.
 
 ## How it works
 
@@ -75,7 +82,7 @@ npm publish
 
 The `files` field ships only `extensions/`, `skills/`, `cpi-config.default.json`, and `fallback-providers.example.json`. Core pi modules (`@earendil-works/*`, `typebox`) are `peerDependencies` and are **not** bundled — pi provides them at runtime.
 
-After installation, start `pi` normally. The custom `sh` tool replaces the builtin `bash`, the `alarm` tool is available for scheduled wake-ups, and configured providers are registered automatically.
+After installation, start `pi` normally. The custom `sh` tool replaces the builtin `bash`, the `llm_editor` tool replaces `read`/`write`/`edit`, the `alarm` tool is available for scheduled wake-ups, and configured providers are registered automatically.
 
 ## Uninstall
 
@@ -97,7 +104,10 @@ To disable a specific extension without deleting the file, use `pi config` (inte
 ```json
 {
   "packages": [
-    { "source": "/home/you/cpi", "extensions": ["extensions", "!extensions/disable-read-write-edit.ts"] }
+    {
+      "source": "/home/you/cpi",
+      "extensions": ["extensions", "!extensions/disable-read-write-edit.ts"]
+    }
   ]
 }
 ```
@@ -244,3 +254,5 @@ This repo is managed with [**Jujutsu (`jj`)**](https://jj-vcs.dev), a
 Git-compatible VCS. Using `jj` is recommended — `jj fix` runs Prettier
 automatically on `.ts`/`.js`/`.json`/`.md` files via `bun`. To get started:
 `jj fix` after making changes, and `jj log` to explore history.
+
+<!-- vim: set nowrap tabstop=4 shiftwidth=4 expandtab spell: -->

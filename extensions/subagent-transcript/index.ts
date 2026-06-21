@@ -9,7 +9,13 @@
  * clean final answer.
  *
  *   session_start      -> stderr: `jsonl: <session jsonl path>`   (beginning)
- *   message_end (each) -> stderr: formatted transcript block       (live)
+ *   message_update     -> stderr: assistant text/thinking deltas   (live, token-by-token;
+ *                         header `## Assistant _(provider/model)_` emitted on first delta)
+ *   message_end (each) -> stderr: formatted block for user/toolResult, or for an
+ *                         assistant message that streamed no deltas (non-streaming
+ *                         provider); a streamed assistant skips the block (already
+ *                         produced it) and emits a trailing newline so the
+ *                         conclusion summary stays on its own filtered lines.
  *   session_shutdown   -> conclusion summary (jsonl path + time/turns/tokens),
  *                         written to $PI_SUBAGENT_SUMMARY (a temp file the
  *                         subagent wrapper cats after the answer) so it lands
@@ -32,6 +38,8 @@ let startTimeMs = 0;
 let turns = 0;
 let inTokens = 0;
 let outTokens = 0;
+let streamed = false;
+let asstTag = "";
 
 function stderr(s: string): void {
   try {
@@ -105,6 +113,8 @@ export default async function (pi: ExtensionAPI) {
     turns = 0;
     inTokens = 0;
     outTokens = 0;
+    streamed = false;
+    asstTag = "";
     stderr(`jsonl: ${sessionFile}\n`);
   });
 
@@ -112,10 +122,38 @@ export default async function (pi: ExtensionAPI) {
     if (active) turns = event.turnIndex + 1;
   });
 
+  pi.on("message_start", async (event) => {
+    if (!active) return;
+    const m = (event as { message: any }).message;
+    if (m?.role !== "assistant") return;
+    streamed = false;
+    asstTag = m.model ? ` _(${m.provider ?? "?"}/${m.model})_` : "";
+  });
+
+  pi.on("message_update", async (event) => {
+    if (!active) return;
+    const ev = (event as { assistantMessageEvent: any }).assistantMessageEvent;
+    if (!ev) return;
+    const t = typeof ev.type === "string" ? ev.type : "";
+    if (t !== "text_delta" && t !== "thinking_delta" && t !== "toolcall_delta") return;
+    if (!streamed) stderr(`## Assistant${asstTag}\n\n`);
+    streamed = true;
+    const d = typeof ev.delta === "string" ? ev.delta : "";
+    if (d) stderr(d);
+  });
+
   pi.on("message_end", async (event) => {
     if (!active) return;
     const m = (event as { message: any }).message;
     if (m?.role === "assistant") tallyUsage(m);
+    // A streamed assistant already emitted its header + text/thinking deltas
+    // live; emit a single trailing newline (so the conclusion summary stays on
+    // its own line for the renderer's `^(jsonl:|summary:)` filter) and skip
+    // re-rendering the block to avoid duplicating the content.
+    if (m?.role === "assistant" && streamed) {
+      stderr("\n");
+      return;
+    }
     // Best effort: a render error must never skip the line or break the session.
     let md = "";
     try {
