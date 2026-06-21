@@ -132,7 +132,7 @@ export default async function (pi: ExtensionAPI) {
       "exit-code": code ?? -1,
       summary,
     };
-    sendNotification(pi, { kind, summary, payload }, { deliverAs: "followUp" });
+    sendNotification(pi, { kind, summary, payload }, { deliverAs: "steer" });
   });
 
   const commonGuidelines = [

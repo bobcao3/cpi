@@ -34,14 +34,17 @@ import { drainAfterTool, drainBeforeUser } from "./lib/prepend-message.ts";
 import { registerNotificationRenderer } from "./lib/notification.ts";
 import { setupCpiFooter, disposeCpiFooter } from "./lib/footer.ts";
 import {
-  awaitPendingHolds,
+  awaitHoldInterval,
   buildHoldReminderText,
   clearReminderDelivered,
   consumeHoldNotice,
+  doubleHoldInterval,
+  getHoldInterval,
   getHoldSources,
   getLastStopReason,
   isReminderDelivered,
   markReminderDelivered,
+  resetHoldInterval,
   resetHoldTracking,
   setLastStopReason,
   type HoldSource,
@@ -131,7 +134,15 @@ export default function coreExtension(pi: ExtensionAPI): void {
     // isStreaming stays true, so their sendNotification queues a steer/followUp that
     // the run loop's hasQueuedMessages->continue turns into a follow-up turn —
     // passive waiting without polling. Headless-only: TUI stays alive on its own.
-    await awaitPendingHolds(sources);
+    const interval = getHoldInterval();
+    const fired = await awaitHoldInterval(sources, interval);
+    if (fired) {
+      resetHoldInterval();
+    } else {
+      doubleHoldInterval();
+      markReminderDelivered();
+      deliverHoldTimeoutReminder(pi, pending, interval, getHoldInterval());
+    }
   });
 
   pi.on("session_shutdown", async (event: any, ctx: any) => {
@@ -217,6 +228,37 @@ function endedViaWaitAny(messages: any[]): boolean {
 // session).
 function deliverHoldReminder(pi: ExtensionAPI, pending: HoldSource[]): void {
   const text = buildHoldReminderText(pending);
+  try {
+    pi.sendMessage(
+      { customType: HOLD_REMINDER_TYPE, content: text, display: true },
+      { triggerTurn: true, deliverAs: "followUp" },
+    );
+  } catch {
+    // Delivery failure must never break the hold flow.
+  }
+}
+
+// Delivered during agent_end while isStreaming is true, so deliverAs:"followUp"
+// queues a follow-up turn that wakes the agent to decide: continue holding (call
+// wait_any again — the next interval is doubled), check the background job's
+// status, or disarm/kill it. Unlike deliverHoldReminder (for a normally-stopping
+// agent), this fires on each eventless hold timeout and carries the backoff state.
+function deliverHoldTimeoutReminder(
+  pi: ExtensionAPI,
+  pending: HoldSource[],
+  elapsedMs: number,
+  nextMs: number,
+): void {
+  const status = pending
+    .map((s) => s.noticeText())
+    .filter(Boolean)
+    .join("; ");
+  const elapsedSec = Math.round(elapsedMs / 1000);
+  const nextSec = Math.round(nextMs / 1000);
+  const text = [
+    `system reminder | ${status}`,
+    `system reminder | Held for ${elapsedSec}s without events, you can continue hold for up-to another ${nextSec}s, or check the status of the job.`,
+  ].join("\n");
   try {
     pi.sendMessage(
       { customType: HOLD_REMINDER_TYPE, content: text, display: true },

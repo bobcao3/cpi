@@ -43,6 +43,8 @@
   .tool-h { background:#21262d; padding:6px 10px; cursor:pointer; color:var(--acc); }
   .tool-h .exit { float:right; color:var(--mut); }
   .tool-h .exit.ok { color:var(--ok); } .tool-h .exit.err { color:var(--err); }
+  .tool-h .pid { color:var(--mut); font-weight:normal; margin-left:6px; font-size:0.85em; }
+  .ts { color: var(--mut); font-size: 0.8em; margin-right: 6px; }
   .tool-c { padding:8px 10px; white-space:pre-wrap; word-break:break-word; max-height:300px; overflow:auto; color:var(--mut); }
   .diff { white-space:pre; max-height:500px; }
   .d-add{color:var(--ok)} .d-del{color:var(--err)} .d-ctx{color:var(--mut)} .d-hunk{color:var(--border)}
@@ -87,6 +89,7 @@ let job = "", trial = "", tab = "transcript", ws = null;
 let lOff = 0;
 let expanded = new Set();
 let autoScroll = true;
+let t0 = null;
 let trialsData = [];
 
 async function api(p) { const r = await fetch(p); return r.json(); }
@@ -109,7 +112,7 @@ function connect(j) {
     const e = JSON.parse(ev.data);
     if (e.type === "result") renderStats(e.result);
     else if (e.type === "trials") { trialsData = e.trials; renderTrials(e.trials); renderTrialStatus(); }
-    else if (e.type === "select") { $("#p-transcript").innerHTML = ""; }
+    else if (e.type === "select") { $("#p-transcript").innerHTML = ""; t0 = null; }
     else if (e.type === "transcript") renderEvents(e.events);
   };
 }
@@ -245,6 +248,23 @@ function stepTrial(delta) {
 
 function toggleTool(h) { const cs = h.parentElement.querySelectorAll(".tool-c"); const show = !cs.length || cs[0].style.display === "none"; cs.forEach(c => { c.style.display = show ? "block" : "none"; }); }
 function toolCmd(a) { if (a.path) return (a.command||"") + " " + a.path + (a.query ? "\nquery: " + a.query : "") + (a.instruction ? "\ninstruction: " + a.instruction : ""); return a.command || a.description || JSON.stringify(a); }
+function shellId(toolName, a, det) {
+  if (toolName === "sh_signal") {
+    if (a && a.id != null) return String(a.id);
+    if (det && det.id != null) return String(det.id);
+    return "";
+  }
+  if (toolName === "sh" || toolName === "sh_repeat_until") {
+    return det && det.id != null ? String(det.id) : "";
+  }
+  return "";
+}
+function trel(ts) {
+  if (ts == null || t0 == null) return "";
+  const n = typeof ts === "number" ? ts : Date.parse(ts);
+  if (isNaN(n)) return "";
+  return "T+" + Math.round((n - t0) / 1000) + "s";
+}
 function renderDiff(diff) { const html = esc(diff).split("\n").map(l => { let cls = "d-ctx"; const t = l.trim(); if (l.startsWith("+")) cls = "d-add"; else if (l.startsWith("-")) cls = "d-del"; else if (t === "..." || t.startsWith("...")) cls = "d-hunk"; return `<span class="${cls}">${l || " "}</span>`; }).join("\n"); return `<pre class="tool-c diff">${html}</pre>`; }
 
 function collapseTurn(root) {
@@ -258,9 +278,10 @@ function collapseTurn(root) {
 function renderEvents(ev) {
   const root = $("#p-transcript");
   for (const e of ev) {
+    if (e.type === "session" && e.timestamp != null) { t0 = typeof e.timestamp === "number" ? e.timestamp : Date.parse(e.timestamp); continue; }
     if (e.type === "message_start" && e.message?.role === "user") {
       const txt = (e.message.content||[]).map(c=>c.text||"").join("\n");
-      if (txt.trim()) { root.insertAdjacentHTML("beforeend", `<div class="msg msg-user">${esc(txt)}</div>`); }
+      if (txt.trim()) { root.insertAdjacentHTML("beforeend", `<div class="msg msg-user"><span class="ts">${trel(e.message?.timestamp)}</span>${esc(txt)}</div>`); }
     } else if (e.type === "message_end" && e.message?.role === "assistant") {
       const parts = e.message.content || [];
       const think = parts.filter(c=>c.type==="thinking").map(c=>c.thinking).join("\n");
@@ -268,18 +289,19 @@ function renderEvents(ev) {
       let h = "";
       if (think) h += `<details open><summary>thinking</summary><div class="think">${esc(think)}</div></details>`;
       if (text) h += `<div>${esc(text)}</div>`;
-      if (h) { root.insertAdjacentHTML("beforeend", `<div class="msg msg-ast">${h}</div>`); }
+      if (h) { root.insertAdjacentHTML("beforeend", `<div class="msg msg-ast"><span class="ts">${trel(e.message?.timestamp)}</span>${h}</div>`); }
     } else if (e.type === "message_end" && e.message?.role === "custom") {
       const customType = e.message.customType || "custom";
       const content = e.message.content;
       const text = typeof content === "string" ? content : (content||[]).map(c=>c.text||"").join("\n");
-    root.insertAdjacentHTML("beforeend", `<details class="dim"><summary>⟨${esc(customType)}⟩</summary><div class="think">${esc(text)}</div></details>`);
+    root.insertAdjacentHTML("beforeend", `<details class="dim"><summary><span class="ts">${trel(e.message?.timestamp)}</span>⟨${esc(customType)}⟩</summary><div class="think">${esc(text)}</div></details>`);
     } else if (e.type === "tool_execution_start") {
       const a = e.args || {};
+      const pidS = shellId(e.toolName, a, {});
       const id = e.toolCallId || Math.random();
       root.insertAdjacentHTML("beforeend",
         `<div class="tool" id="t-${CSS.escape(id)}">
-          <div class="tool-h" onclick="toggleTool(this)">$ ${esc((a.description||e.toolName||'sh').slice(0,80))}<span class="exit" data-x></span></div>
+          <div class="tool-h" onclick="toggleTool(this)">$ ${esc((a.description||e.toolName||'sh').slice(0,80))}<span class="pid">${pidS ? ' #'+esc(pidS) : ''}</span><span class="exit" data-x></span></div>
           <div class="tool-c">${esc(toolCmd(a))}</div></div>`);
     } else if (e.type === "tool_execution_update") {
       const id = e.toolCallId;
@@ -302,6 +324,8 @@ function renderEvents(ev) {
       const id = e.toolCallId;
       const box = id ? root.querySelector(`#t-${CSS.escape(id)}`) : null;
       const det = e.result?.details || {};
+      const pidE = shellId(e.toolName, null, det);
+      if (pidE && box) { const ps = box.querySelector(".pid"); if (ps) ps.textContent = ' #' + pidE; }
       const isEdit = e.toolName === "llm_editor" && det.kind === "edit" && det.diff;
       if (box) {
         const x = box.querySelector(".exit");
@@ -365,7 +389,7 @@ async function loadJobs() {
   const prev = sel.value || jobs[0]?.name;
   sel.innerHTML = jobs.map(j => `<option value="${j.name}">${j.name}</option>`).join("");
   if (prev && jobs.some(j => j.name === prev)) sel.value = prev;
-  sel.onchange = () => { trial = ""; lOff = 0; $("#p-transcript").innerHTML=""; $("#p-log").innerHTML=""; connect(sel.value); };
+  sel.onchange = () => { trial = ""; lOff = 0; t0 = null; $("#p-transcript").innerHTML=""; $("#p-log").innerHTML=""; connect(sel.value); };
   connect(sel.value);
 }
 
