@@ -86,10 +86,46 @@ export interface EditorConfig {
   chain?: EditorChainRule[];
 }
 
+export interface LspTypescriptServerConfig {
+  package: string;
+  version: string;
+  tsVersion: string;
+}
+export interface LspPythonServerConfig {
+  package: string;
+  version: string;
+}
+export interface LspShellServerConfig {
+  enabled: boolean;
+}
+export interface LspServersConfig {
+  typescript: LspTypescriptServerConfig;
+  python: LspPythonServerConfig;
+  shell: LspShellServerConfig;
+}
+export interface LspUvToolConfig {
+  version: string;
+  repo: string;
+  verify: string;
+}
+export interface LspToolsConfig {
+  uv: LspUvToolConfig;
+}
+export interface LspConfig {
+  checkMaxLines: number;
+  checkMaxBytes: number;
+  startupTimeoutMs: number;
+  lintTimeoutMs: number;
+  installTimeoutMs: number;
+  discoveryMaxDepth: number;
+  servers: LspServersConfig;
+  tools: LspToolsConfig;
+}
 export interface CpiConfig {
   shell?: ShellConfig;
   caveman?: CavemanConfig;
   editor?: EditorConfig;
+  lsp?: LspConfig;
   // Future extensions add their sections here.
 }
 
@@ -215,6 +251,11 @@ function str(value: unknown): string {
   return typeof value === "string" ? value : "";
 }
 
+/** Coerce a config value to a boolean, defaulting to `fallback` when absent/non-boolean. */
+function bool(value: unknown, fallback: boolean): boolean {
+  return typeof value === "boolean" ? value : fallback;
+}
+
 /**
  * Load the caveman section: the default config's `caveman` deep-merged with the
  * user/project `caveman` config, with each string field coerced to a string
@@ -256,5 +297,52 @@ export function loadEditorConfig(cwd: string = process.cwd()): EditorConfig {
     transcriptDir: typeof e.transcriptDir === "string" ? e.transcriptDir : "",
     maxTranscripts: Number.isFinite(maxTranscripts) && maxTranscripts > 0 ? maxTranscripts : 200,
     chain,
+  };
+}
+
+/**
+ * Load and validate the lsp section (design §11). Defaults from
+ * cpi-config.default.json deep-merged under the user/project `lsp` config;
+ * numeric fields clamped via {@link intInRange}, string pins coerced via
+ * {@link str} (defaulting to the shipped pin when absent).
+ */
+export function loadLspConfig(cwd: string = process.cwd()): LspConfig {
+  const config = loadCpiConfig(cwd);
+  const d = loadDefaultConfig().lsp!;
+  const merged = deepMerge(d, config.lsp ?? {}) as LspConfig;
+  const dt = d.servers.typescript;
+  const dp = d.servers.python;
+  const ds = d.servers.shell;
+  const du = d.tools.uv;
+  const mt = merged.servers?.typescript;
+  const mp = merged.servers?.python;
+  const ms = merged.servers?.shell;
+  const mu = merged.tools?.uv;
+  return {
+    checkMaxLines: intInRange(merged.checkMaxLines, d.checkMaxLines, 1, 10000),
+    checkMaxBytes: intInRange(merged.checkMaxBytes, d.checkMaxBytes, 1024, 1048576),
+    startupTimeoutMs: intInRange(merged.startupTimeoutMs, d.startupTimeoutMs, 1000, 300000),
+    lintTimeoutMs: intInRange(merged.lintTimeoutMs, d.lintTimeoutMs, 500, 120000),
+    installTimeoutMs: intInRange(merged.installTimeoutMs, d.installTimeoutMs, 1000, 600000),
+    discoveryMaxDepth: intInRange(merged.discoveryMaxDepth, d.discoveryMaxDepth, 1, 256),
+    servers: {
+      typescript: {
+        package: str(mt?.package) || dt.package,
+        version: str(mt?.version) || dt.version,
+        tsVersion: str(mt?.tsVersion) || dt.tsVersion,
+      },
+      python: {
+        package: str(mp?.package) || dp.package,
+        version: str(mp?.version) || dp.version,
+      },
+      shell: { enabled: bool(ms?.enabled, ds.enabled) },
+    },
+    tools: {
+      uv: {
+        version: str(mu?.version) || du.version,
+        repo: str(mu?.repo) || du.repo,
+        verify: str(mu?.verify) || du.verify,
+      },
+    },
   };
 }
