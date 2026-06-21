@@ -9,7 +9,7 @@ import { rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { StringDecoder } from "node:string_decoder";
-import { truncateHead, truncateTail } from "@earendil-works/pi-coding-agent";
+import { truncateOutput, type OutputTruncation } from "../lib/output-truncate.ts";
 import {
   getActiveRepeats,
   hasActiveRepeats,
@@ -18,10 +18,7 @@ import {
   signalRepeat,
 } from "./repeat.ts";
 
-export interface OutputTruncation {
-  mode: "head" | "tail";
-  maxLines: number;
-}
+export type { OutputTruncation };
 
 export interface ShellTunables {
   previewMaxBytes: number;
@@ -78,9 +75,6 @@ export const setCompletionHook = (fn: CompletionHook) => {
   setRepeatCompletionHook(fn);
 };
 
-const fmtSize = (b: number) =>
-  b < 1024 ? `${b}B` : b < 1048576 ? `${(b / 1024).toFixed(1)}KB` : `${(b / 1048576).toFixed(1)}MB`;
-
 export async function buildOutputText(
   acc: string,
   opts: {
@@ -98,27 +92,10 @@ export async function buildOutputText(
     truncation,
     tunables,
   } = opts;
-  const limits = { maxBytes: tunables.previewMaxBytes, maxLines: truncation.maxLines };
-  const snap = truncation.mode === "head" ? truncateHead(acc, limits) : truncateTail(acc, limits);
-  if (!snap.truncated) return { text: snap.content || emptyText };
-  const total = snap.totalLines;
-  let text: string;
-  if (truncation.mode === "head") {
-    text = snap.content + `\n\n[L1-${snap.outputLines}/${total}`;
-    if (snap.firstLineExceedsLimit) text += ` (first line > ${fmtSize(tunables.previewMaxBytes)})`;
-    else if (snap.truncatedBy === "bytes") text += ` (${fmtSize(tunables.previewMaxBytes)} cap)`;
-  } else {
-    const s = total - snap.outputLines + 1,
-      e = total;
-    text = snap.content + `\n\n[L${s}-${e}/${total}`;
-    if (snap.lastLinePartial) {
-      const lastNl = acc.lastIndexOf("\n");
-      text += ` (${fmtSize(snap.outputBytes)} tail, L=${fmtSize(Buffer.byteLength(lastNl === -1 ? acc : acc.slice(lastNl + 1), "utf-8"))})`;
-    } else if (snap.truncatedBy === "bytes") {
-      text += ` (${fmtSize(tunables.previewMaxBytes)} cap)`;
-    }
-  }
+  const out = truncateOutput(acc, truncation, tunables.previewMaxBytes, emptyText);
+  if (!out.truncated) return { text: out.body };
   let full: string | undefined;
+  let text = out.body;
   if (persistIfTruncated) {
     full = logPath ?? join(tmpdir(), `pi-sh-output-${Date.now()}.log`);
     if (!logPath) await writeFile(full, acc);
