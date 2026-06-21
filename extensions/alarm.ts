@@ -16,6 +16,7 @@ import { Type } from "typebox";
 import { Text } from "@earendil-works/pi-tui";
 import { sendNotification } from "./lib/notification.ts";
 import { registerHoldSource } from "./lib/session-hold.ts";
+import { recordAlarmSetup } from "./lib/poll-guard.ts";
 
 const ALARM_TOOL = "alarm";
 const MAX_ALARM_SECONDS = 365 * 24 * 60 * 60; // ~1 year
@@ -244,6 +245,7 @@ export default function (pi: ExtensionAPI) {
       const alarm: Alarm = { id, targetMs, message, fired: false };
       alarms.push(alarm);
       scheduleAlarm(alarm);
+      recordAlarmSetup();
       persistAlarms();
 
       return {

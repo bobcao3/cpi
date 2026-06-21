@@ -9,6 +9,7 @@ import { Type } from "typebox";
 import { renderShCall, renderShResult } from "./shell/render.ts";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { loadShellConfig } from "./lib/config.ts";
+import { checkShellPoll } from "./lib/poll-guard.ts";
 import {
   sendNotification,
   type NotificationKind,
@@ -270,6 +271,7 @@ export default async function (pi: ExtensionAPI) {
       ].filter(Boolean);
       const shuckWarnings = warnParts.length ? warnParts.join("\n") : undefined;
       const cdAgents = surfaceCdAgents(parse.node);
+      const slowDown = checkShellPoll(params.command);
 
       onUpdate?.({ content: [], details: undefined });
       const res = await runShell(
@@ -291,6 +293,7 @@ export default async function (pi: ExtensionAPI) {
           : `exit ${res.exitCode ?? "unknown"}${tag}`;
       let text = res.text ? `${res.text}\n---\n${status}` : status;
       if (shuckWarnings) text = `linter warnings:\n${shuckWarnings}\n---\n${text}`;
+      if (slowDown) text = `${slowDown}\n---\n${text}`;
       text += formatAgentsBlock(cdAgents);
 
       return {
