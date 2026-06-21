@@ -17,8 +17,7 @@ import {
 import { registerHoldSource } from "./lib/session-hold.ts";
 import {
   ensureShellTools,
-  buildShellEnv,
-  getToolEnv,
+  buildShellEnvWithDotenv,
   getShuckBinPath,
   type ToolAvailability,
 } from "./shell/tools.ts";
@@ -144,7 +143,7 @@ export default async function (pi: ExtensionAPI) {
     "A completion notification fires when a background shell finishes; you may yield control while waiting.",
     "Do not use alarm to poll a backgrounded shell; a completion notification fires on its own.",
     "Avoid polling, but if you really have to, use the `alarm` tool instead of a long `sleep &&` command.",
-    "If a background shell completes and no follow-up is needed, reply `ACK` and nothing else.",
+    "If a background shell completes and no follow-up is needed, simply invoke wait_any.",
     ...(availability.fd
       ? ["Search files with `$ fd` not `$ find`: fd [OPTS] [-H] [-I] [pattern] [path]..."]
       : []),
@@ -277,7 +276,7 @@ export default async function (pi: ExtensionAPI) {
       const res = await runShell(
         params.command,
         effectiveWaitfor,
-        buildShellEnv(ctx?.sessionManager),
+        buildShellEnvWithDotenv(ctx?.sessionManager),
         signal,
         (t) => onUpdate?.({ content: [{ type: "text", text: t }], details: undefined }),
         describe,

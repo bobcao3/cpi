@@ -184,6 +184,7 @@ export default function (pi: ExtensionAPI) {
       "Use alarm when the user wants to be reminded or woken after a delay or at a specific time.",
       "For alarm, provide exactly one of relative_seconds or target_time, not both.",
       "Pass cancel=true to cancel all active alarms, or cancel=<alarm_id> to cancel a specific alarm.",
+      "When an alarm fires and no follow-up is needed, simply invoke wait_any.",
     ],
     parameters: alarmSchema,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
