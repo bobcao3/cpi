@@ -20,8 +20,9 @@ Open http://localhost:8787
 
 - **Header**: job selector, live stats (done/pass/fail/run/pend/err,
   tokens, mean reward), auto-refresh toggle.
-- **Left**: trial table — task, status badge, reward, tokens in/out,
-  duration. Click a row.
+- **Left**: trial table — task, overall reward score with a solid background
+  color picked from a red-to-green gradient scale based on the score, tokens,
+  duration. Click a row to expand; sub-trials still show pass/fail status badges.
 - **Right tabs**:
   - **Transcript** — rendered pi.txt events: user instruction, assistant
     text + collapsed thinking, tool calls (`sh`) with command + result
