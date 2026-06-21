@@ -103,7 +103,9 @@ async function ensureTool(spec: ToolSpec): Promise<boolean> {
   finally { await rm(tmp, { recursive: true, force: true }); }
 }
 
-export async function ensureShellTools(): Promise<ToolAvailability> {
+const TOOLS_G = globalThis as unknown as { __cpiShellTools?: Promise<ToolAvailability> };
+
+async function doEnsureShellTools(): Promise<ToolAvailability> {
   const [fd, rg, shuck, treeSitter] = await Promise.all([
     ...TOOLS.map(ensureTool),
     (async () => {
@@ -130,6 +132,16 @@ export async function ensureShellTools(): Promise<ToolAvailability> {
     })(),
   ]);
   return { fd, rg, shuck, treeSitter };
+}
+
+export async function ensureShellTools(): Promise<ToolAvailability> {
+  const existing = TOOLS_G.__cpiShellTools;
+  if (existing) return existing;
+  const p = doEnsureShellTools().finally(() => {
+    delete TOOLS_G.__cpiShellTools;
+  });
+  TOOLS_G.__cpiShellTools = p;
+  return p;
 }
 
 export function getToolEnv(): NodeJS.ProcessEnv {

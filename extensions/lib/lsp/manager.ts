@@ -21,7 +21,7 @@ import { type Language, discoverProjectRoot, languageByPath } from "./discover.t
 import { type Diagnostic } from "./diagnostics.ts";
 import { getLspServerSpec } from "./registry.ts";
 import { resolveBin } from "./provision.ts";
-import { type LspConfig, loadLspConfig } from "../config.ts";
+import { loadLspConfig } from "../config.ts";
 import {
   awaitReady,
   extForLanguage,
@@ -39,6 +39,7 @@ import {
 
 interface LspState {
   sessions: Map<string, LspSession>;
+  inflight: Map<string, Promise<LspSession>>;
   draining: boolean;
 }
 
@@ -47,13 +48,9 @@ export interface EnsureOptions {
   force?: boolean;
 }
 
-function assert(cond: unknown, msg: string): asserts cond {
-  if (!cond) throw new Error(msg);
-}
-
 function getState(): LspState {
   const g = globalThis as unknown as { __cpiLsp?: LspState };
-  if (!g.__cpiLsp) g.__cpiLsp = { sessions: new Map(), draining: false };
+  if (!g.__cpiLsp) g.__cpiLsp = { sessions: new Map(), inflight: new Map(), draining: false };
   return g.__cpiLsp;
 }
 
@@ -62,6 +59,9 @@ function getState(): LspState {
  * returns the existing session unless `force`, an `envPath` change, or a `dead`
  * session triggers a restart. Never throws — install failure yields an
  * `install-failed` session the caller degrades on. The single spawn point.
+ * Spawns/restarts are serialized per id: concurrent callers awaiting the same
+ * `(language, root)` re-check the registry after in-flight provisioning settles
+ * instead of racing a second spawn (design §13).
  */
 export async function ensureSession(
   language: Language,
@@ -70,9 +70,30 @@ export async function ensureSession(
 ): Promise<LspSession> {
   const st = getState();
   const id = sessionId(language, root);
+  // Serialize spawn/restart per id: a concurrent caller awaiting the same id
+  // re-checks the registry after the in-flight provisioning settles, instead
+  // of racing a second spawn against the same (language, root).
+  for (;;) {
+    const existing = st.sessions.get(id);
+    const envChanged = existing ? existing.envPath !== opts.envPath : false;
+    if (existing && !opts.force && !envChanged && existing.state !== "dead") return existing;
+    const pending = st.inflight.get(id);
+    if (!pending) break;
+    await pending.catch(() => {});
+  }
+  const p = provisionSession(st, id, language, root, opts).finally(() => st.inflight.delete(id));
+  st.inflight.set(id, p);
+  return p;
+}
+
+async function provisionSession(
+  st: LspState,
+  id: string,
+  language: Language,
+  root: string,
+  opts: EnsureOptions,
+): Promise<LspSession> {
   const existing = st.sessions.get(id);
-  const envChanged = existing ? existing.envPath !== opts.envPath : false;
-  if (existing && !opts.force && !envChanged && existing.state !== "dead") return existing;
   if (existing) {
     st.sessions.delete(id);
     stopSession(existing);
@@ -84,20 +105,21 @@ export async function ensureSession(
     installTimeoutMs: cfg.installTimeoutMs,
     uv: cfg.tools.uv,
   });
-  if (resolved.source === "install-failed") {
-    const session = makeSession(
+  const installFailed = (): LspSession =>
+    makeSession(
       id,
       language,
       root,
       opts.envPath,
       "",
-      resolved.source,
+      "install-failed",
       resolved.pathDir,
       "install-failed",
     );
-    assert(!st.sessions.has(id), `ensureSession: session id collision ${id}`);
-    st.sessions.set(id, session);
-    return session;
+  if (resolved.source === "install-failed") {
+    const failed = installFailed();
+    st.sessions.set(id, failed);
+    return failed;
   }
   const session = makeSession(
     id,
@@ -113,8 +135,12 @@ export async function ensureSession(
   session.onDead = () => {
     getState().sessions.delete(session.id);
   };
-  // assert: session-id uniqueness (design §13)
-  assert(!st.sessions.has(id), `ensureSession: session id collision ${id}`);
+  // A concurrent disposeAll raced with provisioning: don't publish a session
+  // that shutdown already drained. Stop the worker and degrade.
+  if (st.draining) {
+    stopSession(session);
+    return installFailed();
+  }
   st.sessions.set(id, session);
   return session;
 }
@@ -161,11 +187,20 @@ export async function lintText(language: Language, text: string): Promise<Diagno
 export async function stop(target: string): Promise<void> {
   const st = getState();
   let session = st.sessions.get(target);
+  let id = target;
   if (!session) {
     const language = languageByPath(target);
     if (language) {
       const root = discoverProjectRoot(target, language);
-      session = st.sessions.get(sessionId(language, root));
+      id = sessionId(language, root);
+      session = st.sessions.get(id);
+    }
+  }
+  if (!session) {
+    const pending = st.inflight.get(id);
+    if (pending) {
+      await pending.catch(() => {});
+      session = st.sessions.get(id);
     }
   }
   if (!session) return;
@@ -191,6 +226,8 @@ export async function disposeAll(): Promise<void> {
     const sessions = [...st.sessions.values()];
     st.sessions.clear();
     for (const s of sessions) stopSession(s);
+    const pending = [...st.inflight.values()];
+    if (pending.length) await Promise.allSettled(pending);
   } finally {
     st.draining = false;
   }

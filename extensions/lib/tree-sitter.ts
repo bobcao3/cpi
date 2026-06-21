@@ -112,12 +112,12 @@ interface Parser {
   memory: WebAssembly.Memory;
 }
 
-interface TsState { resolver: () => string | null; instance: WebAssembly.Instance | null }
+interface TsState { resolver: () => string | null; instance: WebAssembly.Instance | null; inflight: Promise<Parser | null> | null }
 
 const G = globalThis as unknown as { __cpiTreeSitter?: TsState };
 
 function state(): TsState {
-  if (!G.__cpiTreeSitter) G.__cpiTreeSitter = { resolver: () => null, instance: null };
+  if (!G.__cpiTreeSitter) G.__cpiTreeSitter = { resolver: () => null, instance: null, inflight: null };
   return G.__cpiTreeSitter;
 }
 
@@ -151,18 +151,27 @@ function parserSync(): Parser | null {
 async function instantiate(): Promise<Parser | null> {
   const st = state();
   if (st.instance) return wrap(st.instance);
-  const path = st.resolver();
-  if (!path) return null;
+  if (st.inflight) return st.inflight;
+  const p = (async () => {
+    const path = st.resolver();
+    if (!path) return null;
+    try {
+      const binary = readFileSync(path);
+      const wasi = new WASI({ version: "preview1", args: ["tree-sitter-wasm"], env: {}, preopens: {} });
+      const mod = await WebAssembly.compile(binary);
+      const instance = await WebAssembly.instantiate(mod, wasi.getImportObject());
+      st.instance = instance;
+      return wrap(instance);
+    } catch (err) {
+      console.warn("[tree-sitter] Failed to initialize wasm:", err);
+      return null;
+    }
+  })();
+  st.inflight = p;
   try {
-    const binary = readFileSync(path);
-    const wasi = new WASI({ version: "preview1", args: ["tree-sitter-wasm"], env: {}, preopens: {} });
-    const mod = await WebAssembly.compile(binary);
-    const instance = await WebAssembly.instantiate(mod, wasi.getImportObject());
-    st.instance = instance;
-    return wrap(instance);
-  } catch (err) {
-    console.warn("[tree-sitter] Failed to initialize wasm:", err);
-    return null;
+    return await p;
+  } finally {
+    st.inflight = null;
   }
 }
 
