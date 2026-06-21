@@ -35,6 +35,37 @@ const execFileAsync = promisify(execFile);
 const DL_TIMEOUT = 60_000;
 const IS_WIN = process.platform === "win32";
 
+const INSTALL_G = globalThis as unknown as { __cpiLspInstalls?: Map<string, Promise<void>> };
+
+function installs(): Map<string, Promise<void>> {
+  if (!INSTALL_G.__cpiLspInstalls) INSTALL_G.__cpiLspInstalls = new Map();
+  return INSTALL_G.__cpiLspInstalls;
+}
+
+/**
+ * Serialize installs that share a destination (e.g. all TypeScript roots use one
+ * `lsp_envs/typescript` dir). The fn re-checks the binary on entry, so a caller
+ * that waited behind another install returns the cached result without
+ * re-running `npm install`/`uv pip install`. `globalThis` holds shared mutable
+ * state (re-read every call), not a dedup flag.
+ */
+async function withInstallLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
+  const map = installs();
+  const existing = map.get(key);
+  if (existing) await existing.catch(() => {});
+  let release!: () => void;
+  const gate = new Promise<void>((r) => {
+    release = r;
+  });
+  map.set(key, gate);
+  try {
+    return await fn();
+  } finally {
+    release();
+    map.delete(key);
+  }
+}
+
 export type ResolveSource = "env" | "installed" | "reuse" | "install-failed";
 
 export interface ResolveResult {
@@ -332,9 +363,13 @@ export async function resolveBin(
   }
   try {
     if (spec.install.method === "npm")
-      return await withTimeout(opts.installTimeoutMs, installNpm(spec, opts, env));
+      return await withInstallLock("npm", () =>
+        withTimeout(opts.installTimeoutMs, installNpm(spec, opts, env)),
+      );
     if (spec.install.method === "uv")
-      return await withTimeout(opts.installTimeoutMs, installUv(spec, opts, env));
+      return await withInstallLock("uv", () =>
+        withTimeout(opts.installTimeoutMs, installUv(spec, opts, env)),
+      );
     return {
       bin: "",
       source: "install-failed",
