@@ -34,6 +34,7 @@ import { drainAfterTool, drainBeforeUser } from "./lib/prepend-message.ts";
 import { registerNotificationRenderer } from "./lib/notification.ts";
 import { setupCpiFooter, disposeCpiFooter } from "./lib/footer.ts";
 import {
+  awaitPendingHolds,
   consumeHoldNotice,
   getHoldSources,
   getLastStopReason,
@@ -91,7 +92,7 @@ export default function coreExtension(pi: ExtensionAPI): void {
   // awaits or emit notices themselves.
   pi.on("agent_start", () => resetHoldTracking());
 
-  pi.on("agent_end", (event: any, ctx: any) => {
+  pi.on("agent_end", async (event: any, ctx: any) => {
     for (let i = event.messages.length - 1; i >= 0; i--) {
       const m = event.messages[i];
       if (m.role === "assistant") {
@@ -102,10 +103,15 @@ export default function coreExtension(pi: ExtensionAPI): void {
     if (ctx.hasUI) return;
     const reason = getLastStopReason();
     if (reason === "error" || reason === "aborted") return;
-    const pending = getHoldSources().filter((s) => s.hasPending());
+    const sources = getHoldSources();
+    const pending = sources.filter((s) => s.hasPending());
     if (pending.length === 0) return;
-    if (!consumeHoldNotice()) return;
-    emitHoldNotice(ctx, pending);
+    if (consumeHoldNotice()) emitHoldNotice(ctx, pending);
+    // Hold the run open until pending alarms/background shells fire. While we await,
+    // isStreaming stays true, so their sendNotification queues a steer/followUp that
+    // the run loop's hasQueuedMessages->continue turns into a follow-up turn —
+    // passive waiting without polling. Headless-only: TUI stays alive on its own.
+    await awaitPendingHolds(sources);
   });
 
   pi.on("session_shutdown", async (event: any, ctx: any) => {

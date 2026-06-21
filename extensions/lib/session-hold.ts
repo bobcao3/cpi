@@ -96,3 +96,33 @@ export function consumeHoldNotice(): boolean {
   s.holdNoticeSent = true;
   return true;
 }
+
+/**
+ * Await pending hold sources. Called from the headless agent_end owner.
+ *
+ * While this awaits, `isStreaming` stays true (AgentState contract: remains
+ * true until agent_end listeners settle), so a source firing via
+ * sendNotification queues a steer/followUp rather than starting a concurrent
+ * prompt. On resolve, the run loop's `hasQueuedMessages` sees the queued
+ * message and `continue()` drives the follow-up turn — passive waiting
+ * without polling.
+ *
+ * Resolves when: the deadline (max of all source deadlines) is reached, OR a
+ * source fires (pending count drops below the initial snapshot), OR pending
+ * reaches zero.
+ */
+export async function awaitPendingHolds(sources: HoldSource[]): Promise<void> {
+  const pending = sources.filter((s) => s.hasPending());
+  if (pending.length === 0) return;
+  const deadline = Date.now() + Math.max(...pending.map((s) => s.deadlineMs));
+  const count = pending.length;
+  await new Promise<void>((resolve) => {
+    const tick = () => {
+      if (Date.now() >= deadline) return resolve();
+      const nowPending = sources.filter((s) => s.hasPending()).length;
+      if (nowPending < count || nowPending === 0) return resolve();
+      setTimeout(tick, 100);
+    };
+    tick();
+  });
+}
