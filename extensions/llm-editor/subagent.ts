@@ -50,6 +50,7 @@ export interface SubagentResult {
   timedOut: boolean;
   spawnError?: string;
   elapsedMs: number;
+  usage?: { input: number; output: number };
 }
 
 export async function runSubagent(opts: SubagentOptions): Promise<SubagentResult> {
@@ -127,5 +128,7 @@ export async function runSubagent(opts: SubagentOptions): Promise<SubagentResult
     (stderr.trim() ? `\n${T.transcript.section_stderr}\n\n\`\`\`\n${stderr.trim()}\n\`\`\`\n` : "");
 
   await writeTranscript(opts.transcriptDir, opts.id, body, opts.maxTranscripts);
-  return { answer: stdout.trim(), stderr, exitCode, timedOut, spawnError, elapsedMs };
+  const sm = stderr.match(/summary:[^\n]*\bin=(\d+)\b[^\n]*\bout=(\d+)\b/);
+  const usage = sm ? { input: parseInt(sm[1], 10), output: parseInt(sm[2], 10) } : undefined;
+  return { answer: stdout.trim(), stderr, exitCode, timedOut, spawnError, elapsedMs, usage };
 }

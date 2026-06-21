@@ -43,6 +43,7 @@ export type EditFileResult =
       firstChangedLine: number | undefined;
       applied: number;
       wholeFileRewrite: boolean;
+      usage?: { input: number; output: number };
     }
   | { ok: false; error: string };
 
@@ -131,5 +132,6 @@ export async function editFile(path: string, opts: EditFileOptions): Promise<Edi
     firstChangedLine,
     applied: applied.applied,
     wholeFileRewrite: applied.wholeFileRewrite,
+    usage: res.usage,
   };
 }

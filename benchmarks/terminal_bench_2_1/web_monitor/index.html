@@ -1,0 +1,330 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>TB2.1 Monitor</title>
+<style>
+  :root { --bg:#0d1117; --panel:#161b22; --border:#30363d; --txt:#c9d1d9; --mut:#8b949e; --acc:#58a6ff; --ok:#3fb950; --warn:#d29922; --err:#f85149; }
+  * { box-sizing: border-box; }
+  body { margin:0; font:13px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace; background:var(--bg); color:var(--txt); height:100vh; overflow:hidden; display:flex; flex-direction:column; }
+  header { display:flex; gap:14px; align-items:center; padding:8px 12px; background:var(--panel); border-bottom:1px solid var(--border); flex-wrap:wrap; flex:0 0 auto; }
+  header h1 { font-size:14px; margin:0; }
+  header select, header button { background:#0d1117; color:var(--txt); border:1px solid var(--border); padding:4px 8px; border-radius:4px; font:inherit; cursor:pointer; }
+  .stats { display:flex; gap:14px; color:var(--mut); }
+  .stats b { color:var(--txt); }
+  #wsdot { width:8px; height:8px; border-radius:50%; background:var(--mut); display:inline-block; }
+  #wsdot.live { background:var(--ok); } #wsdot.dead { background:var(--err); }
+  main { display:grid; grid-template-columns: 380px 1fr; flex:1 1 auto; min-height:0; }
+  #trials { overflow:auto; border-right:1px solid var(--border); }
+  #trials table { width:100%; border-collapse:collapse; }
+  #trials td, #trials th { padding:5px 8px; border-bottom:1px solid var(--border); white-space:nowrap; }
+  #trials tr { cursor:pointer; }
+  #trials tr.sel { background:#1f6feb33; }
+  #trials tr:hover { background:#ffffff0a; }
+  .badge { padding:1px 6px; border-radius:8px; font-size:11px; }
+  .b-pass{background:#238636;color:#fff} .b-fail{background:#da3633;color:#fff}
+  .b-run{background:#d29922;color:#000} .b-err{background:#da3633;color:#fff} .b-pend{background:#30363d;color:var(--mut)}
+  .task-row td { font-weight:bold; background:#21262d; }
+  .trial-row td { font-size:12px; }
+  .trial-row td:first-child { padding-left:28px; font-weight:normal; }
+  #detail { display:flex; flex-direction:column; overflow:hidden; }
+  .tabs { display:flex; gap:2px; padding:6px 8px 0; background:var(--panel); border-bottom:1px solid var(--border); }
+  .tabs button { background:transparent; border:none; color:var(--mut); padding:6px 12px; cursor:pointer; border-radius:4px 4px 0 0; font:inherit; }
+  .tabs button.active { color:var(--txt); background:var(--bg); border:1px solid var(--border); border-bottom:none; }
+  .pane { flex:1; overflow:auto; padding:10px 14px; display:none; }
+  .pane.active { display:block; }
+  .msg { margin:8px 0; padding:8px 10px; border-radius:6px; white-space:pre-wrap; word-break:break-word; }
+  .msg-user { background:#1f6feb22; border-left:3px solid var(--acc); }
+  .msg-ast { background:#0d1117; border-left:3px solid var(--ok); }
+  .tool { margin:8px 0; border:1px solid var(--border); border-radius:6px; overflow:hidden; }
+  .tool-h { background:#21262d; padding:6px 10px; cursor:pointer; color:var(--acc); }
+  .tool-h .exit { float:right; color:var(--mut); }
+  .tool-h .exit.ok { color:var(--ok); } .tool-h .exit.err { color:var(--err); }
+  .tool-c { padding:8px 10px; white-space:pre-wrap; word-break:break-word; max-height:300px; overflow:auto; color:var(--mut); }
+  details { margin:4px 0; }
+  details summary { color:var(--warn); cursor:pointer; }
+  details .think { padding:6px 10px; color:var(--mut); white-space:pre-wrap; }
+  .sep { color:var(--mut); text-align:center; margin:6px 0; font-size:11px; }
+  pre { white-space:pre-wrap; word-break:break-word; }
+  .mono { color:var(--mut); }
+  #trial-status { display:flex; gap:10px; align-items:center; padding:4px 10px; background:var(--panel); border-bottom:1px solid var(--border); font-size:12px; color:var(--mut); min-height:26px; flex:0 0 auto; }
+  #trial-status .tname { color:var(--txt); font-weight:bold; }
+  #trial-status button { padding:2px 6px; }
+  .dim { color:var(--mut); opacity:.55; font-size:11px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>TB2.1 Monitor</h1>
+  <span id="wsdot" title="ws"></span>
+  <select id="jobSel"></select>
+  <span class="stats" id="stats">—</span>
+</header>
+<main>
+  <div id="trials"><table><thead><tr>
+    <th>task</th><th>status</th><th>rw</th><th>tok in/out</th><th>dur</th>
+  </tr></thead><tbody id="tbody"></tbody></table></div>
+  <div id="detail">
+    <div id="trial-status">select a trial</div>
+    <div class="tabs">
+      <button data-t="transcript" class="active">Transcript</button>
+      <button data-t="verifier">Verifier</button>
+      <button data-t="log">Job Log</button>
+    </div>
+    <div class="pane active" id="p-transcript"></div>
+    <div class="pane" id="p-verifier"></div>
+    <div class="pane" id="p-log"></div>
+  </div>
+</main>
+<script>
+const $ = s => document.querySelector(s);
+let job = "", trial = "", tab = "transcript", ws = null;
+let lOff = 0;
+let trialsData = [];
+
+async function api(p) { const r = await fetch(p); return r.json(); }
+function esc(s){ return String(s).replace(/[&<>]/g, c => c==="&"?"&amp;":c==="<"?"&lt;":"&gt;"); }
+function fmtK(n){ return n==null ? "—" : (n>=1000 ? (n/1000).toFixed(1)+"k" : n); }
+function fmtDur(s){ if(s==null) return "—"; if(s<60) return s+"s"; return Math.floor(s/60)+"m"+String(s%60).padStart(2,"0")+"s"; }
+
+function setDot(s){ const d=$("#wsdot"); d.className=s; }
+
+// ---- WS: server pushes result/trials/transcript ----
+function connect(j) {
+  if (ws) { try { ws.close(); } catch {} }
+  job = j;
+  const proto = location.protocol === "https:" ? "wss" : "ws";
+  ws = new WebSocket(`${proto}://${location.host}/ws?job=${encodeURIComponent(j)}`);
+  ws.onopen = () => setDot("live");
+  ws.onclose = () => { setDot("dead"); setTimeout(() => { if (job === j) connect(j); }, 2000); };
+  ws.onerror = () => { try { ws.close(); } catch {} };
+  ws.onmessage = ev => {
+    const e = JSON.parse(ev.data);
+    if (e.type === "result") renderStats(e.result);
+    else if (e.type === "trials") { trialsData = e.trials; renderTrials(e.trials); renderTrialStatus(); }
+    else if (e.type === "select") { $("#p-transcript").innerHTML = ""; }
+    else if (e.type === "transcript") renderEvents(e.events);
+  };
+}
+
+function renderStats(r) {
+  if (!r || r.error) { $("#stats").textContent = r?.error || "no result.json yet"; return; }
+  const s = r.stats || {};
+  const e = (s.evals && Object.values(s.evals)[0]) || {};
+  const rs = (e.reward_stats && e.reward_stats.reward) || {};
+  const pass = Object.entries(rs).filter(([k]) => k !== "0.0" && k !== "0").reduce((a,[,v])=>a+v.length,0);
+  const fail = (rs["0.0"]||rs["0"]||[]).length;
+  $("#stats").innerHTML =
+    `done <b>${s.n_completed_trials}</b>/${s.n_trials ?? "?"} ` +
+    `pass <b style="color:var(--ok)">${pass}</b> ` +
+    `fail <b style="color:var(--err)">${fail}</b> ` +
+    `run <b>${s.n_running_trials}</b> pend <b>${s.n_pending_trials}</b> ` +
+    `err <b>${s.n_errored_trials}</b> ` +
+    `tok <b>${fmtK(s.n_input_tokens)}</b>/<b>${fmtK(s.n_output_tokens)}</b> ` +
+    `mean <b>${(e.metrics?.[0]?.mean ?? "?")}</b>`;
+}
+
+function badge(t) {
+  const rw = t.reward;
+  if (t.status === "errored") return ["b-err","ERR"];
+  if (t.status === "running") return ["b-run","run"];
+  if (rw == null) return ["b-pend","—"];
+  return rw >= 1 ? ["b-pass","pass"] : ["b-fail","fail"];
+}
+
+function renderTrials(trials) {
+  // group trials by task (tbench.ai per-task resolution-rate table)
+  const map = new Map();
+  for (const t of trials) {
+    if (!map.has(t.task)) map.set(t.task, []);
+    map.get(t.task).push(t);
+  }
+  let html = "";
+  for (const [task, ts] of map) {
+    const total = ts.length;
+    const successes = ts.filter(t => t.reward >= 1 && t.status === "completed").length;
+    const running = ts.filter(t => t.status === "running").length;
+    const errored = ts.filter(t => t.status === "errored").length;
+    const done = ts.filter(t => t.status === "completed").length;
+    let bc, bl;
+    if (errored > 0) { bc = "b-err"; bl = "err"; }
+    else if (running > 0) { bc = "b-run"; bl = "run"; }
+    else if (done === total && successes > 0) { bc = "b-pass"; bl = "pass"; }
+    else if (done === total && successes === 0) { bc = "b-fail"; bl = "fail"; }
+    else { bc = "b-pend"; bl = "—"; }
+    const inTok = ts.reduce((a, t) => a + (t.in_tokens || 0), 0);
+    const outTok = ts.reduce((a, t) => a + (t.out_tokens || 0), 0);
+    const maxDur = ts.reduce((m, t) => Math.max(m, t.duration_s || 0), 0);
+    const pct = total ? Math.round((successes / total) * 100) : 0;
+    html += `<tr class="task-row">
+      <td>${esc(task)}</td>
+      <td><span class="badge ${bc}">${bl}</span></td>
+      <td class="mono">${successes}/${total} (${pct}%)</td>
+      <td class="mono">${fmtK(inTok)}/${fmtK(outTok)}</td>
+      <td class="mono">${fmtDur(maxDur)}</td></tr>`;
+    for (const t of ts) {
+      const [tbc, tbl] = badge(t);
+      const sel = trial === t.trial ? "sel" : "";
+      html += `<tr class="trial-row ${sel}" data-trial="${t.trial}">
+        <td>${esc(t.trial)}</td>
+        <td><span class="badge ${tbc}">${tbl}</span></td>
+        <td>${t.reward==null?"—":t.reward}</td>
+        <td class="mono">${fmtK(t.in_tokens)}/${fmtK(t.out_tokens)}</td>
+        <td class="mono">${fmtDur(t.duration_s)}</td></tr>`;
+    }
+  }
+  $("#tbody").innerHTML = html;
+  $("#tbody").querySelectorAll("tr[data-trial]").forEach(tr => {
+    tr.onclick = () => selectTrial(tr.dataset.trial);
+  });
+  if (trial && !trials.some(t => t.trial === trial)) trial = "";
+}
+
+function selectTrial(t) {
+  trial = t;
+  $("#tbody").querySelectorAll("tr").forEach(r => r.classList.toggle("sel", r.dataset.trial === t));
+  if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: "select", trial: t }));
+  fetchVerifier();
+  renderTrialStatus();
+}
+
+function renderTrialStatus() {
+  const bar = $("#trial-status");
+  const t = trialsData.find(x => x.trial === trial);
+  if (!t) { bar.textContent = "select a trial"; return; }
+  const [bc, bl] = badge(t);
+  const errTxt = t.error ? ` <span style="color:var(--err)">${esc(String(t.error).slice(0,80))}</span>` : "";
+  bar.innerHTML =
+    `<button onclick="stepTrial(-1)">◀</button>` +
+    `<span class="tname">${esc(t.task)}</span> / <span>${esc(t.trial)}</span>` +
+    `<button onclick="stepTrial(1)">▶</button>` +
+    `<span class="badge ${bc}">${bl}</span>` +
+    `<span>rw ${t.reward==null?"—":t.reward}</span>` +
+    `<span>tok ${fmtK(t.in_tokens)}/${fmtK(t.out_tokens)}</span>` +
+    `<span>${fmtDur(t.duration_s)}</span>` +
+    errTxt;
+}
+
+function stepTrial(delta) {
+  if (!trial) return;
+  const cur = trialsData.find(x => x.trial === trial);
+  if (!cur) return;
+  const list = trialsData.filter(t => t.task === cur.task);
+  const idx = list.findIndex(t => t.trial === trial);
+  let ni = idx + delta;
+  if (ni < 0) ni = 0;
+  if (ni > list.length - 1) ni = list.length - 1;
+  if (list[ni]) selectTrial(list[ni].trial);
+}
+
+function renderEvents(ev) {
+  const root = $("#p-transcript");
+  for (const e of ev) {
+    if (e.type === "message_start" && e.message?.role === "user") {
+      const txt = (e.message.content||[]).map(c=>c.text||"").join("\n");
+      if (txt.trim()) root.insertAdjacentHTML("beforeend", `<div class="msg msg-user">${esc(txt)}</div>`);
+    } else if (e.type === "message_end" && e.message?.role === "assistant") {
+      const parts = e.message.content || [];
+      const think = parts.filter(c=>c.type==="thinking").map(c=>c.thinking).join("\n");
+      const text = parts.filter(c=>c.type==="text").map(c=>c.text).join("\n");
+      let h = "";
+      if (think) h += `<details><summary>thinking</summary><div class="think">${esc(think)}</div></details>`;
+      if (text) h += `<div>${esc(text)}</div>`;
+      if (h) root.insertAdjacentHTML("beforeend", `<div class="msg msg-ast">${h}</div>`);
+    } else if (e.type === "message_end" && e.message?.role === "custom") {
+      const customType = e.message.customType || "custom";
+      const content = e.message.content;
+      const text = typeof content === "string" ? content : (content||[]).map(c=>c.text||"").join("\n");
+      root.insertAdjacentHTML("beforeend", `<details class="dim"><summary>⟨${esc(customType)}⟩</summary><div class="think">${esc(text)}</div></details>`);
+    } else if (e.type === "tool_execution_start") {
+      const a = e.args || {};
+      const cmd = a.command || a.description || JSON.stringify(a);
+      const id = e.toolCallId || Math.random();
+      root.insertAdjacentHTML("beforeend",
+        `<div class="tool" id="t-${CSS.escape(id)}">
+          <div class="tool-h" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'block':'none'">$ ${esc((a.description||e.toolName||'sh').slice(0,80))}<span class="exit" data-x></span></div>
+          <div class="tool-c">${esc(cmd)}</div></div>`);
+    } else if (e.type === "tool_execution_update") {
+      const id = e.toolCallId;
+      if (!id) continue;
+      const box = root.querySelector(`#t-${CSS.escape(id)}`);
+      if (!box) continue;
+      let cnt = box.querySelector(".upd-count");
+      if (!cnt) {
+        cnt = document.createElement("span");
+        cnt.className = "dim upd-count";
+        cnt.dataset.count = "0";
+        const header = box.querySelector(".tool-h");
+        if (header) header.appendChild(cnt);
+        else box.appendChild(cnt);
+      }
+      const n = (parseInt(cnt.dataset.count, 10) || 0) + 1;
+      cnt.dataset.count = String(n);
+      cnt.textContent = `↻ ${n}`;
+    } else if (e.type === "tool_execution_end") {
+      const id = e.toolCallId;
+      const box = id ? root.querySelector(`#t-${CSS.escape(id)}`) : null;
+      const txt = (e.result?.content||[]).map(c=>c.text||"").join("\n");
+      const exit = e.result?.details?.exitCode;
+      if (box) {
+        if (txt) box.insertAdjacentHTML("beforeend", `<div class="tool-c">${esc(txt).slice(0,20000)}</div>`);
+        const x = box.querySelector(".exit");
+        if (x && exit != null) { x.textContent = `exit ${exit}`; x.className = "exit " + (exit===0?"ok":"err"); }
+      }
+    } else if (e.type === "turn_end") {
+      root.insertAdjacentHTML("beforeend", `<div class="sep">── turn ──</div>`);
+    } else if (e.type === "raw") {
+      root.insertAdjacentHTML("beforeend", `<div class="dim raw-line">${esc(e.text||"").slice(0,300)}</div>`);
+    }
+  }
+  root.scrollTop = root.scrollHeight;
+}
+
+async function fetchVerifier() {
+  if (!trial) return;
+  const r = await api(`/api/job/${job}/trial/${trial}/verifier`);
+  $("#p-verifier").innerHTML =
+    `<h3>reward</h3><pre>${esc(r.reward ?? "—")}</pre>` +
+    `<h3>test-stdout</h3><pre>${esc(r.stdout ?? "(none)")}</pre>`;
+}
+
+async function pollLog() {
+  if (tab !== "log") return;
+  const r = await api(`/api/job/${job}/log?after=${lOff}`);
+  if (r.missing) return;
+  if (r.events.length) {
+    const lines = r.events.map(e => e.type === "raw" ? e.text : JSON.stringify(e));
+    $("#p-log").insertAdjacentHTML("beforeend", lines.map(esc).join("\n") + "\n");
+  }
+  lOff = r.next;
+  $("#p-log").scrollTop = $("#p-log").scrollHeight;
+}
+
+document.querySelectorAll(".tabs button").forEach(b => {
+  b.onclick = () => {
+    tab = b.dataset.t;
+    document.querySelectorAll(".tabs button").forEach(x=>x.classList.toggle("active", x===b));
+    document.querySelectorAll(".pane").forEach(p=>p.classList.remove("active"));
+    $("#p-"+tab).classList.add("active");
+    if (tab === "transcript" && ws && ws.readyState === 1 && trial) ws.send(JSON.stringify({type:"select",trial}));
+    if (tab === "verifier") fetchVerifier();
+    if (tab === "log") pollLog();
+  };
+});
+
+async function loadJobs() {
+  const jobs = await api("/api/jobs");
+  const sel = $("#jobSel");
+  const prev = sel.value || jobs[0]?.name;
+  sel.innerHTML = jobs.map(j => `<option value="${j.name}">${j.name}</option>`).join("");
+  if (prev && jobs.some(j => j.name === prev)) sel.value = prev;
+  sel.onchange = () => { trial = ""; lOff = 0; $("#p-transcript").innerHTML=""; $("#p-log").innerHTML=""; connect(sel.value); };
+  connect(sel.value);
+}
+
+setInterval(pollLog, 2000);
+loadJobs();
+</script>
+</body>
+</html>
