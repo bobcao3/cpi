@@ -14,7 +14,7 @@
  *   - Multiple blocks applied in one pass, sorted by match index, non-overlapping.
  *
  * Atomic: if any block fails, NOTHING is applied. Returns structured error
- * codes (no prose) so the caller (editor.ts) can render messages from text.yaml.
+ * codes (no prose) so the caller (editor.ts) can render messages from text.toml.
  * Pure leaf: no pi/tui/fs/text imports; operates on strings + protocol markers.
  */
 

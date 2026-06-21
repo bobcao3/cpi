@@ -6,7 +6,7 @@
  * line-range array it returns, and renders only those ranges (with line
  * numbers). Mirrors SWE-Edit's Viewer (§3.1): query-conditioned snippet
  * extraction beats raw dumps and classical retrieval on recall + context.
- * All prose lives in text.yaml; this module holds logic.
+ * All prose lives in text.toml; this module holds logic.
  */
 
 import { readFile, stat } from "node:fs/promises";

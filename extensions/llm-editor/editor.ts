@@ -8,8 +8,8 @@
  * find-replace generation.
  *
  * Atomic: any block failure writes nothing; the structured error is rendered to
- * prose via text.yaml and returned so the main agent can retry. Write is
- * tmp-file + rename. All prose lives in text.yaml; this module holds logic.
+ * prose via text.toml and returned so the main agent can retry. Write is
+ * tmp-file + rename. All prose lives in text.toml; this module holds logic.
  */
 
 import { readFile, stat, writeFile, rename, unlink } from "node:fs/promises";

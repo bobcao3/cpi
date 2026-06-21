@@ -16,7 +16,7 @@
  *
  * Print-mode stdout is ONLY the final assistant message (takeOverStdout routes
  * everything else to stderr), so stdout = the structured answer to parse.
- * Transcript (single-turn) is rendered from text.yaml labels and persisted as `<id>.md`.
+ * Transcript (single-turn) is rendered from text.toml labels and persisted as `<id>.md`.
  * Pure leaf: node + log.ts + text.ts.
  */
 

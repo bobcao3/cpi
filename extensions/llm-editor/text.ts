@@ -1,19 +1,19 @@
 /**
  * Loader for all llm_editor textual content (system prompts, task templates,
  * tool metadata, schema descriptions, error/result messages, transcript
- * labels). Everything a person might read or tune lives in text.yaml; the .ts
+ * labels). Everything a person might read or tune lives in text.toml; the .ts
  * modules hold only logic + protocol markers.
  *
  * Layered, last-wins (project > user > shipped default), deep-merged via
  * lib/config's deepMerge (so a user/project file may override a single field,
  * e.g. just `system.viewer`). Cached per-cwd; jiti reload re-reads.
- * Pure leaf: node + yaml + lib/config (deepMerge only).
+ * Pure leaf: node + smol-toml + lib/config (deepMerge only).
  */
 
 import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { parse as parseYaml } from "yaml";
+import { parse as parseToml } from "smol-toml";
 import { deepMerge } from "../lib/config.ts";
 
 export interface EditorText {
@@ -44,15 +44,15 @@ export interface EditorText {
   system_prompt: { transcript_block: string };
 }
 
-const DEFAULT_PATH = fileURLToPath(new URL("./text.yaml", import.meta.url));
-const USER_PATH = join(process.env.HOME ?? "", ".pi", "agent", "cpi-editor-text.yaml");
+const DEFAULT_PATH = fileURLToPath(new URL("./text.toml", import.meta.url));
+const USER_PATH = join(process.env.HOME ?? "", ".pi", "agent", "cpi-editor-text.toml");
 
 let cache: { cwd: string; text: EditorText } | null = null;
 
-function readYaml(path: string): Record<string, unknown> | null {
+function readToml(path: string): Record<string, unknown> | null {
   if (!path || !existsSync(path)) return null;
   try {
-    const obj = parseYaml(readFileSync(path, "utf-8")) as unknown;
+    const obj = parseToml(readFileSync(path, "utf-8")) as unknown;
     return obj && typeof obj === "object" ? (obj as Record<string, unknown>) : null;
   } catch (err) {
     process.stderr.write(`[llm-editor] failed to parse text ${path}: ${err}\n`);
@@ -62,11 +62,11 @@ function readYaml(path: string): Record<string, unknown> | null {
 
 export function loadEditorText(cwd: string = process.cwd()): EditorText {
   if (cache && cache.cwd === cwd) return cache.text;
-  const defaults = readYaml(DEFAULT_PATH);
-  if (!defaults) throw new Error(`[llm-editor] default text.yaml missing at ${DEFAULT_PATH}`);
+  const defaults = readToml(DEFAULT_PATH);
+  if (!defaults) throw new Error(`[llm-editor] default text.toml missing at ${DEFAULT_PATH}`);
   const merged = deepMerge(
-    deepMerge(defaults, readYaml(USER_PATH) ?? {}),
-    readYaml(join(cwd, ".pi", "cpi-editor-text.yaml")) ?? {},
+    deepMerge(defaults, readToml(USER_PATH) ?? {}),
+    readToml(join(cwd, ".pi", "cpi-editor-text.toml")) ?? {},
   ) as EditorText;
   cache = { cwd, text: merged };
   return merged;

@@ -10,7 +10,7 @@
  *
  * File I/O lives in the tool (Node fs); subagents only reason. Registered as the
  * sole owner by index.ts. All prose (description, guidelines, schema desc,
- * messages, errors) lives in text.yaml; this module holds logic + glyphs only.
+ * messages, errors) lives in text.toml; this module holds logic + glyphs only.
  */
 
 import { Type } from "typebox";
@@ -31,7 +31,7 @@ import { renderLlmEditorCall, renderLlmEditorResult } from "./render.ts";
 export const LLM_EDITOR_TOOL = "llm_editor";
 
 // Tool metadata + schema descriptions are registered once at load, so they
-// read text.yaml for the startup cwd. Per-call messages/errors re-read per-cwd.
+// read text.toml for the startup cwd. Per-call messages/errors re-read per-cwd.
 const T0 = loadEditorText();
 
 const schema = Type.Object({
