@@ -34,6 +34,7 @@ from harbor.environments.base import BaseEnvironment
 from harbor.models.agent.context import AgentContext
 
 _OUTPUT_FILENAME = "pi.txt"
+_MAX_EMPTY_ATTEMPTS = 3
 _NVM_BOOTSTRAP = ". ~/.nvm/nvm.sh"
 _NVM_INSTALL = (
     "set -euo pipefail; "
@@ -224,40 +225,57 @@ class CpiPi(BaseInstalledAgent):
             f" 2>&1 | grep -v '\"type\":\"message_update\"' "
             f"| stdbuf -oL tee /logs/agent/{_OUTPUT_FILENAME}"
         )
-        await self.exec_as_agent(environment, command=cmd)
+        # Re-run pi if the endpoint returns an empty response (0 output tokens);
+        # such a trial is an endpoint failure, not a genuine model result. Each
+        # attempt overwrites pi.txt; a non-empty result wins. After
+        # _MAX_EMPTY_ATTEMPTS empty attempts the trial stays 0-token (excluded
+        # from scoring by the monitor).
+        output_file = self.logs_dir / _OUTPUT_FILENAME
+        for _ in range(_MAX_EMPTY_ATTEMPTS):
+            await self.exec_as_agent(environment, command=cmd)
+            if self._parse_usage(output_file)["n_out"] > 0:
+                return
+
+    def _parse_usage(self, output_file: Path) -> dict:
+        n_in = n_out = n_cache_read = n_cache_write = 0
+        cost = 0.0
+        if output_file.exists():
+            for line in output_file.read_text().splitlines():
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    event = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if event.get("type") == "message_end":
+                    message = event.get("message") or {}
+                    if message.get("role") != "assistant":
+                        continue
+                    usage = message.get("usage") or {}
+                    n_in += usage.get("input", 0)
+                    n_out += usage.get("output", 0)
+                    n_cache_read += usage.get("cacheRead", 0)
+                    n_cache_write += usage.get("cacheWrite", 0)
+                    cost += (usage.get("cost") or {}).get("total", 0.0)
+                elif event.get("type") == "tool_execution_end":
+                    details = (event.get("result") or {}).get("details") or {}
+                    usage = details.get("usage")
+                    if isinstance(usage, dict):
+                        n_in += usage.get("input", 0)
+                        n_out += usage.get("output", 0)
+        return {
+            "n_in": n_in,
+            "n_out": n_out,
+            "n_cache_read": n_cache_read,
+            "n_cache_write": n_cache_write,
+            "cost": cost,
+        }
 
     @override
     def populate_context_post_run(self, context: AgentContext) -> None:
-        output_file = self.logs_dir / _OUTPUT_FILENAME
-        if not output_file.exists():
-            return
-        n_in = n_out = n_cache_read = n_cache_write = 0
-        cost = 0.0
-        for line in output_file.read_text().splitlines():
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                event = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            if event.get("type") == "message_end":
-                message = event.get("message") or {}
-                if message.get("role") != "assistant":
-                    continue
-                usage = message.get("usage") or {}
-                n_in += usage.get("input", 0)
-                n_out += usage.get("output", 0)
-                n_cache_read += usage.get("cacheRead", 0)
-                n_cache_write += usage.get("cacheWrite", 0)
-                cost += (usage.get("cost") or {}).get("total", 0.0)
-            elif event.get("type") == "tool_execution_end":
-                details = (event.get("result") or {}).get("details") or {}
-                usage = details.get("usage")
-                if isinstance(usage, dict):
-                    n_in += usage.get("input", 0)
-                    n_out += usage.get("output", 0)
-        context.n_input_tokens = n_in + n_cache_read
-        context.n_output_tokens = n_out
-        context.n_cache_tokens = n_cache_read
-        context.cost_usd = cost if cost > 0 else None
+        u = self._parse_usage(self.logs_dir / _OUTPUT_FILENAME)
+        context.n_input_tokens = u["n_in"] + u["n_cache_read"]
+        context.n_output_tokens = u["n_out"]
+        context.n_cache_tokens = u["n_cache_read"]
+        context.cost_usd = u["cost"] if u["cost"] > 0 else None

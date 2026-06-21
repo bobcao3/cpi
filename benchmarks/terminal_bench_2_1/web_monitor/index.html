@@ -25,6 +25,8 @@
   .badge { padding:1px 6px; border-radius:8px; font-size:11px; }
   .b-pass{background:#238636;color:#fff} .b-fail{background:#da3633;color:#fff}
   .b-run{background:#d29922;color:#000} .b-err{background:#da3633;color:#fff} .b-pend{background:#30363d;color:var(--mut)}
+  .b-ep{background:#8957e5;color:#fff} .b-to{background:#db6d28;color:#000} .b-infra{background:#6e7681;color:#fff}
+  #legend{padding:3px 10px;font-size:11px;color:var(--mut);background:var(--panel);border-bottom:1px solid var(--border)}
   .task-row td { font-weight:bold; background:#21262d; }
   .task-row .toggle { display:inline-block; width:14px; color:var(--mut); cursor:pointer; user-select:none; }
   .trial-row td { font-size:12px; }
@@ -57,6 +59,7 @@
   #trial-status { display:flex; gap:10px; align-items:center; padding:4px 10px; background:var(--panel); border-bottom:1px solid var(--border); font-size:12px; color:var(--mut); min-height:26px; flex:0 0 auto; }
   #trial-status .tname { color:var(--txt); font-weight:bold; }
   #trial-status button { padding:2px 6px; }
+  .score-cell { color:#fff; font-weight:bold; text-shadow:0 1px 2px rgba(0,0,0,.7); }
   .dim { color:var(--mut); opacity:.55; font-size:11px; }
 </style>
 </head>
@@ -67,9 +70,18 @@
   <select id="jobSel"></select>
   <span class="stats" id="stats">—</span>
 </header>
+<div id="legend">
+  <span class="badge b-pass">pass</span> solved ·
+  <span class="badge b-fail">fail</span> not solved ·
+  <span class="badge b-to">timeout</span> hit time limit (genuine fail) ·
+  <span class="badge b-ep">endpoint</span> LLM endpoint failed mid-run (excluded from genuine) ·
+  <span class="badge b-infra">0tok</span> 0-token infra/harness failure (excluded from genuine) ·
+  <span class="badge b-err">ERR</span> crashed ·
+  <span class="badge b-run">run</span> running
+</div>
 <main>
   <div id="trials"><table><thead><tr>
-    <th>task</th><th>status</th><th>rw</th><th>tok in/out</th><th>dur</th>
+    <th>task</th><th>reward</th><th>tok in/out</th><th>dur</th>
   </tr></thead><tbody id="tbody"></tbody></table></div>
   <div id="detail">
     <div id="trial-status">select a trial</div>
@@ -97,6 +109,19 @@ function esc(s){ return String(s).replace(/[&<>]/g, c => c==="&"?"&amp;":c==="<"
 function fmtK(n){ return n==null ? "—" : (n>=1000 ? (n/1000).toFixed(1)+"k" : n); }
 function fmtDur(s){ if(s==null) return "—"; if(s<60) return s+"s"; return Math.floor(s/60)+"m"+String(s%60).padStart(2,"0")+"s"; }
 
+function jobMaxReward(trials){
+  let m = 1;
+  for (const t of trials) if (t.status === "completed" && t.reward != null) m = Math.max(m, t.reward);
+  return m;
+}
+function taskRewardCell(avg, maxReward){
+  if (avg == null) return `<td class="dim">—</td>`;
+  const pct = maxReward ? Math.round((avg / maxReward) * 100) : 0;
+  const label = maxReward > 1 ? `${avg.toFixed(1)}/${maxReward} (${pct}%)` : `${pct}%`;
+  const hue = Math.max(0, Math.min(120, Math.round((pct / 100) * 120)));
+  return `<td class="score-cell" style="background-color:hsl(${hue},70%,35%)">${label}</td>`;
+}
+
 function setDot(s){ const d=$("#wsdot"); d.className=s; }
 
 // ---- WS: server pushes result/trials/transcript ----
@@ -117,6 +142,14 @@ function connect(j) {
   };
 }
 
+function genuineRate(trials){
+  const comp = trials.filter(t => t.status === "completed" && t.reward != null);
+  const passes = comp.filter(t => t.reward >= 1).length;
+  const excl = comp.filter(t => t.reward === 0 && (!t.out_tokens || t.failover)).length;
+  const denom = comp.length - excl;
+  return { passes, denom, excl, mean: denom > 0 ? passes / denom : null };
+}
+
 function renderStats(r) {
   if (!r || r.error) { $("#stats").textContent = r?.error || "no result.json yet"; return; }
   const s = r.stats || {};
@@ -124,6 +157,7 @@ function renderStats(r) {
   const rs = (e.reward_stats && e.reward_stats.reward) || {};
   const pass = Object.entries(rs).filter(([k]) => k !== "0.0" && k !== "0").reduce((a,[,v])=>a+v.length,0);
   const fail = (rs["0.0"]||rs["0"]||[]).length;
+  const g = genuineRate(trialsData);
   $("#stats").innerHTML =
     `done <b>${s.n_completed_trials}</b>/${s.n_trials ?? "?"} ` +
     `pass <b style="color:var(--ok)">${pass}</b> ` +
@@ -131,15 +165,20 @@ function renderStats(r) {
     `run <b>${s.n_running_trials}</b> pend <b>${s.n_pending_trials}</b> ` +
     `err <b>${s.n_errored_trials}</b> ` +
     `tok <b>${fmtK(s.n_input_tokens)}</b>/<b>${fmtK(s.n_output_tokens)}</b> ` +
-    `mean <b>${(e.metrics?.[0]?.mean ?? "?")}</b>`;
+    `mean <b>${(e.metrics?.[0]?.mean ?? "?")}</b> ` +
+    `genuine <b style="color:var(--ok)">${g.mean != null ? g.mean.toFixed(4) : "?"}</b><span class="dim"> (excl ${g.excl} infra)</span>`;
 }
 
 function badge(t) {
-  const rw = t.reward;
-  if (t.status === "errored") return ["b-err","ERR"];
   if (t.status === "running") return ["b-run","run"];
+  if (t.status === "errored") return ["b-err","ERR"];
+  const rw = t.reward;
   if (rw == null) return ["b-pend","—"];
-  return rw >= 1 ? ["b-pass","pass"] : ["b-fail","fail"];
+  if (rw >= 1) return ["b-pass","pass"];
+  if (t.failover) return ["b-ep","endpoint"];
+  if (!t.out_tokens) return ["b-infra","0tok"];
+  if (t.error && /timeout|timed out/i.test(t.error)) return ["b-to","timeout"];
+  return ["b-fail","fail"];
 }
 
 function renderTrials(trials) {
@@ -154,28 +193,18 @@ function renderTrials(trials) {
     const cur = trials.find(t => t.trial === trial);
     if (cur && map.has(cur.task)) expanded.add(cur.task);
   }
+  const maxReward = jobMaxReward(trials);
   let html = "";
   for (const [task, ts] of map) {
-    const total = ts.length;
-    const successes = ts.filter(t => t.reward >= 1 && t.status === "completed").length;
-    const running = ts.filter(t => t.status === "running").length;
-    const errored = ts.filter(t => t.status === "errored").length;
-    const done = ts.filter(t => t.status === "completed").length;
-    let bc, bl;
-    if (errored > 0) { bc = "b-err"; bl = "err"; }
-    else if (running > 0) { bc = "b-run"; bl = "run"; }
-    else if (done === total && successes > 0) { bc = "b-pass"; bl = "pass"; }
-    else if (done === total && successes === 0) { bc = "b-fail"; bl = "fail"; }
-    else { bc = "b-pend"; bl = "—"; }
     const inTok = ts.reduce((a, t) => a + (t.in_tokens || 0), 0);
     const outTok = ts.reduce((a, t) => a + (t.out_tokens || 0), 0);
     const maxDur = ts.reduce((m, t) => Math.max(m, t.duration_s || 0), 0);
-    const pct = total ? Math.round((successes / total) * 100) : 0;
+    const comp = ts.filter(t => t.status === "completed" && !(t.reward === 0 && (!t.out_tokens || t.failover)));
+    const avg = comp.length ? comp.reduce((a, t) => a + (t.reward || 0), 0) / comp.length : null;
     const isOpen = expanded.has(task);
     html += `<tr class="task-row" data-task="${esc(task)}">
       <td><span class="toggle">${isOpen?"▼":"▶"}</span>${esc(task)}</td>
-      <td><span class="badge ${bc}">${bl}</span></td>
-      <td class="mono">${successes}/${total} (${pct}%)</td>
+      ${taskRewardCell(avg, maxReward)}
       <td class="mono">${fmtK(inTok)}/${fmtK(outTok)}</td>
       <td class="mono">${fmtDur(maxDur)}</td></tr>`;
     for (const t of ts) {
@@ -184,7 +213,6 @@ function renderTrials(trials) {
       html += `<tr class="trial-row ${sel}" data-trial="${t.trial}" style="display:${isOpen?"":"none"}">
         <td>${esc(t.trial)}</td>
         <td><span class="badge ${tbc}">${tbl}</span></td>
-        <td>${t.reward==null?"—":t.reward}</td>
         <td class="mono">${fmtK(t.in_tokens)}/${fmtK(t.out_tokens)}</td>
         <td class="mono">${fmtDur(t.duration_s)}</td></tr>`;
     }

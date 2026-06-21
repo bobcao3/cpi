@@ -36,10 +36,19 @@ async function readJson(p: string): Promise<any | null> {
   try { return JSON.parse(await readFile(p, "utf8")); } catch { return null; }
 }
 
+function fmtError(ei: any): string {
+  if (typeof ei === "string") return ei.slice(0, 500);
+  const t = ei?.exception_type ? String(ei.exception_type) : "";
+  const m = ei?.exception_message ? String(ei.exception_message) : "";
+  const s = t ? (m ? t + ": " + m : t) : (m || JSON.stringify(ei));
+  return s.slice(0, 500);
+}
+
 function summarize(r: any, trial: string) {
   const task = (r?.task_name || trial).replace(/^terminal-bench\//, "");
   let status = "running";
   if (!r) status = "running";
+  else if (r.verifier_result?.rewards?.reward != null) status = "completed";
   else if (r.exception_info) status = "errored";
   else if (r.finished_at) status = "completed";
   const ar = r?.agent_result || {};
@@ -51,8 +60,9 @@ function summarize(r: any, trial: string) {
     out_tokens: ar.n_output_tokens ?? null,
     cost_usd: ar.cost_usd ?? null,
     duration_s: durMs == null ? null : Math.round(durMs / 1000),
-    error: r?.exception_info ? String(r.exception_info).slice(0, 500) : null,
+    error: r?.exception_info ? fmtError(r.exception_info) : null,
     finished: r?.finished_at ?? null,
+    failover: false,
   };
 }
 
@@ -67,6 +77,25 @@ async function listJobs() {
   return out;
 }
 
+const failoverCache = new Map<string, boolean>();
+
+async function trialFailover(job: string, trial: string, finished: boolean): Promise<boolean> {
+  const key = job + "/" + trial;
+  if (finished && failoverCache.has(key)) return failoverCache.get(key)!;
+  let failover = false;
+  try {
+    const path = join(JOBS_DIR, job, trial, "agent", "pi.txt");
+    const size = Bun.file(path).size;
+    if (size > 0) {
+      const off = Math.max(0, size - 32768);
+      const text = Buffer.from(await Bun.file(path).slice(off, size).arrayBuffer()).toString("utf8");
+      failover = text.includes("provider-failover") || text.includes("no fallback candidate");
+    }
+  } catch {}
+  if (finished) failoverCache.set(key, failover);
+  return failover;
+}
+
 async function listTrials(job: string) {
   let entries: string[] = [];
   try { entries = await readdir(join(JOBS_DIR, job)); } catch { return []; }
@@ -74,7 +103,10 @@ async function listTrials(job: string) {
   for (const name of entries) {
     if (!name.includes("__")) continue;
     try { (await stat(join(JOBS_DIR, job, name))).isDirectory(); } catch { continue; }
-    trials.push(summarize(await readJson(join(JOBS_DIR, job, name, "result.json")), name));
+    const r = await readJson(join(JOBS_DIR, job, name, "result.json"));
+    const s = summarize(r, name);
+    s.failover = await trialFailover(job, name, !!r?.finished_at);
+    trials.push(s);
   }
   trials.sort((x, y) => x.task.localeCompare(y.task));
   return trials;
