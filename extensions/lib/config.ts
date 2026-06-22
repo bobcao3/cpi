@@ -32,6 +32,8 @@ import { fileURLToPath } from "node:url";
 // ── types ────────────────────────────────────────────────────────────────────
 
 export interface ShellConfig {
+  /** Shell executable to use (`auto` follows `$SHELL`; otherwise a command/path is used). */
+  executable: string;
   /** Seconds to wait before backgrounding a command (default: 5). */
   defaultWaitfor: number;
   /** Maximum allowed waitfor value; larger values error (default: 30). */
@@ -253,6 +255,7 @@ export function loadShellConfig(cwd: string = process.cwd()): ShellConfig {
   const defaultWaitfor = Number(s.defaultWaitfor);
   const maxWaitfor = Number(s.maxWaitfor);
   return {
+    executable: str(s.executable) || str(d.executable) || "auto",
     defaultWaitfor:
       Number.isFinite(defaultWaitfor) && defaultWaitfor > 0 ? defaultWaitfor : d.defaultWaitfor,
     maxWaitfor: Number.isFinite(maxWaitfor) && maxWaitfor > 0 ? maxWaitfor : d.maxWaitfor,

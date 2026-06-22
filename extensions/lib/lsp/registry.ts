@@ -34,7 +34,7 @@ export interface LspServerSpec {
   language: Language;
   extensions: string[];
   markers: string[];
-  /** LSP languageId for a path: "typescript"|"typescriptreact"|"python"|"bash"|"ruby". */
+  /** LSP languageId for a path: "typescript"|"typescriptreact"|"python"|"bash"|"bats"|"sh"|"zsh"|"mksh"|"ruby". */
   languageId: (path: string) => string;
   install: LspInstallSpec;
   /** Server binary name to resolve on PATH before installing. */
@@ -81,6 +81,21 @@ function pythonSpec(cfg: LspConfig): LspServerSpec {
   };
 }
 
+function shellLanguageId(path: string): string {
+  switch (extname(path).toLowerCase()) {
+    case ".zsh":
+      return "zsh";
+    case ".mksh":
+      return "mksh";
+    case ".bash":
+      return "bash";
+    case ".bats":
+      return "bats";
+    default:
+      return "sh";
+  }
+}
+
 function shellSpec(cfg: LspConfig): LspServerSpec {
   // cfg.servers.shell.enabled is consulted by the manager (Layer 3); the spec
   // itself is built unconditionally so resolution can reuse the global shuck.
@@ -89,7 +104,7 @@ function shellSpec(cfg: LspConfig): LspServerSpec {
     language: "shell",
     extensions: LANGUAGE_EXTENSIONS.shell,
     markers: LANGUAGE_MARKERS.shell,
-    languageId: () => "bash",
+    languageId: shellLanguageId,
     install: { method: "reuse" },
     binName: "shuck",
     serverCommand: (bin) => ({ cmd: bin, args: ["server", "--isolated"] }),

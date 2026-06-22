@@ -1,7 +1,8 @@
 # Model-facing text for the sh_repeat_until tool. Layered (project > user > shipped).
 
 [tool]
-description = "Run a command repeatedly until it exits non-zero; exit code 0 continues looping. Stateless, detached process group. Backgrounded by default."
+# Template variables: shell_invocation is the shell command used to execute the monitor command, and shell_name is its name.
+description = "Run a command repeatedly via {{shell_invocation}} ({{shell_name}}) until it exits non-zero; exit code 0 continues looping. Stateless, detached process group. Backgrounded by default."
 prompt_snippet = "Poll with repeated shell commands"
 
 [schema]
@@ -14,5 +15,6 @@ env = "Dotenv merged into monitor env; dotenv wins"
 bullets = [
   "For sh_repeat_until, interval must be set between 5 and 60 seconds; if an invocation takes longer than the interval, the loop gets killed with a repeat-breach error.",
   "For sh_repeat_until, the command invokes repeatedly as long as command returns 0. Any non-zero exit code stops the monitor; agent gets a notification (the exit code, the monitor log path, and the log line-range for the last invocation).",
+  "Each sh_repeat_until invocation uses {{shell_invocation}} ({{shell_name}}).",
   "To cancel a repeat monitor, `sh_signal SIGKILL` using the monitor's `rpt-` ID.",
 ]

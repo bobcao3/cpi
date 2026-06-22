@@ -75,7 +75,7 @@ export function sourceName(language: Language): string {
 }
 
 export function extForLanguage(language: Language): string {
-  return language === "typescript" ? ".ts" : language === "python" ? ".py" : language === "ruby" ? ".rb" : ".sh";
+  return language === "typescript" ? "ts" : language === "python" ? "py" : language === "ruby" ? "rb" : "sh";
 }
 
 export function mergeSpawnEnv(envPath?: string): NodeJS.ProcessEnv {

@@ -14,13 +14,15 @@
 #   {{!comment}}        dropped
 # Conditionals here are driven by global switches resolved at tool registration:
 #   fd / rg / shuck / tree_sitter  (binary availability, process-stable)
+#   shell_invocation              (resolved interpreter plus -c)
+#   shell_name                    (detected shell name)
 #   max_waitfor / max_preview_lines  (tunables from cpi-config.json)
 # Vision-gated content belongs in system-prompt transforms (per-turn, ctx.model),
 # not in these static tool fields.
 
 # ── Tool metadata shown to the main agent ──
 [sh]
-description = "Run a command via `bash -c`. Stateless: no env/cwd persistence. If the command runs longer than `waitfor`, sh backgrounds it and returns an id for signalling. Maximum waitfor is {{max_waitfor}}s."
+description = "Run a command via `{{shell_invocation}}` ({{shell_name}}). Stateless: no env/cwd persistence. If the command runs longer than `waitfor`, sh backgrounds it and returns an id for signalling. Maximum waitfor is {{max_waitfor}}s."
 prompt_snippet = "Run shell commands"
 
 [sh_signal]
@@ -51,7 +53,7 @@ id = "Background shell PID (as returned by sh)"
 # ── promptGuidelines ──
 [guidelines]
 sh = [
-  "Each sh call = fresh `bash -c`. No session reuse; env/cwd/shell state don't persist. Use `env-capture` to capture the current environment as a dotenv file that you can load in later `sh` sessions.",
+  "Each sh call = fresh `{{shell_invocation}}` ({{shell_name}}). No session reuse; env/cwd/shell state don't persist. Use `env-capture` to capture the current environment as a dotenv file that you can load in later `sh` sessions.",
   "For sh & sh_repeat_until, a short `description` parameter is required (a few words explaining the command's purpose).",
   "For sh tool, the maximum legal `waitfor` time is {{max_waitfor}}s; any longer the command will be rejected.",
   "Signal a background shell via sh_signal with its PID; send SIGKILL to terminate.",

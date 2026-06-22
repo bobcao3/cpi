@@ -90,7 +90,7 @@ interface LspState { sessions: Map<string, LspSession>; draining: boolean; }
 
 ensureSession(language, root, opts?: { envPath?, force? }): Promise<LspSession>;
 checkFile(absPath): Promise<Diagnostic[]>;        // didOpen real file → await diag → didClose
-lintText(language, text): Promise<Diagnostic[]>;  // synthetic /tmp doc (rootUri=null)
+lintText(language, text, opts?): Promise<Diagnostic[]>;  // synthetic /tmp doc (rootUri=null); opts may choose the synthetic extension
 stop(target): Promise<void>;                       // by id, file, or project_dir
 findSession(language, root): SessionInfo | undefined;
 list(): SessionInfo[];
@@ -105,7 +105,8 @@ disposeAll(): Promise<void>;                        // idempotent/reentrant (§9
   `lintTimeoutMs`), closes; reads the file fresh under the caller's write lock
   (editor path) — no concurrent-write race.
 - `lintText` keeps the shuck inline path: synthetic `file:///tmp/cpi-lsp-<n>.<ext>`,
-  `root=""` → `rootUri=null`.
+  `root=""` → `rootUri=null`. Callers may choose the synthetic extension so
+  dialect-sensitive servers infer the correct shell.
 - Lifecycle lives in `session.ts`; the worker is spawned via `import.meta.url`.
   `awaitReady` bounds the `initialize` handshake. `markDead` drains pending `[]`
   and fires `onDead`, which removes the session — next `ensureSession` respawns.
@@ -118,7 +119,7 @@ disposeAll(): Promise<void>;                        // idempotent/reentrant (§9
 type Language = "typescript" | "python" | "shell" | "ruby";
 interface LspServerSpec {
   language: Language; extensions: string[]; markers: string[];
-  languageId: (path: string) => string;   // "typescript"|"typescriptreact"|"python"|"bash"|"ruby"
+  languageId: (path: string) => string;   // "typescript"|"typescriptreact"|"python"|"bash"|"sh"|"zsh"|"mksh"|"bats"|"ruby"
   install: { method: "npm" | "uv" | "reuse" | "env-only"; package?: string; version?: string; tsVersion?: string };
   binName: string;
   serverCommand: (bin: string, root: string) => { cmd: string; args: string[]; cwd?: string };
@@ -137,7 +138,7 @@ interface LspServerSpec {
   toml's `preset` still overrides. Requires pyrefly >=1.0.
 - **shell (shuck)**: `reuse`; `binName="shuck"`; resolution reuses
   `getShuckBinPath()` (+ `ensureShellTools()`); `serverCommand` → `{ cmd: bin,
-  args: ["server","--isolated"] }`; `languageId` → `"bash"`.
+  args: ["server","--isolated"] }`; `languageId` follows the file extension (`"sh"`, `"bash"`, `"zsh"`, `"mksh"`, or `"bats"`).
 - **ruby (ruby-lsp)**: `env-only`; `binName="ruby-lsp"`; cpi never installs the
   gem — resolution is env-PATH-first only (`whichOnPath`), and `serverCommand`
   → `{ cmd: bin, args: [] }` (ruby-lsp runs over stdio with no flags, reads
@@ -328,7 +329,7 @@ bounded + degrades.
 
 A chainable script, not a tool. The agent runs it at the end of a `sh` command
 (`source .venv/bin/activate && env-capture [label]`) so it inherits the
-exact post-command env from the single `bash -c` — no second spawn, no
+exact post-command env from the single resolved shell `-c` — no second spawn, no
 re-execution (a plain `sh` call is stateless, so activation is otherwise lost).
 It reads the inherited env via `env`, writes `KEY=VALUE` lines to
 `<sessionDir>/env-captures/<label-or-env-<ts>-<pid>>.env` (fallback
@@ -382,9 +383,9 @@ the `env-capture` → `env=` flow.
    single check path. Full-package CLI checks (`tsc --noEmit`, `pyrefly check`
    over a root) are **deprecated** and not implemented; `check` requires `file`.
 2. **Shuck unification** — shuck speaks stock LSP over stdio (`lsp-server`
-   crate); `--isolated` + `languageId:"bash"` are registry fields, no
-   out-of-protocol handling. Drive shuck via the generic `worker.mjs` and delete
-   `shell/lsp-worker.mjs`.
+   crate); the shell document extension and `languageId` select the active
+   dialect, with no out-of-protocol handling. Drive shuck via the generic
+   `worker.mjs` and delete `shell/lsp-worker.mjs`.
 3. **Auto-start split** — `lsp check` is an explicit request → auto-start. Shell
    editing is incidental → warn, do not auto-start (avoids install+spawn latency
    on routine `sed -i`/`cat >`). Edits are advisory/non-blocking; the model opts

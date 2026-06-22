@@ -1,8 +1,9 @@
 /**
  * Shell command linting — thin client over the LSP manager (design §8.3).
  *
- * `lintCommand` delegates to `LspManager.lintText("shell", cmd)`; the manager
- * owns the single shuck session (rootUri=null, synthetic /tmp doc). Shapes
+ * `lintCommand` delegates to `LspManager.lintText("shell", cmd, { extension })`,
+ * with the extension selected from the resolved shell dialect; the manager owns
+ * the single shuck session (rootUri=null, synthetic /tmp doc). Shapes
  * `ShuckDiagnostic` / `formatDiagnostics` / `disposeLspClient` are preserved
  * (the latter is now a no-op — the `lsp` owner disposes all sessions) so
  * `shell.ts` / `repeat.ts` stay structurally stable. Semantics preserved:
@@ -10,6 +11,7 @@
  */
 import { getLspManager } from "../lib/lsp/manager.ts";
 import { type Diagnostic } from "../lib/lsp/diagnostics.ts";
+import { resolveShell, type ShellProfile } from "./profile.ts";
 
 export interface ShuckDiagnostic {
   code: string;
@@ -50,12 +52,19 @@ function toShuck(d: Diagnostic): ShuckDiagnostic {
 /**
  * Lint a shell command via the LSP manager's shuck session. `shuckPath` is
  * accepted for signature stability but ignored — the manager resolves shuck
- * itself (env-PATH-first reuse, design §6.2). `available` is always true:
- * errors only exist when the session is ready (lintText returns [] otherwise),
- * so the `lint.available ? errors.length : 0` blocking count is unchanged.
+ * itself (env-PATH-first reuse, design §6.2). The synthetic URI extension
+ * carries the shell dialect to the LSP server. The optional profile preserves
+ * compatibility with the old two-argument call.
  */
-export async function lintCommand(command: string, _shuckPath: string): Promise<LintResult> {
-  const diags = await getLspManager().lintText("shell", command);
+export async function lintCommand(
+  command: string,
+  _shuckPath: string,
+  shell: ShellProfile = resolveShell("bash"),
+): Promise<LintResult> {
+  if (!shell.dialect) {
+    return { errors: [], warnings: [], available: false };
+  }
+  const diags = await getLspManager().lintText("shell", command, { extension: shell.dialect });
   const shuck = diags.map(toShuck);
   return {
     errors: shuck.filter((d) => d.severity === "error"),

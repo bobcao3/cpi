@@ -7,16 +7,15 @@
  */
 
 import { spawn, type ChildProcess } from "node:child_process";
-import { existsSync, createWriteStream, type WriteStream } from "node:fs";
+import { createWriteStream, type WriteStream } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Type } from "typebox";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { renderShCall, renderShResult } from "./render.ts";
 import { getShuckBinPath, buildShellEnvWithDotenv, type ToolAvailability } from "./tools.ts";
-import { lintCommand, formatDiagnostics } from "./lint.ts";
-import { parseCommand } from "../lib/tree-sitter.ts";
-import { checkRules, formatRuleMatches } from "./rules.ts";
+import { resolveShell, type ShellProfile } from "./profile.ts";
+import { analyzeCommand, unsupportedDialectMessage } from "./analyze.ts";
 import { loadText, render, renderLines, textPath, type ToolText } from "../lib/text.ts";
 
 export interface RepeatLogRange {
@@ -36,6 +35,7 @@ export type RepeatCompletionHook = (
 interface RepeatMonitor {
   id: string;
   command: string;
+  shell: ShellProfile;
   sessScope?: string;
   describe?: string;
   intervalSec: number;
@@ -131,7 +131,7 @@ function runIteration(mon: RepeatMonitor): void {
   const header = `═══════════════════════════════════════════════════════════════════════════════\nInvocation ${mon.invocation} — ${new Date().toISOString()}\nCommand: ${mon.command}\n───────────────────────────────────────────────────────────────────────────────\n`;
   writeLog(mon, header);
 
-  const child = spawn(existsSync("/bin/bash") ? "/bin/bash" : "bash", ["-c", mon.command], {
+  const child = spawn(mon.shell.executable, [...mon.shell.argvPrefix, "-c", mon.command], {
     detached: true,
     env: mon.env,
     stdio: ["ignore", "pipe", "pipe"],
@@ -176,6 +176,7 @@ export function startRepeat(
   intervalSec: number,
   env: NodeJS.ProcessEnv,
   describe?: string,
+  shell: ShellProfile = resolveShell("bash"),
 ): string {
   const id = `rpt-${++rptCounter}`;
   const logPath = join(tmpdir(), `pi-rpt-output-${id}-${Date.now()}.log`);
@@ -183,6 +184,7 @@ export function startRepeat(
   const mon: RepeatMonitor = {
     id,
     command,
+    shell,
     sessScope: getScope(),
     describe,
     intervalSec,
@@ -228,8 +230,6 @@ export function killAllRepeats(): void {
   }
 }
 
-const fmtDiags = (diags: any[], fmt: (d: any[]) => string) => (diags.length ? fmt(diags) : "");
-
 // ── Tool factory ───────────────────────────────────────────────────────────────
 
 export function createRepeatTool(
@@ -239,11 +239,15 @@ export function createRepeatTool(
   TAIL_LINES: number,
   DESCRIBE_MAX: number,
   availability: ToolAvailability,
+  shell: ShellProfile = resolveShell("bash"),
 ) {
   const truncateDescribe = (t: string) =>
     t.length <= DESCRIBE_MAX ? t : t.slice(0, DESCRIBE_MAX - 1) + "…";
   const T = loadText<ToolText>("sh-repeat", textPath("sh-repeat"));
-  const guidelines = renderLines(T.guidelines.bullets, {});
+  const guidelines = renderLines(T.guidelines.bullets, {
+    shell_invocation: shell.invocation,
+    shell_name: shell.displayName,
+  });
   const schema = Type.Object({
     command: Type.String({ description: T.schema!.command }),
     interval: Type.Number({
@@ -258,7 +262,10 @@ export function createRepeatTool(
   return {
     name: "sh_repeat_until",
     label: "sh_repeat_until",
-    description: render(T.tool.description, {}),
+    description: render(T.tool.description, {
+      shell_invocation: shell.invocation,
+      shell_name: shell.displayName,
+    }),
     promptSnippet: T.tool.prompt_snippet,
     promptGuidelines: guidelines,
     parameters: schema,
@@ -279,47 +286,38 @@ export function createRepeatTool(
       }
 
       const shuckPath = availability.shuck ? getShuckBinPath() : null;
-      const [lint, parsed] = await Promise.all([
-        shuckPath
-          ? lintCommand(params.command, shuckPath)
-          : Promise.resolve({ errors: [], warnings: [], available: false }),
-        availability.treeSitter
-          ? parseCommand(params.command)
-          : Promise.resolve({ ast: null, available: false, node: null }),
-      ]);
-      const ruleResult = parsed.node
-        ? checkRules(parsed.node, { fdAvailable: availability.fd, rgAvailable: availability.rg })
-        : { rejections: [], warnings: [] };
-      const errParts = [
-        fmtDiags(lint.errors, formatDiagnostics),
-        fmtDiags(ruleResult.rejections, formatRuleMatches),
-      ].filter(Boolean);
-      if (errParts.length) {
-        const count = (lint.available ? lint.errors.length : 0) + ruleResult.rejections.length;
+      const analysis = await analyzeCommand({
+        command: params.command,
+        shell,
+        availability,
+        shuckPath,
+      });
+      if (analysis.status === "unsupported-dialect") {
         return {
-          content: [
-            {
-              type: "text",
-              text: `${errParts.join("\n")}\n---\nblocked (${count} error${count !== 1 ? "s" : ""})`,
-            },
-          ],
-          details: { description, shuckBlocked: true, tsAst: parsed.ast },
+          content: [{ type: "text", text: unsupportedDialectMessage(analysis.unsupported!) }],
           isError: true,
         };
       }
-      const warnParts = [
-        fmtDiags(lint.warnings, formatDiagnostics),
-        fmtDiags(ruleResult.warnings, formatRuleMatches),
-      ].filter(Boolean);
-      const warningPrefix = warnParts.length
-        ? `linter warnings:\n${warnParts.join("\n")}\n---\n`
-        : "";
+      const { parse } = analysis;
+      if (analysis.errorText) {
+        const count = analysis.errorCount;
+        return {
+          content: [
+            { type: "text", text: `${analysis.errorText}\n---\nblocked (${count} error${count !== 1 ? "s" : ""})` },
+          ],
+          details: { description, shuckBlocked: true, tsAst: parse.ast },
+          isError: true,
+        };
+      }
+      const shuckWarnings = analysis.warningText || undefined;
+      const warningPrefix = shuckWarnings ? `linter warnings:\n${shuckWarnings}\n---\n` : "";
 
       const id = startRepeat(
         params.command,
         interval,
         buildShellEnvWithDotenv(ctx?.sessionManager, params.env),
         description,
+        shell,
       );
       const status = `repeating PID=${id} every ${interval}s · stop on non-zero exit`;
       const tag = description ? ` (${truncateDescribe(description)})` : "";
@@ -330,8 +328,8 @@ export function createRepeatTool(
           status: "repeating",
           interval,
           description,
-          shuckWarnings: warningPrefix || undefined,
-          tsAst: parsed.ast,
+          shuckWarnings,
+          tsAst: parse.ast,
         },
         isError: false,
       };

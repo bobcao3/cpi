@@ -33,6 +33,7 @@ import {
   readResumeRecords,
   removeResumeRecord,
 } from "./monitor.ts";
+import { resolveShell, type ShellProfile } from "./profile.ts";
 
 export type { OutputTruncation };
 
@@ -130,13 +131,14 @@ export async function runShell(
   maxWaitfor: number,
   truncation: OutputTruncation,
   tunables: ShellTunables,
+  shell: ShellProfile = resolveShell("bash"),
 ): Promise<ShResult> {
   const pathId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const sessDir = env.PI_SESSION_DIR;
   const sessScope = env.PI_SESSION_ID;
   let handle: Awaited<ReturnType<typeof launchMonitor>>;
   try {
-    handle = await launchMonitor(command, env, pathId);
+    handle = await launchMonitor(command, env, pathId, shell);
   } catch (e) {
     return {
       id: null,

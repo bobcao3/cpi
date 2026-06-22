@@ -38,10 +38,207 @@ const match = (n: Node, rule: string, action: RuleAction, msg: string): RuleMatc
   row: n.startPosition.row + 1,
   column: n.startPosition.column + 1,
 });
-const cmdName = (c: Node): string => c.childForFieldName("name")?.text ?? "";
-const cmdArgs = (c: Node): string[] =>
-  c.namedChildren.filter((ch) => ch.type !== "command_name").map((ch) => ch.text);
 const commands = (r: Node): Node[] => r.descendantsOfType("command");
+const cmdName = (c: Node): string => resolveEffectiveCommand(c).name;
+const cmdArgs = (c: Node): string[] => resolveEffectiveCommand(c).args;
+
+// ── Wrapper resolution (command policy) ──
+//
+// tree-sitter-bash parses `noglob rm -rf /` as command name `noglob` with `rm`
+// as the first argument, so raw name inspection misses the effective command.
+// We peel shell precommand/wrapper modifiers to the effective executable before
+// the direct-command rules run. This is defense-in-depth command-policy
+// extraction on top of Shuck's dialect-specific lint path; the bundled grammar
+// is not claimed to be a native zsh/mksh parser.
+
+const MAX_WRAPPER_DEPTH = 4;
+const MAX_WRAPPER_ARG_SCAN = 64;
+/** Shell precommand/wrapper modifiers recognized by basename (so `/usr/bin/env` peels). */
+const WRAPPER_MODIFIERS = new Set(["noglob", "nocorrect", "command", "builtin", "exec", "env"]);
+
+/** Per-wrapper option classification. Each option token is exactly one of:
+ * flag (boolean), value (consumes the next arg, or inline `--name=value`), info
+ * (non-executing → stop, resolved), or split (split-string → breach). Any token
+ * not in these known sets (and not `--`) is unsupported → breach, never guessed. */
+interface WrapperSpec {
+  flag: Set<string>;
+  value: Set<string>;
+  info: Set<string>;
+  split: Set<string>;
+  flagLong: Set<string>;
+  valueLong: Set<string>;
+  infoLong: Set<string>;
+  splitLong: Set<string>;
+}
+
+const setOfChars = (s: string): Set<string> => new Set(s ? s.split("") : []);
+const setOfNames = (s: string): Set<string> => new Set(s ? s.split(",") : []);
+const NO_OPTS: WrapperSpec = {
+  flag: new Set(), value: new Set(), info: new Set(), split: new Set(),
+  flagLong: new Set(), valueLong: new Set(), infoLong: new Set(), splitLong: new Set(),
+};
+
+const WRAPPER_SPECS: Record<string, WrapperSpec> = {
+  env: {
+    flag: setOfChars("i"), value: setOfChars("uC"), info: setOfChars(""), split: setOfChars("S"),
+    flagLong: setOfNames("ignore-environment,debug"), valueLong: setOfNames("unset,chdir"),
+    infoLong: setOfNames(""), splitLong: setOfNames("split-string"),
+  },
+  command: {
+    flag: setOfChars("p"), value: setOfChars(""), info: setOfChars("vV"), split: setOfChars(""),
+    flagLong: setOfNames(""), valueLong: setOfNames(""), infoLong: setOfNames(""), splitLong: setOfNames(""),
+  },
+  exec: {
+    flag: setOfChars("lc"), value: setOfChars("a"), info: setOfChars(""), split: setOfChars(""),
+    flagLong: setOfNames(""), valueLong: setOfNames(""), infoLong: setOfNames(""), splitLong: setOfNames(""),
+  },
+  builtin: NO_OPTS,
+  noglob: NO_OPTS,
+  nocorrect: NO_OPTS,
+};
+
+interface EffectiveCommand {
+  name: string;
+  args: string[];
+  /** "resolved" = name is a real command (or an intentionally non-executing
+   * wrapper such as `command -v`); "breach" = a safety limit was hit before the
+   * effective command could be resolved, so it is unknown. */
+  resolution: "resolved" | "breach";
+  /** Present iff resolution === "breach"; empty otherwise. */
+  breachReason: string;
+}
+
+/** One layer of wrapper peeling. */
+type PeelResult =
+  | { kind: "word"; name: string; args: string[] }
+  | { kind: "info" } // non-executing (e.g. `command -v`): stop, resolved — not a breach
+  | { kind: "no-command" } // no plain word and no args remain — benign
+  | { kind: "breach"; reason: string }; // split-string, unsupported option, or scan limit
+
+const effectiveCache = new WeakMap<Node, EffectiveCommand>();
+
+function isVarAssignment(token: string): boolean {
+  return /^[A-Za-z_][A-Za-z0-9_]*=/.test(token);
+}
+
+/** Basename of a (possibly path-qualified) command name, preserving no directory. */
+function wrapperBasename(name: string): string {
+  const slash = Math.max(name.lastIndexOf("/"), name.lastIndexOf("\\"));
+  return slash >= 0 ? name.slice(slash + 1) : name;
+}
+function isWrapperName(name: string): boolean {
+  return WRAPPER_MODIFIERS.has(wrapperBasename(name));
+}
+function specFor(name: string): WrapperSpec {
+  return WRAPPER_SPECS[wrapperBasename(name)] ?? NO_OPTS;
+}
+
+type OptKind = "flag" | "value" | "info" | "split" | "unknown";
+function classifyShort(spec: WrapperSpec, ch: string): OptKind {
+  if (spec.split.has(ch)) return "split";
+  if (spec.info.has(ch)) return "info";
+  if (spec.flag.has(ch)) return "flag";
+  if (spec.value.has(ch)) return "value";
+  return "unknown";
+}
+function classifyLong(spec: WrapperSpec, nm: string): OptKind {
+  if (spec.splitLong.has(nm)) return "split";
+  if (spec.infoLong.has(nm)) return "info";
+  if (spec.flagLong.has(nm)) return "flag";
+  if (spec.valueLong.has(nm)) return "value";
+  return "unknown";
+}
+
+/** Raw name + args of a command node, excluding leading env assignments from args. */
+function rawCommand(cmd: Node): EffectiveCommand {
+  return {
+    name: cmd.childForFieldName("name")?.text ?? "",
+    args: cmd.namedChildren
+      .filter((ch) => ch.type !== "command_name" && ch.type !== "variable_assignment")
+      .map((ch) => ch.text),
+    resolution: "resolved",
+    breachReason: "",
+  };
+}
+
+/**
+ * Peel one wrapper modifier layer with explicit, bounded option sets. Only
+ * known flag/value/info/split options and `--` are recognized; everything else
+ * is an unsupported option → breach. `env -S`/`--split-string` (any form) →
+ * breach (split-string executes an encoded command; not parsed). `command -v`/
+ * `-V` and other info options → stop, resolved (non-executing). No plain word
+ * and no args remain → no-command. Scan limit reached with args remaining →
+ * breach.
+ */
+function peelWrapper(name: string, args: string[]): PeelResult {
+  const spec = specFor(name);
+  const isEnv = wrapperBasename(name) === "env";
+  const limit = Math.min(args.length, MAX_WRAPPER_ARG_SCAN);
+  let i = 0;
+  while (i < limit) {
+    const a = args[i];
+    // "--" ends options; the next token is the command (even if option-like).
+    if (a === "--") {
+      i++;
+      return i < args.length ? { kind: "word", name: args[i], args: args.slice(i + 1) } : { kind: "no-command" };
+    }
+    // Long option: --name or --name=value
+    if (a.startsWith("--")) {
+      const eq = a.indexOf("=");
+      const nm = eq >= 0 ? a.slice(2, eq) : a.slice(2);
+      const kind = classifyLong(spec, nm);
+      if (kind === "split") return { kind: "breach", reason: `split-string option ${a}` };
+      if (kind === "info") return { kind: "info" };
+      if (kind === "flag" || (kind === "value" && eq >= 0)) { i++; continue; }
+      if (kind === "value") { if (i + 1 < limit) { i += 2; continue; } break; }
+      return { kind: "breach", reason: `unsupported option ${a}` };
+    }
+    // Short option(s): only exact single-char `-x` is recognized; attached
+    // (`-Sstring`) or combined (`-ix`) forms are ambiguous → breach (split recognized).
+    if (a.startsWith("-") && a.length > 1) {
+      if (a.length !== 2) {
+        if (spec.split.has(a[1])) return { kind: "breach", reason: `split-string option ${a}` };
+        return { kind: "breach", reason: `unsupported option ${a}` };
+      }
+      const kind = classifyShort(spec, a[1]);
+      if (kind === "split") return { kind: "breach", reason: `split-string option ${a}` };
+      if (kind === "info") return { kind: "info" };
+      if (kind === "flag") { i++; continue; }
+      if (kind === "value") { if (i + 1 < limit) { i += 2; continue; } break; }
+      return { kind: "breach", reason: `unsupported option ${a}` };
+    }
+    // Not an option (or bare "-"): env skips VAR=value assignments here.
+    if (isEnv && isVarAssignment(a)) { i++; continue; }
+    return { kind: "word", name: a, args: args.slice(i + 1) };
+  }
+  if (args.length > MAX_WRAPPER_ARG_SCAN)
+    return { kind: "breach", reason: `argument scan exceeded ${MAX_WRAPPER_ARG_SCAN} tokens` };
+  return { kind: "no-command" };
+}
+
+/** Resolve a command node to its effective executable + args after peeling wrappers. */
+export function resolveEffectiveCommand(cmd: Node): EffectiveCommand {
+  const cached = effectiveCache.get(cmd);
+  if (cached) return cached;
+  let cur = rawCommand(cmd);
+  let depth = 0;
+  for (; depth < MAX_WRAPPER_DEPTH; depth++) {
+    if (!isWrapperName(cur.name)) break;
+    const peeled = peelWrapper(cur.name, cur.args);
+    if (peeled.kind === "word") {
+      cur = { ...cur, name: peeled.name, args: peeled.args };
+      continue;
+    }
+    if (peeled.kind === "breach") cur = { ...cur, resolution: "breach", breachReason: peeled.reason };
+    break;
+  }
+  // Loop exhausted all MAX_WRAPPER_DEPTH iterations without breaking on a real
+  // command and the name is still a wrapper → depth breach.
+  if (cur.resolution !== "breach" && depth === MAX_WRAPPER_DEPTH && isWrapperName(cur.name))
+    cur = { ...cur, resolution: "breach", breachReason: `wrapper nesting exceeded depth ${MAX_WRAPPER_DEPTH}` };
+  effectiveCache.set(cmd, cur);
+  return cur;
+}
 
 function hasStdinSource(cmd: Node): boolean {
   if (cmd.children.some((c) => c.type === "herestring_redirect")) return true;
@@ -113,10 +310,7 @@ const defaultRules: AstRule[] = [
     "no-find-use-fd",
     "reject",
     "Use `fd` instead of find. Use /usr/bin/find if GNU find is required",
-    (cmd) => {
-      const n = cmdName(cmd);
-      return n === "find" && n !== "/usr/bin/find";
-    },
+    (cmd) => cmdName(cmd) === "find",
     (ctx) => ctx.fdAvailable,
   ),
   cmdRule(
@@ -173,6 +367,26 @@ const defaultRules: AstRule[] = [
             }`,
           ),
         );
+    },
+  },
+  {
+    name: "wrapper-resolution-breach",
+    action: "reject",
+    check(root) {
+      const out: RuleMatch[] = [];
+      for (const c of commands(root)) {
+        const eff = resolveEffectiveCommand(c);
+        if (eff.resolution === "breach")
+          out.push(
+            match(
+              c,
+              "wrapper-resolution-breach",
+              "reject",
+              `shell wrapper modifiers could not be resolved to an effective command within safety limits (${eff.breachReason}); refusing to execute`,
+            ),
+          );
+      }
+      return out;
     },
   },
 ];

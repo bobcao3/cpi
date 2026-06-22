@@ -15,8 +15,8 @@
  * Both reminders go through the shared prepend-message queue
  * (lib/prepend-message.ts `queueMessage`), exercising its two drain points.
  *
- * Why process.chdir: the cpi shell tool spawns `bash -c` with no cwd, so it
- * inherits process.cwd(). pi exposes no public API to mutate its captured
+ * Why process.chdir: the cpi shell tool spawns its configured/resolved shell
+ * invocation with no cwd, so it inherits process.cwd(). pi exposes no public API to mutate its captured
  * `_cwd`, and built-in read/write/edit are disabled in cpi, so the shell is
  * the only path-sensitive tool — process.chdir is the minimal consistent
  * lever. Limitation: pi's system-prompt "Current working directory" line and

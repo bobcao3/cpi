@@ -3,8 +3,9 @@
  * `sh_repeat_until`).
  *
  * Registered into the shared transcript registry (lib/transcript-registry.ts)
- * so the streaming markdown transcript shows the actual command in a ```bash
+ * so the streaming markdown transcript shows the actual command in a ```shell
  * block with a terse meta suffix, instead of the default XML argument dump.
+ * The tool may execute Bash, Zsh, mksh, or POSIX shell commands.
  * If the call lacks a `command` (malformed), the renderer defers to the default
  * by returning null.
  */
@@ -35,7 +36,7 @@ function renderShellTranscriptCall(block: ToolCallBlock): string[] | null {
     meta.push(`stop on non-zero exit`);
   }
   const suffix = meta.length ? " " + meta.join(" · ") : "";
-  return [head + suffix, "```bash", args.command, "```", ""];
+  return [head + suffix, "```shell", args.command, "```", ""];
 }
 
 /** Register shell-family transcript renderers. Call once at extension load. */
