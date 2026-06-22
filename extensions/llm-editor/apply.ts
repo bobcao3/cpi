@@ -1,22 +1,20 @@
 /**
- * SEARCH/REPLACE block parser + applier (Aider/SWE-Edit format).
- *
- *   <<<<<<< SEARCH
- *   <exact original>
- *   =======
- *   <replacement>
- *   >>>>>>> REPLACE
+ * Edit-block applier (Aider/SWE-Edit semantics). The Editor subagent returns
+ * changes as an `edits` array of {oldText, newText} (pi's multi-search-replace
+ * shape) via the edit-complete tool; editor.ts maps those to ReplaceBlock
+ * ({search=oldText, replace=newText}) and calls applyBlocks. No markup parser —
+ * the payload is structured tool-call args, not free text.
  *
  * Semantics (SWE-Edit A.2):
- *   - SEARCH must match original exactly (whitespace-sensitive; trailing newlines stripped (all of them)).
- *   - Empty SEARCH = whole-file rewrite (REPLACE is the new full content).
- *   - Each SEARCH must be unique in the file.
+ *   - search must match original exactly (whitespace-sensitive; trailing newlines stripped (all of them)).
+ *   - Empty search = whole-file rewrite (replace is the new full content).
+ *   - Each search must be unique in the file.
  *   - Multiple blocks applied in one pass, sorted by match index, non-overlapping.
- *   - Fuzzy fallback (default on, `editor.fuzzyMatch`): when a SEARCH has zero exact hits, Aider-style uniform-indent tolerance then `...` elision are tried; still first-match, still atomic.
+ *   - Fuzzy fallback (default on, `editor.fuzzyMatch`): when a search has zero exact hits, Aider-style uniform-indent tolerance then `...` elision are tried; still first-match, still atomic.
  *
  * Atomic: if any block fails, NOTHING is applied. Returns structured error
  * codes (no prose) so the caller (editor.ts) can render messages from text.toml.
- * Pure leaf: no pi/tui/fs/text imports; operates on strings + protocol markers.
+ * Pure leaf: no pi/tui/fs/text imports; operates on strings.
  */
 
 import { fuzzySplices, type Splice } from "./fuzzy.ts";
@@ -36,38 +34,6 @@ export type ApplyError =
 export type ApplyResult =
   | { ok: true; content: string; wholeFileRewrite: boolean; applied: number; match: "exact" | "fuzzy" }
   | { ok: false; error: ApplyError };
-
-const SEARCH_START = "<<<<<<< SEARCH";
-const DIVIDER = "=======";
-const REPLACE_END = ">>>>>>> REPLACE";
-
-/** Extract raw blocks from model output; lenient about surrounding prose/fences. */
-export function parseBlocks(raw: string): ReplaceBlock[] {
-  const first = raw.indexOf(SEARCH_START);
-  const last = raw.lastIndexOf(REPLACE_END);
-  if (first < 0 || last < 0 || last < first) return [];
-  const body = raw.slice(first, last + REPLACE_END.length);
-  const blocks: ReplaceBlock[] = [];
-  for (const chunk of body.split(REPLACE_END)) {
-    const s = chunk.indexOf(SEARCH_START);
-    if (s < 0) continue;
-    const afterStart = chunk.slice(s + SEARCH_START.length);
-    const d = afterStart.indexOf(DIVIDER);
-    if (d < 0) continue;
-    blocks.push({
-      search: stripFenceNewlines(afterStart.slice(0, d)),
-      replace: stripFenceNewlines(afterStart.slice(d + DIVIDER.length)),
-    });
-  }
-  return blocks;
-}
-
-function stripFenceNewlines(s: string): string {
-  let out = s;
-  if (out.startsWith("\n")) out = out.slice(1);
-  while (out.endsWith("\n")) out = out.slice(0, -1);
-  return out;
-}
 
 function countOccurrences(content: string, needle: string): number {
   if (needle === "") return 0;

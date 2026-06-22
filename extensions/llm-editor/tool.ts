@@ -40,7 +40,7 @@ import { shortSha } from "./id.ts";
 import { resultXml, field } from "./result-xml.ts";
 import { lspFields } from "./lsp.ts";
 import { renderEditorCall, renderEditorResult } from "./render.ts";
-import { detectImageMimeTypeFromFile, isVideoPath, modelSupportsVision } from "../lib/media.ts";
+import { sniffMediaType, modelSupportsVision } from "../lib/media.ts";
 
 export type Command = "read" | "write" | "edit";
 
@@ -105,6 +105,31 @@ function errorResult(id: string, command: Command, path: string, message: string
 /** Plain text result (no XML wrapper) for media paths (image/video notes). */
 function textResult(id: string, kind: string, text: string, details?: Record<string, unknown>) {
   return { content: [{ type: "text" as const, text }], details: { id, kind, ...details } };
+}
+
+/**
+ * `read` success: raw payload (file content/tree/view ranges), then an
+ * optional agents-context suffix, then the footer `---\nid: <id>\nerrors:`.
+ * The footer is always last. No XML, no escaping — the model sees exact bytes.
+ * `details` is passed through unchanged so the TUI (which renders from
+ * `result.details`, not this text) is unaffected.
+ */
+function readResult(id: string, payload: string, details: unknown, suffix?: string) {
+  let text = payload;
+  if (suffix) text = text ? `${text}\n${suffix}` : suffix;
+  const footer = `---\nid: ${id}\nerrors:`;
+  text = text ? `${text}\n${footer}` : footer;
+  return { content: [{ type: "text" as const, text }], details };
+}
+
+/** `read` error: empty payload, the message goes in the `errors:` footer field. */
+function readErrorResult(id: string, message: string) {
+  const text = `---\nid: ${id}\nerrors: ${message}`;
+  return {
+    content: [{ type: "text" as const, text }],
+    isError: true,
+    details: { id, kind: "error" as const, message },
+  };
 }
 
 /** Deterministic non-hidden listing up to 2 levels deep. Bounded recursion. */
@@ -190,19 +215,23 @@ async function executeRead(
   try {
     isDir = (await stat(abs)).isDirectory();
   } catch {
-    return errorResult(id, "read", abs, fmt(T.errors.not_found, { path: abs }));
+    return readErrorResult(id, fmt(T.errors.not_found, { path: abs }));
   }
   if (isDir) {
     const tree = await listTree(abs, cwd);
     const agents = surfaceAgentsBlock(abs);
-    return okResult(id, "read", abs, [field("tree", tree)], { id, kind: "tree", text: tree }, agents);
+    return readResult(id, tree, { id, kind: "tree", text: tree }, agents);
   }
 
-  // Media paths (formerly read-media): video never inlines; image inlines only
-  // for vision models. Detected before text reading so binary is never dumped.
-  if (isVideoPath(abs)) return videoResult(abs, id);
-  const mime = await detectImageMimeTypeFromFile(abs).catch(() => null);
-  if (mime) {
+  // Media detection requires a known media extension AND matching magic bytes:
+  // a `.ts` file is text unless its bytes are an MPEG-TS stream, so the `.ts`
+  // extension alone never classifies source as video. Video never inlines;
+  // image inlines only for vision models. Sniffed before text reading so binary
+  // is never dumped.
+  const media = await sniffMediaType(abs).catch(() => null);
+  if (media && media.kind === "video") return videoResult(abs, id);
+  if (media && media.kind === "image") {
+    const mime = media.mime;
     if (!modelSupportsVision(ctx.model)) {
       return textResult(id, "image", `Image file [${mime}]: ${abs}. The current model does not support images.`);
     }
@@ -213,9 +242,9 @@ async function executeRead(
     try {
       const content = await headRead(abs, cwd);
       const agents = surfaceAgentsBlock(dirname(abs));
-      return okResult(id, "read", abs, [field("content", content)], { id, kind: "content", text: content }, agents);
+      return readResult(id, content, { id, kind: "content", text: content }, agents);
     } catch (e) {
-      return errorResult(id, "read", abs, fmt(T.errors.cannot_read, { path: abs, reason: (e as Error).message }));
+      return readErrorResult(id, fmt(T.errors.cannot_read, { path: abs, reason: (e as Error).message }));
     }
   }
 
@@ -236,10 +265,10 @@ async function executeRead(
     maxFileBytes: cfg.maxFileBytes,
     thinkingLevel: pick.thinkingLevel,
   });
-  if (r.error) return errorResult(id, "read", abs, r.error);
+  if (r.error) return readErrorResult(id, r.error);
   requestFooterRender();
   const agents = surfaceAgentsBlock(dirname(abs));
-  return okResult(id, "read", abs, [field("content", r.text)], { id, kind: "view", text: r.text, usage: r.usage }, agents);
+  return readResult(id, r.text, { id, kind: "view", text: r.text, usage: r.usage }, agents);
 }
 
 async function executeWrite(

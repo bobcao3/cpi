@@ -28,7 +28,6 @@ import { writeFileSync } from "node:fs";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { renderToolCallMarkdown, type ToolCallBlock } from "../lib/transcript-registry.ts";
 import { getSubagentUsage, formatCost } from "../lib/cost-ledger.ts";
-import { Type } from "typebox";
 
 const SUMMARY_PATH = process.env.PI_SUBAGENT_SUMMARY;
 
@@ -44,7 +43,6 @@ let costUsd = 0;
 let streamed = false;
 let asstTag = "";
 let lastKind = "";
-let editAction: "apply" | "cancel" | null = null;
 
 function stderr(s: string): void {
   try {
@@ -111,7 +109,7 @@ function conclusionSummary(): string {
   const inT = inTokens + sub.input;
   const outT = outTokens + sub.output;
   const cost = costUsd + sub.cost;
-  return `jsonl: ${sessionFile}\nsummary: time=${elapsed}s turns=${turns} in=${inT} out=${outT} cost=$${formatCost(cost)}\naction: ${editAction ?? "none"}\n`;
+  return `jsonl: ${sessionFile}\nsummary: time=${elapsed}s turns=${turns} in=${inT} out=${outT} cost=$${formatCost(cost)}\n`;
 }
 
 export default async function (pi: ExtensionAPI) {
@@ -126,7 +124,6 @@ export default async function (pi: ExtensionAPI) {
     costUsd = 0;
     streamed = false;
     asstTag = "";
-    editAction = null;
     stderr(`jsonl: ${sessionFile}\n`);
   });
 
@@ -198,24 +195,4 @@ export default async function (pi: ExtensionAPI) {
     stderr(summary);
   });
 
-  if (process.env.PI_SUBAGENT) {
-    pi.registerTool({
-      name: "edit-complete",
-      label: "edit-complete",
-      promptSnippet: "Signal edit completion (apply/cancel)",
-      promptGuidelines: [],
-      description: "Signal that your search-replace block(s) are complete. Call with action='apply' to apply the edit, or action='cancel' to abort without applying. This ends the edit turn.",
-      parameters: Type.Object({
-        action: Type.Union([Type.Literal("apply"), Type.Literal("cancel")]),
-      }),
-      async execute(_toolCallId, params) {
-        editAction = params.action;
-        return {
-          content: [{ type: "text", text: params.action === "apply" ? "applying" : "cancelled" }],
-          details: undefined,
-          terminate: true,
-        };
-      },
-    });
-  }
 }

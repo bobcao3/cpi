@@ -2,17 +2,21 @@
  * Pretty-printed XML builder for llm_editor tool results.
  *
  * Every result is a `<editor_result>` element: one field per line, 2-space
- * indent. Text fields are XML-escaped (code/diff with `<`, `>`, `&` is safe);
- * newlines inside text (diff, ranges, listings) are preserved. Replaces the old
- * ad-hoc text format so results are structured + greppable, with a stable
- * `<id>` field (short-sha of the call's args) correlating to a transcript.
+ * indent. Text fields are inlined RAW (never XML-escaped); attribute values
+ * are still escaped. Newlines inside text (diff, ranges, listings) are
+ * preserved. Replaces the old ad-hoc text format so results are structured +
+ * greppable, with a stable `<id>` field (short-sha of the call's args)
+ * correlating to a transcript.
  *
  * Pure leaf: no imports.
+ *
+ * Why text is raw: this is a zero-copy data plane — nothing parses the XML.
+ * The TUI renders from result.details. Content/diff lines carry a `N\t` /
+ * `+ N ` / `- N ` line-number prefix while tree lines carry a 📁/📄 glyph
+ * prefix, so a file line like `</content>` renders as `123\t</content>` and is
+ * distinguishable from the 2-space-indented tag `  </content>`. Escaping would
+ * corrupt the payload for no benefit.
  */
-
-function escapeXml(s: string): string {
-  return s.replace(/[&<]/g, (c) => (c === "&" ? "&amp;" : "&lt;"));
-}
 
 function escapeAttr(v: string | number): string {
   return String(v).replace(/[&<>"]/g, (c) =>
@@ -32,7 +36,7 @@ export function field(tag: string, text?: string, attrs?: Record<string, string 
         .join(" ")
     : "";
   if (text === undefined) return `  <${tag}${a}/>`;
-  return `  <${tag}${a}>${escapeXml(text)}</${tag}>`;
+  return `  <${tag}${a}>${text}</${tag}>`;
 }
 
 /** Wrap pre-built field lines in the result root element. */

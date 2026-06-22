@@ -17,121 +17,103 @@ viewer = '''
 You are an expert code analyzer. Your task is to identify line ranges in a file that are relevant to a given query.
 
 You will be given:
-1. A file with numbered lines in the format: LINE_NUMBER\tLINE_CONTENT
+1. A file with numbered lines in the format: LINE_NUMBER<TAB>LINE_CONTENT
 2. A query describing what the user is looking for
 
 Consider function/method definitions, class definitions, variable declarations, imports, comments, and any code blocks that implement functionality related to the query.
 
-OUTPUT FORMAT: output ONLY a JSON array of line ranges. Each range is [start_line, end_line] (inclusive, 1-indexed). No explanation, no markdown fences.
+OUTPUT: call the `view-complete` tool with `ranges` = a JSON array of line ranges. Each range is [start_line, end_line] (inclusive, 1-indexed). Do not print the ranges as text.
 
-Example: [[10, 25], [45, 60], [100, 115]]
+Example: view-complete({ ranges: [[10, 25], [45, 60], [100, 115]] })
 
 RULES:
-1. Only output the JSON array, nothing else.
-2. Line numbers are 1-indexed.
-3. Each range must include complete logical blocks (do not split functions/classes).
-4. Include a few lines of context before and after each relevant section.
-5. If nothing is relevant, return [].
-6. Sort ranges by start line; merge overlapping or adjacent ranges.
-7. Do not include entire files unless the query asks for everything.
+1. `ranges` is a JSON array of [start_line, end_line] pairs, 1-indexed and inclusive.
+2. Each range must include complete logical blocks (do not split functions/classes).
+3. Include a few lines of context before and after each relevant section.
+4. If nothing is relevant, call with `ranges = []`.
+5. Sort ranges by start line; merge overlapping or adjacent ranges.
+6. Do not include entire files unless the query asks for everything.
+7. Call `view-complete` exactly once; this ends your turn.
 
 Example 1 - Finding a specific function:
 Query: "Where is the calculate_total function defined?"
-Output: [[15, 28]]
+view-complete({ ranges: [[15, 28]] })
 
 Example 2 - Finding multiple related sections:
 Query: "How is user authentication handled?"
-Output: [[5, 8], [23, 45], [102, 130]]
+view-complete({ ranges: [[5, 8], [23, 45], [102, 130]] })
 
 Example 3 - Nothing relevant found:
 Query: "Where is the database connection configured?"
-Output: []
+view-complete({ ranges: [] })
 '''
 editor = '''
 You are an expert code editor. Your task is to analyze a file and make modifications according to the provided instructions.
 
-Output your changes using the search-replace format. You can make multiple edits by including multiple search-replace blocks.
-
-Format for each edit:
-<<<<<<< SEARCH
-exact lines from the original file to find
-=======
-new lines to replace them with
->>>>>>> REPLACE
+Return your changes by calling the `edit-complete` tool with an `edits` array. Each edit is an exact text replacement: `oldText` (exact text from the original file to find) and `newText` (the replacement). You may include multiple edits in one call.
 
 IMPORTANT RULES:
-1. The SEARCH block must match the original file content EXACTLY, including whitespace and indentation.
-2. You can make multiple edits by including multiple search-replace blocks.
-3. If the SEARCH block is empty (no content between <<<<<<< SEARCH and =======), it means REWRITE THE ENTIRE FILE with the content in the REPLACE block.
-4. Each SEARCH block must be unique in the file; if there are multiple matches, include more surrounding context.
-5. Output ONLY the search-replace blocks. No explanation, no markdown fences, no commentary.
-6. After outputting all search-replace blocks, call the `edit-complete` tool with `action="apply"` to apply the edit, or `action="cancel"` to abort without applying. You MUST call edit-complete to signal completion — the edit is not applied until you do, and not calling it is treated as an incomplete/truncated edit.
+1. Each edit's `oldText` must match the original file content EXACTLY, including whitespace and indentation.
+2. You may include multiple edits as multiple entries in the `edits` array.
+3. If an edit's `oldText` is empty (""), it means REWRITE THE ENTIRE FILE with that edit's `newText` as the new full content. Use at most one such edit, and not together with others.
+4. Each edit's `oldText` must be unique in the file; if there are multiple matches, include more surrounding context.
+5. `oldText` values are matched against the original file, not after earlier edits. Do not emit overlapping or nested edits; merge nearby changes into one edit.
+6. Keep each `oldText` as small as possible while still being unique.
+7. Call `edit-complete` exactly once with your `edits` (omit `cancel` or set it false to apply; set `cancel: true` to abort without applying). Calling the tool ends your turn; not calling it is treated as an incomplete/truncated edit. Do not print the edits as text.
 
 Example 1 - Modifying specific lines:
-<<<<<<< SEARCH
-def calculate_total(items):
-    return sum(items)
-=======
-def calculate_total(items):
+edit-complete({ edits: [
+  { oldText: "def calculate_total(items):
+    return sum(items)",
+    newText: "def calculate_total(items):
     if not items:
         return 0
-    return sum(items)
->>>>>>> REPLACE
+    return sum(items)" }
+] })
 
-Example 2 - Multiple edits:
-<<<<<<< SEARCH
-import os
-=======
-import os
-import sys
->>>>>>> REPLACE
-<<<<<<< SEARCH
-def main():
-    pass
-=======
-def main():
-    print("Hello, World!")
->>>>>>> REPLACE
+Example 2 - Multiple edits in one call:
+edit-complete({ edits: [
+  { oldText: "import os", newText: "import os
+import sys" },
+  { oldText: "def main():
+    pass", newText: "def main():
+    greet()" }
+] })
 
-Example 3 - Rewriting entire file (empty SEARCH block):
-<<<<<<< SEARCH
-=======
-#!/usr/bin/env python3
-# New file content here
+Example 3 - Rewriting the entire file (empty oldText):
+edit-complete({ edits: [
+  { oldText: "", newText: "#!/usr/bin/env python3
 def new_function():
-    pass
->>>>>>> REPLACE
+    pass" }
+] })
 '''
 editor_fuzzy = '''
 ADDITIONAL CAPABILITIES (fuzzy matching is enabled for this edit):
 
-You MAY use ellipsis (`...`) on its own line inside a SEARCH block to elide unchanged code that sits BETWEEN two regions you are editing within the same block. This lets you skip restating long unchanged spans. Rules:
+You MAY put `...` on its own line inside an edit's `oldText` to elide unchanged code that sits BETWEEN two regions you are editing within the same `oldText`. This lets you skip restating long unchanged spans. Rules:
 - Put `...` alone on a line (optional leading whitespace) where code was omitted.
-- The number of `...` lines MUST match between SEARCH and REPLACE.
+- The number of `...` lines MUST match between `oldText` and `newText`.
 - Each non-`...` chunk must appear EXACTLY ONCE in the file.
 - `...` means "leave this region unchanged"; it is not a wildcard — the surrounding chunks must still match the file exactly.
 - Uniqueness rule still applies.
 
 Example — edit the first and last lines of a long function, omitting the unchanged middle:
-<<<<<<< SEARCH
-def f(x):
+edit-complete({ edits: [
+  { oldText: "def f(x):
     a = setup(x)
 ...
-    return result
-=======
-def f(x):
+    return result",
+    newText: "def f(x):
     a = setup(x, verbose=True)
 ...
-    return result
->>>>>>> REPLACE
+    return result" }
+] })
 
-Additionally, matching tolerates a UNIFORM leading-whitespace offset between SEARCH and the file (you may omit indentation that is consistent across the whole block); REPLACE is re-indented to the file's level. Prefer exact matches; use these only when an exact SEARCH would be impractical.
+Additionally, matching tolerates a UNIFORM leading-whitespace offset between `oldText` and the file (you may omit indentation that is consistent across the whole edit); `newText` is re-indented to the file's level. Prefer exact matches; use these only when an exact `oldText` would be impractical.
 '''
-
-# ── User-message task templates fed to the subagents on stdin ({{placeholder}}) ──
 [tasks]
 viewer = "Here is the file with numbered lines:\n\n{{content}}\n\nQuery: {{query}}"
-editor = "Here is the current file content:\n```\n{{content}}\n```\n\nInstruction: {{instruction}}\n\nPlease provide the search-replace blocks needed to make these changes."
+editor = "Here is the current file content:\n```\n{{content}}\n```\n\nInstruction: {{instruction}}\n\nPlease call edit-complete with the edits needed to make these changes."
 
 # ── Tool metadata shown to the main agent (one tool per command) ──
 [tool.read]
@@ -197,29 +179,69 @@ invalid_chain_regex = '[editor] chain rule {{i}}: invalid regex "{{pattern}}"; s
 configured_unavailable = '[editor] configured editor.model "{{model}}" not available/authed; falling back to chain.'
 viewer_timeout = "Viewer subagent timed out after {{ms}}ms. Consider fewer query statements & use concrete keywords."
 editor_timeout = "Editor subagent timed out after {{ms}}ms. Consider reducing scope & increase specificity"
-editor_cancelled = "Editor subagent cancelled the edit (edit-complete action=cancel)."
+editor_cancelled = "Editor subagent cancelled the edit (edit-complete cancel=true)."
 editor_truncated = "Editor subagent did not signal completion (edit-complete not called — output was truncated/incomplete). Re-run the edit."
-viewer_bad_output = "Viewer did not return a JSON line-range array.\nOutput: {{tail}}"
+viewer_truncated = "Viewer subagent did not call view-complete (output was truncated/incomplete). Re-run the read."
+viewer_bad_output = "view-complete returned malformed ranges (not a JSON array of [start, end] pairs).\nOutput: {{tail}}"
 write_failed = "Write failed: {{reason}}"
 spawn_not_found = "pi binary not found on PATH: {{reason}}"
-apply_no_blocks = "No search-replace blocks found in editor output."
-apply_not_found = "Block {{i}}: SEARCH text not found in file. It must match exactly (whitespace/indentation)."
-apply_not_found_fuzzy = "Block {{i}}: SEARCH text not found in file. Both exact match and fuzzy fallback (uniform-indent tolerance + ... elision) failed."
-apply_not_unique = "Block {{i}}: SEARCH text is not unique ({{n}} matches). Add more surrounding context."
-apply_empty_with_others = "Empty SEARCH (whole-file rewrite) cannot coexist with other blocks."
-apply_overlap = "Block {{i}} overlaps block {{j}}. Merge or separate them."
+apply_no_blocks = "edit-complete was called with no edits."
+apply_not_found = "Edit {{i}}: oldText not found in file. It must match exactly (whitespace/indentation)."
+apply_not_found_fuzzy = "Edit {{i}}: oldText not found in file. Both exact match and fuzzy fallback (uniform-indent tolerance + ... elision) failed."
+apply_not_unique = "Edit {{i}}: oldText is not unique ({{n}} matches). Add more surrounding context."
+apply_empty_with_others = "Empty oldText (whole-file rewrite) cannot coexist with other edits."
+apply_overlap = "Edit {{i}} overlaps edit {{j}}. Merge or separate them."
 
 # ── Transcript (persisted subagent log) labels ──
 [transcript]
 title = "# editor {{role}} subagent"
 section_system = "## System Prompt"
 section_user = "## User"
-section_assistant = "## Assistant"
+section_completion = "## Completion"
 section_stderr = "## stderr"
 
 # ── Injected into the main system prompt by the cpi system-prompt transform (idempotent; wrapped in markers by index.ts) ──
 [system_prompt]
 transcript_block = '''
-Each read/write/edit result includes an `<id>` = short-sha of its args (command, path, plus query/instruction/file_text as applicable).
+Each read/write/edit result includes an `id` = short-sha of its args (command, path, plus query/instruction/file_text as applicable) — `read` results show it in the trailing `id:` footer (after a `---` separator); `edit`/`write` results carry it in the `<id>` field.
 For `read` with a query and `edit`, the subagent transcript is persisted at {{dir}}/<id>.md.
 '''
+
+
+# ── Completion tools for the Viewer/Editor subagents (registered by
+#    extensions/llm-editor/completion.ts in the child, role-gated by
+#    PI_SUBAGENT_ROLE). edit-complete mirrors pi's default multi-search-replace
+#    `edit` tool plus an optional cancel:bool; the subagent's tool does not write
+#    files — it hands edits back to the parent, which applies them with cpi's own
+#    atomic apply engine. Plain text (no HTML escaping). ──
+[completion.view_complete]
+description = "Return the relevant line ranges from the file and end your turn. Call this exactly once with `ranges` = a JSON array of [start_line, end_line] inclusive 1-indexed line ranges. Do not print the ranges as text."
+prompt_snippet = "Return relevant line ranges"
+guidelines = [
+	"Output ONLY by calling this tool — never print the ranges as text.",
+	"`ranges` is a JSON array of [start, end] pairs, 1-indexed and inclusive.",
+	"Each range must include complete logical blocks with a few lines of context before and after.",
+	"Sort ranges by start line; merge overlapping or adjacent ranges.",
+	"If nothing is relevant, call with `ranges = []`.",
+	"Call this tool exactly once; this ends your turn.",
+]
+
+[completion.edit_complete]
+description = "Return the edits to apply to the file and end your turn. `edits` is an array of exact text replacements; each edits[].oldText must match a unique, non-overlapping region of the ORIGINAL file and edits[].newText is its replacement. To rewrite the entire file, use one edit with oldText empty and newText as the new full content. Set cancel=true to abort without applying anything."
+prompt_snippet = "Return file edits as exact text replacements"
+guidelines = [
+	"Each edits[].oldText must match the original file EXACTLY, including whitespace and indentation.",
+	"Each edits[].oldText must be unique in the file; if there are multiple matches, include more surrounding context.",
+	"edits[].oldText values are matched against the original file, not after earlier edits. Do not emit overlapping or nested edits; merge nearby changes into one edit.",
+	"Keep edits[].oldText as small as possible while still being unique.",
+	"To rewrite the entire file, emit one edit with oldText empty (\"\") and newText as the full new content.",
+	"Set cancel=true to abort the edit without applying anything. Otherwise leave `cancel` unset (defaults to false).",
+	"Call this tool exactly once; this ends your turn. Do not print the edits as text.",
+]
+
+[completion.schema]
+ranges = "JSON array of [start_line, end_line] inclusive 1-indexed line ranges relevant to the query."
+edits = "One or more targeted replacements. Each edit is matched against the original file, not incrementally. Do not include overlapping or nested edits; merge nearby changes into one edit instead."
+oldText = "Exact text for one targeted replacement. It must be unique in the original file and must not overlap any other edits[].oldText in the same call."
+newText = "Replacement text for this targeted edit."
+cancel = "Set to true to abort the edit without applying anything. Defaults to false."

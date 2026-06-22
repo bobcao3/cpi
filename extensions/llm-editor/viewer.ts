@@ -2,11 +2,12 @@
  * `view` on a file: delegate to the Viewer subagent.
  *
  * Reads the file, sends it (numbered, 1-indexed `LINE<TAB>CONTENT`) + the
- * natural-language query to the tool-less Viewer subagent, parses the JSON
- * line-range array it returns, and renders only those ranges (with line
- * numbers). Mirrors SWE-Edit's Viewer (§3.1): query-conditioned snippet
- * extraction beats raw dumps and classical retrieval on recall + context.
- * All prose lives in text.toml; this module holds logic.
+ * natural-language query to the Viewer subagent, which returns the relevant
+ * line ranges as the ARGUMENTS of a single `view-complete` tool call (read back
+ * from the $PI_SUBAGENT_COMPLETION handoff file by runSubagent). Renders only
+ * those ranges (with line numbers). Mirrors SWE-Edit's Viewer (§3.1):
+ * query-conditioned snippet extraction beats raw dumps and classical retrieval
+ * on recall + context. All prose lives in text.toml; this module holds logic.
  */
 
 import { readFile, stat } from "node:fs/promises";
@@ -29,25 +30,20 @@ export interface ViewFileOptions {
   thinkingLevel?: string;
 }
 
-function parseRanges(answer: string): number[][] | null {
-  const first = answer.indexOf("[");
-  const last = answer.lastIndexOf("]");
-  if (first < 0 || last < 0 || last < first) return null;
-  try {
-    const arr = JSON.parse(answer.slice(first, last + 1)) as unknown;
-    if (!Array.isArray(arr)) return null;
-    const ranges: number[][] = [];
-    for (const r of arr) {
-      if (!Array.isArray(r) || r.length !== 2) continue;
-      const s = Number(r[0]);
-      const e = Number(r[1]);
-      if (!Number.isInteger(s) || !Number.isInteger(e) || s < 1 || e < s) continue;
-      ranges.push([s, e]);
-    }
-    return ranges;
-  } catch {
-    return null;
+/** Normalize the view-complete tool's already-parsed `ranges` arg into validated
+ *  [start, end] pairs. Non-array => null (caller reports bad output); invalid
+ *  elements are dropped; an empty result is a legitimate "no ranges". */
+function normalizeRanges(raw: unknown): number[][] | null {
+  if (!Array.isArray(raw)) return null;
+  const ranges: number[][] = [];
+  for (const r of raw) {
+    if (!Array.isArray(r) || r.length !== 2) continue;
+    const s = Number(r[0]);
+    const e = Number(r[1]);
+    if (!Number.isInteger(s) || !Number.isInteger(e) || s < 1 || e < s) continue;
+    ranges.push([s, e]);
   }
+  return ranges;
 }
 
 export function renderRanges(lines: string[], ranges: number[][], linesOmitted: string): string {
@@ -110,11 +106,16 @@ export async function viewFile(
     return { text: "", error: fmt(T.errors.spawn_not_found, { reason: res.spawnError }) };
   if (res.timedOut)
     return { text: "", error: fmt(T.errors.viewer_timeout, { ms: opts.timeoutMs }) };
-  const ranges = parseRanges(res.answer);
+  // The view-complete tool call IS the signal: missing/wrong tool => truncation.
+  const c = res.completion;
+  if (!c || c.tool !== "view-complete") {
+    return { text: "", error: T.errors.viewer_truncated };
+  }
+  const ranges = normalizeRanges(c.args.ranges);
   if (!ranges) {
     return {
       text: "",
-      error: fmt(T.errors.viewer_bad_output, { tail: res.answer.slice(0, 400) }),
+      error: fmt(T.errors.viewer_bad_output, { tail: JSON.stringify(c.args).slice(0, 400) }),
     };
   }
   if (ranges.length === 0) return { text: T.messages.view_no_ranges };
