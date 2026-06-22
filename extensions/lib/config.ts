@@ -88,6 +88,25 @@ export interface EditorConfig {
   chain?: EditorChainRule[];
 }
 
+export interface ResolvedEditorConfig {
+  /** Model id for the Viewer/Editor subagents; undefined when derived from the main model. */
+  model?: string;
+  /** Provider for the editor model; inferred from the model id when absent. */
+  provider?: string;
+  /** Max file size (bytes) read/edited before refusing. Always set by loadEditorConfig. */
+  maxFileBytes: number;
+  /** Hard kill timeout for a subagent pi call, in ms. Always set by loadEditorConfig. */
+  subagentTimeoutMs: number;
+  /** Directory for persisted subagent transcripts. Always set by loadEditorConfig ("" if unset). */
+  transcriptDir: string;
+  /** Max transcript files retained; oldest rotated. Always set by loadEditorConfig. */
+  maxTranscripts: number;
+  /** Aider-style fuzzy SEARCH/REPLACE fallback. Always set by loadEditorConfig. */
+  fuzzyMatch: boolean;
+  /** Ordered {search,replace} rules producing candidate editor model ids. Always set (possibly empty). */
+  chain: EditorChainRule[];
+}
+
 export interface LspTypescriptServerConfig {
   package: string;
   version: string;
@@ -276,10 +295,10 @@ export function loadCavemanConfig(cwd: string = process.cwd()): CavemanConfig {
  * Load and validate the editor section. Defaults from cpi-config.default.json
  * deep-merged under the user/project `editor` config; numeric fields clamped.
  */
-export function loadEditorConfig(cwd: string = process.cwd()): EditorConfig {
+export function loadEditorConfig(cwd: string = process.cwd()): ResolvedEditorConfig {
   const config = loadCpiConfig(cwd);
   const d = loadDefaultConfig().editor ?? {};
-  const e = deepMerge(d, config.editor ?? {}) as EditorConfig;
+  const e = deepMerge(d, config.editor ?? {}) as ResolvedEditorConfig;
   const maxFileBytes = Number(e.maxFileBytes);
   const subagentTimeoutMs = Number(e.subagentTimeoutMs);
   const maxTranscripts = Number(e.maxTranscripts);

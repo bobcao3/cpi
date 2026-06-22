@@ -21,7 +21,7 @@ import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { loadEditorConfig } from "../lib/config.ts";
 import { resolveCwdPath, getCwd } from "../lib/cwd.ts";
 import { surfaceNewAgents, formatAgentsBlock } from "../lib/agents.ts";
-import { addSubagentUsage } from "../lib/cost-ledger.ts";
+
 import { requestFooterRender } from "../lib/footer.ts";
 import { resolveTranscriptDir } from "./log.ts";
 import { resolveEditorModel } from "./model-select.ts";
@@ -134,11 +134,13 @@ function surfaceAgentsBlock(dir: string): string {
   return formatAgentsBlock(surfaceNewAgents(dir));
 }
 
+type EditorUpdateCb = (partial: { content: unknown[]; details?: unknown }) => void;
+
 export async function execute(
   _toolCallId: string,
   params: Params,
   signal: AbortSignal | undefined,
-  onUpdate?: (partial: { content: unknown[]; details?: unknown }) => void,
+  onUpdate: EditorUpdateCb | undefined,
   ctx: ExtensionContext,
 ) {
   const T = loadEditorText(getCwd());
@@ -198,7 +200,6 @@ export async function execute(
       thinkingLevel: pick.thinkingLevel,
     });
     if (r.error) return errorResult(id, params.command, abs, r.error);
-    addSubagentUsage(r.usage);
     requestFooterRender();
     const agents = surfaceAgentsBlock(dirname(abs));
     return okResult(id, params.command, abs, [field("content", r.text)], {
@@ -268,8 +269,17 @@ export async function execute(
     field("diff", r.diff),
   ];
   if (r.lsp) body.push(r.lsp);
+  if (r.overThinkWarn)
+    body.push(
+      field(
+        "over_think_warn",
+        fmt(T.messages.over_think_warn, {
+          budget: r.overThinkWarn.budget,
+          thinking: r.overThinkWarn.thinking,
+        }),
+      ),
+    );
   const agents = surfaceAgentsBlock(dirname(abs));
-  addSubagentUsage(r.usage);
   requestFooterRender();
   return okResult(id, params.command, abs, body, {
     id,
@@ -302,7 +312,7 @@ export const llmEditorTool = {
     toolCallId: string,
     params: Params,
     signal: AbortSignal | undefined,
-    onUpdate: unknown,
+    onUpdate: EditorUpdateCb | undefined,
     ctx: ExtensionContext,
   ) {
     return execute(toolCallId, params, signal, onUpdate, ctx);
