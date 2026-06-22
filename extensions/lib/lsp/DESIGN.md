@@ -28,8 +28,8 @@ Goals:
   project root, returns diagnostics in the result; install is bounded and
   degrades non-blocking so an edit never stalls on provisioning.
 - `env=` dotenv on `sh`, `sh_repeat_until`, `lsp` (restart on change).
-- `sh_env_capture`: capture current env (optionally after a command) into a
-  session-scoped dotenv, reloadable via `env=`.
+- `env-capture`: a chainable script (`bin/`) that snapshots
+  the current shell env into a session-scoped dotenv, reloadable via `env=`.
 
 Non-goals (v1):
 - Hover / go-to-definition / rename / code-action / formatting. Diagnostics only.
@@ -50,7 +50,7 @@ flowchart TD
     owner["lsp.ts — owner: lsp tool · transform · session_shutdown"]
     shell["shell.ts: sh env= · runLspHook · inline shuck via mgr"]
     editor["llm-editor: auto LSP + diag in result"]
-    envcap["env-capture.ts: sh_env_capture tool"]
+    envcap["bin/env-capture: chainable writer"]
     owner --> mgr
     shell --> mgr
     editor --> mgr
@@ -148,7 +148,7 @@ a pin bump re-provisions on the next session.
 
 `start` is **re-invokable**: calling it again with a new `env=` stops the old
 worker and starts a new one with the merged env; same args is a no-op (session
-already `ready`). This loads a new dot_env — e.g. after `sh_env_capture` of a
+already `ready`). This loads a new dot_env — e.g. after `env-capture` of a
 venv. The `lsp-behavior` transform and the `llm_editor` result both call it out.
 
 ---
@@ -317,16 +317,21 @@ bounded + degrades.
 
 ---
 
-## 12. `sh_env_capture` (`extensions/env-capture.ts`)
+## 12. `env-capture` (`bin/`)
 
-Sole owner of one tool. Runs `command` (if given) via `bash -lc '<cmd> && env'`
-else `env`, inheriting `buildShellEnv`; writes `KEY=VALUE` lines to
-`<sessionDir>/env-captures/<label-or-shortSha>.env` (fallback
-`getAgentDir()/env-captures/` for `--no-session` parents). Returns the path, the
-count, and a ready `env=<path>` snippet usable on `sh` / `lsp` /
-`sh_repeat_until`. Env contents are written to a file and referenced by path;
-never echoed into the conversation, so no redaction is needed. Limits: 30s
-capture timeout, 2 MiB stdout cap, 4096 keys, 32 KiB value truncation on write.
+A chainable script, not a tool. The agent runs it at the end of a `sh` command
+(`source .venv/bin/activate && env-capture [label]`) so it inherits the
+exact post-command env from the single `bash -c` — no second spawn, no
+re-execution (a plain `sh` call is stateless, so activation is otherwise lost).
+It reads the inherited env via `env`, writes `KEY=VALUE` lines to
+`<sessionDir>/env-captures/<label-or-env-<ts>-<pid>>.env` (fallback
+`$PI_CODING_AGENT_DIR || ~/.pi/agent` for `--no-session` parents) and prints
+`Captured N env var(s) → <path>` + `Reload via: env=<path>` to stdout. Env
+contents are written to a file and referenced by path; never echoed into the
+conversation, so no redaction is needed. Limits (matching `lib/dotenv.ts` read
+side): 4096 keys, 32 KiB per value. The read side (`env=` on `sh` /
+`sh_repeat_until` / `lsp`) is owned by `extensions/shell/tools.ts`
+(`buildShellEnvWithDotenv` → `parseDotEnv`); this script is its sole writer.
 
 ---
 
@@ -336,7 +341,7 @@ capture timeout, 2 MiB stdout cap, 4096 keys, 32 KiB value truncation on write.
 strip-then-append pattern (reload-safe, dedup). It documents supported languages;
 `llm_editor` auto-lint+diagnostics; shell editing triggers an LSP check or
 advises `lsp start`; `start` reloads dot_env; env-provided LSPs are reused; and
-the `sh_env_capture` → `env=` flow.
+the `env-capture` → `env=` flow.
 
 ---
 
@@ -350,7 +355,7 @@ the `sh_env_capture` → `env=` flow.
   + `session_shutdown` handler unconditionally at load; `pi.registerTool`/`pi.on`
   are idempotent on the fresh instance, so a hot-reload re-registers atomically.
   No `globalThis` dedup boolean.
-- Producers (`shell.ts`, `llm-editor/*`, `env-capture.ts`) only call `LspManager`
+- Producers (`shell.ts`, `llm-editor/*`) only call `LspManager`
   methods — never spawn servers or register the tool.
 - The no-session warning uses `globalThis.__cpiLspWarned` (advisory-dedup Set in
   `lsp-hook.ts`); never gates `checkFile` (§10.4 routes by `findSession`).

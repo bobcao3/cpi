@@ -12,10 +12,10 @@
 # log surfaced at start and end. The orchestrator tails the sh log for the live
 # transcript; pi's stdout is the clean answer.
 #
-# Usage: subagent.sh [-p provider] [-s session-id] [task...]
+# Usage: subagent [-p provider] [-s session-id] [task...]
 #   Preferred: pass the task on stdin via a QUOTED heredoc so backticks, $, and
 #   quotes in the prompt stay literal (no shell escaping):
-#       subagent.sh -s my-task <<'TASK'
+#       subagent -s my-task <<'TASK'
 #       ...prompt with `backticks` and $vars, verbatim...
 #       TASK
 #   A positional task arg still works for short, escape-free prompts.
@@ -28,7 +28,7 @@ main() {
         case "$opt" in
             p) provider="$OPTARG" ;;
             s) session_id="$OPTARG" ;;
-            *) printf 'usage: subagent.sh [-p provider] [-s session-id] [task]   # or pipe the task on stdin\n' >&2; exit 2 ;;
+            *) printf 'usage: subagent [-p provider] [-s session-id] [task]   # or pipe the task on stdin\n' >&2; exit 2 ;;
         esac
     done
     shift "$((OPTIND - 1))"
@@ -39,7 +39,7 @@ main() {
         task="$(cat)"
     fi
     if [[ -z "$task" ]]; then
-        printf 'usage: subagent.sh [-p provider] [-s session-id] [task]   # or pipe the task on stdin\n' >&2
+        printf 'usage: subagent [-p provider] [-s session-id] [task]   # or pipe the task on stdin\n' >&2
         exit 2
     fi
     [[ -n "$session_id" ]] || session_id="sub-$(date +%Y%m%d-%H%M%S)-$$"

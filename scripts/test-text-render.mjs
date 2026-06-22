@@ -147,15 +147,8 @@ checkTool("lsp",
   "Manage LSP sessions: list_sessions, start (resolve project + provision), stop, check (file diagnostics or full-package CLI check).",
   "LSP sessions: start/check/stop",
   ["`lsp start file=<path>` starts a session for the file's project; `lsp check file=<path>` auto-starts and returns diagnostics.",
-   "`lsp start file=<path> env=<dotenv>` restarts with a merged env — re-invoke to reload a captured dot_env (e.g. after sh_env_capture).",
+   "`lsp start file=<path> env=<dotenv>` restarts with a merged env — re-invoke to reload a captured dot_env (e.g. after env-capture).",
    "`lsp list_sessions` lists active sessions; `lsp stop file=<path>` stops one. An env-provided LSP binary (on PATH, incl. via env=) is reused as-is."]);
-
-checkTool("env-capture",
-  "Capture the current process environment (optionally after running a bash command such as sourcing a venv) into a session-scoped dotenv file, reloadable via `env=<path>` on sh / sh_repeat_until / lsp.",
-  "Capture env into a dotenv file",
-  ["Use sh_env_capture to snapshot env (e.g. after `source .venv/bin/activate`) into a file, then reload it via `env=<path>` on sh or sh_repeat_until.",
-   "The returned `env=<path>` snippet is reusable across later commands; the file path is absolute and session-scoped.",
-   "Reload the same captured file via `env=<path>` on sh / sh_repeat_until / `lsp start`."]);
 
 checkTool("read-media",
   "Read an image file (jpg, png, gif, webp) and return it as an inline image attachment for the model to view. Only available when the current model supports vision. Video files cannot be inlined; extract frames via bash (ffmpeg) and read those instead.",

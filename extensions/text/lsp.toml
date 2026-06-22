@@ -12,5 +12,5 @@ env = "Path to a .env file to load for the server (restart on change)."
 [guidelines]
 bullets = '''
 `lsp start file=<path>` starts a session for the file's project; `lsp check file=<path>` auto-starts and returns diagnostics.
-`lsp start file=<path> env=<dotenv>` restarts with a merged env — re-invoke to reload a captured dot_env (e.g. after sh_env_capture).
+`lsp start file=<path> env=<dotenv>` restarts with a merged env — re-invoke to reload a captured dot_env (e.g. after env-capture).
 `lsp list_sessions` lists active sessions; `lsp stop file=<path>` stops one. An env-provided LSP binary (on PATH, incl. via env=) is reused as-is.'''

@@ -1,12 +1,12 @@
 ---
 name: subagents-in-pi
-description: "Use when delegating to a sub-agent, fanning out parallel or background tasks, spawning or resuming a child `pi` agent, or running subagent.sh. Search terms — subagent, delegate, parallel, background pi, --session-id, resume."
+description: "Use when delegating to a sub-agent, fanning out parallel or background tasks, spawning or resuming a child `pi` agent, or running the `subagent` script. Search terms — subagent, delegate, parallel, background pi, --session-id, resume."
 ---
 
 # Subagents in pi
 
 A subagent is another `pi` process launched through the `sh` tool with the
-`subagent.sh` helper. Run it via `sh`; if it outlives `waitfor` it backgrounds,
+`subagent` helper (on PATH). Run it via `sh`; if it outlives `waitfor` it backgrounds,
 and `sh` returns its PID + a logfile and fires a completion follow-up on exit.
 There is **no separate transcript file**: `pi` print-mode stdout is the clean
 final answer, while the helper streams the live markdown transcript to stderr
@@ -22,7 +22,7 @@ word-split / "Argument list too long" if passed as an arg; the quoted heredoc
 keeps every character literal — no escaping needed.
 
 ```
-.pi/skills/subagents-in-pi/subagent.sh -s sub-<slug> <<'TASK'
+subagent -s sub-<slug> <<'TASK'
 <task, with full context — `backticks`, $vars, globs, quotes all stay literal>
 TASK
 ```
@@ -37,7 +37,7 @@ TASK
   derived from the `jsonl:` path:
   `pi --session-dir "$(dirname <jsonl-path>)" --session-id <id> -c`.
 - `-p <provider>`: provider id to use (default `meshy-sglang-kimi`; override with one available in your config).
-- Injects `output-protocol.md` (keeps the subagent terse, full answer in its
+- Injects `output-protocol.md` (shipped in `bin/`, keeps the subagent terse, full answer in its
   final message). To run a subagent in the background, pass `waitfor=1` to `sh`;
   it backgrounds and you collect its result from the completion notification / log.
   Fan out via several `sh` launches; collect each result.
