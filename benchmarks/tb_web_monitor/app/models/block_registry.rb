@@ -31,14 +31,16 @@ module BlockRegistry
   end
 
   # Message block: title header (role + ts) then one section per content run —
-  # thinking (collapsed) and text (expanded). Consecutive same-type content
-  # blocks merge into one section. toolCall content is skipped (it owns its own
-  # tool block downstream).
+  # thinking is collapsed and text is always expanded (bare, no collapse).
+  # Consecutive same-type content blocks merge into one section. toolCall
+  # content is skipped (it owns its own tool block downstream).
   module Message
     module_function
     def sections(block)
+      custom = Source.message_sections(block)
+      return custom if custom
       m = block.event["message"] || {}
-      secs = [TranscriptBlock::Section.new(name: :title, title: title_html(m), open: true, blocks: [])]
+      secs = [TranscriptBlock::Section.new(name: :title, title: title_html(m, block.t0_ms), open: true, blocks: [])]
       groups = []
       Array(m["content"]).each do |b|
         next if b.is_a?(Hash) && b["type"] == "toolCall"
@@ -47,23 +49,22 @@ module BlockRegistry
         else groups << { type: ty, blocks: [b] } end
       end
       groups.each do |g|
-        secs << TranscriptBlock::Section.new(name: g[:type].to_sym, title: preview_title(g),
-                                              open: g[:type] == "text", blocks: g[:blocks])
+        is_text = g[:type] == "text"
+        secs << TranscriptBlock::Section.new(name: g[:type].to_sym, title: is_text ? nil : preview_title(g),
+                                              open: false, blocks: g[:blocks])
       end
       secs
     end
 
     # Collapsed summary for a content run: the first line of the content, with a
-    # bold "thinking" label for thinking runs (text runs show the line bare).
+    # bold "thinking" label for thinking runs.
     # "…" is appended only when the content spans more than one line. The .prev
-    # span is hidden when the section is open (the full body shows instead); a
-    # text run's "text" label shows only when open (collapsed shows the line).
+    # span is hidden when the section is open (the full body shows instead).
     def preview_title(group)
       first, more = first_line(group[:blocks])
       prev = ERB::Util.html_escape(first) + (more ? "…" : "")
       case group[:type]
       when "thinking" then %(<strong class="lbl">thinking</strong><span class="prev">#{prev}</span>).html_safe
-      when "text"     then %(<pre class="line">#{prev}</pre>).html_safe
       else group[:type].html_safe
       end
     end
@@ -80,9 +81,9 @@ module BlockRegistry
       [parts.first.to_s.strip, parts[1] && !parts[1].strip.empty?]
     end
 
-    def title_html(m)
+    def title_html(m, t0_ms)
       h = ERB::Util
-      %(<span class="role">#{h.html_escape(m['role'].to_s)}</span><span class="ts">#{h.html_escape(TranscriptBlock.format_ts(m['timestamp']))}</span>).html_safe
+      %(<span class="role">#{h.html_escape(m['role'].to_s)}</span><span class="ts">#{h.html_escape(TranscriptBlock.stamp(m['timestamp'], t0_ms))}</span>).html_safe
     end
   end
 
@@ -96,26 +97,40 @@ module BlockRegistry
     KEEP_PROGRESS = Set["llm_editor"].freeze
 
     def sections(block)
+      custom = Source.tool_sections(block)
+      return custom if custom
+      [title_section(block), progress_section(block), result_section(block)].compact
+    end
+
+    def title_section(block)
+      ev = block.event
+      done = block.state == :finalized
+      err = done && ev["isError"]
+      res = ev["result"]
+      details = res && res["details"]
+      TranscriptBlock::Section.new(name: :title, title: title(ev, done, err, details, block.updates),
+                                   open: !done, blocks: block.args ? [block.args] : [])
+    end
+
+    def progress_section(block)
+      done = block.state == :finalized
+      partial_blocks = block.partial && (block.partial["content"] ||
+                                          (block.partial.is_a?(Array) ? block.partial : nil))
+      return nil unless show_progress?(block.tool_name, done, partial_blocks)
+      TranscriptBlock::Section.new(name: :progress, title: progress_title(block.updates),
+                                   open: !done, blocks: Array(partial_blocks))
+    end
+
+    def result_section(block)
       ev = block.event
       done = block.state == :finalized
       err = done && ev["isError"]
       res = ev["result"]
       details = res && res["details"]
       result_blocks = res && (res["content"] || (res.is_a?(Array) ? res : nil))
-      partial_blocks = block.partial && (block.partial["content"] ||
-                                          (block.partial.is_a?(Array) ? block.partial : nil))
-
-      secs = [TranscriptBlock::Section.new(name: :title, title: title(ev, done, err, details, block.updates),
-                                           open: !done, blocks: block.args ? [block.args] : [])]
-      if show_progress?(block.tool_name, done, partial_blocks)
-        secs << TranscriptBlock::Section.new(name: :progress, title: progress_title(block.updates),
-                                             open: !done, blocks: Array(partial_blocks))
-      end
-      if result_blocks || details
-        secs << TranscriptBlock::Section.new(name: :result, title: result_title(details, err, done),
-                                             open: !done, error: err, blocks: Array(result_blocks))
-      end
-      secs
+      return nil unless result_blocks || details
+      TranscriptBlock::Section.new(name: :result, title: result_title(details, err, done),
+                                   open: !done, error: err, blocks: Array(result_blocks))
     end
 
     # streaming: show progress whenever it exists; finalized: keep only if the

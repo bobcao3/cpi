@@ -4,7 +4,7 @@
 # collapsed into an ordered list of render units:
 #   Block — boxed, carries Sections (title always first). Agent-visible
 #           content: assistant/user messages and tool calls.
-#   Event — inline, no box, T+Ns timestamp. Harness lifecycle the agent never
+#   Event — inline, no box, wall-clock + T+ timestamp. Harness lifecycle the agent never
 #           sees: session / agent_* / turn_*.
 # Block/Section *shape* (which sections, default open, error) is filled by
 # BlockRegistry handlers; this module owns only the value types, the
@@ -15,9 +15,9 @@ module TranscriptBlock
   # kind: :message | :tool | :verifier; state: :streaming | :finalized.
   # event: the final event for the block (tool_execution_end / message_end /
   # Verifier::Result). args/partial/updates only for :tool.
-  Block = Struct.new(:kind, :id, :state, :tool_name, :event, :args, :partial, :updates, keyword_init: true)
+  Block = Struct.new(:kind, :id, :state, :tool_name, :event, :args, :partial, :updates, :t0_ms, keyword_init: true)
 
-  # type: raw event type; t_ms/t0_ms for T+Ns (nil when unknown — "if possible").
+  # type: raw event type; t_ms/t0_ms for T+ min:sec (nil when unknown — "if possible").
   Event = Struct.new(:type, :t_ms, :t0_ms, :event, keyword_init: true)
 
   # name: :title | :thinking | :text | :progress | :result | :stdout | ...
@@ -26,6 +26,7 @@ module TranscriptBlock
   # empty/nil => the section is a non-collapsible header bar.
   Section = Struct.new(:name, :title, :open, :error, :blocks, keyword_init: true) do
     def header? = blocks.nil? || blocks.empty?
+    def bare? = name == :text
   end
 
   # Collapse raw JSONL events into ordered render units. Tool-call lifecycles
@@ -54,12 +55,12 @@ module TranscriptBlock
         out << Block.new(kind: :tool, id: Transcript.tool_dom_id(id),
                          state: fin["type"] == "tool_execution_end" ? :finalized : :streaming,
                          tool_name: ev["toolName"], event: fin, args: targs[id],
-                         partial: tpartial[id], updates: updates[id] || 0)
+                         partial: tpartial[id], updates: updates[id] || 0, t0_ms: t0)
       when "tool_execution_update", "tool_execution_end", "message_start", "message_update"
         next
       when "message_end"
         next if (ev["message"] || {})["role"] == "toolResult"
-        out << Block.new(kind: :message, state: :finalized, event: ev)
+        out << Block.new(kind: :message, state: :finalized, event: ev, t0_ms: t0)
       else
         out << Event.new(type: ev["type"], t_ms: ts_to_ms(ev["timestamp"] || ev["ts"]),
                          t0_ms: t0, event: ev)
@@ -70,10 +71,10 @@ module TranscriptBlock
 
   # Verifier verdict as a finalized block (event holds a Verifier::Result).
   def verifier_block(v)
-    Block.new(kind: :verifier, state: :finalized, event: v)
+    Block.new(kind: :verifier, id: "verdict", state: :finalized, event: v)
   end
 
-  # Session T0 (ms epoch) for T+Ns offsets; nil if no session event yet.
+  # Session T0 (ms epoch) for T+ min:sec offsets; nil if no session event yet.
   def session_t0(events)
     s = events.find { |e| e["type"] == "session" } or return nil
     ts_to_ms(s["timestamp"] || s["ts"])
@@ -88,20 +89,21 @@ module TranscriptBlock
     end
   end
 
-  # "T+Ns" from absolute ms + session T0; "" if either is unknown.
+  # "T+<m>:<ss>s" from absolute ms + session T0; "" if either is unknown.
   def tplus_label(t_ms, t0_ms)
     return "" if t_ms.nil? || t0_ms.nil?
-    "T+#{((t_ms - t0_ms) / 1000).to_i}s"
+    s = t_ms / 1000 - t0_ms / 1000
+    m = s / 60
+    m.zero? ? "T+#{"%02d" % (s % 60)}s" : "T+#{m}:#{"%02d" % (s % 60)}s"
   end
 
-  # HH:MM:SS for a block header timestamp (ms-epoch int/str or ISO8601).
-  def format_ts(ts)
-    return "" if ts.nil? || ts == ""
-    t = if ts.is_a?(Numeric) then Time.at(ts / 1000.0)
-        elsif ts.to_s.match?(/\A\d+\z/) then Time.at(ts.to_i / 1000.0)
-        else Time.iso8601(ts.to_s) end
-    t.strftime("%H:%M:%S")
-  rescue StandardError
-    ts.to_s
+  # HH:MM:SS · T+<m>:<ss>s for a raw timestamp (ms/iso) + session T0;
+  # omits T+ when T0 unknown, "" when ts unknown.
+  def stamp(raw_ts, t0_ms)
+    t_ms = ts_to_ms(raw_ts)
+    return "" if t_ms.nil?
+    wall = Time.at(t_ms / 1000.0).strftime("%H:%M:%S")
+    tp = tplus_label(t_ms, t0_ms)
+    tp.empty? ? wall : "#{wall} · #{tp}"
   end
 end

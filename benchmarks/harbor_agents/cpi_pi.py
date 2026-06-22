@@ -73,6 +73,7 @@ class CpiPi(BaseInstalledAgent):
         cpi_ref: str | None = None,
         cpi_repo: str = _DEFAULT_CPI_REPO,
         model_config: str | None = None,
+        builtin: bool = False,
         **kwargs,
     ) -> None:
         super().__init__(logs_dir, **kwargs)
@@ -85,6 +86,7 @@ class CpiPi(BaseInstalledAgent):
         self._cpi_ref = cpi_ref
         self._cpi_repo = cpi_repo
         self._model_config = model_config
+        self._builtin = builtin
 
     @staticmethod
     @override
@@ -126,9 +128,15 @@ class CpiPi(BaseInstalledAgent):
         )
 
     async def _write_pi_config(self, environment: BaseEnvironment) -> None:
+        auth = None
         if self._model_config:
             models = self._load_models_config()
             provider, model_id = self._first_provider_model(models)
+        elif self._builtin:
+            provider = self._provider
+            model_id = self._model_id()
+            models = {"providers": {}}
+            auth = {provider: {"type": "api_key", "key": self._api_key}}
         else:
             provider = self._provider
             model_id = self._model_id()
@@ -167,18 +175,23 @@ class CpiPi(BaseInstalledAgent):
         }
         models_json = json.dumps(models, indent=2)
         settings_json = json.dumps(settings, indent=2)
-        await self.exec_as_agent(
-            environment,
-            command=(
-                'mkdir -p "$HOME/.pi/agent" && '
-                'cat > "$HOME/.pi/agent/models.json" <<\'__CPI_MODELS__\'\n'
-                f"{models_json}\n"
-                "__CPI_MODELS__\n"
-                'cat > "$HOME/.pi/agent/settings.json" <<\'__CPI_SETTINGS__\'\n'
-                f"{settings_json}\n"
-                "__CPI_SETTINGS__\n"
-            ),
+        cmd = (
+            'mkdir -p "$HOME/.pi/agent" && '
+            'cat > "$HOME/.pi/agent/models.json" <<\'__CPI_MODELS__\'\n'
+            f"{models_json}\n"
+            "__CPI_MODELS__\n"
+            'cat > "$HOME/.pi/agent/settings.json" <<\'__CPI_SETTINGS__\'\n'
+            f"{settings_json}\n"
+            "__CPI_SETTINGS__\n"
         )
+        if auth:
+            auth_json = json.dumps(auth, indent=2)
+            cmd += (
+                'cat > "$HOME/.pi/agent/auth.json" <<\'__CPI_AUTH__\'\n'
+                f"{auth_json}\n"
+                "__CPI_AUTH__\n"
+            )
+        await self.exec_as_agent(environment, command=cmd)
 
     def _load_models_config(self) -> dict:
         assert self._model_config is not None
