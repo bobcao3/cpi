@@ -269,16 +269,6 @@ export async function execute(
     field("diff", r.diff),
   ];
   if (r.lsp) body.push(r.lsp);
-  if (r.overThinkWarn)
-    body.push(
-      field(
-        "over_think_warn",
-        fmt(T.messages.over_think_warn, {
-          budget: r.overThinkWarn.budget,
-          thinking: r.overThinkWarn.thinking,
-        }),
-      ),
-    );
   const agents = surfaceAgentsBlock(dirname(abs));
   requestFooterRender();
   return okResult(id, params.command, abs, body, {

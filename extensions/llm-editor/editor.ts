@@ -63,7 +63,6 @@ export type EditFileResult =
       match: "exact" | "fuzzy";
       lsp: string;
       usage?: { input: number; output: number };
-      overThinkWarn?: { budget: number; thinking: number };
     }
   | { ok: false; error: string };
 
@@ -92,7 +91,6 @@ export async function editFile(path: string, opts: EditFileOptions): Promise<Edi
       const reconcile = attempt > 0;
       let content: string;
       let at: Fingerprint;
-      let thinkingBudget: number;
       try {
         const st = await stat(abs, { bigint: true });
         if (!st.isFile()) return { ok: false, error: fmt(T.errors.not_a_file, { path: abs }) };
@@ -103,7 +101,6 @@ export async function editFile(path: string, opts: EditFileOptions): Promise<Edi
           };
         content = await readFile(abs, "utf-8");
         at = fingerprintOf(st);
-        thinkingBudget = Math.max(2000, Math.floor(Number(st.size) / 4));
       } catch (err) {
         return {
           ok: false,
@@ -130,21 +127,12 @@ export async function editFile(path: string, opts: EditFileOptions): Promise<Edi
         maxTranscripts: opts.maxTranscripts,
         onStream: opts.onStream,
         thinkingLevel: opts.thinkingLevel,
-        thinkingBudget,
       });
 
       if (res.spawnError)
         return { ok: false, error: fmt(T.errors.spawn_not_found, { reason: res.spawnError }) };
       if (res.timedOut)
         return { ok: false, error: fmt(T.errors.editor_timeout, { ms: opts.timeoutMs }) };
-      if (res.overThink?.mode === "abort")
-        return {
-          ok: false,
-          error: fmt(T.errors.editor_over_think, {
-            budget: res.overThink.budget,
-            thinking: res.overThink.thinking,
-          }),
-        };
 
       // edit-complete signal: apply proceeds; cancel aborts; null means the
       // subagent never signaled completion (truncated/incomplete output).
@@ -160,14 +148,6 @@ export async function editFile(path: string, opts: EditFileOptions): Promise<Edi
       const blocks = parseBlocks(res.answer);
       const applied: ApplyResult = applyBlocks(content, blocks, { fuzzy: opts.fuzzyMatch });
       if (applied.ok === false) {
-        if (res.overThink?.mode === "warn")
-          return {
-            ok: false,
-            error: fmt(T.errors.editor_over_think, {
-              budget: res.overThink.budget,
-              thinking: res.overThink.thinking,
-            }),
-          };
         return {
           ok: false,
           error: formatApplyError(T, applied.error),
@@ -204,7 +184,6 @@ export async function editFile(path: string, opts: EditFileOptions): Promise<Edi
         match: applied.match,
         lsp,
         usage: res.usage,
-        overThinkWarn: res.overThink?.mode === "warn" ? { budget: res.overThink.budget, thinking: res.overThink.thinking } : undefined,
       };
     }
     // Reconcile (allowed once) exhausted; file kept drifting. Write nothing; surface to main agent.

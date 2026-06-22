@@ -161,7 +161,6 @@ empty_dir = "(empty)"
 no_output = "(no output)"
 head_more = "... ({{n}} more lines; pass a query to view relevant ranges)"
 lines_omitted = "... ({{n}} lines omitted) ..."
-over_think_warn = "Editor over-thought ({{thinking}} tokens > budget {{budget}}); the edit was applied, but the instruction likely required synthesis the editor produced only by straining. Audit the applied diff before relying on it. For similar future edits, prefer llm_editor create (author file_text) or decompose into discrete deterministic edits."
 
 # ── LSP result-field strings (design §9; {{placeholder}} substituted via fmt) ──
 [lsp]
@@ -185,7 +184,6 @@ invalid_chain_regex = '[llm-editor] chain rule {{i}}: invalid regex "{{pattern}}
 configured_unavailable = '[llm-editor] configured editor.model "{{model}}" not available/authed; falling back to chain.'
 viewer_timeout = "Viewer subagent timed out after {{ms}}ms. Consider fewer query statements & use concrete keywords."
 editor_timeout = "Editor subagent timed out after {{ms}}ms. Consider reducing scope & increase specificity"
-editor_over_think = "Editor subagent aborted: thinking ({{thinking}} tokens) exceeded budget {{budget}}. The instruction likely requires synthesis the editor cannot derive from the file. Use llm_editor create (author file_text) or decompose into discrete deterministic edits."
 editor_cancelled = "Editor subagent cancelled the edit (edit-complete action=cancel)."
 editor_truncated = "Editor subagent did not signal completion (edit-complete not called — output was truncated/incomplete). Re-run the edit."
 viewer_bad_output = "Viewer did not return a JSON line-range array.\nOutput: {{tail}}"

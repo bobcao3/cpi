@@ -26,10 +26,8 @@ import { writeTranscript } from "./log.ts";
 import { STREAM_UPDATE_MS } from "./render.ts";
 import { loadEditorText, fmt } from "./text.ts";
 import { parseSummaryUsage, type Usage } from "../lib/cost-ledger.ts";
-import { BUDGET_ENV, parseOverThink, type OverThinkMode } from "../over-think-abort/protocol.ts";
 
 const SUBAGENT_TRANSCRIPT_EXT = fileURLToPath(new URL("../subagent-transcript/index.ts", import.meta.url));
-const OVER_THINK_ABORT_EXT = fileURLToPath(new URL("../over-think-abort/index.ts", import.meta.url));
 const COST_TREE_EXT = fileURLToPath(new URL("../cost-tree/index.ts", import.meta.url));
 
 export interface SubagentOptions {
@@ -39,7 +37,6 @@ export interface SubagentOptions {
   provider: string;
   modelId: string;
   thinkingLevel?: string;
-  thinkingBudget?: number;
   cwd: string;
   signal?: AbortSignal;
   timeoutMs: number;
@@ -57,7 +54,6 @@ export interface SubagentResult {
   spawnError?: string;
   elapsedMs: number;
   usage?: Usage;
-  overThink?: { mode: OverThinkMode; budget: number; thinking: number };
   editAction: "apply" | "cancel" | null;
 }
 
@@ -111,13 +107,8 @@ export async function runSubagent(opts: SubagentOptions): Promise<SubagentResult
     args.push("--thinking", opts.thinkingLevel);
   }
   // PI_SUBAGENT marks the child so cpi extensions can degrade (e.g. skip
-  // caveman style / recursion). BUDGET_ENV is added when over-think-abort is
-  // loaded, telling it the per-call thinking-token ceiling.
+  // caveman style / recursion).
   const childEnv: NodeJS.ProcessEnv = { ...process.env, PI_SUBAGENT: "1" };
-  if (opts.thinkingBudget && opts.thinkingBudget > 0) {
-    args.push("-e", OVER_THINK_ABORT_EXT);
-    childEnv[BUDGET_ENV] = String(opts.thinkingBudget);
-  }
   const start = Date.now();
   const child = spawn("pi", args, {
     cwd: opts.cwd,
@@ -184,6 +175,5 @@ export async function runSubagent(opts: SubagentOptions): Promise<SubagentResult
 
   await writeTranscript(opts.transcriptDir, opts.id, body, opts.maxTranscripts);
   const usage = parseSummaryUsage(stderr);
-  const overThink = parseOverThink(stderr);
-  return { answer, stderr, exitCode, timedOut, spawnError, elapsedMs, usage, overThink, editAction };
+  return { answer, stderr, exitCode, timedOut, spawnError, elapsedMs, usage, editAction };
 }
