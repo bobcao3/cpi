@@ -103,7 +103,7 @@ export async function editFile(path: string, opts: EditFileOptions): Promise<Edi
           };
         content = await readFile(abs, "utf-8");
         at = fingerprintOf(st);
-        thinkingBudget = Math.max(1000, Math.floor(Number(st.size) / 8));
+        thinkingBudget = Math.max(2000, Math.floor(Number(st.size) / 4));
       } catch (err) {
         return {
           ok: false,
