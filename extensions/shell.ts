@@ -292,10 +292,20 @@ export default async function (pi: ExtensionAPI) {
           content: [{ type: "text", text: `Background ${params.id} not active.` }],
           isError: true,
         };
-      if (!params.id.startsWith("rpt-")) silenceChild(params.id);
+      // Only SIGKILL terminates the process group (guaranteed exit) so only
+      // SIGKILL waives the completion notice; non-terminating signals may be
+      // caught/ignored so the notice must still fire. See core.ts hold design:
+      // "wait_any to yield, or sh_signal SIGKILL to return control".
+      const isKill = signal === "SIGKILL" || signal === "9";
+      const isShell = !params.id.startsWith("rpt-");
+      if (isShell && isKill) silenceChild(params.id);
+      const text =
+        isShell && isKill
+          ? `Background ${params.id} terminated (SIGKILL).`
+          : `Sent ${signal} to ${params.id}.`;
       return {
-        content: [{ type: "text", text: `Sent ${signal} to ${params.id}.` }],
-        details: { id: params.id, signal, completionNoticeSuppressed: true },
+        content: [{ type: "text", text }],
+        details: { id: params.id, signal, completionNoticeSuppressed: isShell && isKill },
       };
     },
   });
