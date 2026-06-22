@@ -222,27 +222,36 @@ function endedViaWaitAny(messages: any[]): boolean {
   return false;
 }
 
-// Delivered during agent_end while isStreaming is true, so deliverAs:"followUp"
-// queues it; the run loop's hasQueuedMessages->continue drives the follow-up
-// turn that wakes the agent to decide (no await — the turn itself holds the
-// session).
+// Delivered during agent_end while isStreaming is still true (so deliverAs is
+// honored). Use "steer" (not "followUp") because steer is drained by the agent
+// loop into the imminent wake turn's context before its LLM call, so the
+// reminder is visible to the turn that wakes the agent; followUp is drained
+// only after tool calls/steer clear, which races the wake turn. triggerTurn:
+// true covers the idle non-streaming fallback via _runAgentPrompt. No await:
+// the queued steer is itself the effect the run loop's hasQueuedMessages->
+// continue exits the hold on; the follow-up turn holds the session open.
 function deliverHoldReminder(pi: ExtensionAPI, pending: HoldSource[]): void {
   const text = buildHoldReminderText(pending);
   try {
     pi.sendMessage(
       { customType: HOLD_REMINDER_TYPE, content: text, display: true },
-      { triggerTurn: true, deliverAs: "followUp" },
+      { triggerTurn: true, deliverAs: "steer" },
     );
   } catch {
     // Delivery failure must never break the hold flow.
   }
 }
 
-// Delivered during agent_end while isStreaming is true, so deliverAs:"followUp"
-// queues a follow-up turn that wakes the agent to decide: continue holding (call
-// wait_any again — the next interval is doubled), check the background job's
-// status, or disarm/kill it. Unlike deliverHoldReminder (for a normally-stopping
-// agent), this fires on each eventless hold timeout and carries the backoff state.
+// Fires on each eventless hold timeout (wait_any path) and carries the backoff
+// state. deliverAs:"steer" (not "followUp") is load-bearing: steer is drained
+// by the agent loop into the imminent wake turn before its LLM call, so the
+// "Held for Ns" text reaches the turn that wakes the agent. followUp is
+// drained only after tool calls/steer clear, which races the wake turn —
+// observed in tb21-cpi-kimi-c8 where the reminder landed one turn late and
+// the agent concluded wait_any "returned immediately" (it instead saw
+// wait_any's own "(see attached image)" mistranslation from pi-ai
+// convertMessages). The queued steer is the effect the run loop's
+// hasQueuedMessages->continue exits the hold on.
 function deliverHoldTimeoutReminder(
   pi: ExtensionAPI,
   pending: HoldSource[],
@@ -262,7 +271,7 @@ function deliverHoldTimeoutReminder(
   try {
     pi.sendMessage(
       { customType: HOLD_REMINDER_TYPE, content: text, display: true },
-      { triggerTurn: true, deliverAs: "followUp" },
+      { triggerTurn: true, deliverAs: "steer" },
     );
   } catch {
     // Delivery failure must never break the hold flow.

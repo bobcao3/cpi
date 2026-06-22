@@ -16,9 +16,10 @@
  * Rendering: uses `renderShell: "self"` so the tool renders its own framing
  * (no Box padding/bg) as a plain oneliner, matching skill.ts house style. Only
  * `renderCall` returns the message line (also overriding the default tool-name
- * header). `renderResult` is intentionally omitted: `execute` returns empty
- * content (`text: ""`), so the built-in `createResultFallback` returns
- * `undefined` and no result line is added — netting a single message line.
+ * header). `renderResult` is intentionally omitted, but because `execute` now
+ * returns non-empty content (a wall-clock timestamp), the built-in
+ * `createResultFallback` renders a compact result line showing the time — so the
+ * tool produces a call line followed by a result line rather than a single line.
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -27,6 +28,26 @@ import { Type } from "typebox";
 import { loadText, render, textPath, type ToolText } from "./lib/text.ts";
 
 const WAIT_ANY_TOOL = "wait_any";
+
+/**
+ * Compact wall-clock timestamp: "DD/MM/YY h:mm AM/PM".
+ *
+ * Day and month are zero-padded to 2 digits; year is 2 digits; hour is 12-hour
+ * with no leading zero (0 mapped to 12); minutes zero-padded to 2 digits;
+ * AM/PM is uppercase. Example output: "26/06/21 9:04 PM".
+ */
+function nowTimestamp(): string {
+  const d = new Date();
+  const day = String(d.getDate()).padStart(2, "0");
+  const month = String(d.getMonth() + 1).padStart(2, "0");
+  const year = String(d.getFullYear() % 100).padStart(2, "0");
+  let hours = d.getHours();
+  const ampm = hours >= 12 ? "PM" : "AM";
+  hours = hours % 12;
+  if (hours === 0) hours = 12;
+  const minutes = String(d.getMinutes()).padStart(2, "0");
+  return `${day}/${month}/${year} ${hours}:${minutes} ${ampm}`;
+}
 
 export default function waitAnyExtension(pi: ExtensionAPI): void {
   const T = loadText<ToolText>("wait-any", textPath("wait-any"));
@@ -39,13 +60,21 @@ export default function waitAnyExtension(pi: ExtensionAPI): void {
     promptGuidelines: guidelines,
     parameters: Type.Object({}),
     async execute() {
+      // Content MUST be non-empty: pi-ai's openai-completions `convertMessages`
+      // maps a toolResult whose text is empty and which has no image blocks to
+      // the literal string "(see attached image)" — a fallback meant for
+      // image-only results. An empty wait_any result would make the model
+      // believe it received an image (observed in tb21-cpi-kimi-c8: "wait_any
+      // returned with attached image, not text"). Returning the current time
+      // also anchors the model after long holds.
       return {
         content: [
           {
             type: "text",
-            text: "",
+            text: nowTimestamp(),
           },
         ],
+        details: undefined,
         terminate: true,
       };
     },
