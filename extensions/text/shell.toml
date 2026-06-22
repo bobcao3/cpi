@@ -58,6 +58,7 @@ sh = [
 sh_signal = [
   "sh_signal defaults to SIGINT, and signal is always delivered to the whole process group.",
   "Do not run `kill` via sh on background PIDs; use `sh_signal` instead.",
+  "SIGKILL terminates the process group and suppresses the completion notice; no completion notification will fire for that shell, so do not call wait_any expecting one; any other signal (SIGINT, SIGTERM, …) may be caught or ignored, so the process is not guaranteed to stop. Its completion notification will still fire when the process eventually exits; call wait_any to yield until then."
 ]
 sh_background_ps = [
   "Use sh_background_ps to list running background shells and monitors.",

@@ -20,6 +20,8 @@ Hard rules:
 2. No source code file exceeds 355 AST statements.
 3. Do not write file/module trees in any documentation — the filesystem itself is already the tree, and the folder structure should be self-explanatory.
 
+4. All model-facing prompt texts (tool descriptions, prompt snippets, guidelines, schema field descriptions) must live in the dedicated `extensions/text/` folder as TOML templates (loaded via `loadText`/`render`), never inlined in extension `.ts` source.
+
 Guideline: When refactoring, aim for at least 30%-50% AST statements reduction (instead of line count).
 
 Principal: Use the **simplest architecture**, not necessarily solution with least lines of code
