@@ -1,9 +1,9 @@
 /**
  * Bounded dotenv parser (deterministic, no `${}` interpolation).
  *
- * Shared read side for `sh env=` / `sh_repeat_until env=` / `lsp env=` and the
- * server spawn env. `sh_env_capture` writes plain `KEY=VALUE` lines this parser
- * reads back losslessly for the common (unquoted, unexported) case.
+* Shared read side for `sh env=` / `sh_repeat_until env=` / `lsp env=` and the
+* server spawn env. `bin/env-capture` writes plain `KEY=VALUE` lines this parser
+* reads back losslessly for the common (unquoted, unexported) case.
  *
  * Explicit limits (TigerStyle): 256 KiB file, 4096 keys, 32 KiB value.
  * Semantics: skip blank + `#`-comment lines; strip a leading `export `; strip a

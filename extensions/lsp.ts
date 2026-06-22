@@ -6,7 +6,7 @@
  *   • the `lsp-behavior` system-prompt transform (order 150, strip-then-append;
  *     reload-safe via registerSystemPromptTransform's id-idempotent replace),
  *   • a `session_shutdown` teardown → manager.disposeAll() (idempotent/reentrant).
- * Producers (shell, llm_editor, env-capture) are pure clients of
+* Producers (shell, llm_editor) are pure clients of
  * lib/lsp/manager.ts — they never register the tool. Single owner ⇒ the shared
  * plumbing is present iff cpi is present.
  */
@@ -60,7 +60,7 @@ function behaviorBlock(): string {
     "Languages: TypeScript (.ts/.tsx → typescript-language-server), Python (.py → pyrefly), shell (.sh → shuck).",
     "- `lsp start file=<path>` resolves project root + language and starts a session.",
     "- `lsp check file=<path>` auto-starts then returns diagnostics.",
-    "- `lsp start file=<path> env=<dotenv>` restarts with a merged env; re-invoke to reload a captured dot_env (e.g. after sh_env_capture of a venv).",
+    "- `lsp start file=<path> env=<dotenv>` restarts with a merged env; re-invoke to reload a captured dot_env (e.g. after `env-capture` of a venv).",
     "- An env-provided LSP binary (on the merged PATH, incl. via env=) is reused as-is instead of installing.",
     "- `llm_editor` create/edit auto-lints and returns <lsp project=…> + <diagnostics>. Shell editing commands (cat >, sed -i, tee, >) trigger an LSP check when a session is up; else run `lsp start`.",
     BLOCK_END,

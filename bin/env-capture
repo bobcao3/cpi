@@ -1,0 +1,81 @@
+#!/usr/bin/env bash
+# env-capture — snapshot the current shell env into a session-scoped dotenv
+# file, reloadable via `env=<path>` on sh / sh_repeat_until / lsp.
+#
+# Chain at the END of a `sh` command so the captured env reflects whatever the
+# preceding command did (source a venv, export vars, …). The script inherits
+# that exact env — no second spawn, no re-execution:
+#
+#   source .venv/bin/activate && env-capture [label]
+#
+# Env contents are written to a file and referenced by path; they are NEVER
+# echoed into the conversation, so no redaction is needed.
+#
+# Output location + identity come from the cpi `sh` tool's env:
+#   PI_SESSION_DIR        parent session dir (absent for --no-session → agent dir)
+#   PI_CODING_AGENT_DIR   overrides the agent dir (~/.pi/agent)
+# Writes <dir>/env-captures/<label-or-snapshot>.env and prints to stdout:
+#   Captured N env var(s) → <path>
+#   Reload via: env=<path>
+#
+# Explicit limits (TigerStyle), matching lib/dotenv.ts read side: 4096 keys,
+# 32 KiB per value. `env` emits KEY=VALUE with no quoting → round-trips
+# losslessly through parseDotEnv for the common unquoted/unexported case.
+set -euo pipefail
+
+label=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -l|--label) label="${2:-}"; shift 2 ;;
+    -h|--help)  printf 'usage: env-capture [-l label] [label]\n'; exit 0 ;;
+    *)          label="$1"; shift ;;
+  esac
+done
+
+if [[ -n "${PI_SESSION_DIR:-}" ]]; then
+  dir="$PI_SESSION_DIR/env-captures"
+else
+  dir="${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}/env-captures"
+fi
+mkdir -p "$dir"
+
+if [[ -n "$label" ]]; then
+  # Sanitize label into a safe filename fragment (≤ 64 chars).
+  name="$(printf '%s' "$label" | tr -c 'A-Za-z0-9._-' '_' | cut -c1-64).env"
+else
+  name="env-$(date +%s)-$$.env"
+fi
+file="$dir/$name"
+
+tmp="$(mktemp)"
+trap 'rm -f "$tmp"' EXIT
+
+# Emit KEY=VALUE lines from the inherited env, bounded: skip keys not matching
+# [A-Za-z_][A-Za-z0-9_]*; rejoin values that contain '='; cap values at 32 KiB;
+# cap at 4096 keys. `env` output is line-based; values with embedded newlines
+# are an inherent limitation shared with the old tool (parseDotEnv is line-based).
+env | awk '
+  {
+    eq = index($0, "=")
+    if (eq <= 1) next
+    key = substr($0, 1, eq - 1)
+    if (key !~ /^[A-Za-z_][A-Za-z0-9_]*$/) next
+    val = substr($0, eq + 1)
+    if (length(val) > 32768) val = substr(val, 1, 32768)
+    print key "=" val
+    if (++n >= 4096) exit
+  }
+' > "$tmp"
+
+count=$(wc -l < "$tmp" | tr -d ' ')
+if [[ "$count" -eq 0 ]]; then
+  printf 'env-capture: no KEY=VALUE lines captured\n' >&2
+  exit 1
+fi
+
+mv "$tmp" "$file"
+
+plural=""
+(( count != 1 )) && plural="s"
+printf 'Captured %d env var%s → %s\nReload via: env=%s\n' \
+  "$count" "$plural" "$file" "$file"

@@ -7,6 +7,7 @@
     "pi-package"
   ],
   "files": [
+    "bin",
     "extensions",
     "skills",
     "cpi-config.default.json",

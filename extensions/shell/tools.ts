@@ -7,7 +7,7 @@
 import { createWriteStream, existsSync, readFileSync } from "node:fs";
 import { chmod, copyFile, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { delimiter, join } from "node:path";
+import { delimiter, dirname, join } from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
@@ -16,11 +16,13 @@ import { parsePubKey, parseSig, verifyMinisign } from "../lib/minisig.ts";
 import { parseDotEnv } from "../lib/dotenv.ts";
 import { resolveCwdPath } from "../lib/cwd.ts";
 import { brotliDecompressSync } from "node:zlib";
+import { fileURLToPath } from "node:url";
 
 const execFileAsync = promisify(execFile);
 const DL_TIMEOUT = 60_000;
 const CACHE_DIR = join(getAgentDir(), "cache", "shell-tools");
 const BIN_DIR = join(CACHE_DIR, "bin");
+const VENDOR_BIN = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "bin");
 const WASM_DIR = join(CACHE_DIR, "wasm");
 const WASM_PATH = join(WASM_DIR, "tree-sitter-wasm.wasm");
 const WASM_VERSION = "2026.06.20";
@@ -146,12 +148,12 @@ export async function ensureShellTools(): Promise<ToolAvailability> {
 
 export function getToolEnv(): NodeJS.ProcessEnv {
   const key = Object.keys(process.env).find((k) => k.toLowerCase() === "path") ?? "PATH";
-  return { ...process.env, [key]: [BIN_DIR, process.env[key] ?? ""].join(delimiter) };
+  return { ...process.env, [key]: [VENDOR_BIN, BIN_DIR, process.env[key] ?? ""].join(delimiter) };
 }
 
 /**
  * Env for the `sh` tool: base PATH env plus the parent session identity so
- * sub-agents (launched via subagent.sh) can nest their sessions under the
+* sub-agents (launched via the `subagent` script on PATH) can nest their sessions under the
  * parent's session dir in `subagents_${PI_SESSION}/` — hidden from the
  * parent's `/resume` (flat listers don't recurse subfolders).
  *
