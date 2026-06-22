@@ -68,12 +68,10 @@ function insertionLine(
   fallback: number,
 ): number {
   for (let row = first - 1; row >= 0; row--) {
-    if (hunkRows[row].elision) break;
     const line = mapping.get(row);
     if (line !== undefined) return line + 1;
   }
   for (let row = last + 1; row < hunkRows.length; row++) {
-    if (hunkRows[row].elision) break;
     const line = mapping.get(row);
     if (line !== undefined) return line;
   }

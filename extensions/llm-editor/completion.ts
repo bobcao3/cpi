@@ -12,9 +12,10 @@
  * returns terminate:true. The tool call IS the completion signal — a missing
  * completion file means the subagent never called its tool => truncation.
  *
- * edit-complete accepts diffs:string[] of unified-diff hunks plus an optional
- * cancel:bool. The subagent's tool does not write files; the parent applies the
- * diffs with cpi's in-house atomic apply engine. All model-facing text lives in
+ * edit-complete accepts diffs:string[] of unified-diff hunks, or content:string
+ * holding the complete rewritten file, plus an optional cancel:bool. The
+ * subagent's tool does not write files; the parent applies the result with
+ * cpi's in-house atomic apply engine. All model-facing text lives in
  * extensions/text/llm-editor.toml ([completion.*]).
  *
  * Pure leaf: typebox + node:fs + ./text.ts (the shared TOML loader).
@@ -24,7 +25,11 @@ import { writeFileSync } from "node:fs";
 import { Type, type Static } from "typebox";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { loadEditorText } from "./text.ts";
-import { MAX_DIFF_BLOCKS, MAX_DIFF_BLOCK_BYTES } from "./udiff.ts";
+import {
+  MAX_DIFF_BLOCKS,
+  MAX_DIFF_BLOCK_BYTES,
+  MAX_DIFF_TOTAL_BYTES,
+} from "./udiff.ts";
 
 const COMPLETION_PATH = process.env.PI_SUBAGENT_COMPLETION;
 
@@ -100,6 +105,14 @@ export default function (pi: ExtensionAPI): void {
             maxItems: MAX_DIFF_BLOCKS,
           },
         ),
+      ),
+      // The escape hatch: when a hunk cannot be transcribed faithfully, the
+      // whole new file needs no matching at all (SWE-Edit §3.1's rewrite mode).
+      content: Type.Optional(
+        Type.String({
+          description: T.completion.schema.content,
+          maxLength: MAX_DIFF_TOTAL_BYTES,
+        }),
       ),
       cancel: Type.Optional(Type.Boolean({ description: T.completion.schema.cancel })),
     });

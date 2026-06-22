@@ -192,6 +192,9 @@ export async function runSubagent(opts: SubagentOptions): Promise<SubagentResult
   const head =
     `${fmt(T.transcript.title, { role: opts.role })}\n\n` +
     `- model: ${opts.provider}/${opts.modelId}\n` +
+    // Without this a failed edit cannot be attributed to the model tier that
+    // produced it: the pick is chain-resolved and may downgrade effort silently.
+    `- thinking: ${opts.thinkingLevel ?? "(unset)"}\n` +
     `- started: ${new Date(start).toISOString()}\n` +
     `- elapsed: ${elapsedMs}ms\n` +
     `- exit: ${exitCode}\n` +

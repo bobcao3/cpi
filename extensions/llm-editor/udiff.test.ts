@@ -38,30 +38,92 @@ describe("udiff parser", () => {
       });
   });
 
-  test("rejects malformed counts, prefixes, and multiple hunks", () => {
-    expect(parseUdiffs(["@@ -1,2 +1,1 @@\n-a\n+b"])).toMatchObject({
+  test("recomputes normal-hunk counts from the authoritative body", () => {
+    const parsed = parseUdiffs(["@@ -1,2 +1,1 @@\n-a\n+b"]);
+    expect(parsed).toMatchObject({ ok: true });
+    if (parsed.ok)
+      expect(parsed.hunks[0]).toMatchObject({ oldCount: 1, newCount: 1 });
+    // A header claiming source lines the body never supplies stays fatal:
+    // applying a context-free insertion there would be a guess.
+    expect(parseUdiffs(["@@ -5,2 +5,3 @@\n+x"])).toMatchObject({
       ok: false,
       error: { code: "bad_count" },
     });
-    expect(parseUdiffs(["@@ -1 +1 @@\na"])).toMatchObject({
-      ok: false,
-      error: { code: "bad_prefix" },
-    });
+  });
+
+  test("splits several hunks in one array element", () => {
+    const parsed = parseUdiffs(["@@ -1 +1 @@\n-a\n+b\n@@ -3 +3 @@\n-c\n+d"]);
+    expect(parsed).toMatchObject({ ok: true });
+    if (parsed.ok) {
+      expect(parsed.hunks).toHaveLength(2);
+      expect(parsed.hunks.map((h) => h.oldStart)).toEqual([1, 3]);
+      expect(parsed.hunks.every((h) => h.block === 1)).toBe(true);
+    }
+  });
+
+  test("drops wrappers and rescues prefix-less blank rows", () => {
+    const parsed = parseUdiffs([
+      "```diff\n--- a/f.ts\n+++ b/f.ts\n@@ -1,3 +1,3 @@\n a\n\n-b\n+B\n```",
+    ]);
+    expect(parsed).toMatchObject({ ok: true });
+    if (parsed.ok)
+      expect(parsed.hunks[0].rows.map((r) => r.operation)).toEqual([
+        "context",
+        "context",
+        "delete",
+        "add",
+      ]);
+    // An unprefixed row reads as context: wrong only in that it may fail to
+    // match, never in a way that deletes or inserts anything.
+    const bare = parseUdiffs(["@@ -1,2 +1,2 @@\na\n-b\n+B"]);
+    expect(bare).toMatchObject({ ok: true });
+    if (bare.ok)
+      expect(bare.hunks[0].rows[0]).toMatchObject({
+        operation: "context",
+        text: "a",
+      });
+  });
+
+  // Both shapes are verbatim reductions of real editor-subagent completions
+  // (~/.pi/agent/cpi-editor transcripts, openai-codex/gpt-5.6-luna).
+  test("accepts a bare `@@` hunk separator as an unanchored hunk", () => {
+    const parsed = parseUdiffs(["@@ -1 +1 @@\n-a\n+A\n@@\n-c\n+C"]);
+    expect(parsed).toMatchObject({ ok: true });
+    if (parsed.ok) {
+      expect(parsed.hunks.map((h) => h.anchored)).toEqual([true, false]);
+      expect(parsed.hunks[1]).toMatchObject({ oldCount: 1, newCount: 1 });
+    }
+    expect(parseUdiffs(["@@ @@\n-b\n+B"])).toMatchObject({ ok: true });
+  });
+
+  test("drops the codex apply_patch envelope and its bare `***` separator", () => {
     expect(
-      parseUdiffs(["@@ -1 +1 @@\n-a\n+b\n@@ -2 +2 @@\n-c\n+d"]),
-    ).toMatchObject({
+      parseUdiffs([
+        "*** Begin Patch\n*** Update File: f.ts\n@@ -1 +1 @@\n-a\n+A\n*** End Patch",
+      ]),
+    ).toMatchObject({ ok: true });
+    const split = parseUdiffs(["@@ -1 +1 @@\n-a\n+A\n***\n-c\n+C\n***"]);
+    expect(split).toMatchObject({ ok: true });
+    if (split.ok) expect(split.hunks).toHaveLength(2);
+  });
+
+  test("drops no-op hunks but reports an entirely no-op completion", () => {
+    const parsed = parseUdiffs(["@@ -1 +1 @@\n a", "@@ -3 +3 @@\n-c\n+C"]);
+    expect(parsed).toMatchObject({ ok: true });
+    if (parsed.ok) expect(parsed.hunks).toHaveLength(1);
+    expect(parseUdiffs(["@@ -1 +1 @@\n a"])).toMatchObject({
       ok: false,
-      error: { code: "multiple_hunks" },
+      error: { code: "no_changes" },
     });
   });
 
-  test("reserves a context-only ellipsis between explicit regions", () => {
-    expect(parseUdiffs(["@@ -1,3 +1,3 @@\n ...\n-a\n+b"])).toMatchObject({
+  test("treats a `...` row as ordinary context, not an elision", () => {
+    const parsed = parseUdiffs(["@@ -1,2 +1,2 @@\n ...\n-a\n+b"]);
+    expect(parsed).toMatchObject({ ok: true });
+    if (parsed.ok) expect(parsed.hunks[0].oldCount).toBe(2);
+    expect(apply("a\nb\n", ["@@ -1,2 +1,2 @@\n ...\n-a\n+b"])).toMatchObject({
       ok: false,
-      error: { code: "bad_elision" },
-    });
-    expect(parseUdiffs(["@@ -1,9 +1,9 @@\n a\n ...\n-z\n+Z"])).toMatchObject({
-      ok: true,
+      error: { code: "not_found" },
     });
   });
 });
@@ -96,27 +158,40 @@ describe("udiff application", () => {
     expect(apply("root\n  a( )\n  b()\n", [diff])).toMatchObject({ ok: false });
   });
 
-  test("preserves an elided source span byte-for-byte", () => {
-    const source = "start\r\nold\r\nmiddle  \r\nend\r\n";
-    const diff = "@@ -1,4 +1,4 @@\n start\n-old\n+new\n ...\n-end\n+END";
-    expect(output(source, [diff])).toBe("start\r\nnew\r\nmiddle  \r\nEND\r\n");
-  });
-
-  test("bounds elisions by header span and rejects ambiguous allocations", () => {
-    const diff =
-      "@@ -1,7 +1,7 @@\n-start\n+START\n ...\n mid\n ...\n-end\n+END";
-    expect(apply("start\nx\nmid\ny\nmid\nz\nend\n", [diff])).toMatchObject({
+  test("locates an unanchored hunk by unique content, never by guess", () => {
+    expect(output("a\nb\nc\n", ["@@\n-b\n+B"])).toBe("a\nB\nc\n");
+    expect(apply("a\nb\na\n", ["@@\n-a\n+A"])).toMatchObject({
       ok: false,
       error: { code: "ambiguous" },
     });
-    expect(
-      apply("start\nold\nmiddle\nend\n", [
-        "@@ -1,5 +1,5 @@\n start\n-old\n+new\n ...\n-end\n+END",
-      ]),
-    ).toMatchObject({
+    // A pure insertion has no content to locate and no usable coordinate.
+    expect(apply("a\nb\n", ["@@\n+x"])).toMatchObject({
       ok: false,
-      error: { code: "not_found" },
+      error: { code: "bad_anchor" },
     });
+  });
+
+  // Reduced from real transcripts: `  }` vs `  },` is a boundary the model got
+  // approximately right, a closing fence vs a blank line is one it invented.
+  test("fuzzes an outer context row only where the boundary is recognizable", () => {
+    const object = '{\n  "bin": {\n    "a": "x"\n  },\n  "z": 1\n}\n';
+    expect(
+      output(object, ['@@ -2,3 +2,3 @@\n   "bin": {\n-    "a": "x"\n+    "a": "y"\n   }']),
+    ).toBe('{\n  "bin": {\n    "a": "y"\n  },\n  "z": 1\n}\n');
+    const fenced = "intro\n\ntext\n\ntail\n";
+    expect(
+      apply(fenced, ["@@ -1,3 +1,4 @@\n intro\n \n-text\n+new\n+more\n ```"]),
+    ).toMatchObject({ ok: false, error: { code: "not_found" } });
+  });
+
+  test("never fuzzes away a change row", () => {
+    // Trimming may only drop context, so a wrong `-` row stays unplaceable.
+    expect(apply("a\nb\nc\n", ["@@ -1,3 +1,3 @@\n a\n-WRONG\n+B\n c"])).toMatchObject(
+      { ok: false, error: { code: "not_found" } },
+    );
+    expect(
+      apply("a\nb\nc\nd\n", ["@@ -1,4 +1,4 @@\n a\n b\n-WRONG\n+D"]),
+    ).toMatchObject({ ok: false, error: { code: "not_found" } });
   });
 
   test("supports empty-file, BOF, and EOF insertions", () => {
@@ -167,10 +242,10 @@ describe("udiff application", () => {
     );
   });
 
-  test("bounds pathological elision matching work", () => {
-    const source = Array(12_000).fill("a").join("\n") + "\n";
-    const diff =
-      "@@ -1,10000 +1,10000 @@\n-a\n+A\n ...\n missing\n ...\n-a\n+A";
+  test("bounds pathological matching work", () => {
+    const source = Array(40_000).fill("a").join("\n") + "\n";
+    const diff = "@@ -1,200 +1,200 @@\n" +
+      Array(199).fill(" a").join("\n") + "\n-nowhere\n+A";
     expect(apply(source, [diff])).toMatchObject({
       ok: false,
       error: { code: "work_limit" },

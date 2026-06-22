@@ -1,6 +1,6 @@
 /** In-house unified-hunk matcher and atomic string applier. */
 
-import type { UdiffHunk } from "./udiff.ts";
+import type { UdiffHunk, UdiffRow } from "./udiff.ts";
 import {
   changeSplices,
   conflicts,
@@ -48,15 +48,119 @@ interface MatchBudget {
 
 const MAX_MATCH_WORK = 5_000_000;
 
-function patternSegments(hunk: UdiffHunk): PatternLine[][] {
-  const segments: PatternLine[][] = [[]];
-  for (let row = 0; row < hunk.rows.length; row++) {
-    const item = hunk.rows[row];
-    if (item.elision) segments.push([]);
-    else if (item.operation !== "add")
-      segments.at(-1)?.push({ row, text: item.text });
+/**
+ * Context-fuzz ladder, patch(1)'s fuzz factor. Tried in order only after the
+ * full pattern matches nowhere; each level drops that many outer context rows,
+ * never a `+`/`-` row, so the change itself is never inferred — only the proof
+ * of its location is weakened, and a unique match is still required.
+ *
+ * Unlike patch(1) these hunks are model-authored, so a mismatched context row
+ * is not stale ground truth but evidence the model mis-modeled the file — and
+ * dropping it discards that evidence. Every dropped row is therefore verified
+ * against the file line it would have covered (`recognizable`): fuzz tolerates
+ * a boundary the model got approximately right, never one it invented.
+ */
+const FUZZ_LEVELS: readonly (readonly [number, number])[] = [
+  [0, 1],
+  [1, 0],
+  [0, 2],
+  [1, 1],
+  [2, 0],
+];
+
+function trimmable(row: UdiffRow): boolean {
+  return (
+    row.operation === "context" &&
+    !row.sourceNoNewline &&
+    !row.targetNoNewline
+  );
+}
+
+/** The hunk with `lead`/`tail` outer context rows dropped, or null if it cannot be. */
+function fuzzHunk(
+  hunk: UdiffHunk,
+  lead: number,
+  tail: number,
+): UdiffHunk | null {
+  if (lead + tail >= hunk.rows.length) return null;
+  for (let index = 0; index < lead; index++)
+    if (!trimmable(hunk.rows[index])) return null;
+  for (let index = 0; index < tail; index++)
+    if (!trimmable(hunk.rows[hunk.rows.length - 1 - index])) return null;
+  const rows = hunk.rows.slice(lead, hunk.rows.length - tail);
+  const oldCount = rows.filter((row) => row.operation !== "add").length;
+  // Without a source row there is nothing left to locate the hunk by.
+  if (oldCount === 0) return null;
+  return {
+    ...hunk,
+    rows,
+    oldCount,
+    newCount: rows.filter((row) => row.operation !== "delete").length,
+    // Every trimmed leading row was a context row, so the anchor moves with them.
+    oldStart: hunk.anchored ? hunk.oldStart + lead : 0,
+  };
+}
+
+/**
+ * Whether a dropped context row is still recognizable in the file line it
+ * covered: both non-blank, sharing a common prefix or suffix, and differing only
+ * in a short middle — two characters outright, or a quarter of the line.
+ *
+ * `  }` against `  },`, or a row where the model silently corrected the prose it
+ * was copying (`lookup has` for `lookup have`), is a boundary it got
+ * approximately right. A closing fence against a blank line is one it invented.
+ */
+function recognizable(dropped: string, file: string): boolean {
+  const left = dropped.trim();
+  const right = file.trim();
+  if (left === "" || right === "") return false;
+  let prefix = 0;
+  while (
+    prefix < left.length &&
+    prefix < right.length &&
+    left[prefix] === right[prefix]
+  )
+    prefix++;
+  let suffix = 0;
+  while (
+    suffix < left.length - prefix &&
+    suffix < right.length - prefix &&
+    left[left.length - 1 - suffix] === right[right.length - 1 - suffix]
+  )
+    suffix++;
+  const common = prefix + suffix;
+  const differing = left.length + right.length - 2 * common;
+  if (common === 0) return false;
+  return differing <= 2 || differing * 4 <= Math.max(left.length, right.length);
+}
+
+/** Verify every row `fuzzHunk` dropped against the file lines it covered. */
+function boundaryHolds(
+  lines: SourceLine[],
+  hunk: UdiffHunk,
+  match: HunkMatch,
+  lead: number,
+  tail: number,
+): boolean {
+  for (let index = 0; index < lead; index++) {
+    const line = lines[match.startLine - lead + index];
+    if (!line || !recognizable(hunk.rows[index].text, line.text)) return false;
   }
-  return segments;
+  for (let index = 0; index < tail; index++) {
+    const row = hunk.rows[hunk.rows.length - tail + index];
+    const line = lines[match.endLine + index];
+    if (!line || !recognizable(row.text, line.text)) return false;
+  }
+  return true;
+}
+
+/** The hunk's source rows: one contiguous run of file lines it must cover. */
+function pattern(hunk: UdiffHunk): PatternLine[] {
+  const lines: PatternLine[] = [];
+  for (let row = 0; row < hunk.rows.length; row++)
+    if (hunk.rows[row].operation !== "add")
+      lines.push({ row, text: hunk.rows[row].text });
+  return lines;
 }
 
 function leadingWhitespace(text: string): string {
@@ -84,36 +188,6 @@ function fuzzyLine(
   return indentAdd === undefined || indentAdd === candidate ? candidate : null;
 }
 
-function matchSegment(
-  lines: SourceLine[],
-  segment: PatternLine[],
-  start: number,
-  mode: "exact" | "fuzzy",
-  indentAdd: string | undefined,
-  budget: MatchBudget,
-): { rows: Map<number, number>; indentAdd: string } | null {
-  if (start < 0 || start + segment.length > lines.length) return null;
-  const rows = new Map<number, number>();
-  let add = indentAdd;
-  for (let index = 0; index < segment.length; index++) {
-    if (budget.remaining-- <= 0) {
-      budget.exhausted = true;
-      return null;
-    }
-    const pattern = segment[index];
-    const file = lines[start + index].text;
-    if (mode === "exact") {
-      if (file !== pattern.text) return null;
-    } else {
-      const next = fuzzyLine(file, pattern.text, add);
-      if (next === null) return null;
-      add = next;
-    }
-    rows.set(pattern.row, start + index);
-  }
-  return { rows, indentAdd: add ?? "" };
-}
-
 function matchAt(
   lines: SourceLine[],
   hunk: UdiffHunk,
@@ -121,55 +195,35 @@ function matchAt(
   mode: "exact" | "fuzzy",
   budget: MatchBudget,
 ): MatchAttempt {
-  const segments = patternSegments(hunk);
-  const limit = start + hunk.oldCount;
-  if (limit > lines.length) return { kind: "miss" };
-  const first = matchSegment(
-    lines,
-    segments[0],
-    start,
-    mode,
-    undefined,
-    budget,
-  );
-  if (!first) return { kind: budget.exhausted ? "limit" : "miss" };
-  const rows = first.rows;
-  let indentAdd = first.indentAdd;
-  let cursor = start + segments[0].length;
-  for (let segmentIndex = 1; segmentIndex < segments.length; segmentIndex++) {
-    const segment = segments[segmentIndex];
-    let found: ReturnType<typeof matchSegment> = null;
-    let foundAt = -1;
-    const last = segmentIndex === segments.length - 1;
-    const firstStart = last ? limit - segment.length : cursor + 1;
-    const lastStart = limit - segment.length;
-    for (let index = firstStart; index <= lastStart; index++) {
-      if (index <= cursor) continue;
-      const candidate = matchSegment(
-        lines,
-        segment,
-        index,
-        mode,
-        indentAdd,
-        budget,
-      );
-      if (!candidate) {
-        if (budget.exhausted) return { kind: "limit" };
-        continue;
-      }
-      if (found) return { kind: "ambiguous" };
-      found = candidate;
-      foundAt = index;
+  const source = pattern(hunk);
+  const limit = start + source.length;
+  if (start < 0 || limit > lines.length) return { kind: "miss" };
+  const rows = new Map<number, number>();
+  let indentAdd: string | undefined;
+  for (let index = 0; index < source.length; index++) {
+    if (budget.remaining-- <= 0) {
+      budget.exhausted = true;
+      return { kind: "limit" };
     }
-    if (!found) return { kind: "miss" };
-    for (const [row, line] of found.rows) rows.set(row, line);
-    indentAdd = found.indentAdd;
-    cursor = foundAt + segment.length;
+    const file = lines[start + index].text;
+    if (mode === "exact") {
+      if (file !== source[index].text) return { kind: "miss" };
+    } else {
+      const next = fuzzyLine(file, source[index].text, indentAdd);
+      if (next === null) return { kind: "miss" };
+      indentAdd = next;
+    }
+    rows.set(source[index].row, start + index);
   }
-  if (cursor !== limit) return { kind: "miss" };
   return {
     kind: "match",
-    value: { startLine: start, endLine: limit, rows, indentAdd, mode },
+    value: {
+      startLine: start,
+      endLine: limit,
+      rows,
+      indentAdd: indentAdd ?? "",
+      mode,
+    },
   };
 }
 
@@ -191,17 +245,19 @@ function searchAll(
   return found ? { kind: "match", value: found } : { kind: "miss" };
 }
 
-function resolveHunk(
+type Resolution = MatchAttempt | { kind: "bad_anchor" };
+
+function resolveExact(
   lines: SourceLine[],
   hunk: UdiffHunk,
   fuzzy: boolean,
   budget: MatchBudget,
-): MatchAttempt | { kind: "bad_anchor" } {
-  const sourceRows = hunk.rows.filter(
-    (row) => row.operation !== "add" && !row.elision,
-  );
+): Resolution {
+  const sourceRows = hunk.rows.filter((row) => row.operation !== "add");
   if (sourceRows.length === 0) {
-    if (hunk.oldStart < 0 || hunk.oldStart > lines.length)
+    // A pure insertion is placed solely by its coordinate, so a hunk whose
+    // header carried none cannot be placed at all.
+    if (!hunk.anchored || hunk.oldStart < 0 || hunk.oldStart > lines.length)
       return { kind: "bad_anchor" };
     return {
       kind: "match",
@@ -216,7 +272,7 @@ function resolveHunk(
   }
 
   const anchor = hunk.oldStart - 1;
-  if (anchor >= 0 && anchor < lines.length) {
+  if (hunk.anchored && anchor >= 0 && anchor < lines.length) {
     const exact = matchAt(lines, hunk, anchor, "exact", budget);
     if (exact.kind !== "miss") return exact;
     if (fuzzy) {
@@ -227,6 +283,31 @@ function resolveHunk(
   const exact = searchAll(lines, hunk, "exact", budget);
   if (exact.kind !== "miss" || !fuzzy) return exact;
   return searchAll(lines, hunk, "fuzzy", budget);
+}
+
+/**
+ * Resolve a hunk, escalating through the context-fuzz ladder on a total miss.
+ * Returns the hunk that actually matched: a fuzzed hunk's rows are what the
+ * resulting match indexes into, so the caller must splice from that one.
+ */
+function resolveHunk(
+  lines: SourceLine[],
+  hunk: UdiffHunk,
+  fuzzy: boolean,
+  budget: MatchBudget,
+): { attempt: Resolution; hunk: UdiffHunk } {
+  const attempt = resolveExact(lines, hunk, fuzzy, budget);
+  if (attempt.kind !== "miss" || !fuzzy) return { attempt, hunk };
+  for (const [lead, tail] of FUZZ_LEVELS) {
+    const candidate = fuzzHunk(hunk, lead, tail);
+    if (!candidate) continue;
+    const retry = resolveExact(lines, candidate, fuzzy, budget);
+    if (retry.kind === "miss") continue;
+    if (retry.kind === "match" && !boundaryHolds(lines, hunk, retry.value, lead, tail))
+      continue;
+    return { attempt: retry, hunk: candidate };
+  }
+  return { attempt, hunk };
 }
 
 /** Resolve every hunk against the immutable original, then apply all or none. */
@@ -242,25 +323,25 @@ export function applyUdiffs(
   let anyFuzzy = false;
   let newline: NewlineIntent | undefined;
   const budget: MatchBudget = { remaining: MAX_MATCH_WORK, exhausted: false };
-  for (const hunk of hunks) {
-    const resolved = resolveHunk(lines, hunk, fuzzy, budget);
-    if (resolved.kind === "bad_anchor")
+  for (const original of hunks) {
+    const { attempt, hunk } = resolveHunk(lines, original, fuzzy, budget);
+    if (attempt.kind === "bad_anchor")
       return { ok: false, error: { code: "bad_anchor", block: hunk.block } };
-    if (resolved.kind === "ambiguous")
+    if (attempt.kind === "ambiguous")
       return { ok: false, error: { code: "ambiguous", block: hunk.block } };
-    if (resolved.kind === "limit")
+    if (attempt.kind === "limit")
       return { ok: false, error: { code: "work_limit", block: hunk.block } };
-    if (resolved.kind === "miss")
+    if (attempt.kind === "miss")
       return {
         ok: false,
         error: { code: "not_found", block: hunk.block, fuzzy },
       };
-    const intent = newlineIntent(hunk, resolved.value, lines);
+    const intent = newlineIntent(hunk, attempt.value, lines);
     if (intent === false || (intent && newline && intent !== newline))
       return { ok: false, error: { code: "bad_newline", block: hunk.block } };
     if (intent) newline = intent;
-    anyFuzzy ||= resolved.value.mode === "fuzzy";
-    splices.push(...changeSplices(content, lines, hunk, resolved.value, eol));
+    anyFuzzy ||= attempt.value.mode === "fuzzy" || hunk !== original;
+    splices.push(...changeSplices(content, lines, hunk, attempt.value, eol));
   }
 
   splices.sort(

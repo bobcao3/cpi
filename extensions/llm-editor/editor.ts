@@ -40,7 +40,7 @@ export interface EditFileOptions {
   transcriptDir: string;
   maxTranscripts: number;
   maxFileBytes: number;
-  /** Toggles whitespace/elision fallback for hunk matching (default on). */
+  /** Toggles whitespace-fuzzy and context-fuzz fallbacks for matching (default on). */
   fuzzyMatch?: boolean;
   onStream?: (accumulated: string) => void;
   /** Optional thinking level for the Editor subagent. */
@@ -62,6 +62,12 @@ export type EditFileResult =
     }
   | { ok: false; error: string };
 
+/** One subagent round: applied, worth another round, or not worth retrying. */
+type Attempt =
+  | { ok: "applied"; result: UdiffApplyResult & { ok: true } }
+  | { ok: "retryable"; error: string }
+  | { ok: "fatal"; error: string };
+
 function formatParseError(T: EditorText, e: UdiffParseError): string {
   const values = { i: e.block ?? 0, line: e.line ?? 0 };
   switch (e.code) {
@@ -70,11 +76,8 @@ function formatParseError(T: EditorText, e: UdiffParseError): string {
     case "too_large": return fmt(T.errors.apply_too_large, values);
     case "bad_block": return fmt(T.errors.apply_bad_block, values);
     case "bad_header": return fmt(T.errors.apply_bad_header, values);
-    case "multiple_hunks": return fmt(T.errors.apply_multiple_hunks, values);
-    case "bad_prefix": return fmt(T.errors.apply_bad_prefix, values);
-    case "no_changes": return fmt(T.errors.apply_no_changes, values);
+    case "no_changes": return T.errors.apply_no_changes;
     case "bad_count": return fmt(T.errors.apply_bad_count, values);
-    case "bad_elision": return fmt(T.errors.apply_bad_elision, values);
     case "bad_newline": return fmt(T.errors.apply_bad_newline, values);
   }
 }
@@ -118,47 +121,95 @@ export async function editFile(path: string, opts: EditFileOptions): Promise<Edi
       };
     }
 
-    const task = fmt(T.tasks.editor, { content: numberLines(content), instruction: opts.instruction });
-    const systemPrompt =
+    let usage: { input: number; output: number } | undefined;
+    const numbered = numberLines(content);
+    const baseSystem =
       opts.fuzzyMatch === false ? T.system.editor : T.system.editor + T.system.editor_fuzzy;
-    const res = await runSubagent({
-      role: "editor",
-      systemPrompt,
-      task,
-      provider: opts.provider,
-      modelId: opts.modelId,
-      cwd: opts.cwd,
-      signal: opts.signal,
-      timeoutMs: opts.timeoutMs,
-      transcriptDir: opts.transcriptDir,
-      id: opts.id,
-      maxTranscripts: opts.maxTranscripts,
-      onStream: opts.onStream,
-      thinkingLevel: opts.thinkingLevel,
-    });
 
-    if (res.spawnError)
-      return { ok: false, error: fmt(T.errors.spawn_not_found, { reason: res.spawnError }) };
-    if (res.timedOut)
-      return { ok: false, error: fmt(T.errors.editor_timeout, { ms: opts.timeoutMs }) };
+    /**
+     * One subagent round. `failure`, when present, is the previous round's
+     * error: it both tells the subagent what went wrong and switches it to the
+     * rewrite mode, which is matched against nothing and so cannot repeat a
+     * transcription miss.
+     */
+    const attempt = async (failure?: string): Promise<Attempt> => {
+      const res = await runSubagent({
+        role: "editor",
+        systemPrompt: failure ? baseSystem + T.system.editor_rewrite : baseSystem,
+        task: failure
+          ? fmt(T.tasks.editor_retry, {
+              content: numbered,
+              instruction: opts.instruction,
+              failure,
+            })
+          : fmt(T.tasks.editor, { content: numbered, instruction: opts.instruction }),
+        provider: opts.provider,
+        modelId: opts.modelId,
+        cwd: opts.cwd,
+        signal: opts.signal,
+        timeoutMs: opts.timeoutMs,
+        transcriptDir: opts.transcriptDir,
+        id: failure ? `${opts.id}-retry` : opts.id,
+        maxTranscripts: opts.maxTranscripts,
+        onStream: opts.onStream,
+        thinkingLevel: opts.thinkingLevel,
+      });
 
-    // The completion tool call IS the signal: edit-complete with diffs => apply;
-    // cancel=true => abort; null/wrong tool => the subagent never completed.
-    const c = res.completion;
-    if (!c || c.tool !== "edit-complete") {
-      return { ok: false, error: T.errors.editor_truncated };
-    }
-    if (c.args.cancel === true) {
-      return { ok: false, error: T.errors.editor_cancelled };
-    }
+      if (res.spawnError)
+        return { ok: "fatal", error: fmt(T.errors.spawn_not_found, { reason: res.spawnError }) };
+      if (res.timedOut)
+        return { ok: "fatal", error: fmt(T.errors.editor_timeout, { ms: opts.timeoutMs }) };
 
-    const parsed = parseUdiffs(c.args.diffs);
-    if (parsed.ok === false) {
-      return { ok: false, error: formatParseError(T, parsed.error) };
-    }
-    const applied: UdiffApplyResult = applyUdiffs(content, parsed.hunks, { fuzzy: opts.fuzzyMatch });
-    if (applied.ok === false) {
-      return { ok: false, error: formatApplyError(T, applied.error) };
+      // The completion tool call IS the signal: edit-complete with diffs or
+      // content => apply; cancel=true => abort; null/wrong tool => truncation.
+      const c = res.completion;
+      if (!c || c.tool !== "edit-complete") return { ok: "fatal", error: T.errors.editor_truncated };
+      if (c.args.cancel === true) return { ok: "fatal", error: T.errors.editor_cancelled };
+      // Both rounds are billed, so the reported usage is their sum.
+      if (res.usage)
+        usage = {
+          input: (usage?.input ?? 0) + res.usage.input,
+          output: (usage?.output ?? 0) + res.usage.output,
+        };
+
+      // Two modes, per SWE-Edit §3.1. `content` is the rewrite escape hatch: the
+      // subagent supplies the finished file, so nothing has to be matched and a
+      // reflow or re-indent it could not transcribe surgically cannot fail.
+      const rewrite = typeof c.args.content === "string" ? c.args.content : undefined;
+      if (rewrite !== undefined) {
+        if (rewrite.trim() === "" && content.trim() !== "")
+          return { ok: "retryable", error: T.errors.rewrite_empty };
+        return {
+          ok: "applied",
+          result: {
+            ok: true,
+            content: rewrite,
+            applied: 1,
+            wholeFileRewrite: true,
+            match: "exact",
+          },
+        };
+      }
+      const parsed = parseUdiffs(c.args.diffs);
+      if (parsed.ok === false)
+        return { ok: "retryable", error: formatParseError(T, parsed.error) };
+      const result = applyUdiffs(content, parsed.hunks, { fuzzy: opts.fuzzyMatch });
+      if (result.ok === false)
+        return { ok: "retryable", error: formatApplyError(T, result.error) };
+      return { ok: "applied", result };
+    };
+
+    // A model cannot tell that it is about to mis-transcribe a line, so leaving
+    // the mode to its judgement leaves the escape hatch unused — offered, never
+    // chosen. The apply failure is the signal it lacks: retry exactly once, in
+    // rewrite mode, letting a format that cannot mis-match absorb what the diff
+    // could not express. Bounded at one retry, and only on a retryable failure.
+    let outcome = await attempt();
+    if (outcome.ok === "retryable") outcome = await attempt(outcome.error);
+    if (outcome.ok !== "applied") return { ok: false, error: outcome.error };
+    const applied = outcome.result;
+    if (applied.content === content) {
+      return { ok: false, error: T.errors.no_change };
     }
 
     // Atomic write: tmp file + rename. The file is never left half-written.
@@ -185,7 +236,7 @@ export async function editFile(path: string, opts: EditFileOptions): Promise<Edi
       wholeFileRewrite: applied.wholeFileRewrite,
       match: applied.match,
       lsp,
-      usage: res.usage,
+      usage,
     };
   });
 }
