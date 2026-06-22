@@ -24,15 +24,12 @@
  * Raw regex syntax: bare `(...)` capture, `|` alternation, `.` `*` `+` `?` `^`
  * `$` `[..]` `\d` `\w` `\s` are standard JS. No escaping beyond JSON's own; write
  * `(gpt-5).*` not `\(gpt-5\).*`. `$1` in `replace`, not `\1`.
- * Shipped defaults target the latest/best model at ≤0.6x of the main model's
- * cost (primary ~0.2x, fallback up to 0.6x) that is also ≤6 months old, per
- * family, relying on rule fall-through for the availability ladder. Stale
- * (>6mo) or retired models (e.g. grok-code-fast-1, gpt-4o-mini,
- * gemini-2.5-flash, claude-haiku-4-5) are never targets; identity keeps the
- * main when no fresh cheaper model exists.
- * GPT-5.6 sol and terra route to gpt-5.6-terra:minimal, GPT-5.6 luna routes to
- * gpt-5.6-luna:low, and other supported GPT-5/GPT-4o inputs route to
- * gpt-5.6-luna:medium.
+ * Choosing a target (the rules themselves live in cpi-config.default.json):
+ * rank candidates by measured cost per LANDED edit, not by per-token price. A
+ * rejected patch is not free — it costs another editor call plus a main-agent
+ * round trip — so a cheap model that misapplies a large fraction of its patches
+ * is the expensive one, and a per-token cost ceiling selects the wrong model.
+ * Prefer fresh models; identity keeps the main when nothing better qualifies.
  *
  * Resolution is EXACT (candidate must equal a registered model id). The only
  * transformation is `combinedInput.replace`, so what a rule does is fully
