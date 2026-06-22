@@ -159,7 +159,13 @@ def _cpi_agent_block(args: argparse.Namespace) -> list[str]:
         "    kwargs:",
     ]
     model_config_path = getattr(args, "model_config_path", None)
-    if model_config_path:
+    if args.builtin:
+        lines.extend([
+            f"      provider: {args.provider}",
+            f'      api_key: "{args.api_key}"',
+            "      builtin: true",
+        ])
+    elif model_config_path:
         lines.append(f"      model_config: {json.dumps(model_config_path)}")
     else:
         lines.extend([
@@ -308,6 +314,9 @@ def parse_args() -> argparse.Namespace:
                         "(providers/models, incl. compat, cost). --agent cpi only. "
                         "When given, overrides --endpoint/--model/--api-key/--provider/"
                         "--max-input-tokens/--max-output-tokens/--reasoning for the cpi models.json.")
+    p.add_argument("--builtin", action="store_true",
+                   help="Use a pi built-in provider (e.g. deepseek) without clobbering its models.json. "
+                        "Writes the API key to auth.json; models.json stays supplementary. --agent cpi only.")
     p.add_argument("--force-clone", action="store_true",
                    help="Re-clone TB2.1 repo even if it exists.")
     p.add_argument("--dry-run", action="store_true",
@@ -331,10 +340,19 @@ def main() -> int:
         args.model = model_id
         args.endpoint = cfg["providers"][provider].get("baseUrl", "")
         args.api_key = cfg["providers"][provider].get("apiKey", "NO")
-    if not args.model_config_path and (not args.endpoint or not args.model):
+    if args.builtin and args.model_config:
+        raise SystemExit("error: --builtin and --model-config are mutually exclusive")
+    if args.builtin:
+        if args.agent != "cpi":
+            raise SystemExit("error: --builtin requires --agent cpi")
+        if not args.model:
+            raise SystemExit("error: --model required for --builtin (e.g. deepseek-v4-pro)")
+        if args.provider == DEFAULT_PROVIDER:
+            raise SystemExit("error: --builtin requires --provider (a pi built-in, e.g. deepseek)")
+    if not args.model_config_path and not args.builtin and (not args.endpoint or not args.model):
         raise SystemExit(
             "error: --endpoint and --model are required "
-            "(or pass --model-config for --agent cpi)"
+            "(or pass --model-config / --builtin for --agent cpi)"
         )
     if args.job_name is None:
         args.job_name = default_job_name(args.model)

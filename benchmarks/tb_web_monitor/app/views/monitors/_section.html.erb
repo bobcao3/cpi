@@ -1,4 +1,6 @@
-<%# One section: a uniform <details> summary bar + optional body. The layout
-    is identical for every block kind; components only provide title/open/blocks.
-    A body-less section (message/verifier title) is "static" — same summary bar,
-    twisty hidden, nothing to toggle. %><details class="sec <%= section.name %><%= " err" if section.error %><%= " static" if section.header? %>"<%= " open" if section.open %>><summary><%= section.title %></summary><% unless section.header? %><div class="sec-body"><% Array(section.blocks).each do |b| %><%= render_content_block(b) %><% end %></div><% end %></details>
+<%# Most sections are a uniform <details> summary bar + optional body. The
+    layout is identical for every block kind; components only provide
+    title/open/blocks. A body-less section (message/verifier title) is "static"
+    — same summary bar, twisty hidden, nothing to toggle. A bare section
+    (message text) renders just the body, always expanded, with no collapse
+    toggle. %><% if section.bare? %><div class="text-body"><% Array(section.blocks).each do |b| %><%= render_content_block(b, markdown: [:text, :thinking].include?(section.name)) %><% end %></div><% else %><details class="sec <%= section.name %><%= " err" if section.error %><%= " static" if section.header? %>"<%= " open" if section.open %>><summary><%= section.title %></summary><% unless section.header? %><div class="sec-body"<%= ' data-controller="autoscroll-bottom"'.html_safe if section.name == :progress %>><% Array(section.blocks).each do |b| %><%= render_content_block(b, markdown: [:text, :thinking].include?(section.name)) %><% end %></div><% end %></details><% end %>

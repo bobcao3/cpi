@@ -4,8 +4,10 @@
 # can render a logically-identical DOM to the SolidJS app.
 require "rexml/document"
 require "rexml/formatters/pretty"
+require "redcarpet"
 
 module MonitorHelper
+  MARKDOWN = Redcarpet::Markdown.new(Redcarpet::Render::HTML.new(filter_html: true), autolink: true, fenced_code_blocks: true, no_intra_emphasis: true, tables: true, strikethrough: true)
   # fmt(): K/M suffix like the SolidJS fmt; "—" for nil.
   def fmt(n)
     return "—" if n.nil?
@@ -124,6 +126,8 @@ end
 
   # Block CSS class: kind + role / state / error.
   def blk_class(b)
+    css = Source.block_css(b)
+    return css if css
     case b.kind
     when :message  then "blk msg #{(b.event['message'] || {})['role']}"
     when :tool     then "blk tool #{b.state}#{' err' if b.state == :finalized && b.event['isError']}"
@@ -132,9 +136,9 @@ end
     end
   end
 
-  # "T+Ns" label for an Event, or "" when the timestamp is unknown.
-  def tplus(ev)
-    TranscriptBlock.tplus_label(ev.t_ms, ev.t0_ms).html_safe
+  # wall-clock + T+ stamp for an Event, or "" when the timestamp is unknown.
+  def stamp(ev)
+    TranscriptBlock.stamp(ev.t_ms, ev.t0_ms).html_safe
   end
 
   # Human label for a lifecycle event (the raw type otherwise).
@@ -150,16 +154,24 @@ end
     "· #{ERB::Util.html_escape(ev.event['cwd'].to_s)}".html_safe
   end
 
+  # Render markdown text to safe HTML, optionally wrapped in a CSS class.
+  def markdown(text, css_class: nil)
+    return "".html_safe if text.to_s.blank?
+    html = MonitorHelper::MARKDOWN.render(text.to_s)
+    css_class ? tag.div(html.html_safe, class: css_class) : html.html_safe
+  end
+
   # Render one content block verbatim — JSON/XML kept raw (comments visible),
-  # no flattening. b is a String or a Hash {type: text|thinking|toolCall}.
-  def render_content_block(b)
+  # no flattening. b is a String or a Hash {type: text|thinking|toolCall|raw}.
+  def render_content_block(b, markdown: false)
     return "".html_safe if b.nil?
     case b
     when String then tag.pre(pretty_format(b))
     when Hash
       case b["type"]
-      when "text"     then tag.pre(pretty_format(b["text"].to_s))
-      when "thinking" then tag.pre(b["thinking"].to_s, class: "c-think")
+      when "text"     then markdown ? markdown(b["text"].to_s, css_class: "md") : tag.pre(pretty_format(b["text"].to_s))
+      when "thinking" then markdown ? markdown(b["thinking"].to_s, css_class: "md c-think") : tag.pre(b["thinking"].to_s, class: "c-think")
+      when "raw"     then b["html"].to_s.html_safe
       when "toolCall"
         args = b["arguments"]
         body = args.is_a?(String) ? pretty_format(args) : JSON.pretty_generate(args || {})

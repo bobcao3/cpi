@@ -12,9 +12,6 @@
 <main>
   <div id="trials" data-controller="shuffle" data-monitor-target="trials" data-action="click->monitor#selectTrial">
     <table>
-      <thead>
-        <tr><th>reward</th><th>task</th></tr>
-      </thead>
       <tbody id="tbody">
         <%= render "trial_rows", trials: @trials, selected: @selected %>
       </tbody>

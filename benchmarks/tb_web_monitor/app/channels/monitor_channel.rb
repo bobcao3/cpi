@@ -52,12 +52,15 @@ class MonitorChannel < ApplicationCable::Channel
     else
       @t0 = nil
     end
+
+    @v_sig = verifier_sig
   end
 
   # Public so the periodically timer (instance_exec'd block) can call it.
   def tick
     @ticks = (@ticks || 0) + 1
     push_transcript
+    push_verdict
     push_stats if @ticks % SORT_EVERY == 0
   end
 
@@ -80,6 +83,7 @@ class MonitorChannel < ApplicationCable::Channel
   def push_transcript
     return unless @trial
     events, @t_off = Transcript.since(@job, @trial, @t_off)
+    @transcript_broadcast = false
     events.each do |ev|
       t = ev["type"]
       id = ev["toolCallId"]
@@ -88,29 +92,48 @@ class MonitorChannel < ApplicationCable::Channel
       @tool_updates[id] = (@tool_updates[id] || 0) + 1 if id && t == "tool_execution_update"
       case t
       when "tool_execution_update", "tool_execution_end"
+        @transcript_broadcast = true
         broadcast_block(:replace, TranscriptBlock::Block.new(
           kind: :tool, id: Transcript.tool_dom_id(id),
           state: (t == "tool_execution_end" ? :finalized : :streaming),
           tool_name: ev["toolName"], event: ev, args: @tool_args[id],
-          partial: @tool_partial[id], updates: @tool_updates[id] || 0))
+          partial: @tool_partial[id], updates: @tool_updates[id] || 0, t0_ms: @t0))
       when "message_start", "message_update"
         next
       when "tool_execution_start"
+        @transcript_broadcast = true
         broadcast_block(:append, TranscriptBlock::Block.new(
           kind: :tool, id: Transcript.tool_dom_id(id), state: :streaming,
           tool_name: ev["toolName"], event: ev, args: @tool_args[id],
-          partial: @tool_partial[id], updates: 0))
+          partial: @tool_partial[id], updates: 0, t0_ms: @t0))
       when "message_end"
         next if (ev["message"] || {})["role"] == "toolResult"
-        broadcast_block(:append, TranscriptBlock::Block.new(kind: :message, state: :finalized, event: ev))
+        @transcript_broadcast = true
+        broadcast_block(:append, TranscriptBlock::Block.new(kind: :message, state: :finalized, event: ev, t0_ms: @t0))
       else
         @t0 = TranscriptBlock.ts_to_ms(ev["timestamp"] || ev["ts"]) if t == "session" && @t0.nil?
+        @transcript_broadcast = true
         Turbo::StreamsChannel.broadcast_append_to("monitor:#{@job}:#{@trial}",
           target: "p-transcript", partial: "monitors/event",
           locals: { event: TranscriptBlock::Event.new(type: t,
                   t_ms: TranscriptBlock.ts_to_ms(ev["timestamp"] || ev["ts"]), t0_ms: @t0, event: ev) })
       end
     end
+  end
+
+  def push_verdict
+    return unless @trial
+
+    sig = verifier_sig
+    return if sig == @v_sig && !@transcript_broadcast
+
+    @v_sig = sig
+    return if sig.nil?
+
+    blk = TranscriptBlock.verifier_block(Verifier.for(@job, @trial))
+    Turbo::StreamsChannel.broadcast_remove_to("monitor:#{@job}:#{@trial}", target: blk.id)
+    Turbo::StreamsChannel.broadcast_append_to("monitor:#{@job}:#{@trial}", target: "p-transcript",
+      partial: "monitors/block", locals: { block: blk })
   end
 
   # Broadcast a Block: replace an existing tool block in place (update/end), or
@@ -128,5 +151,12 @@ class MonitorChannel < ApplicationCable::Channel
 
   def trials_sig
     TrialSummary.list(@job).to_json
+  end
+
+  def verifier_sig
+    v = Verifier.for(@job, @trial)
+    return nil if v.reward.nil? && v.stdout.nil?
+
+    v.to_json
   end
 end
