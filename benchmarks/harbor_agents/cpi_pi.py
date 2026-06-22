@@ -12,7 +12,7 @@ What this agent does:
   - runs `pi --print --mode json --no-session` per task, teeing to pi.txt,
   - parses assistant message_end usage for token/cost accounting.
 
-caveman-micro is on by default via cpi's shipped cpi-config.default.json.
+caveman-micro is off by default for new sessions (toggle via /caveman).
 
 Endpoint, model, provider, and cpi ref are CLI-driven (see
 run_terminal_bench_2_1.py with --agent cpi).

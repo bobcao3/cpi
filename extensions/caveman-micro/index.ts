@@ -75,7 +75,7 @@ function restoreFromBranch(ctx: ExtensionContext): void {
       }
     }
   }
-  cavemanEnabled = saved ?? true;
+  cavemanEnabled = saved ?? false;
 }
 
 // ── Extension Factory ───────────────────────────────────────────────────────
