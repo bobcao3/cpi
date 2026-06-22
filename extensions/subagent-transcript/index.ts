@@ -26,7 +26,7 @@
 
 import { writeFileSync } from "node:fs";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { renderToolCallMarkdown, type ToolCallBlock } from "../lib/transcript-registry.ts";
+import { renderToolCallMarkdown, shortToolCallId, type ToolCallBlock } from "../lib/transcript-registry.ts";
 import { getSubagentUsage, formatCost } from "../lib/cost-ledger.ts";
 
 const SUMMARY_PATH = process.env.PI_SUBAGENT_SUMMARY;
@@ -82,7 +82,7 @@ function renderMessage(m: any): string {
   } else if (role === "toolResult") {
     const flag = m.isError ? " [error]" : "";
     out.push(
-      `**result** ${m.toolName ?? ""} \`${m.toolCallId ?? ""}\`${flag}`,
+      `**result** ${m.toolName ?? ""} \`${shortToolCallId(m.toolCallId, m.toolName ?? "")}\`${flag}`,
       "",
       "```",
       textOf(m.content) || "(no output)",
