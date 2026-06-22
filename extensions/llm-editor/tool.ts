@@ -285,7 +285,7 @@ async function executeWrite(
     } catch (e) {
       const code = (e as Error & { code?: string }).code;
       if (code === "EEXIST") return errorResult(id, "write", abs, fmt(T.errors.file_exists, { path: abs }));
-      return errorResult(id, "write", abs, fmt(T.errors.create_failed, { reason: (e as Error).message }));
+      return errorResult(id, "write", abs, fmt(T.errors.create_failed, { path: abs, reason: (e as Error).message }));
     }
     const body = [field("created", undefined, { bytes: Buffer.byteLength(fileText, "utf-8") })];
     const lsp = await lspFields(abs);

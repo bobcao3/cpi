@@ -60,9 +60,16 @@ export default function (pi: ExtensionAPI): void {
 
   if (!role || role === "viewer") {
     const parameters = Type.Object({
-      ranges: Type.Array(Type.Tuple([Type.Number(), Type.Number()]), {
-        description: T.completion.schema.ranges,
-      }),
+      ranges: Type.Array(
+        Type.Object(
+          {
+            start: Type.Number({ description: T.completion.schema.range_start }),
+            end: Type.Number({ description: T.completion.schema.range_end }),
+          },
+          { additionalProperties: false },
+        ),
+        { description: T.completion.schema.ranges },
+      ),
     });
     pi.registerTool({
       name: "view-complete",

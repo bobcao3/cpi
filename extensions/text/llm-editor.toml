@@ -22,12 +22,12 @@ You will be given:
 
 Consider function/method definitions, class definitions, variable declarations, imports, comments, and any code blocks that implement functionality related to the query.
 
-OUTPUT: call the `view-complete` tool with `ranges` = a JSON array of line ranges. Each range is [start_line, end_line] (inclusive, 1-indexed). Do not print the ranges as text.
+OUTPUT: call the `view-complete` tool with `ranges` = a JSON array of line ranges. Each range is {"start": start_line, "end": end_line} (inclusive, 1-indexed). Do not print the ranges as text.
 
-Example: view-complete({ ranges: [[10, 25], [45, 60], [100, 115]] })
+Example: view-complete({ ranges: [{"start": 10, "end": 25}, {"start": 45, "end": 60}, {"start": 100, "end": 115}] })
 
 RULES:
-1. `ranges` is a JSON array of [start_line, end_line] pairs, 1-indexed and inclusive.
+1. `ranges` is a JSON array of {"start": start_line, "end": end_line} objects, 1-indexed and inclusive.
 2. Each range must include complete logical blocks (do not split functions/classes).
 3. Include a few lines of context before and after each relevant section.
 4. If nothing is relevant, call with `ranges = []`.
@@ -37,11 +37,11 @@ RULES:
 
 Example 1 - Finding a specific function:
 Query: "Where is the calculate_total function defined?"
-view-complete({ ranges: [[15, 28]] })
+view-complete({ ranges: [{"start": 15, "end": 28}] })
 
 Example 2 - Finding multiple related sections:
 Query: "How is user authentication handled?"
-view-complete({ ranges: [[5, 8], [23, 45], [102, 130]] })
+view-complete({ ranges: [{"start": 5, "end": 8}, {"start": 23, "end": 45}, {"start": 102, "end": 130}] })
 
 Example 3 - Nothing relevant found:
 Query: "Where is the database connection configured?"
@@ -168,26 +168,26 @@ restart_hint = "LSP auto-started for {{root}}. If the env is wrong, run 'lsp sta
 aborted = "Aborted before start."
 not_found = "Not found: {{path}}"
 not_a_file = "Not a file: {{path}}"
-file_too_large = "File is {{size}} bytes (limit {{limit}}); too large for editor to load ({{path}}). Use sh to inspect regions (`rg` to locate, `sed -n 'M,Np'` to read a range); editor cannot load this file."
+file_too_large = "{{path}} is {{size}}B (limit {{limit}}B) — too large to load. Use sh: `rg` to locate, `sed -n 'M,Np'` to read a range."
 cannot_read = "Cannot read {{path}}: {{reason}}"
-create_requires_text = "create requires file_text."
-file_exists = "File already exists: {{path}}. Use editor edit to modify it."
-create_failed = "Create failed: {{reason}}"
+create_requires_text = "write requires file_text."
+file_exists = "{{path}} already exists — use `edit` to modify it."
+create_failed = "Could not create {{path}}: {{reason}}"
 edit_requires_instruction = "edit requires an instruction."
 no_editor_model = "editor: no editor model (no editor config and no main model)."
 invalid_chain_regex = '[editor] chain rule {{i}}: invalid regex "{{pattern}}"; skipping.'
 configured_unavailable = '[editor] configured editor.model "{{model}}" not available/authed; falling back to chain.'
 viewer_timeout = "Viewer subagent timed out after {{ms}}ms. Consider fewer query statements & use concrete keywords."
-editor_timeout = "Editor subagent timed out after {{ms}}ms. Consider reducing scope & increase specificity"
+editor_timeout = "Editor subagent timed out after {{ms}}ms. Consider reducing scope & increase specificity."
 editor_cancelled = "Editor subagent cancelled the edit (edit-complete cancel=true)."
-editor_truncated = "Editor subagent did not signal completion (edit-complete not called — output was truncated/incomplete). Re-run the edit."
-viewer_truncated = "Viewer subagent did not call view-complete (output was truncated/incomplete). Re-run the read."
-viewer_bad_output = "view-complete returned malformed ranges (not a JSON array of [start, end] pairs).\nOutput: {{tail}}"
-write_failed = "Write failed: {{reason}}"
+editor_truncated = "Editor subagent never called edit-complete (output truncated). Re-run the edit."
+viewer_truncated = "Viewer subagent never called view-complete (output truncated). Re-run the read."
+viewer_bad_output = "view-complete returned malformed ranges (not a JSON array of {start, end} objects).\nOutput: {{tail}}"
+write_failed = "Could not write {{path}}: {{reason}}"
 spawn_not_found = "pi binary not found on PATH: {{reason}}"
 apply_no_blocks = "edit-complete was called with no edits."
 apply_not_found = "Edit {{i}}: oldText not found in file. It must match exactly (whitespace/indentation)."
-apply_not_found_fuzzy = "Edit {{i}}: oldText not found in file. Both exact match and fuzzy fallback (uniform-indent tolerance + ... elision) failed."
+apply_not_found_fuzzy = "Edit {{i}}: oldText not found. Exact match and fuzzy fallback (uniform-indent tolerance + `...` elision) both missed."
 apply_not_unique = "Edit {{i}}: oldText is not unique ({{n}} matches). Add more surrounding context."
 apply_empty_with_others = "Empty oldText (whole-file rewrite) cannot coexist with other edits."
 apply_overlap = "Edit {{i}} overlaps edit {{j}}. Merge or separate them."
@@ -215,11 +215,11 @@ For `read` with a query and `edit`, the subagent transcript is persisted at {{di
 #    files — it hands edits back to the parent, which applies them with cpi's own
 #    atomic apply engine. Plain text (no HTML escaping). ──
 [completion.view_complete]
-description = "Return the relevant line ranges from the file and end your turn. Call this exactly once with `ranges` = a JSON array of [start_line, end_line] inclusive 1-indexed line ranges. Do not print the ranges as text."
+description = "Return the relevant line ranges from the file and end your turn. Call this exactly once with `ranges` = a JSON array of line-range objects, each with numeric `start` and `end` fields (inclusive, 1-indexed). Do not print the ranges as text."
 prompt_snippet = "Return relevant line ranges"
 guidelines = [
 	"Output ONLY by calling this tool — never print the ranges as text.",
-	"`ranges` is a JSON array of [start, end] pairs, 1-indexed and inclusive.",
+	"`ranges` is a JSON array of objects, each with numeric `start` and `end` fields, 1-indexed and inclusive.",
 	"Each range must include complete logical blocks with a few lines of context before and after.",
 	"Sort ranges by start line; merge overlapping or adjacent ranges.",
 	"If nothing is relevant, call with `ranges = []`.",
@@ -240,7 +240,9 @@ guidelines = [
 ]
 
 [completion.schema]
-ranges = "JSON array of [start_line, end_line] inclusive 1-indexed line ranges relevant to the query."
+ranges = "JSON array of line-range objects, each with numeric `start` and `end` fields (inclusive, 1-indexed), relevant to the query."
+range_start = "Start line of this range, 1-indexed and inclusive."
+range_end = "End line of this range, 1-indexed and inclusive."
 edits = "One or more targeted replacements. Each edit is matched against the original file, not incrementally. Do not include overlapping or nested edits; merge nearby changes into one edit instead."
 oldText = "Exact text for one targeted replacement. It must be unique in the original file and must not overlap any other edits[].oldText in the same call."
 newText = "Replacement text for this targeted edit."
