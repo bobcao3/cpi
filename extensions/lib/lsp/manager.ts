@@ -75,7 +75,8 @@ export async function ensureSession(
   // of racing a second spawn against the same (language, root).
   for (;;) {
     const existing = st.sessions.get(id);
-    const envChanged = existing ? existing.envPath !== opts.envPath : false;
+    // Only an EXPLICITLY-provided differing envPath restarts (the §5 dot_env reload path). An undefined opts.envPath means "no override" — keep the existing session's env, so `lsp check`/`checkFile` (which pass no envPath) don't restart (and break) an env-provided session (e.g. ruby-lsp under a Mise dotenv, or pyrefly in a venv).
+    const envChanged = existing && opts.envPath !== undefined ? existing.envPath !== opts.envPath : false;
     if (existing && !opts.force && !envChanged && existing.state !== "dead") return existing;
     const pending = st.inflight.get(id);
     if (!pending) break;

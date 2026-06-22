@@ -37,6 +37,7 @@ const source = d.source;
 const startupTimeoutMs = d.startupTimeoutMs;
 const lintTimeoutMs = d.lintTimeoutMs;
 const rootUri = d.rootUri;
+const diagnosticMode = d.diagnosticMode || "push";
 const logPath = spawnDir.logPath || null;
 
 let proc = null;
@@ -226,6 +227,9 @@ async function start() {
           textDocument: {
             synchronization: { didOpen: true, didChange: true, didClose: true },
             publishDiagnostics: {},
+            ...(diagnosticMode === "pull"
+              ? { diagnostic: { interFileDependencies: false, workspaceDiagnostics: false } }
+              : {}),
           },
         },
         initializationOptions: initOptions,
@@ -269,10 +273,17 @@ parentPort.on("message", (msg) => {
         resolve(dd);
       };
       const t = setTimeout(() => finish([]), lintTimeoutMs);
-      diags.set(uri, finish);
       sendNotif("textDocument/didOpen", {
         textDocument: { uri, languageId: msg.languageId, version: 1, text: msg.text },
       });
+      if (diagnosticMode === "pull") {
+        sendReq("textDocument/diagnostic", { textDocument: { uri } }).then(
+          (report) => finish(report?.items ?? []),
+          () => finish([]),
+        );
+      } else {
+        diags.set(uri, finish);
+      }
     });
     const diagnostics = (raw ?? []).map((dd) => toDiag(dd, file));
     post({ type: "result", id: msg.id, diagnostics });

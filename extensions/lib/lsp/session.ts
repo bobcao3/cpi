@@ -71,11 +71,11 @@ export function sessionId(language: Language, root: string): string {
 }
 
 export function sourceName(language: Language): string {
-  return language === "typescript" ? "tsserver" : language === "python" ? "pyrefly" : "shuck";
+  return language === "typescript" ? "tsserver" : language === "python" ? "pyrefly" : language === "ruby" ? "ruby-lsp" : "shuck";
 }
 
 export function extForLanguage(language: Language): string {
-  return language === "typescript" ? ".ts" : language === "python" ? ".py" : ".sh";
+  return language === "typescript" ? ".ts" : language === "python" ? ".py" : language === "ruby" ? ".rb" : ".sh";
 }
 
 export function mergeSpawnEnv(envPath?: string): NodeJS.ProcessEnv {
@@ -189,6 +189,7 @@ export function spawnSession(
         logPath,
       },
       initOptions: spec.initOptions,
+      diagnosticMode: spec.diagnosticMode ?? "push",
       source: sourceName(session.language),
       startupTimeoutMs: cfg.startupTimeoutMs,
       lintTimeoutMs: cfg.lintTimeoutMs,
