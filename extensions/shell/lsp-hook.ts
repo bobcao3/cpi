@@ -17,7 +17,7 @@ import { detectEdits, type EditTarget } from "./edit-detect.ts";
 import type { JsonNode as Node } from "../lib/tree-sitter.ts";
 import { checkFile, findSession } from "../lib/lsp/manager.ts";
 import { discoverProjectRoot, languageByPath } from "../lib/lsp/discover.ts";
-import { formatDiagnostics } from "../lib/lsp/diagnostics.ts";
+import { renderDiagnostics } from "../lib/lsp/diagnostics-overflow.ts";
 
 export interface LspHookResult {
   /** Aggregated formatted diagnostics across edits with a ready session. */
@@ -53,7 +53,8 @@ export async function postRunLspCheck(edits: EditTarget[]): Promise<LspHookResul
       if (sess && sess.state === "ready") {
         const diags = await checkFile(t.path);
         if (diags.length > 0) {
-          const block = `${t.path}\n${formatDiagnostics(diags)}`;
+          const rendered = await renderDiagnostics(diags);
+          const block = `${t.path}\n${rendered.text}`;
           appendedText = appendedText === undefined ? block : `${appendedText}\n${block}`;
         }
       } else {

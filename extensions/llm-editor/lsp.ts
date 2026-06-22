@@ -15,7 +15,7 @@
 import { ensureSession, checkFile } from "../lib/lsp/manager.ts";
 import { awaitReady } from "../lib/lsp/session.ts";
 import { discoverProjectRoot, languageByPath } from "../lib/lsp/discover.ts";
-import { formatDiagnostics } from "../lib/lsp/diagnostics.ts";
+import { renderDiagnostics } from "../lib/lsp/diagnostics-overflow.ts";
 import { loadLspConfig } from "../lib/config.ts";
 import { loadEditorText, fmt } from "./text.ts";
 import { field } from "./result-xml.ts";
@@ -44,9 +44,10 @@ export async function lspFields(abs: string): Promise<string> {
       });
     }
     const diags = await checkFile(abs);
+    const rendered = await renderDiagnostics(diags);
     return [
       field("lsp", "started", { project: root, bin: session.bin, state: session.state }),
-      field("diagnostics", formatDiagnostics(diags) || T.lsp.diagnostics_none),
+      field("diagnostics", rendered.text || T.lsp.diagnostics_none),
       `  <!-- ${fmt(T.lsp.restart_hint, { root, path: abs })} -->`,
     ].join("\n");
   } catch {

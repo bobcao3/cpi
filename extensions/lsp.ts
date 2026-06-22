@@ -31,7 +31,7 @@ import {
   type Language,
 } from "./lib/lsp/discover.ts";
 import { loadLspConfig } from "./lib/config.ts";
-import { formatDiagnostics } from "./lib/lsp/diagnostics.ts";
+import { renderDiagnostics } from "./lib/lsp/diagnostics-overflow.ts";
 import { loadText, render, renderLines, textPath, type ToolText } from "./lib/text.ts";
 
 interface LspParams {
@@ -167,7 +167,7 @@ async function doCheck(p: LspParams) {
     );
   }
   const diags = await checkFile(abs);
-  return textResult(diags.length ? formatDiagnostics(diags) : `no diagnostics for ${p.file}`);
+  return textResult(diags.length ? (await renderDiagnostics(diags)).text : `no diagnostics for ${p.file}`);
 }
 
 export default async function lspExtension(pi: ExtensionAPI): Promise<void> {
