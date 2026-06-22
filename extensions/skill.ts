@@ -1,9 +1,9 @@
 import { Type } from "typebox";
 import type { AgentToolResult, ExtensionAPI, Skill } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
-import { readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { resolve, sep } from "node:path";
-import { loadText, render, textPath, type ToolText } from "./lib/text.ts";
+import { loadText, render, renderLines, textPath, type ToolText } from "./lib/text.ts";
 
 import { registerSystemPromptTransform } from "./lib/system-prompt.ts";
 
@@ -54,6 +54,26 @@ function resolveSubdoc(baseDir: string, subdoc: string): string {
   return resolved;
 }
 
+function listSubdocs(baseDir: string, excludeAbs: string): string[] {
+  let entries: string[];
+  try {
+    entries = readdirSync(baseDir, { recursive: true }) as string[];
+  } catch {
+    return [];
+  }
+  const out: string[] = [];
+  for (const rel of entries) {
+    const abs = resolve(baseDir, rel);
+    if (abs === excludeAbs) continue;
+    try {
+      if (statSync(abs).isFile()) out.push(rel);
+    } catch {
+      /* skip non-statable entries */
+    }
+  }
+  return out.sort();
+}
+
 function skillBlurb(name: string, subdoc: string | undefined, theme: any): string {
   let text = theme.fg("toolTitle", "Using skill: ");
   text += theme.fg("accent", name);
@@ -79,7 +99,7 @@ export default function (pi: ExtensionAPI) {
       label: "Skill",
       description: buildSkillToolDescription(skillList),
       promptSnippet: SKILL_TEXT.tool.prompt_snippet,
-      promptGuidelines: render(SKILL_TEXT.guidelines.bullets, {}).split("\n"),
+      promptGuidelines: renderLines(SKILL_TEXT.guidelines.bullets, {}),
       parameters: Type.Object({
         name: Type.String({ description: SKILL_TEXT.schema!.name }),
         subdoc: Type.Optional(
@@ -94,13 +114,13 @@ export default function (pi: ExtensionAPI) {
         if (result.isError) {
           return undefined;
         }
-        const details = result.details as { available?: string[] } | undefined;
+        const details = result.details as { available?: string[]; kind?: "skill" | "subdoc" } | undefined;
         if (details?.available) {
-          return new Text(
-            theme.fg("warning", `Tried to invoke unknown skill: ${context.args.name}`),
-            0,
-            0,
-          );
+          const what =
+            details.kind === "subdoc"
+              ? `subdoc ${context.args.name}/${context.args.subdoc}`
+              : `skill ${context.args.name}`;
+          return new Text(theme.fg("warning", `Tried to invoke unknown ${what}`), 0, 0);
         }
         return new Text(theme.fg("dim", "\u200b"), 0, 0);
       },
@@ -122,6 +142,18 @@ export default function (pi: ExtensionAPI) {
         let target: string;
         if (params.subdoc?.trim()) {
           target = resolveSubdoc(ref.baseDir, params.subdoc.trim());
+          if (!existsSync(target) || !statSync(target).isFile()) {
+            const subs = listSubdocs(ref.baseDir, ref.filePath);
+            return {
+              content: [
+                {
+                  type: "text",
+                  text: `Unknown subdoc: ${params.subdoc} in skill ${params.name}. Available subdocs: ${subs.join(", ") || "none"}`,
+                },
+              ],
+              details: { available: subs, kind: "subdoc" },
+            };
+          }
         } else {
           target = ref.filePath;
         }

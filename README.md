@@ -137,11 +137,11 @@ See `cpi-config.default.json` for the full documented defaults. Current sections
   "shell": {
     "defaultWaitfor": 5, // seconds to wait before backgrounding (default: 5)
     "maxWaitfor": 30, // max allowed waitfor; larger errors (default: 30)
-    "maxPreviewLines": 500, // agent head/tail line cap (default: 500)
-    "previewMaxBytes": 10240, // agent head/tail byte cap (default: 10240)
+    "maxPreviewLines": 500, // agent output line cap, tail preview (default: 500)
+    "previewMaxBytes": 10240, // agent output byte cap, tail preview (default: 10240)
     "maxAcc": 4194304, // in-memory output acc cap before trim (default: 4MB)
     "updateMs": 200, // min ms between streaming partials; 0 = off (default: 200)
-    "tailLines": 5, // TUI folded-preview lines, independent of head/tail (default: 5)
+    "tailLines": 5, // TUI folded-preview lines, independent of agent truncation (default: 5)
     "describeMax": 48, // max chars of the `describe` summary in UI (default: 48)
   },
 }
@@ -151,11 +151,11 @@ See `cpi-config.default.json` for the full documented defaults. Current sections
 | ----------------- | ------ | --------- | -------------- | ----------------------------------------------------------------------------- |
 | `defaultWaitfor`  | number | `5`       | > 0            | Seconds to wait before backgrounding when no `waitfor` is passed              |
 | `maxWaitfor`      | number | `30`      | > 0            | Maximum allowed `waitfor`; larger values are rejected with an error           |
-| `maxPreviewLines` | number | `500`     | 1–10000        | Agent-facing head/tail line cap (also the default tail when neither is given) |
-| `previewMaxBytes` | number | `10240`   | 1024–1048576   | Agent-facing head/tail byte cap (whichever limit hits first wins)             |
+| `maxPreviewLines` | number | `500`     | 1–10000        | Agent-facing output line cap (tail preview)                                   |
+| `previewMaxBytes` | number | `10240`   | 1024–1048576   | Agent-facing output byte cap (whichever limit hits first wins)               |
 | `maxAcc`          | number | `4194304` | 65536–67108864 | Max bytes accumulated in memory per shell before trimming                     |
 | `updateMs`        | number | `200`     | 0–60000        | Min ms between streaming partial updates; `0` disables throttling             |
-| `tailLines`       | number | `5`       | 1–200          | TUI folded-preview line count — independent of agent head/tail                |
+| `tailLines`       | number | `5`       | 1–200          | TUI folded-preview line count — independent of agent truncation               |
 | `describeMax`     | number | `48`      | 8–200          | Max chars of the `describe` summary shown in the UI                           |
 
 `tailLines` (TUI folding) and `maxPreviewLines`/`previewMaxBytes` (agent truncation) are independent: changing one never affects the other.

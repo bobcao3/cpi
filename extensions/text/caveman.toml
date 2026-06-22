@@ -5,4 +5,4 @@ description = "Toggle caveman-micro compression on/off (or: /caveman on|off|stat
 prompt_snippet = ""
 
 [guidelines]
-bullets = ""
+bullets = []

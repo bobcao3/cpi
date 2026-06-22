@@ -45,7 +45,7 @@ import {
   isVideoPath,
   resolveMediaPath,
 } from "./lib/media.ts";
-import { loadText, render, textPath, type ToolText } from "./lib/text.ts";
+import { loadText, render, renderLines, textPath, type ToolText } from "./lib/text.ts";
 
 const TOOL = "read_media";
 
@@ -81,7 +81,7 @@ function reconcileActive(pi: ExtensionAPI, model: Model<any> | undefined): void 
 
 export default function readMediaExtension(pi: ExtensionAPI): void {
   const T = loadText<ToolText>("read-media", textPath("read-media"));
-  const guidelines = render(T.guidelines.bullets, {}).split("\n");
+  const guidelines = renderLines(T.guidelines.bullets, {});
   const schema = Type.Object({
     path: Type.String({ description: T.schema!.path }),
   });

@@ -10,7 +10,6 @@ prompt_snippet = "Read image files inline"
 path = "Path to the image file to read (relative or absolute, ~ expanded)"
 
 [guidelines]
-bullets = '''
-Use read_media to view image files (jpg, png, gif, webp); do not cat/sed/base64 them.
-read_media is vision-gated: if it is unavailable the current model cannot see images.
-For video, extract frames with ffmpeg via bash, then read_media the frames.'''
+bullets = [
+  "Use read_media to view image files (jpg, png, gif, webp); do not cat/sed/base64 them.",
+]

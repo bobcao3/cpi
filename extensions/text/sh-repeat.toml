@@ -7,15 +7,12 @@ prompt_snippet = "Poll with repeated shell commands"
 [schema]
 command = "Command to run repeatedly"
 interval = "Seconds between repetitions (5-60)"
-describe = "Short description of what this monitor is doing (a few words)"
+description = "Short description of what this monitor is doing (a few words)"
 env = "Dotenv merged into monitor env; dotenv wins"
 
 [guidelines]
-bullets = '''
-Use sh_repeat_until for active polling, not for passive waits; prefer the `alarm` tool for simple delayed wake-ups.
-sh_repeat_until interval must be between 5 and 60 seconds.
-If a sh_repeat_until invocation takes longer than its interval, the monitor stops and emits a repeat-breach notification.
-For sh_repeat_until, exit code 0 means the condition is not met yet; keep polling. Any non-zero exit code stops the monitor.
-When the monitor stops (any non-zero exit), exactly one notification fires; it does not say whether the final run succeeded or failed.
-The notification includes the monitor log file path and the line range for the stopping invocation.
-Cancel a repeat monitor with sh_signal using its rpt- ID; SIGKILL terminates immediately.'''
+bullets = [
+  "For sh_repeat_until, interval must be set between 5 and 60 seconds; if an invocation takes longer than the interval, the loop gets killed with a repeat-breach error.",
+  "For sh_repeat_until, the command invokes repeatedly as long as command returns 0. Any non-zero exit code stops the monitor; agent gets a notification (the exit code, the monitor log path, and the log line-range for the last invocation).",
+  "To cancel a repeat monitor, `sh_signal SIGKILL` using the monitor's `rpt-` ID.",
+]

@@ -32,7 +32,7 @@ import { deepMerge } from "./config.ts";
 export interface ToolText {
   tool: { description: string; prompt_snippet: string };
   schema?: Record<string, string>;
-  guidelines: { bullets: string };
+  guidelines: { bullets: string[] };
 }
 
 const TEXT_DIR = fileURLToPath(new URL("../text/", import.meta.url));
@@ -54,6 +54,24 @@ const NO_ESCAPE = (text: string): string => text;
 export function render(tpl: string, ctx: Record<string, unknown> | undefined): string {
   if (!tpl) return "";
   return Mustache.render(tpl, ctx ?? {}, undefined, { escape: NO_ESCAPE });
+}
+
+/**
+ * Render each guideline template against `ctx`, dropping any that render to an
+ * empty (or whitespace-only) string — e.g. a falsy inline `{{#switch}}…{{/}}`
+ * section. Returns the surviving lines in order.
+ */
+export function renderLines(
+  tpls: string[] | undefined,
+  ctx: Record<string, unknown> | undefined,
+): string[] {
+  if (!tpls) return [];
+  const out: string[] = [];
+  for (const tpl of tpls) {
+    const line = render(tpl, ctx);
+    if (line.trim() !== "") out.push(line);
+  }
+  return out;
 }
 
 // ── Loader ──────────────────────────────────────────────────────────────────

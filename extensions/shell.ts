@@ -42,7 +42,7 @@ import { checkRules, formatRuleMatches } from "./shell/rules.ts";
 import { surfaceCdAgents } from "./shell/cd-targets.ts";
 import { runLspHook } from "./shell/lsp-hook.ts";
 import { formatAgentsBlock } from "./lib/agents.ts";
-import { loadText, render, textPath } from "./lib/text.ts";
+import { loadText, render, renderLines, textPath } from "./lib/text.ts";
 const SH_TOOL = "sh",
   SH_SIGNAL_TOOL = "sh_signal",
   SH_REPEAT_TOOL = "sh_repeat_until",
@@ -51,15 +51,12 @@ interface ShellText {
   sh: { description: string; prompt_snippet: string };
   sh_signal: { description: string; prompt_snippet: string };
   sh_background_ps: { description: string; prompt_snippet: string };
-  guidelines: { sh: string; sh_signal: string; sh_background_ps: string };
+  guidelines: { sh: string[]; sh_signal: string[]; sh_background_ps: string[] };
   schema: { sh: Record<string, string>; sh_signal: Record<string, string> };
 }
 const SLEEP_UNITS: Record<string, number> = { s: 1, m: 60, h: 3600, d: 86400 };
 const fmtDiags = (diags: any[], fmt: (d: any[]) => string) => (diags.length ? fmt(diags) : "");
-const errReturn = (text: string) => ({ content: [{ type: "text" as const, text }], isError: true });
 let shellStatus: ShellStatusRefresher | null = null;
-// Last command that reached execute (post schema-validation); `!!` replays it.
-let lastShCommand: string | null = null;
 
 function disableBuiltinBash(pi: ExtensionAPI): void {
   const active = pi.getActiveTools();
@@ -132,18 +129,12 @@ export default async function (pi: ExtensionAPI) {
     shuck: availability.shuck,
     tree_sitter: availability.treeSitter,
   };
-  const commonGuidelines = render(T.guidelines.sh, switches).split("\n");
+  const commonGuidelines = renderLines(T.guidelines.sh, switches);
 
   const shSchema = Type.Object({
     description: Type.String({ description: T.schema.sh.description }),
     waitfor: Type.Optional(
       Type.Number({ description: render(T.schema.sh.waitfor, switches) }),
-    ),
-    head: Type.Optional(
-      Type.Number({ description: render(T.schema.sh.head, switches) }),
-    ),
-    tail: Type.Optional(
-      Type.Number({ description: render(T.schema.sh.tail, switches) }),
     ),
     command: Type.String({ description: T.schema.sh.command }),
     env: Type.Optional(Type.String({ description: T.schema.sh.env })),
@@ -159,12 +150,6 @@ export default async function (pi: ExtensionAPI) {
     async execute(_toolCallId, params, signal, onUpdate, ctx) {
       if (signal?.aborted)
         return { content: [{ type: "text", text: "Aborted before start." }], isError: true };
-      if (params.command === "!!") {
-        if (lastShCommand === null)
-          return errReturn("No previous command to replay (!!): this is the first sh call in the session.");
-        params.command = lastShCommand;
-      }
-      lastShCommand = params.command;
       if (params.waitfor !== undefined && params.waitfor > MAX_WAITFOR)
         return {
           content: [
@@ -175,26 +160,7 @@ export default async function (pi: ExtensionAPI) {
           ],
           isError: true,
         };
-      if (params.head !== undefined && params.tail !== undefined)
-        return errReturn("head and tail are mutually exclusive; pass at most one.");
-      if (
-        params.head !== undefined &&
-        (!Number.isInteger(params.head) || params.head < 1 || params.head > MAX_PREVIEW_LINES)
-      )
-        return errReturn(
-          `head must be an integer in 1..${MAX_PREVIEW_LINES} (got ${params.head}).`,
-        );
-      if (
-        params.tail !== undefined &&
-        (!Number.isInteger(params.tail) || params.tail < 1 || params.tail > MAX_PREVIEW_LINES)
-      )
-        return errReturn(
-          `tail must be an integer in 1..${MAX_PREVIEW_LINES} (got ${params.tail}).`,
-        );
-      const truncation: OutputTruncation =
-        params.head !== undefined
-          ? { mode: "head", maxLines: params.head }
-          : { mode: "tail", maxLines: params.tail ?? MAX_PREVIEW_LINES };
+      const truncation: OutputTruncation = { maxLines: MAX_PREVIEW_LINES };
       const effectiveWaitfor = params.waitfor ?? DEFAULT_WAITFOR;
       // Inline sleep guard
       const sleepMatch = [
@@ -233,10 +199,10 @@ export default async function (pi: ExtensionAPI) {
       ].filter(Boolean);
       if (errParts.length) {
         const { text, fullOutputPath } = await buildOutputText(errParts.join("\n"), {
-          persistIfTruncated: true,
-          emptyText: "(no detail)",
-          truncation: { mode: "tail", maxLines: MAX_PREVIEW_LINES },
-          tunables,
+         persistIfTruncated: true,
+         emptyText: "(no detail)",
+         truncation,
+         tunables,
         });
         const count = (lint.available ? lint.errors.length : 0) + ruleResult.rejections.length;
         return {
@@ -312,7 +278,7 @@ export default async function (pi: ExtensionAPI) {
     label: "sh_signal",
     description: render(T.sh_signal.description, switches),
     promptSnippet: T.sh_signal.prompt_snippet,
-    promptGuidelines: render(T.guidelines.sh_signal, switches).split("\n"),
+    promptGuidelines: renderLines(T.guidelines.sh_signal, switches),
     parameters: Type.Object({
       id: Type.String({ description: T.schema.sh_signal.id }),
       signal: Type.Optional(
@@ -344,7 +310,7 @@ export default async function (pi: ExtensionAPI) {
     label: "sh_background_ps",
     description: render(T.sh_background_ps.description, switches),
     promptSnippet: T.sh_background_ps.prompt_snippet,
-    promptGuidelines: render(T.guidelines.sh_background_ps, switches).split("\n"),
+    promptGuidelines: renderLines(T.guidelines.sh_background_ps, switches),
     parameters: Type.Object({}),
     async execute() {
       const bgs = getShellBackgrounds();

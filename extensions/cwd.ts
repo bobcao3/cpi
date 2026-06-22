@@ -35,7 +35,7 @@ import { statSync } from "node:fs";
 import { queueMessage } from "./lib/prepend-message.ts";
 import { getCwd, resolveCwdPath, setCwd } from "./lib/cwd.ts";
 import { formatAgentsBlock, seedAgentsContext, surfaceNewAgents } from "./lib/agents.ts";
-import { loadText, render, textPath, type ToolText } from "./lib/text.ts";
+import { loadText, render, renderLines, textPath, type ToolText } from "./lib/text.ts";
 
 // Re-export the live-cwd API so other tools import it from the cwd feature.
 export { getCwd, resolveCwdPath } from "./lib/cwd.ts";
@@ -113,7 +113,7 @@ export default function (pi: ExtensionAPI): void {
   registerReminderRenderer(pi);
 
   const T = loadText<ToolText>("cwd", textPath("cwd"));
-  const guidelines = render(T.guidelines.bullets, {}).split("\n");
+  const guidelines = renderLines(T.guidelines.bullets, {});
   const cwdSchema = Type.Object({
     path: Type.String({ description: T.schema!.path }),
   });

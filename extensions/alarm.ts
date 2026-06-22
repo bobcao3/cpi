@@ -17,7 +17,7 @@ import { Text } from "@earendil-works/pi-tui";
 import { sendNotification } from "./lib/notification.ts";
 import { registerHoldSource } from "./lib/session-hold.ts";
 import { recordAlarmSetup } from "./lib/poll-guard.ts";
-import { loadText, render, textPath, type ToolText } from "./lib/text.ts";
+import { loadText, render, renderLines, textPath, type ToolText } from "./lib/text.ts";
 
 const ALARM_TOOL = "alarm";
 const MAX_ALARM_SECONDS = 365 * 24 * 60 * 60; // ~1 year
@@ -145,7 +145,7 @@ export default function (pi: ExtensionAPI) {
   piRef = pi;
 
   const T = loadText<ToolText>("alarm", textPath("alarm"));
-  const guidelines = render(T.guidelines.bullets, {}).split("\n");
+  const guidelines = renderLines(T.guidelines.bullets, {});
 
   const alarmSchema = Type.Object({
     relative_seconds: Type.Optional(

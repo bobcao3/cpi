@@ -1,7 +1,7 @@
 # Model-facing text for the lsp tool. Layered (project > user > shipped).
 
 [tool]
-description = "Manage LSP sessions: list_sessions, start (resolve project + provision), stop, check (file diagnostics or full-package CLI check)."
+description = "Manage LSP sessions: list_sessions, list_supported_servers, start (resolve project + provision), stop, check (file diagnostics)."
 prompt_snippet = "LSP sessions: start/check/stop"
 
 [schema]
@@ -10,7 +10,10 @@ file = "File path; project auto-discovered. start/stop/check."
 env = "Path to a .env file to load for the server (restart on change)."
 
 [guidelines]
-bullets = '''
-`lsp start file=<path>` starts a session for the file's project; `lsp check file=<path>` auto-starts and returns diagnostics.
-`lsp start file=<path> env=<dotenv>` restarts with a merged env — re-invoke to reload a captured dot_env (e.g. after env-capture).
-`lsp list_sessions` lists active sessions; `lsp stop file=<path>` stops one. An env-provided LSP binary (on PATH, incl. via env=) is reused as-is.'''
+bullets = [
+  "Run `lsp list_supported_servers` to list supported servers and how each is provisioned.",
+  "`lsp start file=<path>` searches upwards for a project root and starts a session.",
+  "After env-capture, you can restart lsp in that env by running `lsp start file=<path> env=<dotenv>`.",
+  "`lsp list_sessions` lists active sessions; `lsp stop file=<path>` stops one.",
+  "llm-editor writes will auto-start an LSP session in the discovered project root. Without a running LSP session diagnostics (including `lsp check`) are not available.",
+]

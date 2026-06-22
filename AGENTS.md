@@ -199,3 +199,18 @@ The anti-pattern is specifically a **boolean dedup flag** gating registration on
 **transient per-instance** state. If you find yourself writing `ensure*` with a
 `globalThis` boolean, stop: either check real state, or move registration into a
 dedicated owner extension.
+
+## `registerSystemPromptTransform` — sparingly, for dynamic behavior only
+
+`registerSystemPromptTransform` (`lib/system-prompt.ts`) rewrites the system
+prompt every turn. Use it only sparingly for **dynamic agent behavior that
+affects correctness or effectiveness** — runtime state that can change and must
+reach the agent. `skill` is a legitimate use: it registers a transform so the
+agent is informed when skills are added or removed, and that list is both
+dynamic and load-bearing for effectiveness.
+
+Do **not** use it to inject static reference text — command cheat-sheets,
+descriptions, fixed docs. Static text belongs in the tool's
+`description`/`promptGuidelines` (rendered once at registration), not
+re-stapled into the prompt every turn. If the content does not change between
+turns, it is tool text, not a transform.

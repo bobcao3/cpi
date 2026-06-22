@@ -14,8 +14,10 @@ cancel_all = "Cancel all active alarms"
 cancel_id = "Cancel the alarm with this id"
 
 [guidelines]
-bullets = '''
-Use alarm when the user wants to be reminded or woken after a delay or at a specific time.
-For alarm, provide exactly one of relative_seconds or target_time, not both.
-Pass cancel=true to cancel all active alarms, or cancel=<alarm_id> to cancel a specific alarm.
-When an alarm fires and no follow-up is needed, simply invoke wait_any.'''
+bullets = [
+  "Use alarm to wake the agent after a delay or at a specific time.",
+  "For alarm, set exactly one of relative_seconds or target_time — not both.",
+  "Cancel alarms with the alarm tool's `cancel` parameter: `cancel=true` for all active alarms, `cancel=<alarm_id>` for a specific one.",
+  "When an alarm fires and no follow-up is needed, simply invoke wait_any.",
+  "Do not use alarm to poll a backgrounded process; its completion notification fires on its own. For fixed-interval polling with customized logic, use sh_repeat_until instead.",
+]

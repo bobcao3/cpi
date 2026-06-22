@@ -25,7 +25,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
-import { loadText, render, textPath, type ToolText } from "./lib/text.ts";
+import { loadText, render, renderLines, textPath, type ToolText } from "./lib/text.ts";
 
 const WAIT_ANY_TOOL = "wait_any";
 
@@ -51,7 +51,7 @@ function nowTimestamp(): string {
 
 export default function waitAnyExtension(pi: ExtensionAPI): void {
   const T = loadText<ToolText>("wait-any", textPath("wait-any"));
-  const guidelines = render(T.guidelines.bullets, {}).split("\n");
+  const guidelines = renderLines(T.guidelines.bullets, {});
   pi.registerTool({
     name: WAIT_ANY_TOOL,
     label: "Wait (any event)",

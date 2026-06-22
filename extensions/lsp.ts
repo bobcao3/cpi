@@ -2,9 +2,7 @@
  * `lsp` — sole owner of the LSP subsystem (design §7, §11, §14).
  *
  * Registers unconditionally at load (no globalThis dedup flag — AGENTS.md):
- *   • the `lsp` tool (list_sessions|start|stop|check),
- *   • the `lsp-behavior` system-prompt transform (order 150, strip-then-append;
- *     reload-safe via registerSystemPromptTransform's id-idempotent replace),
+ *   • the `lsp` tool (list_sessions|list_supported_servers|start|stop|check),
  *   • a `session_shutdown` teardown → manager.disposeAll() (idempotent/reentrant).
 * Producers (shell, llm_editor) are pure clients of
  * lib/lsp/manager.ts — they never register the tool. Single owner ⇒ the shared
@@ -24,51 +22,20 @@ import {
   disposeAll,
 } from "./lib/lsp/manager.ts";
 import { awaitReady } from "./lib/lsp/session.ts";
+import { loadAllLspSpecs } from "./lib/lsp/registry.ts";
 import {
   languageByPath,
   discoverProjectRoot,
   LANGUAGE_MARKERS,
+  LSP_LANGUAGES,
   type Language,
 } from "./lib/lsp/discover.ts";
 import { loadLspConfig } from "./lib/config.ts";
 import { formatDiagnostics } from "./lib/lsp/diagnostics.ts";
-import { registerSystemPromptTransform } from "./lib/system-prompt.ts";
-import { loadText, render, textPath, type ToolText } from "./lib/text.ts";
-
-const TRANSFORM_ID = "lsp-behavior";
-const BLOCK_START = "<lsp-behavior>";
-const BLOCK_END = "</lsp-behavior>";
-
-
-/** Strip a prior block so re-application never stacks duplicates (llm-editor pattern). */
-function stripBlock(prompt: string): string {
-  let out = prompt;
-  for (;;) {
-    const start = out.indexOf(BLOCK_START);
-    if (start < 0) break;
-    const end = out.indexOf(BLOCK_END, start);
-    if (end < 0) break;
-    out = out.slice(0, start) + out.slice(end + BLOCK_END.length);
-  }
-  return out;
-}
-
-function behaviorBlock(): string {
-  return [
-    BLOCK_START,
-    "LSP subsystem is available via the `lsp` tool (list_sessions|start|stop|check).",
-    "Languages: TypeScript (.ts/.tsx → typescript-language-server), Python (.py → pyrefly), Ruby (.rb/.rake → ruby-lsp; env-provided only — cpi never auto-installs the gem), shell (.sh → shuck).",
-    "- `lsp start file=<path>` resolves project root + language and starts a session.",
-    "- `lsp check file=<path>` auto-starts then returns diagnostics.",
-    "- `lsp start file=<path> env=<dotenv>` restarts with a merged env; re-invoke to reload a captured dot_env (e.g. after `env-capture` of a venv).",
-    "- An env-provided LSP binary (on the merged PATH, incl. via env=) is reused as-is instead of installing.",
-    "- `llm_editor` create/edit auto-lints and returns <lsp project=…> + <diagnostics>. Shell editing commands (cat >, sed -i, tee, >) trigger an LSP check when a session is up; else run `lsp start`.",
-    BLOCK_END,
-  ].join("\n");
-}
+import { loadText, render, renderLines, textPath, type ToolText } from "./lib/text.ts";
 
 interface LspParams {
-  command: "list_sessions" | "start" | "stop" | "check";
+  command: "list_sessions" | "start" | "stop" | "check" | "list_supported_servers";
   project_dir?: string;
   file?: string;
   env?: string;
@@ -124,6 +91,25 @@ function doList() {
   return textResult([header, ...rows].join("\n"));
 }
 
+/** `lsp list_supported_servers`: enumerate every supported language, its
+ *  extensions, server binary, and how it is provisioned. Dynamic — reflects the
+ *  current LSP_LANGUAGES + config, so it stays correct as servers are added or
+ *  provisioned differently across harness upgrades / user config. */
+function doListSupportedServers() {
+  const specs = loadAllLspSpecs();
+  const lines = LSP_LANGUAGES.map((lang) => {
+    const s = specs[lang];
+    const exts = s.extensions.join(", ");
+    const install = s.install.method === "env-only"
+      ? "env-only (never auto-installed)"
+      : s.install.method === "reuse"
+        ? "reused (global)"
+        : `${s.install.method}, auto-installed`;
+    return `${lang} (${exts}): ${s.binName} — ${install}`;
+  });
+  return textResult(lines.join("\n"));
+}
+
 async function doStart(p: LspParams) {
   const { language, root } = resolveTarget(p.file, p.project_dir);
   const cfg = loadLspConfig();
@@ -171,7 +157,10 @@ async function doCheck(p: LspParams) {
   const lang = languageByPath(abs);
   if (!lang) return errResult(`unrecognized file: ${p.file}`);
   const root = discoverProjectRoot(abs, lang);
-  const session = await ensureSession(lang, root);
+  const session = findSession(lang, root);
+  if (!session) {
+    return errResult(`no LSP session for ${lang} @ ${root}; run \`lsp start file=${p.file}\` to begin one.`);
+  }
   if (session.state === "install-failed") {
     return errResult(
       `install failed for ${lang} (root ${root}). Run \`lsp start file=${p.file} env=<dotenv>\` to provision with the right env.`,
@@ -183,7 +172,7 @@ async function doCheck(p: LspParams) {
 
 export default async function lspExtension(pi: ExtensionAPI): Promise<void> {
   const T = loadText<ToolText>("lsp", textPath("lsp"));
-  const guidelines = render(T.guidelines.bullets, {}).split("\n");
+  const guidelines = renderLines(T.guidelines.bullets, {});
   pi.registerTool({
     name: "lsp",
     label: "lsp",
@@ -193,6 +182,7 @@ export default async function lspExtension(pi: ExtensionAPI): Promise<void> {
     parameters: Type.Object({
       command: Type.Union([
         Type.Literal("list_sessions"),
+        Type.Literal("list_supported_servers"),
         Type.Literal("start"),
         Type.Literal("stop"),
         Type.Literal("check"),
@@ -214,6 +204,8 @@ export default async function lspExtension(pi: ExtensionAPI): Promise<void> {
         switch (params.command) {
           case "list_sessions":
             return doList();
+          case "list_supported_servers":
+            return doListSupportedServers();
           case "start":
             return await doStart(params);
           case "stop":
@@ -228,9 +220,6 @@ export default async function lspExtension(pi: ExtensionAPI): Promise<void> {
     },
   });
 
-  registerSystemPromptTransform(TRANSFORM_ID, (prompt: string) => {
-    return `${stripBlock(prompt).trimEnd()}\n\n${behaviorBlock()}\n`;
-  }, 150);
 
   pi.on("session_shutdown", async () => {
     try {
