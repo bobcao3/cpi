@@ -35,6 +35,7 @@ import { modelSupportsVision } from "./lib/media.ts";
 import { drainAfterTool, drainBeforeUser } from "./lib/prepend-message.ts";
 import { registerNotificationRenderer } from "./lib/notification.ts";
 import { setupCpiFooter, disposeCpiFooter, registerRightSegment } from "./lib/footer.ts";
+import { setSessionDir } from "./lib/session-dir.ts";
 import { getSubagentUsage, resetSubagentUsage } from "./lib/cost-ledger.ts";
 import {
   awaitHoldInterval,
@@ -60,6 +61,7 @@ export default function coreExtension(pi: ExtensionAPI): void {
   // call setFooter. Re-setup on session_start/tree is idempotent.
   pi.on("session_start", async (_event, ctx: ExtensionContext) => {
     setupCpiFooter(pi, ctx);
+    setSessionDir(ctx.sessionManager?.getSessionDir());
     resetSubagentUsage();
     registerRightSegment("subagent-cost", costSegment);
   });
