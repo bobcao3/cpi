@@ -352,6 +352,12 @@ export async function resolveBin(
 ): Promise<ResolveResult> {
   const found = whichOnPath(spec.binName, env);
   if (found) return { bin: found, source: "env", pathDir: dirname(found) };
+  if (spec.install.method === "env-only")
+    return {
+      bin: "",
+      source: "install-failed",
+      error: `${spec.binName} not found on PATH (env-only: cpi does not auto-install it). Install it in the project's active Ruby env (e.g. \`gem install ${spec.binName}\`), capture the env via env-capture, then \`lsp start file=<path> env=<dotenv>\`.`,
+    };
   if (spec.install.method === "reuse") {
     let bin = getShuckBinPath();
     if (!bin) {

@@ -57,7 +57,7 @@ function behaviorBlock(): string {
   return [
     BLOCK_START,
     "LSP subsystem is available via the `lsp` tool (list_sessions|start|stop|check).",
-    "Languages: TypeScript (.ts/.tsx → typescript-language-server), Python (.py → pyrefly), shell (.sh → shuck).",
+    "Languages: TypeScript (.ts/.tsx → typescript-language-server), Python (.py → pyrefly), Ruby (.rb/.rake → ruby-lsp; env-provided only — cpi never auto-installs the gem), shell (.sh → shuck).",
     "- `lsp start file=<path>` resolves project root + language and starts a session.",
     "- `lsp check file=<path>` auto-starts then returns diagnostics.",
     "- `lsp start file=<path> env=<dotenv>` restarts with a merged env; re-invoke to reload a captured dot_env (e.g. after `env-capture` of a venv).",

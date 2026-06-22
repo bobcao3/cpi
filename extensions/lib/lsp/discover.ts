@@ -19,16 +19,17 @@ import { dirname, extname, join } from "node:path";
 import { resolveCwdPath } from "../cwd.ts";
 
 /** Languages cpi provisions an LSP for (design §6.2). */
-export type Language = "typescript" | "python" | "shell";
+export type Language = "typescript" | "python" | "shell" | "ruby";
 
 /** Ordered list, for deterministic iteration. */
-export const LSP_LANGUAGES: readonly Language[] = ["typescript", "python", "shell"];
+export const LSP_LANGUAGES: readonly Language[] = ["typescript", "python", "shell", "ruby"];
 
 /** File extensions per language (lowercased, with dot). */
 export const LANGUAGE_EXTENSIONS: Record<Language, string[]> = {
   typescript: [".ts", ".tsx"],
   python: [".py"],
   shell: [".sh", ".bash"],
+  ruby: [".rb", ".rake"],
 };
 
 /**
@@ -47,6 +48,7 @@ export const LANGUAGE_MARKERS: Record<Language, string[]> = {
     ".python-version",
   ],
   shell: [".git"],
+  ruby: ["Gemfile", "Gemfile.lock", ".ruby-version", "Rakefile"],
 };
 
 /** Generic markers, checked after the language-specific set. */
@@ -64,7 +66,8 @@ function hasMarker(dir: string, markers: readonly string[]): boolean {
 
 /**
  * Language for a file path by extension, or null when unrecognized.
- * `.ts`/`.tsx` → "typescript"; `.py` → "python"; `.sh`/`.bash` → "shell".
+ * `.ts`/`.tsx` → "typescript"; `.py` → "python"; `.sh`/`.bash` → "shell";
+ * `.rb`/`.rake` → "ruby".
  * (The LSP `languageId` — `typescriptreact` for `.tsx` etc. — lives in
  * registry.ts; this returns only the coarse `Language`.)
  */

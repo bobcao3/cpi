@@ -115,11 +115,11 @@ disposeAll(): Promise<void>;                        // idempotent/reentrant (§9
 ## 4. Language registry (`registry.ts`)
 
 ```ts
-type Language = "typescript" | "python" | "shell";
+type Language = "typescript" | "python" | "shell" | "ruby";
 interface LspServerSpec {
   language: Language; extensions: string[]; markers: string[];
-  languageId: (path: string) => string;   // "typescript"|"typescriptreact"|"python"|"bash"
-  install: { method: "npm" | "uv" | "reuse"; package?: string; version?: string; tsVersion?: string };
+  languageId: (path: string) => string;   // "typescript"|"typescriptreact"|"python"|"bash"|"ruby"
+  install: { method: "npm" | "uv" | "reuse" | "env-only"; package?: string; version?: string; tsVersion?: string };
   binName: string;
   serverCommand: (bin: string, root: string) => { cmd: string; args: string[]; cwd?: string };
   initOptions?: unknown;
@@ -138,6 +138,13 @@ interface LspServerSpec {
 - **shell (shuck)**: `reuse`; `binName="shuck"`; resolution reuses
   `getShuckBinPath()` (+ `ensureShellTools()`); `serverCommand` → `{ cmd: bin,
   args: ["server","--isolated"] }`; `languageId` → `"bash"`.
+- **ruby (ruby-lsp)**: `env-only`; `binName="ruby-lsp"`; cpi never installs the
+  gem — resolution is env-PATH-first only (`whichOnPath`), and `serverCommand`
+  → `{ cmd: bin, args: [] }` (ruby-lsp runs over stdio with no flags, reads
+  config from the project's bundle). If absent on the merged PATH →
+  `{ source:"install-failed" }` with guidance to `gem install ruby-lsp` in the
+  active Ruby env and pass `env=`. `languageId` → `"ruby"`; markers
+  `Gemfile`/`Gemfile.lock`/`.ruby-version`/`Rakefile`.
 
 Version pins live in config (§8); `registry.ts` reads them via `loadLspConfig` so
 a pin bump re-provisions on the next session.

@@ -20,7 +20,7 @@ export interface SpawnDirective {
 
 /** Install description; versions pinned via config (§6.6, §12). */
 export interface LspInstallSpec {
-  method: "npm" | "uv" | "reuse";
+  method: "npm" | "uv" | "reuse" | "env-only";
   /** npm/uv package name (absent for "reuse"). */
   package?: string;
   /** Pinned exact version (absent for "reuse"). */
@@ -34,7 +34,7 @@ export interface LspServerSpec {
   language: Language;
   extensions: string[];
   markers: string[];
-  /** LSP languageId for a path: "typescript"|"typescriptreact"|"python"|"bash". */
+  /** LSP languageId for a path: "typescript"|"typescriptreact"|"python"|"bash"|"ruby". */
   languageId: (path: string) => string;
   install: LspInstallSpec;
   /** Server binary name to resolve on PATH before installing. */
@@ -43,6 +43,8 @@ export interface LspServerSpec {
   serverCommand: (bin: string, root: string) => SpawnDirective;
   /** `initialize` options (passed through by the worker, Layer 3). */
   initOptions?: unknown;
+  /** Diagnostics transport: "push" (server publishes via textDocument/publishDiagnostics, the default) or "pull" (worker calls textDocument/diagnostic per LSP 3.17 — used by ruby-lsp 0.26+, which is pull-only). */
+  diagnosticMode?: "push" | "pull";
 }
 
 function typescriptSpec(cfg: LspConfig): LspServerSpec {
@@ -94,6 +96,22 @@ function shellSpec(cfg: LspConfig): LspServerSpec {
   };
 }
 
+function rubySpec(cfg: LspConfig): LspServerSpec {
+  // ruby-lsp runs over stdio with no flags and reads its config from the
+  // project; no install step is performed (env-only reuse of `ruby-lsp`).
+  void cfg;
+  return {
+    language: "ruby",
+    extensions: LANGUAGE_EXTENSIONS.ruby,
+    markers: LANGUAGE_MARKERS.ruby,
+    languageId: () => "ruby",
+    install: { method: "env-only" },
+    diagnosticMode: "pull",
+    binName: "ruby-lsp",
+    serverCommand: (bin) => ({ cmd: bin, args: [] }),
+  };
+}
+
 /** Resolve the spec for one language, reading version pins from config. */
 export function getLspServerSpec(language: Language, cwd: string = process.cwd()): LspServerSpec {
   const cfg = loadLspConfig(cwd);
@@ -104,6 +122,8 @@ export function getLspServerSpec(language: Language, cwd: string = process.cwd()
       return pythonSpec(cfg);
     case "shell":
       return shellSpec(cfg);
+    case "ruby":
+      return rubySpec(cfg);
     default:
       throw new Error(`getLspServerSpec: unknown language ${String(language)}`);
   }
@@ -116,5 +136,6 @@ export function loadAllLspSpecs(cwd: string = process.cwd()): Record<Language, L
     typescript: typescriptSpec(cfg),
     python: pythonSpec(cfg),
     shell: shellSpec(cfg),
+    ruby: rubySpec(cfg),
   };
 }
