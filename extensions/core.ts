@@ -53,6 +53,13 @@ import {
   markEventlessStart,
   resetAntiStuck,
 } from "./lib/anti-stuck.ts";
+import {
+  achieveGoal,
+  budgetPauseGoal,
+  continueGoal,
+  evaluateGoal,
+  isGoalActive,
+} from "./lib/goal.ts";
 
 export default function coreExtension(pi: ExtensionAPI): void {
   // ── Footer owner ────────────────────────────────────────────────────────
@@ -136,6 +143,20 @@ export default function coreExtension(pi: ExtensionAPI): void {
     if (reason === "error" || reason === "aborted") return;
     const sources = getHoldSources();
     const pending = sources.filter((s) => s.hasPending());
+    // Case 1 — agent completion, no pending backgrounds: the fork-probe
+    // evaluator decides whether the goal is met, not-met (continue), or
+    // failed (budget-pause).
+    if (isGoalActive() && pending.length === 0) {
+      if (ctx.hasUI) ctx.ui.setWidget("goal-eval", ["🎯 Evaluating goal…"]);
+      try {
+        const v = await evaluateGoal(pi, ctx);
+        if (v.status === "met") { achieveGoal(pi, ctx); return; }
+        if (v.status === "failed") { budgetPauseGoal(pi, ctx, v.reason); return; }
+        continueGoal(pi, ctx, v.reason); return;
+      } finally {
+        if (ctx.hasUI) ctx.ui.setWidget("goal-eval", undefined);
+      }
+    }
     if (pending.length === 0) return;
     const pendingAlarm = pending.some((s) => s.id === "alarm");
     const pendingNonAlarm = pending.some((s) => s.id !== "alarm");

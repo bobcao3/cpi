@@ -53,6 +53,10 @@ const MAX_STDOUT_BYTES = 1 * 1024 * 1024; // 1 MiB
 const MAX_STDERR_BYTES = 256 * 1024; // 256 KiB
 /** Bound prompt size (piped via stdin; --fork already copied full history). */
 const MAX_PROMPT_BYTES = 256 * 1024; // 256 KiB
+/** Env var name marking a process as a fork-probe child. Consumers (e.g. the
+ *  goal evaluator, anti-stuck) read this to disable self-recursive probing in
+ *  children — the recursion-guard signal. */
+const FORK_PROBE_ENV = "CPI_FORK_PROBE";
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
@@ -205,6 +209,7 @@ export async function runForkProbe(
         cwd: opts.cwd ?? process.cwd(),
         shell: false,
         stdio: ["pipe", "pipe", "pipe"],
+        env: { ...process.env, [FORK_PROBE_ENV]: "1" },
       });
     } catch (err) {
       cleanup();

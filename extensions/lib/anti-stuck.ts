@@ -37,6 +37,7 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { forkGate } from "./fork-probe.ts";
 import { getHoldSources, signalHoldEvent, type HoldSource } from "./session-hold.ts";
+import { goalStuckResume, isGoalActive } from "./goal.ts";
 import { loadText, render, textPath } from "./text.ts";
 
 // ── Constants (explicit limits, env-configurable) ──────────────────────────
@@ -148,6 +149,20 @@ export async function maybeAntiStuckProbe(
   const T = loadText<AntiStuckText>("anti-stuck", textPath("anti-stuck"));
   const elapsedMin = Math.round(elapsed / 60000);
   const pendingText = pending.map((src) => src.noticeText()).filter(Boolean).join("; ") || "(none)";
+
+  // Case 2: a goal is active. Instead of consulting the WAIT/ABORT fork, we
+  // resume the agent directly so it can check its stuck backgrounds and be
+  // reminded of the goal. This mirrors the ABORT path: reset the episode,
+  // release the headless keep-alive loop, and return probed_abort so the
+  // caller does not deliver its own reminder (the resumed turn takes over).
+  // sendMessage is fire-and-forget so the follow-up turn runs concurrently.
+  if (isGoalActive()) {
+    goalStuckResume(pi, elapsedMin, pendingText);
+    resetAntiStuck();
+    signalHoldEvent();
+    return "probed_abort";
+  }
+
   const prompt = render(T.probe?.prompt ?? "", { elapsed_min: elapsedMin, pending: pendingText });
 
   const outcome = await forkGate({
