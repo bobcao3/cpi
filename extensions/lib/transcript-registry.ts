@@ -30,6 +30,7 @@ export type ToolCallMarkdownRenderer = (block: ToolCallBlock) => string[] | null
 // but a pathological nesting depth must not overflow the stack. Truncate beyond.
 const MAX_XML_DEPTH = 32;
 const GLOBAL_KEY = "__cpiTranscriptRenderers";
+const IDS_KEY = "__cpiTranscriptIds";
 type Registry = Map<string, ToolCallMarkdownRenderer>;
 
 function assert(cond: unknown, msg: string): asserts cond {
@@ -57,6 +58,66 @@ export function registerToolCallRenderer(
   );
   assert(typeof renderer === "function", "renderer must be a function");
   registry().set(toolName, renderer);
+}
+
+// --- short tool-call ids --------------------------------------------------
+
+/**
+ * Providers assign long tool-use ids (`call_1985a6111ece41f1972ab897`,
+ * `toolu_…`). cpi's subagent transcript renders every call head and result
+ * block with that id, and the orchestrating agent tails that transcript into
+ * its own context, so the long ids cost real tokens (twice per call).
+ * `shortToolCallId` maps each real id to a short monotonic id (`sh0001`,
+ * `re0002`, …) preserving call↔result correlation. Display-only — never
+ * touches the provider API envelope's tool_use_id.
+ *
+ * State lives in a `globalThis` slot `__cpiTranscriptIds` holding
+ * `{ map: Map<string,string>, counter: number }`, shared across jiti module
+ * graphs and surviving reloads (same pattern as the `__cpiTranscriptRenderers`
+ * registry). Each `pi -p` subagent process starts fresh, so ids are short and
+ * per-transcript.
+ */
+interface IdState {
+  map: Map<string, string>;
+  counter: number;
+}
+
+function idState(): IdState {
+  const g = globalThis as Record<string, unknown>;
+  const existing = g[IDS_KEY];
+  if (
+    existing &&
+    typeof existing === "object" &&
+ (existing as IdState).map instanceof Map
+  ) {
+    return existing as IdState;
+  }
+  const fresh: IdState = { map: new Map(), counter: 0 };
+  g[IDS_KEY] = fresh;
+  return fresh;
+}
+
+/** First 2 alphanumeric chars of toolName lowercased, fallback `"tc"`. */
+function prefixFor(toolName: string): string {
+  const match = String(toolName).match(/[A-Za-z0-9]/g);
+  if (match && match.length >= 2) return match.slice(0, 2).join("").toLowerCase();
+  if (match && match.length === 1) return match[0].toLowerCase();
+  return "tc";
+}
+
+/**
+ * Map a real tool-use id to a short monotonic id, preserving call↔result
+ * correlation across the transcript. Returns `""` for a falsy realId
+ * (preserves current empty-id behavior). Display-only.
+ */
+export function shortToolCallId(realId: string | undefined, toolName: string): string {
+  if (!realId) return "";
+  const st = idState();
+  const existing = st.map.get(realId);
+  if (existing) return existing;
+  const short = `${prefixFor(toolName)}${String(++st.counter).padStart(4, "0")}`;
+  st.map.set(realId, short);
+  return short;
 }
 
 // --- default renderer: pretty-printed XML of the arguments -----------------
@@ -146,7 +207,7 @@ export function parseArgs(block: ToolCallBlock): unknown {
 }
 
 function defaultXmlLines(block: ToolCallBlock): string[] {
-  const head = `**${block.name}** \`${block.id ?? ""}\``;
+  const head = `**${block.name}** \`${shortToolCallId(block.id, block.name)}\``;
   const xml: string[] = [];
   pushXml(sanitizeTag(block.name), parseArgs(block), 0, xml);
   return [head, "```xml", ...xml, "```", ""];

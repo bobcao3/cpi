@@ -36,6 +36,18 @@ export function formatDiagnostics(d: ShuckDiagnostic[]): string {
     .join("\n");
 }
 
+/**
+ * Shuck codes that are structurally unactionable on the inline-analysis path.
+ * The inline shuck session runs on a synthetic /tmp document with rootUri=null
+ * and `server --isolated`, so it can never resolve relative `source` targets.
+ * Consequently shuck's C003 ("sourced file is not available to this analysis",
+ * the SC1091 analogue) is always a false positive here — verified: shuck 0.0.41
+ * has no external-sources/-x mode, the `source=` directive only honors /dev/null,
+ * and no `[lint]` key enables source following. Filter both the native and
+ * shellcheck-style codes so they never surface as errors/warnings.
+ */
+const INLINE_UNACTIONABLE_CODES: Set<string> = new Set(["C003", "SC1091"]);
+
 function toShuck(d: Diagnostic): ShuckDiagnostic {
   const sev: ShuckDiagnostic["severity"] =
     d.severity === "error" ? "error" : d.severity === "warning" ? "warning" : "hint";
@@ -64,7 +76,8 @@ export async function lintCommand(
   if (!shell.dialect) {
     return { errors: [], warnings: [], available: false };
   }
-  const diags = await getLspManager().lintText("shell", command, { extension: shell.dialect });
+  const diags = (await getLspManager().lintText("shell", command, { extension: shell.dialect }))
+    .filter((d) => !INLINE_UNACTIONABLE_CODES.has(d.code ?? ""));
   const shuck = diags.map(toShuck);
   return {
     errors: shuck.filter((d) => d.severity === "error"),

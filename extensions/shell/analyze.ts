@@ -112,7 +112,8 @@ export async function analyzeCommand(input: AnalyzeInput): Promise<AnalysisResul
     .join("\n");
   const warningText = [fmt(lint.warnings, formatDiagnostics), fmt(rules.warnings, formatRuleMatches)]
     .filter(Boolean)
-    .join("\n");
+    .join("\n")
+    .trim();
   const errorCount = (lint.available ? lint.errors.length : 0) + rules.rejections.length;
 
   return {
