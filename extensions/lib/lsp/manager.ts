@@ -48,6 +48,10 @@ export interface EnsureOptions {
   force?: boolean;
 }
 
+export interface LintTextOptions {
+  extension?: string;
+}
+
 function getState(): LspState {
   const g = globalThis as unknown as { __cpiLsp?: LspState };
   if (!g.__cpiLsp) g.__cpiLsp = { sessions: new Map(), inflight: new Map(), draining: false };
@@ -173,7 +177,11 @@ export async function checkFile(absPath: string): Promise<Diagnostic[]> {
   );
 }
 
-export async function lintText(language: Language, text: string): Promise<Diagnostic[]> {
+export async function lintText(
+  language: Language,
+  text: string,
+  opts: LintTextOptions = {},
+): Promise<Diagnostic[]> {
   // root="" -> rootUri=null inline session (shuck inline path, design §6.3)
   const session = await ensureSession(language, "");
   const cfg = loadLspConfig();
@@ -181,7 +189,8 @@ export async function lintText(language: Language, text: string): Promise<Diagno
   if (session.state !== "ready") return [];
   const spec = getLspServerSpec(language);
   const seq = session.nextSeq++;
-  const uri = `file:///tmp/cpi-lsp-${seq}.${extForLanguage(language)}`;
+  const extension = (opts.extension ?? extForLanguage(language)).replace(/^\./, "");
+  const uri = `file:///tmp/cpi-lsp-${seq}.${extension}`;
   return sessionLint(session, uri, spec.languageId(uri), text, "", seq, cfg.lintTimeoutMs);
 }
 
@@ -237,7 +246,7 @@ export async function disposeAll(): Promise<void> {
 export interface LspManager {
   ensureSession(language: Language, root: string, opts?: EnsureOptions): Promise<LspSession>;
   checkFile(absPath: string): Promise<Diagnostic[]>;
-  lintText(language: Language, text: string): Promise<Diagnostic[]>;
+  lintText(language: Language, text: string, opts?: LintTextOptions): Promise<Diagnostic[]>;
   stop(target: string): Promise<void>;
   findSession(language: Language, root: string): SessionInfo | undefined;
   list(): SessionInfo[];

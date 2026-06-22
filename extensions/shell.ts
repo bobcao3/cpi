@@ -1,7 +1,7 @@
 /**
  * cpi shell extension: `sh`, `sh_signal`, and `sh_repeat_until`.
  *
- * Wraps bash execution with linting (shuck), AST rule checks, TUI rendering,
+ * Wraps resolved/configured shell execution with linting (shuck), AST rule checks, TUI rendering,
  * and async completion notifications.
  */
 
@@ -34,11 +34,10 @@ import {
   type OutputTruncation,
 } from "./shell/exec.ts";
 import { createRepeatTool, getActiveRepeats } from "./shell/repeat.ts";
+import { resolveShell, type ShellProfile } from "./shell/profile.ts";
 import { registerShellTranscriptRenderers } from "./shell/transcript.ts";
 import { createShellStatusRefresher, type ShellStatusRefresher } from "./shell/status.ts";
-import { lintCommand, formatDiagnostics } from "./shell/lint.ts";
-import { parseCommand } from "./lib/tree-sitter.ts";
-import { checkRules, formatRuleMatches } from "./shell/rules.ts";
+import { analyzeCommand, unsupportedDialectMessage } from "./shell/analyze.ts";
 import { surfaceCdAgents } from "./shell/cd-targets.ts";
 import { runLspHook } from "./shell/lsp-hook.ts";
 import { formatAgentsBlock } from "./lib/agents.ts";
@@ -58,7 +57,6 @@ interface ShellText {
   schema: { sh: Record<string, string>; sh_signal: Record<string, string>; sh_detach: Record<string, string> };
 }
 const SLEEP_UNITS: Record<string, number> = { s: 1, m: 60, h: 3600, d: 86400 };
-const fmtDiags = (diags: any[], fmt: (d: any[]) => string) => (diags.length ? fmt(diags) : "");
 let shellStatus: ShellStatusRefresher | null = null;
 
 function disableBuiltinBash(pi: ExtensionAPI): void {
@@ -76,6 +74,7 @@ function disableBuiltinBash(pi: ExtensionAPI): void {
 
 export default async function (pi: ExtensionAPI) {
   const cfg = loadShellConfig();
+  const shell: ShellProfile = resolveShell(cfg.executable);
   const {
     defaultWaitfor: DEFAULT_WAITFOR,
     maxWaitfor: MAX_WAITFOR,
@@ -131,6 +130,8 @@ export default async function (pi: ExtensionAPI) {
     rg: availability.rg,
     shuck: availability.shuck,
     tree_sitter: availability.treeSitter,
+    shell_invocation: shell.invocation,
+    shell_name: shell.displayName,
   };
   const commonGuidelines = renderLines(T.guidelines.sh, switches);
 
@@ -184,47 +185,37 @@ export default async function (pi: ExtensionAPI) {
 
       const describe = params.description?.trim();
       const shuckPath = availability.shuck ? getShuckBinPath() : null;
-      const [lint, parse] = await Promise.all([
-        shuckPath
-          ? lintCommand(params.command, shuckPath)
-          : Promise.resolve({ errors: [], warnings: [], available: false }),
-        availability.treeSitter
-          ? parseCommand(params.command)
-          : Promise.resolve({ ast: null, available: false, node: null }),
-      ]);
-      const ruleResult = parse.node
-        ? checkRules(parse.node, { fdAvailable: availability.fd, rgAvailable: availability.rg })
-        : { rejections: [], warnings: [] };
-
-      const errParts = [
-        fmtDiags(lint.errors, formatDiagnostics),
-        fmtDiags(ruleResult.rejections, formatRuleMatches),
-      ].filter(Boolean);
-      if (errParts.length) {
-        const { text, fullOutputPath } = await buildOutputText(errParts.join("\n"), {
-         persistIfTruncated: true,
-         emptyText: "(no detail)",
-         truncation,
-         tunables,
+      const analysis = await analyzeCommand({
+        command: params.command,
+        shell,
+        availability,
+        shuckPath,
+      });
+      if (analysis.status === "unsupported-dialect") {
+        return {
+          content: [{ type: "text", text: unsupportedDialectMessage(analysis.unsupported!) }],
+          isError: true,
+        };
+      }
+      const { parse } = analysis;
+      if (analysis.errorText) {
+        const { text, fullOutputPath } = await buildOutputText(analysis.errorText, {
+          persistIfTruncated: true,
+          emptyText: "(no detail)",
+          truncation,
+          tunables,
         });
-        const count = (lint.available ? lint.errors.length : 0) + ruleResult.rejections.length;
+        const count = analysis.errorCount;
         return {
           content: [
-            {
-              type: "text",
-              text: `${text}\n---\nblocked (${count} error${count !== 1 ? "s" : ""})`,
-            },
+            { type: "text", text: `${text}\n---\nblocked (${count} error${count !== 1 ? "s" : ""})` },
           ],
           details: { fullOutputPath, describe, shuckBlocked: true, tsAst: parse.ast },
           isError: true,
         };
       }
 
-      const warnParts = [
-        fmtDiags(lint.warnings, formatDiagnostics),
-        fmtDiags(ruleResult.warnings, formatRuleMatches),
-      ].filter(Boolean);
-      const shuckWarnings = warnParts.length ? warnParts.join("\n") : undefined;
+      const shuckWarnings = analysis.warningText || undefined;
       const cdAgents = surfaceCdAgents(parse.node);
       const slowDown = checkShellPoll(params.command);
 
@@ -239,6 +230,7 @@ export default async function (pi: ExtensionAPI) {
         MAX_WAITFOR,
         truncation,
         tunables,
+        shell,
       );
 
       const tag = describe ? ` (${truncateDescribe(describe)})` : "";
@@ -342,7 +334,7 @@ export default async function (pi: ExtensionAPI) {
   });
 
   pi.registerTool(
-    createRepeatTool(pi, DEFAULT_WAITFOR, MAX_WAITFOR, TAIL_LINES, DESCRIBE_MAX, availability),
+    createRepeatTool(pi, DEFAULT_WAITFOR, MAX_WAITFOR, TAIL_LINES, DESCRIBE_MAX, availability, shell),
   );
   registerShellTranscriptRenderers();
 

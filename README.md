@@ -5,7 +5,7 @@ Shared extensions and skills for the [pi coding agent](https://github.com/earend
 ## Features
 
 - **AI-mediated file I/O.** The builtin `read`/`write`/`edit` are stripped and replaced by three same-named tools — `read`, `write`, `edit` (no command enum; the tool name is the command), which fully override the builtins so nothing needs disabling. `read` (with a query) and `edit` delegate the reasoning to tool-less pi subagents (SWE-Edit); edits come back as search-replace blocks (whole-file rewrite fallback) and every read/edit is transcribed to `<dir>/<id>.md`. `read` also inlines image files (jpg/png/gif/webp) for vision models.
-- **A shell that corrects itself.** `sh` is stateless `bash -c` with backgrounding, signalling, and busy-wait detection. Each command is parsed with tree-sitter, then **linted** (a worker-thread Shuck LSP — no temp files, no per-call spawning) and checked against **AST rules** (`reject` blocks execution, `warn` surfaces to the agent) before it runs — e.g. enforcing `fd`/`rg` over `find`/`grep`. The same tree-sitter captures **syntax-highlight** the command in the TUI.
+- **A shell that corrects itself.** `sh` is stateless and runs through the resolved host/configured shell with backgrounding, signalling, and busy-wait detection. Each command is parsed with tree-sitter, then **linted** (a worker-thread Shuck LSP — no temp files, no per-call spawning) and checked against **AST rules** (`reject` blocks execution, `warn` surfaces to the agent) before it runs — e.g. enforcing `fd`/`rg` over `find`/`grep`. The same tree-sitter captures **syntax-highlight** the command in the TUI.
 - **Live CWD + automatic project context.** `set_cwd` moves the working directory and re-announces it at 25/50/75% context-window boundaries. Since pi never reloads project context on a cwd change, cpi parses `cd <dir>` targets out of shell commands (and `set_cwd`) and surfaces the newly-entered tree's `AGENTS.md`/`CLAUDE.md` — each file at most once per process.
 - **Resilient providers.** Configured providers register at startup; unusable ones are stripped (e.g. ambient cloud creds shadowing a real provider); on repeated errored turns the active model fails over to the next fitting fallback — race-free at `turn_end`.
 - **A footer that tells the truth.** Line 1 shows the jj change/bookmark (overriding git), background-shell / repeat-monitor counts (`bg:N` / `mon:N`), and the caveman 🪨 marker when token compression is on.
@@ -135,6 +135,7 @@ See `cpi-config.default.json` for the full documented defaults (it also defines 
 ```jsonc
 {
   "shell": {
+    "executable": "auto", // "auto" follows usable $SHELL (Bash fallback); explicit command/path resolved once & validated — no silent fallback
     "defaultWaitfor": 5, // seconds to wait before backgrounding (default: 5)
     "maxWaitfor": 30, // max allowed waitfor; larger errors (default: 30)
     "maxPreviewLines": 500, // agent output line cap, tail preview (default: 500)
@@ -147,9 +148,10 @@ See `cpi-config.default.json` for the full documented defaults (it also defines 
 }
 ```
 
-| Setting           | Type   | Default   | Range          | Description                                                                   |
-| ----------------- | ------ | --------- | -------------- | ----------------------------------------------------------------------------- |
-| `defaultWaitfor`  | number | `5`       | > 0            | Seconds to wait before backgrounding when no `waitfor` is passed              |
+| Setting           | Type             | Default   | Range          | Description                                                                   |
+| ----------------- | ---------------- | --------- | -------------- | ----------------------------------------------------------------------------- |
+| `executable`      | string           | `"auto"`  | `auto` or command/path | `auto` follows a usable `$SHELL`, falling back to Bash when it is absent/unusable. An explicit bare command is resolved once through a bounded `$PATH` search; an explicit path is snapshotted absolute at load time. Invalid explicit values fail closed (config error) rather than falling back. The effective interpreter and `-c` invocation are shown to the agent |
+| `defaultWaitfor`  | number           | `5`       | > 0            | Seconds to wait before backgrounding when no `waitfor` is passed              |
 | `maxWaitfor`      | number | `30`      | > 0            | Maximum allowed `waitfor`; larger values are rejected with an error           |
 | `maxPreviewLines` | number | `500`     | 1–10000        | Agent-facing output line cap (tail preview)                                   |
 | `previewMaxBytes` | number | `32768`   | 1024–1048576   | Agent-facing output byte cap (whichever limit hits first wins)               |

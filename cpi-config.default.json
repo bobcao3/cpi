@@ -1,5 +1,6 @@
 {
   "shell": {
+    "executable": "auto",
     "defaultWaitfor": 5,
     "maxWaitfor": 30,
     "maxPreviewLines": 500,

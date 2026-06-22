@@ -48,6 +48,7 @@ import {
   type Request,
 } from "../../tools/sh-monitor/protocol.ts";
 import { runtimeSpawn } from "../lib/runtime.ts";
+import { resolveShell, type ShellProfile } from "./profile.ts";
 
 const SH_MONITOR_TS = join(
   dirname(fileURLToPath(import.meta.url)),
@@ -456,12 +457,13 @@ export async function launchMonitor(
   command: string,
   env: NodeJS.ProcessEnv,
   pathId: string,
+  shell: ShellProfile = resolveShell("bash"),
 ): Promise<MonitorHandle> {
   const logPath = join(tmpdir(), `pi-sh-output-${pathId}.log`);
   const { bin, pre } = runtimeSpawn();
   const child = spawn(
     bin,
-    [...pre, SH_MONITOR_TS, "spawn", logPath, "--", "bash", "-c", command],
+    [...pre, SH_MONITOR_TS, "spawn", logPath, "--", shell.executable, ...shell.argvPrefix, "-c", command],
     { detached: true, stdio: ["pipe", "pipe", "pipe"], env },
   );
   child.unref();

@@ -28,7 +28,7 @@ export const LSP_LANGUAGES: readonly Language[] = ["typescript", "python", "shel
 export const LANGUAGE_EXTENSIONS: Record<Language, string[]> = {
   typescript: [".ts", ".tsx"],
   python: [".py"],
-  shell: [".sh", ".bash"],
+  shell: [".sh", ".bash", ".zsh", ".mksh", ".ksh", ".dash", ".ash", ".bats"],
   ruby: [".rb", ".rake"],
 };
 
@@ -66,7 +66,8 @@ function hasMarker(dir: string, markers: readonly string[]): boolean {
 
 /**
  * Language for a file path by extension, or null when unrecognized.
- * `.ts`/`.tsx` → "typescript"; `.py` → "python"; `.sh`/`.bash` → "shell";
+ * `.ts`/`.tsx` → "typescript"; `.py` → "python";
+ * `.sh`/`.bash`/`.zsh`/`.mksh`/`.ksh`/`.dash`/`.ash`/`.bats` → "shell";
  * `.rb`/`.rake` → "ruby".
  * (The LSP `languageId` — `typescriptreact` for `.tsx` etc. — lives in
  * registry.ts; this returns only the coarse `Language`.)
