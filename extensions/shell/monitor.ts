@@ -18,9 +18,11 @@
  *
  * Resume (Phase 2): when a shell is backgrounded, pi asks sh-monitor to bind a
  * best-effort resume socket (`bindResume`) so a restarted pi can re-attach via
- * `ResumeClient`. The `{pid, sockPath, cmd}` record lives in the session folder
- * (`<sessionDir>/sh-mon/<pid>.json`) so a resumed pi can always find it; if the
- * socket is gone, the caller reports "could not locate or resume session shell".
+ * `ResumeClient`. The `{pid, sockPath, cmd}` record lives scoped by conversation
+ * at `<sessionDir>/sh-mon/<sessionId>/<pid>.json` so a resumed pi re-attaches
+ * only its own background shells and concurrent agents in the same cwd never
+ * cross-read each other's records; if the socket is gone the record is stale
+ * and is removed silently (no notification).
  *
  * We deliberately do NOT import `sh-monitor.ts` here (its top-level `main()`
  * is a CLI side effect); we reuse only the pure `protocol.ts` (schema +
@@ -206,12 +208,14 @@ export class MonitorClient {
  * Socket-based client for re-attaching to a still-living sh-monitor after a pi
  * restart (resume). Connects to the resume socket sh-monitor bound via
  * `bindResume`. `whenReady` rejects (ENOENT/ECONNREFUSED) if the supervisor is
- * gone — the caller treats that as "could not locate or resume session shell".
+ * gone — the caller treats the rejected record as stale and removes it silently
+ * (no notification).
  */
 export class ResumeClient {
   readonly sock: Socket;
   private readonly reader: FrameReader;
   private subs = new Set<(ev: MonitorEvent) => void>();
+  private closeCbs = new Set<() => void>();
   readonly whenReady: Promise<void>;
 
   constructor(sockPath: string) {
@@ -230,16 +234,41 @@ export class ResumeClient {
       onFrameError: () => this.sock.destroy(),
     });
     this.sock.on("data", (c: Buffer) => this.reader.feed(c));
+    this.sock.on("close", () => {
+      const cbs = this.closeCbs;
+      this.closeCbs = new Set();
+      for (const cb of cbs) cb();
+    });
     this.whenReady = new Promise<void>((resolve, reject) => {
       this.sock.once("connect", () => resolve());
       this.sock.once("error", reject);
     });
   }
 
+  /** Fires once when the resume socket closes (sh-monitor exited / crashed). */
+  onClose(cb: () => void): void {
+    this.closeCbs.add(cb);
+  }
+
   subscribe(cb: (ev: MonitorEvent) => void): void {
     this.subs.add(cb);
     try {
       writeControl(this.sock, { kind: "subscribe" });
+    } catch {}
+  }
+
+  /** Fire-and-forget signal without awaiting a reply. */
+  sendSignal(sig: string): void {
+    try {
+      writeControl(this.sock, { kind: "signal", sig });
+    } catch {}
+  }
+
+  /** Fire-and-forget signal + close the socket (flushes the signal then EOF). */
+  kill(sig: string): void {
+    this.sendSignal(sig);
+    try {
+      this.sock.end();
     } catch {}
   }
 
@@ -254,27 +283,32 @@ export interface ResumeRecord {
   pid: string;
   sockPath: string;
   cmd: string;
+  logPath?: string;
+  describe?: string;
 }
 
-function resumeRecordDir(sessionDir: string): string {
-  return join(sessionDir, RESUME_SUBDIR);
+function resumeRecordDir(sessionDir: string, scope: string): string {
+  return join(sessionDir, RESUME_SUBDIR, scope);
 }
 
 export async function writeResumeRecord(
   sessionDir: string,
+  scope: string,
   pid: string,
   sockPath: string,
   cmd: string,
+  logPath?: string,
+  describe?: string,
 ): Promise<void> {
   try {
-    const dir = resumeRecordDir(sessionDir);
+    const dir = resumeRecordDir(sessionDir, scope);
     await mkdir(dir, { recursive: true });
-    await writeFile(join(dir, `${pid}.json`), JSON.stringify({ pid, sockPath, cmd }) + "\n");
+    await writeFile(join(dir, `${pid}.json`), JSON.stringify({ pid, sockPath, cmd, logPath, describe }) + "\n");
   } catch {}
 }
 
-export async function readResumeRecords(sessionDir: string): Promise<ResumeRecord[]> {
-  const dir = resumeRecordDir(sessionDir);
+export async function readResumeRecords(sessionDir: string, scope: string): Promise<ResumeRecord[]> {
+  const dir = resumeRecordDir(sessionDir, scope);
   try {
     const files = await readdir(dir);
     const out: ResumeRecord[] = [];
@@ -291,9 +325,96 @@ export async function readResumeRecords(sessionDir: string): Promise<ResumeRecor
   }
 }
 
-export async function removeResumeRecord(sessionDir: string, pid: string): Promise<void> {
+export async function readAllResumeRecords(
+  sessionDir: string,
+): Promise<(ResumeRecord & { sessionId: string })[]> {
+  const base = join(sessionDir, RESUME_SUBDIR);
+  let scopes: string[];
   try {
-    await unlink(join(resumeRecordDir(sessionDir), `${pid}.json`));
+    scopes = await readdir(base);
+  } catch {
+    return [];
+  }
+  const out: (ResumeRecord & { sessionId: string })[] = [];
+  for (const scope of scopes) {
+    let files: string[];
+    try {
+      files = await readdir(join(base, scope));
+    } catch {
+      continue; // not a scope subdir (e.g. legacy flat file)
+    }
+    for (const f of files) {
+      if (!f.endsWith(".json")) continue;
+      try {
+        const rec = JSON.parse(await readFile(join(base, scope, f), "utf8")) as ResumeRecord;
+        if (rec && rec.pid && rec.sockPath) out.push({ ...rec, sessionId: scope });
+      } catch {}
+    }
+  }
+  return out;
+}
+
+export async function removeResumeRecord(sessionDir: string, scope: string, pid: string): Promise<void> {
+  try {
+    await unlink(join(resumeRecordDir(sessionDir, scope), `${pid}.json`));
+  } catch {}
+}
+
+/** A background shell that completed while its owning session was away. */
+export interface CompletedRecord {
+  pid: string;
+  command: string;
+  exitCode: number;
+  logPath: string;
+  completedAt: number;
+}
+
+function completedRecordDir(sessionDir: string, scope: string): string {
+  return join(resumeRecordDir(sessionDir, scope), "done");
+}
+
+/** Persist an off-screen completion so the owner's resume can surface it. */
+export async function writeCompletedRecord(
+  sessionDir: string,
+  scope: string,
+  pid: string,
+  rec: CompletedRecord,
+): Promise<void> {
+  try {
+    const dir = completedRecordDir(sessionDir, scope);
+    await mkdir(dir, { recursive: true });
+    await writeFile(join(dir, `${pid}.json`), JSON.stringify(rec) + "\n");
+  } catch {}
+}
+
+export async function readCompletedRecords(
+  sessionDir: string,
+  scope: string,
+): Promise<CompletedRecord[]> {
+  const dir = completedRecordDir(sessionDir, scope);
+  try {
+    const files = await readdir(dir);
+    const out: CompletedRecord[] = [];
+    for (const f of files) {
+      if (!f.endsWith(".json")) continue;
+      try {
+        const rec = JSON.parse(await readFile(join(dir, f), "utf8")) as CompletedRecord;
+        if (rec && rec.pid) out.push(rec);
+      } catch {}
+    }
+    return out;
+  } catch {
+    return [];
+  }
+}
+
+export async function removeCompletedRecord(
+  sessionDir: string,
+  scope: string,
+  pid: string,
+): Promise<void> {
+  try {
+    await unlink(join(completedRecordDir(sessionDir, scope), `${pid}.json`));
   } catch {}
 }
 

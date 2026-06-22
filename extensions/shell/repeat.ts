@@ -36,6 +36,7 @@ export type RepeatCompletionHook = (
 interface RepeatMonitor {
   id: string;
   command: string;
+  sessScope?: string;
   describe?: string;
   intervalSec: number;
   env: NodeJS.ProcessEnv;
@@ -55,6 +56,12 @@ interface RepeatMonitor {
 const rpt = new Map<string, RepeatMonitor>();
 let rptCounter = 0;
 let hook: RepeatCompletionHook | undefined;
+let getScope: () => string | undefined = () => undefined;
+
+/** Inject the current session scope so repeats are owned per-conversation (a fork inherits none), mirroring background shells. */
+export const setRepeatScopeGetter = (fn: () => string | undefined): void => {
+  getScope = fn;
+};
 
 
 export const setRepeatCompletionHook = (fn: RepeatCompletionHook) => {
@@ -101,11 +108,13 @@ function finalize(
   mon.running = false;
   clearTimeout(mon.timeout);
   mon.logStream.end();
-  hook?.(mon.id, mon.command, code, outcome, {
-    path: mon.logPath,
-    startLine: mon.startLine,
-    endLine: mon.logLine,
-  });
+  if (mon.sessScope === getScope()) {
+    hook?.(mon.id, mon.command, code, outcome, {
+      path: mon.logPath,
+      startLine: mon.startLine,
+      endLine: mon.logLine,
+    });
+  }
   rpt.delete(mon.id);
 }
 
@@ -174,6 +183,7 @@ export function startRepeat(
   const mon: RepeatMonitor = {
     id,
     command,
+    sessScope: getScope(),
     describe,
     intervalSec,
     env,
@@ -193,7 +203,7 @@ export function startRepeat(
 
 export function signalRepeat(id: string, signal: string): boolean {
   const mon = rpt.get(id);
-  if (!mon) return false;
+  if (!mon || mon.sessScope !== getScope()) return false;
   stopRepeat(mon);
   if (mon.child && mon.pid > 0) {
     try {
@@ -204,14 +214,18 @@ export function signalRepeat(id: string, signal: string): boolean {
   return true;
 }
 
-export const getRepeatCount = (): number => rpt.size;
-export const hasActiveRepeats = (): boolean => rpt.size > 0;
+export const getRepeatCount = (): number =>
+  [...rpt.values()].filter((m) => m.sessScope === getScope()).length;
+export const hasActiveRepeats = (): boolean =>
+  [...rpt.values()].some((m) => m.sessScope === getScope());
 export const getActiveRepeats = () =>
-  [...rpt.values()].map((e) => ({ id: e.id, describe: e.describe }));
+  [...rpt.values()].filter((m) => m.sessScope === getScope()).map((e) => ({ id: e.id, describe: e.describe }));
 
 export function killAllRepeats(): void {
-  for (const mon of rpt.values()) stopRepeat(mon);
-  rpt.clear();
+  for (const mon of [...rpt.values()].filter((m) => m.sessScope === getScope())) {
+    stopRepeat(mon);
+    rpt.delete(mon.id);
+  }
 }
 
 const fmtDiags = (diags: any[], fmt: (d: any[]) => string) => (diags.length ? fmt(diags) : "");

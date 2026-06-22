@@ -3,10 +3,15 @@
 import {
   runShell,
   setCompletionHook,
+  setCurrentScope,
   resumeBackgroundShells,
+  getShellBackgrounds,
+  signalChild,
+  killAll,
 } from "../../extensions/shell/exec.ts";
 import {
   ResumeClient,
+  launchMonitor,
   readResumeRecords,
   writeResumeRecord,
 } from "../../extensions/shell/monitor.ts";
@@ -24,7 +29,8 @@ const ok = (c: boolean, m: string) => {
 
 const sessDir = mkdtempSync(join(tmpdir(), "pi-resume-sess-"));
 const xdgDir = mkdtempSync(join(tmpdir(), "pi-resume-xdg-"));
-const env = { ...process.env, PI_SESSION_DIR: sessDir, XDG_RUNTIME_DIR: xdgDir };
+const scope = "test-scope";
+const env = { ...process.env, PI_SESSION_DIR: sessDir, PI_SESSION_ID: scope, XDG_RUNTIME_DIR: xdgDir };
 
 try {
   // 1. background a long shell → exec.ts asks sh-monitor to bindResume + writes a record
@@ -39,7 +45,7 @@ try {
   let record: { pid: string; sockPath: string; cmd: string } | null = null;
   const dl = Date.now() + 5000;
   while (Date.now() < dl) {
-    const recs = await readResumeRecords(sessDir);
+    const recs = await readResumeRecords(sessDir, scope);
     record = recs.find((x) => x.pid === bgId) ?? null;
     if (record) break;
     await new Promise((res) => setTimeout(res, 50));
@@ -63,22 +69,42 @@ try {
     rc.close();
   }
 
-  // 3. ENOENT path: a bogus record → resumeBackgroundShells fires "resume-failed"
-  let resumeFailId: string | null = null;
-  setCompletionHook((id, _cmd, _code, reason) => {
-    if (reason === "resume-failed") resumeFailId = id;
+  // 3. SILENT cleanup: a stale/bogus record is cleaned up silently (no completion hook fires)
+  let hookFired = false;
+  setCompletionHook((_id, _cmd, _code, _reason) => {
+    hookFired = true;
   });
-  await writeResumeRecord(sessDir, "999999", "/tmp/pi-bogus-resume-" + Date.now() + ".sock", "bogus");
-  await resumeBackgroundShells(sessDir); // 2s connect timeout per record
-  const rfDl = Date.now() + 5000;
-  while (resumeFailId === null && Date.now() < rfDl) await new Promise((res) => setTimeout(res, 50));
-  ok(resumeFailId === "999999", "resume-failed fired for bogus record (got " + resumeFailId + ")");
-  const leftover = await readResumeRecords(sessDir);
-  ok(!leftover.find((x) => x.pid === "999999"), "bogus record removed after resume-failed");
+  await writeResumeRecord(sessDir, scope, "999999", "/tmp/pi-bogus-resume-" + Date.now() + ".sock", "bogus");
+  await resumeBackgroundShells(sessDir, scope); // 2s connect timeout per record
+  ok(!hookFired, "stale resume record cleaned up silently (no completion hook)");
+  const leftover = await readResumeRecords(sessDir, scope);
+  ok(!leftover.find((x) => x.pid === "999999"), "stale resume record removed");
+
+  // 4. resume re-attaches a still-living shell as a FULLY managed background entry
+  //    (listable + signalable), reusing the same completion path as in-process shells.
+  //    bg starts empty (fresh process): launch a shell, write its record, "exit" pi
+  //    (close the pipe — sh-monitor survives while the grandchild runs), then resume.
+  setCurrentScope(scope);
+  setCompletionHook(() => {});
+  const h = await launchMonitor("sleep 30", env, `${Date.now()}-resume-mgmt`);
+  const rst = await h.client.stat();
+  const rpid = String(rst.pid);
+  const rsock = await h.client.bindResume();
+  ok(!!rsock, "launchMonitor bound a resume socket");
+  await writeResumeRecord(sessDir, scope, rpid, rsock!, "sleep 30", h.logPath, "resume-mgmt");
+  ok(getShellBackgrounds().length === 0, "bg empty before resume (fresh process)");
+  h.client.close(); // simulate pi exit; sh-monitor survives while the grandchild runs
+  await resumeBackgroundShells(sessDir, scope);
+  ok(getShellBackgrounds().some((e) => e.id === rpid), "resumed shell is listed in bg (manageable)");
+  ok(signalChild(rpid, "SIGINT") === true, "resumed shell is signalable via the resume socket");
+  killAll();
+  ok(getShellBackgrounds().length === 0, "killAll removed the resumed shell from bg");
 
   console.log(`\n${fail === 0 ? "ALL PASS" : "FAILURES: " + fail} (${pass} ok)`);
 } finally {
   rmSync(sessDir, { recursive: true, force: true });
   rmSync(xdgDir, { recursive: true, force: true });
 }
-if (fail) process.exit(1);
+// force exit: section 4 simulates a prior process via launchMonitor, whose
+// MonitorClient stdout-pipe handle needs a tick to release on natural exit.
+process.exit(fail ? 1 : 0);
