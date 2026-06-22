@@ -58,18 +58,45 @@ export interface SubagentResult {
   elapsedMs: number;
   usage?: Usage;
   overThink?: { mode: OverThinkMode; budget: number; thinking: number };
+  editAction: "apply" | "cancel" | null;
+}
+
+/** Parse the subagent's JSONL stdout for the assistant text answer + edit-complete action. */
+function parseSubagentJsonl(stdout: string): { answer: string; editAction: "apply" | "cancel" | null } {
+  let answer = "";
+  let editAction: "apply" | "cancel" | null = null;
+  for (const line of stdout.split("\n")) {
+    if (!line.trim()) continue;
+    let e: any;
+    try { e = JSON.parse(line); } catch { continue; }
+    if (e?.type !== "message_end") continue;
+    const m = e.message;
+    if (m?.role !== "assistant" || !Array.isArray(m.content)) continue;
+    for (const c of m.content) {
+      if (!c || typeof c !== "object") continue;
+      if (c.type === "text" && typeof c.text === "string") answer += c.text;
+      if (c.type === "toolCall" && c.name === "edit-complete") {
+        let a = c.arguments;
+        if (typeof a === "string") { try { a = JSON.parse(a); } catch { a = null; } }
+        if (a && (a.action === "apply" || a.action === "cancel")) editAction = a.action;
+      }
+    }
+  }
+  return { answer: answer.trim(), editAction };
 }
 
 export async function runSubagent(opts: SubagentOptions): Promise<SubagentResult> {
   const T = loadEditorText(opts.cwd);
   const args = [
     "--print",
+    "--mode",
+    "json",
     "--no-extensions",
     "-e",
     SUBAGENT_TRANSCRIPT_EXT,
     "-e",
     COST_TREE_EXT,
-    "--no-tools",
+    "--no-builtin-tools",
     "--no-session",
     "--no-context-files",
     "--no-skills",
@@ -83,13 +110,20 @@ export async function runSubagent(opts: SubagentOptions): Promise<SubagentResult
   if (opts.thinkingLevel) {
     args.push("--thinking", opts.thinkingLevel);
   }
-  let childEnv: NodeJS.ProcessEnv | undefined;
+  // PI_SUBAGENT marks the child so cpi extensions can degrade (e.g. skip
+  // caveman style / recursion). BUDGET_ENV is added when over-think-abort is
+  // loaded, telling it the per-call thinking-token ceiling.
+  const childEnv: NodeJS.ProcessEnv = { ...process.env, PI_SUBAGENT: "1" };
   if (opts.thinkingBudget && opts.thinkingBudget > 0) {
     args.push("-e", OVER_THINK_ABORT_EXT);
-    childEnv = { ...process.env, [BUDGET_ENV]: String(opts.thinkingBudget) };
+    childEnv[BUDGET_ENV] = String(opts.thinkingBudget);
   }
   const start = Date.now();
-  const child = spawn("pi", args, { cwd: opts.cwd, env: childEnv, stdio: ["pipe", "pipe", "pipe"] });
+  const child = spawn("pi", args, {
+    cwd: opts.cwd,
+    stdio: ["pipe", "pipe", "pipe"],
+    env: childEnv,
+  });
 
   let stdout = "";
   let stderr = "";
@@ -131,6 +165,10 @@ export async function runSubagent(opts: SubagentOptions): Promise<SubagentResult
   if (opts.signal) opts.signal.removeEventListener("abort", onAbort);
   const elapsedMs = Date.now() - start;
 
+  // JSONL mode: parse the assistant text (search-replace block) + edit-complete
+  // action from the structured stdout (terminate:true empties text-mode stdout).
+  const { answer, editAction } = parseSubagentJsonl(stdout);
+
   const body =
     `${fmt(T.transcript.title, { role: opts.role })}\n\n` +
     `- model: ${opts.provider}/${opts.modelId}\n` +
@@ -141,11 +179,11 @@ export async function runSubagent(opts: SubagentOptions): Promise<SubagentResult
     (spawnError ? `- spawn_error: ${spawnError}\n` : "") +
     `\n${T.transcript.section_system}\n\n${opts.systemPrompt}\n\n` +
     `${T.transcript.section_user}\n\n${opts.task}\n\n` +
-    `${T.transcript.section_assistant}\n\n${stdout.trim() || T.messages.no_output}\n` +
+    `${T.transcript.section_assistant}\n\n${answer || T.messages.no_output}\n` +
     (stderr.trim() ? `\n${T.transcript.section_stderr}\n\n\`\`\`\n${stderr.trim()}\n\`\`\`\n` : "");
 
   await writeTranscript(opts.transcriptDir, opts.id, body, opts.maxTranscripts);
   const usage = parseSummaryUsage(stderr);
   const overThink = parseOverThink(stderr);
-  return { answer: stdout.trim(), stderr, exitCode, timedOut, spawnError, elapsedMs, usage, overThink };
+  return { answer, stderr, exitCode, timedOut, spawnError, elapsedMs, usage, overThink, editAction };
 }

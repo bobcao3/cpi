@@ -69,6 +69,28 @@ module MonitorHelper
   # N/M success | Score=X% (pass / (pass + fail))" — derived purely from
   # trial summaries; harness errors excluded from the score denominator;
   # N=pass, M=pass+fail.
+  # 95% CI half-width (as a 0..1 fraction) on the resolution rate, using the
+  # cross-task sampling SE = sd(per-task genuine pass rates)/sqrt(N). This is
+  # the honest CI — tbench's run-noise CI is ~2x too small (GH #1418). Genuine
+  # rate per task = pass/(pass+fail), matching the score (harness_err/running
+  # excluded). nil when <2 tasks have a genuine rate.
+  def ci95(trials)
+    by_task = Hash.new { |h, k| h[k] = [0, 0] } # [pass, fail]
+    trials.each do |t|
+      b = trial_bucket(t)
+      next unless b == :pass || b == :fail
+      base = t.task.split("__")[0]
+      by_task[base][0] += 1 if b == :pass
+      by_task[base][1] += 1 if b == :fail
+    end
+    rates = by_task.values.filter_map { |p, f| d = p + f; d.positive? ? p.to_f / d : nil }
+    return nil if rates.size < 2
+    n = rates.size.to_f
+    mean = rates.sum / n
+    var = rates.sum { |r| (r - mean) ** 2 } / (n - 1)
+    1.96 * Math.sqrt(var / n)
+  end
+
   def stats_text(trials)
     pass = 0; fail_ = 0; he = 0; run = 0
     trials.each do |t|
@@ -81,7 +103,14 @@ module MonitorHelper
     end
     denom = pass + fail_
     score = denom.positive? ? format("%.1f", pass.to_f / denom * 100) : "0.0"
-    "#{he} Harness Errors (Does not count) | #{run} running | #{pass}/#{denom} success | Score=#{score}% (pass / (pass + fail))"
+    err = ci95(trials)
+    ci_part = err ? " ±#{format('%.1f', err * 100)} (95% CI)" : " (pass / (pass + fail))"
+    parts = []
+    parts << "#{he} Harness Errors (Does not count)" if he.positive?
+    parts << "#{run} running"
+    parts << "#{pass}/#{denom} success"
+    parts << "<b>Score: #{score}%</b>#{ci_part}".html_safe
+    safe_join(parts, " | ")
   end
 
   # grouped(): trials grouped by task base, ordered by last invoke (pi.txt
