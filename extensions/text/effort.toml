@@ -6,4 +6,4 @@ description = "Tune thinking effort (no arg = show; levels: {{levels}})"
 prompt_snippet = ""
 
 [guidelines]
-bullets = ""
+bullets = []

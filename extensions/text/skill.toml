@@ -22,8 +22,9 @@ name = "Exact name of the skill to load"
 subdoc = "Relative path to a sub-document inside the skill directory"
 
 [guidelines]
-bullets = '''
-Use the skill tool when a skill description matches the current task and you need the full SKILL.md instructions.
-Pass the exact skill name as shown in the skill tool description.
-To read a sub-document referenced by the skill, pass its relative path from the skill directory as subdoc.
-If the skill name is unknown, the result is an error listing the available skill names.'''
+bullets = [
+  "Use the skill tool when a skill description matches the current task.",
+  "Pass the exact skill name as shown in the skill tool description.",
+  "To read a sub-document referenced by the skill, pass its relative path from the skill directory as subdoc.",
+  "If the skill name (or subdoc name) is unknown, the result is an error listing the available skills or subdocs.",
+]

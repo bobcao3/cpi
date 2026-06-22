@@ -17,7 +17,7 @@ import { getShuckBinPath, buildShellEnvWithDotenv, type ToolAvailability } from 
 import { lintCommand, formatDiagnostics } from "./lint.ts";
 import { parseCommand } from "../lib/tree-sitter.ts";
 import { checkRules, formatRuleMatches } from "./rules.ts";
-import { loadText, render, textPath, type ToolText } from "../lib/text.ts";
+import { loadText, render, renderLines, textPath, type ToolText } from "../lib/text.ts";
 
 export interface RepeatLogRange {
   path: string;
@@ -229,7 +229,7 @@ export function createRepeatTool(
   const truncateDescribe = (t: string) =>
     t.length <= DESCRIBE_MAX ? t : t.slice(0, DESCRIBE_MAX - 1) + "…";
   const T = loadText<ToolText>("sh-repeat", textPath("sh-repeat"));
-  const guidelines = render(T.guidelines.bullets, {}).split("\n");
+  const guidelines = renderLines(T.guidelines.bullets, {});
   const schema = Type.Object({
     command: Type.String({ description: T.schema!.command }),
     interval: Type.Number({
@@ -237,7 +237,7 @@ export function createRepeatTool(
       maximum: 60,
       description: T.schema!.interval,
     }),
-    describe: Type.String({ description: T.schema!.describe }),
+    description: Type.String({ description: T.schema!.description }),
     env: Type.Optional(Type.String({ description: T.schema!.env })),
   });
 
@@ -256,7 +256,7 @@ export function createRepeatTool(
       ctx: any,
     ) {
       const interval = params.interval;
-      const describe = params.describe?.trim();
+      const description = params.description?.trim();
       if (interval < 5 || interval > 60) {
         return {
           content: [{ type: "text", text: `interval must be 5-60s (got ${interval}).` }],
@@ -289,7 +289,7 @@ export function createRepeatTool(
               text: `${errParts.join("\n")}\n---\nblocked (${count} error${count !== 1 ? "s" : ""})`,
             },
           ],
-          details: { describe, shuckBlocked: true, tsAst: parsed.ast },
+          details: { description, shuckBlocked: true, tsAst: parsed.ast },
           isError: true,
         };
       }
@@ -305,17 +305,17 @@ export function createRepeatTool(
         params.command,
         interval,
         buildShellEnvWithDotenv(ctx?.sessionManager, params.env),
-        describe,
+        description,
       );
       const status = `repeating PID=${id} every ${interval}s · stop on non-zero exit`;
-      const tag = describe ? ` (${truncateDescribe(describe)})` : "";
+      const tag = description ? ` (${truncateDescribe(description)})` : "";
       return {
         content: [{ type: "text", text: `${warningPrefix}${status}${tag}` }],
         details: {
           id,
           status: "repeating",
           interval,
-          describe,
+          description,
           shuckWarnings: warningPrefix || undefined,
           tsAst: parsed.ast,
         },

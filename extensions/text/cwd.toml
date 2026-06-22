@@ -8,6 +8,7 @@ prompt_snippet = "Change the cwd for all subsequent tool calls or shell commands
 path = "Target directory, absolute, or relative to cwd"
 
 [guidelines]
-bullets = '''
-Use set_cwd when the user asks to switch projects, or when work has clearly moved to a different tree, and the current CWD is no longer the right root for shell commands.
-Use set_cwd when you keep prefixing `cd path/to/project && ...` on every sh call.'''
+bullets = [
+  "Use set_cwd when the user switches projects, or when the current CWD is no longer the right root for shell commands.",
+  "Use set_cwd to avoid repeatedly prefixing `cd path/to/project && ...` on every sh call.",
+]

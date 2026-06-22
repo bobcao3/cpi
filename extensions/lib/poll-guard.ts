@@ -20,7 +20,7 @@
 
 const GLOBAL_KEY = "__cpiPollGuard";
 /** Minimum consecutive repeats before warning; tolerates a single rapid retry
- *  (e.g. `!!` after a transient error) without nagging. */
+ *  after a transient error without nagging. */
 const WARN_MIN_REPEAT = 2;
 /** Gap (seconds) after which a command is considered abandoned and its repeat
  *  counter resets — i.e. a fresh poll session. */
@@ -85,8 +85,8 @@ export function recordAlarmSetup(): void {
 }
 
 /**
- * Called by shell.ts after `!!` resolution, once the command is confirmed to
- * run (past lint/rule rejection). Returns a slow-down advisory string when
+ * Called by shell.ts once the command is confirmed to run (past lint/rule
+ * rejection). Returns a slow-down advisory string when
  * repeated identical invocations arrive faster than the exponential backoff
  * threshold (2^(n_repeat+1) seconds); otherwise null. Pure with respect to pi:
  * mutates only shared poll-guard state, touches no pi API.

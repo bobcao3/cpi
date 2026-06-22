@@ -37,17 +37,17 @@ export interface ShellConfig {
   /** Maximum allowed waitfor value; larger values error (default: 30). */
   maxWaitfor: number;
   /**
-   * Maximum lines of agent-facing command output kept by head/tail (default:
+   * Maximum lines of agent-facing command output kept by the tail preview (default:
    * 500). Independent of the TUI's folded preview (tailLines).
    */
   maxPreviewLines: number;
-  /** Maximum bytes of agent-facing output kept by head/tail (default: 10240). */
+  /** Maximum bytes of agent-facing output kept by the tail preview (default: 10240). */
   previewMaxBytes: number;
   /** Max bytes accumulated in memory per shell before trimming (default: 4194304). */
   maxAcc: number;
   /** Minimum ms between streaming partial updates; 0 disables throttling (default: 200). */
   updateMs: number;
-  /** TUI folded-preview line count, independent of agent head/tail (default: 5). */
+  /** TUI folded-preview line count, independent of agent output truncation (default: 5). */
   tailLines: number;
   /** Max chars of the `describe` summary shown in the UI (default: 48). */
   describeMax: number;
