@@ -84,7 +84,7 @@ export interface EditorConfig {
   maxTranscripts?: number;
   /** Aider-style fuzzy SEARCH/REPLACE fallback (uniform-indent tolerance + `...` elision) when an exact SEARCH misses. Default true. */
   fuzzyMatch?: boolean;
-  /** Ordered {search,replace} rules producing candidate editor model ids from the main model id. Shipped defaults are a cost+recency ladder: a ≤0.6x-cost (primary ~0.2x) model that is also ≤6 months old, then a fallback, then implicit identity (fall-through = "if not available"). Stale/retired models are never targets. */
+  /** Ordered {search,replace} rules producing candidate editor model ids from the main model id. Shipped defaults are a cost+recency ladder: a ≤0.6x-cost (primary ~0.2x) model that is also ≤6 months old, then a fallback, then implicit identity (fall-through = "if not available"). Stale/retired models are never targets. The GPT-5.x non-mini family keeps the main model and drops thinking effort to `low` instead of swapping to a cheaper model. */
   chain?: EditorChainRule[];
 }
 

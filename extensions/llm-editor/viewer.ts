@@ -31,15 +31,24 @@ export interface ViewFileOptions {
 }
 
 /** Normalize the view-complete tool's already-parsed `ranges` arg into validated
- *  [start, end] pairs. Non-array => null (caller reports bad output); invalid
- *  elements are dropped; an empty result is a legitimate "no ranges". */
+ *  [start, end] pairs. Each element may be either a `{"start", "end"}` object
+ *  (schema form) or a legacy `[start, end]` tuple (defensive fallback).
+ *  Non-array => null (caller reports bad output); invalid elements are dropped;
+ *  an empty result is a legitimate "no ranges". */
 function normalizeRanges(raw: unknown): number[][] | null {
   if (!Array.isArray(raw)) return null;
   const ranges: number[][] = [];
   for (const r of raw) {
-    if (!Array.isArray(r) || r.length !== 2) continue;
-    const s = Number(r[0]);
-    const e = Number(r[1]);
+    let s = NaN;
+    let e = NaN;
+    if (Array.isArray(r) && r.length === 2) {
+      s = Number(r[0]);
+      e = Number(r[1]);
+    } else if (r && typeof r === "object") {
+      const o = r as Record<string, unknown>;
+      s = Number(o.start);
+      e = Number(o.end);
+    }
     if (!Number.isInteger(s) || !Number.isInteger(e) || s < 1 || e < s) continue;
     ranges.push([s, e]);
   }

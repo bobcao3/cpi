@@ -22,8 +22,9 @@
     "chain": [
       { "search": "(claude-)(fable|opus)[0-9.-]*:xhigh", "replace": "$1sonnet-4-6:high" },
       { "search": "(claude-)(fable|opus)[0-9.-]*", "replace": "$1sonnet-4-6" },
-      { "search": "gpt-5.[0-9][^:]*:xhigh", "replace": "gpt-5.4-mini:xhigh" },
-      { "search": "gpt-5.[0-9][^:]*", "replace": "gpt-5.4-mini" },
+      { "search": "(gpt-5.[0-9](?!-mini)[^:]*):(xhigh|high|medium)", "replace": "$1:low" },
+      { "search": "gpt-5.[0-9]-mini[^:]*:xhigh", "replace": "gpt-5.4-mini:xhigh" },
+      { "search": "gpt-5.[0-9]-mini[^:]*", "replace": "gpt-5.4-mini" },
       { "search": "gpt-5(-pro|-codex)?:xhigh", "replace": "gpt-5.4-mini:xhigh" },
       { "search": "gpt-5(-pro|-codex)?(?=:|$)", "replace": "gpt-5.4-mini" },
       { "search": "gpt-4o[^:]*:xhigh", "replace": "gpt-5.4-mini:xhigh" },

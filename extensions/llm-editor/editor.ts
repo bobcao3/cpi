@@ -165,7 +165,7 @@ export async function editFile(path: string, opts: EditFileOptions): Promise<Edi
       await rename(tmp, abs);
     } catch (err) {
       await unlink(tmp).catch(() => {});
-      return { ok: false, error: fmt(T.errors.write_failed, { reason: (err as Error).message }) };
+      return { ok: false, error: fmt(T.errors.write_failed, { path: abs, reason: (err as Error).message }) };
     }
 
     const lsp = await lspFields(abs);

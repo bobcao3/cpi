@@ -30,6 +30,7 @@
  * (>6mo) or retired models (e.g. grok-code-fast-1, gpt-4o-mini,
  * gemini-2.5-flash, claude-haiku-4-5) are never targets; identity keeps the
  * main when no fresh cheaper model exists.
+ * The GPT-5.x non-mini family is an exception: it keeps the main model and drops thinking effort to "low" (same model, cheaper effort) instead of swapping to a mini.
  *
  * Resolution is EXACT (candidate must equal a registered model id). The only
  * transformation is `combinedInput.replace`, so what a rule does is fully
