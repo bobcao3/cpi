@@ -22,10 +22,18 @@ word-split / "Argument list too long" if passed as an arg; the quoted heredoc
 keeps every character literal — no escaping needed.
 
 ```
-subagent -s sub-<slug> <<'TASK'
+subagent -m provider/model:effort -s sub-<slug> <<'TASK'
 <task, with full context — `backticks`, $vars, globs, quotes all stay literal>
 TASK
 ```
+
+<VERY_IMPORTANT>
+Invoke `subagent` directly through `sh`: never redirect its stdout/stderr (`>`,
+`2>`, `2>&1`) or pipe it, especially to `tail`/`tail -f`. Those consumers can
+buffer or discard the live transcript and hide intermediate observability. Use
+`waitfor=1` to `waitfor=5`; if it backgrounds, leave it running and wait for the
+shell completion notification instead of reading or polling its log.
+</VERY_IMPORTANT>
 
 - `-s <session-id>`: pick a slug to enable resume; **re-run with the same `-s`**
   to continue (pi restores prior context). Omit to auto-generate, then read the
@@ -36,11 +44,39 @@ TASK
   subagent manually** (outside the parent's `sh` env), pass its session dir
   derived from the `jsonl:` path:
   `pi --session-dir "$(dirname <jsonl-path>)" --session-id <id> -c`.
-- `-p <provider>`: provider id to use (default `meshy-sglang-kimi`; override with one available in your config).
+- `-m [provider/]model[:effort]`: unified model selector. Provider and effort are optional.
+  Without `-p`, a bare model inherits the parent provider; a `parent-provider/model`
+  prefix is stripped; any other slash-qualified model is passed to pi without
+  `--provider`, so pi resolves it either as `provider/model` or as a raw slash-bearing
+  model id. Only valid thinking suffixes (`off`, `minimal`, `low`, `medium`, `high`,
+  `xhigh`) are parsed as effort, so other colon-bearing model IDs remain intact. Effort
+  inherits parent `thinkingLevel` unless `:effort` is explicit, then maps to pi
+  `--thinking`.
+- `-p <provider>`: explicit provider override; takes precedence over parent matching.
 - Injects `output-protocol.md` (shipped in `bin/`, keeps the subagent terse, full answer in its
-  final message). To run a subagent in the background, pass `waitfor=1` to `sh`;
-  it backgrounds and you collect its result from the completion notification / log.
-  Fan out via several `sh` launches; collect each result.
+  final message). Use `waitfor=1` to `waitfor=5` with `sh`; if the subagent
+  backgrounds, leave it running and collect its result from the completion
+  notification / log after it exits. Fan out via several `sh` launches; collect
+  each result.
+
+Examples:
+
+```bash
+# Inherit parent provider and thinking effort.
+subagent -m gpt-5.6-terra -s sub-task <<'TASK'
+Reply with current date.
+TASK
+
+# Explicit provider and effort.
+subagent -m openai-codex/gpt-5.6-terra:high -s sub-task <<'TASK'
+Check implementation.
+TASK
+
+# Explicit -p remains supported for slash-containing model IDs.
+subagent -p meshy-sglang -m zai-org/GLM-5.2-FP8:medium -s sub-task <<'TASK'
+Inspect model health.
+TASK
+```
 
 <VERY_IMPORTANT>
 The subagent is like any other backgrounded shell command:
@@ -55,16 +91,16 @@ log `/tmp/pi-sh-output-<PID>.log` (`<PID>` = the id returned by `sh`, reused in 
 
 - **stderr, live during the run:** a `jsonl: <path>` line at the start, then the
   streaming markdown transcript (one block per message; tool calls render as
-  ```bash or ```xml). `tail -f` the log while a backgrounded subagent works.
+  ```bash or ```xml).
 - **stdout, at the end:** the clean final answer, then a `jsonl: <path>` line and
   a `summary: time=<s> turns=<n> in=<tok> out=<tok> cost=$<usd>` line (tokens + cost are subtree totals; cost is model-correct since pi prices each message by its own model).
 
+The completion notification and log are for results after the subagent exits.
 The `jsonl` path is pi's native raw session log (full-fidelity, structured) —
 read it for deep inspection. `rm` stale logs when finished.
 
 ```
 grep '^jsonl:' /tmp/pi-sh-output-<PID>.log   # raw session log path
-tail -n3 /tmp/pi-sh-output-<PID>.log          # answer tail + summary
 ```
 
 ## Boundaries
