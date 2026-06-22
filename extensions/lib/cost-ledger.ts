@@ -6,20 +6,18 @@
  * free. Subagents are separate processes, so their cost crosses the process
  * boundary only via the conclusion `summary:` line (subagent-transcript ext).
  *
- * Recursion model: each level reports own+descendants. This ledger collects a
- * process's DIRECT children's reported subtree usage; subagent-transcript folds
- * it into its own emitted summary at shutdown. A parent parses one number per
- * direct child and adds it — no double counting, because each child's emitted
- * cost already includes its own descendants and is added exactly once.
- *
- * Two feed paths, both calling addSubagentUsage:
- *   - llm-editor (in-process): runSubagent parses the subagent's stderr summary
- *     and the tool adds it. llm-editor subagents are tool-less leaves, so their
- *     reported cost is already their full subtree (empty ledger).
- *   - shell ext (sh tool): parses `summary:` from a completed `subagent` sh
- *     command — inline from the result text, backgrounded from the log tail.
- *     Catches regular subagents (which load full cpi exts, so the same shell
- *     ext feeds their ledger for their own grandchildren → recursion).
+* Recursion model: each level reports own+descendants. This ledger collects a
+* process's DIRECT children's reported subtree usage; subagent-transcript folds
+* it into its own emitted `summary:` line at shutdown, and the cost-tree
+* extension sends it up to the parent via the CPI_COST_SOCKET. Each child's
+* reported cost already includes its own descendants and is added exactly once
+* → no double counting.
+*
+* One feed path, via the cost-tree socket extension: each pi process listens on
+* a Unix socket (CPI_COST_SOCKET, re-pointed per process); children connect at
+* shutdown and send their subtree total, which the parent's listener adds here.
+* Catches every spawning path uniformly (llm-editor subagents, the `subagent`
+* wrapper, manual `pi --print`) — no command-string gating.
  *
  * State on globalThis (shared across jiti reloads; same pattern as footer).
  * Pure leaf: node fs only. parseSummaryUsage is the single source of truth for

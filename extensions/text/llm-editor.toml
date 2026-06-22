@@ -141,6 +141,7 @@ guidelines = [
 	"Use llm_editor for file reads and edits in preference to sh; use sh for git, build, test, search, and process control.",
 	"llm_editor view on a file takes a `query` describing what you are looking for; it returns only the relevant line ranges with line numbers (AI-filtered), not the whole file.",
 	"llm_editor edit takes a natural-language `instruction` naming the function/class/method to change; the subagent produces exact search-replace blocks. Be specific: 'In MyClass.my_method, change X to Y' beats 'fix the bug'.",
+	"If your edit instruction requires synthesizing novel logic the editor cannot derive deterministically from the file, do NOT use `edit`. Use `create` (you author file_text) or decompose into discrete deterministic edits.",
 	"llm_editor create fails if the path already exists; use llm_editor edit to modify existing files.",
 ]
 
@@ -159,6 +160,7 @@ empty_dir = "(empty)"
 no_output = "(no output)"
 head_more = "... ({{n}} more lines; pass a query to view relevant ranges)"
 lines_omitted = "... ({{n}} lines omitted) ..."
+over_think_warn = "Editor over-thought ({{thinking}} tokens > budget {{budget}}); the edit was applied, but the instruction likely required synthesis the editor produced only by straining. Audit the applied diff before relying on it. For similar future edits, prefer llm_editor create (author file_text) or decompose into discrete deterministic edits."
 
 # ── LSP result-field strings (design §9; {{placeholder}} substituted via fmt) ──
 [lsp]
@@ -182,6 +184,7 @@ invalid_chain_regex = '[llm-editor] chain rule {{i}}: invalid regex "{{pattern}}
 configured_unavailable = '[llm-editor] configured editor.model "{{model}}" not available/authed; falling back to chain.'
 viewer_timeout = "Viewer subagent timed out after {{ms}}ms. Consider fewer query statements & use concrete keywords."
 editor_timeout = "Editor subagent timed out after {{ms}}ms. Consider reducing scope & increase specificity"
+editor_over_think = "Editor subagent aborted: thinking ({{thinking}} tokens) exceeded budget {{budget}}. The instruction likely requires synthesis the editor cannot derive from the file. Use llm_editor create (author file_text) or decompose into discrete deterministic edits."
 viewer_bad_output = "Viewer did not return a JSON line-range array.\nOutput: {{tail}}"
 write_failed = "Write failed: {{reason}}"
 file_drifted = "File changed on disk mid-edit (concurrent edit); not patched even after one automatic reconcile. Re-read {{path}} and apply the change again."

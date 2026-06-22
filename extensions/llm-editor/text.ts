@@ -14,6 +14,7 @@
  * not a tag).
  */
 
+import * as process from "node:process";
 import { loadText, render, textPath } from "../lib/text.ts";
 
 export interface EditorText {
@@ -32,6 +33,7 @@ export interface EditorText {
     no_output: string;
     head_more: string;
     lines_omitted: string;
+    over_think_warn: string;
   };
   lsp: { diagnostics_none: string; install_failed: string; restart_hint: string };
   errors: Record<string, string>;

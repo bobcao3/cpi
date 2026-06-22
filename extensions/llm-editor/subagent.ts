@@ -26,8 +26,11 @@ import { writeTranscript } from "./log.ts";
 import { STREAM_UPDATE_MS } from "./render.ts";
 import { loadEditorText, fmt } from "./text.ts";
 import { parseSummaryUsage, type Usage } from "../lib/cost-ledger.ts";
+import { BUDGET_ENV, parseOverThink, type OverThinkMode } from "../over-think-abort/protocol.ts";
 
 const SUBAGENT_TRANSCRIPT_EXT = fileURLToPath(new URL("../subagent-transcript/index.ts", import.meta.url));
+const OVER_THINK_ABORT_EXT = fileURLToPath(new URL("../over-think-abort/index.ts", import.meta.url));
+const COST_TREE_EXT = fileURLToPath(new URL("../cost-tree/index.ts", import.meta.url));
 
 export interface SubagentOptions {
   role: "viewer" | "editor";
@@ -36,6 +39,7 @@ export interface SubagentOptions {
   provider: string;
   modelId: string;
   thinkingLevel?: string;
+  thinkingBudget?: number;
   cwd: string;
   signal?: AbortSignal;
   timeoutMs: number;
@@ -53,6 +57,7 @@ export interface SubagentResult {
   spawnError?: string;
   elapsedMs: number;
   usage?: Usage;
+  overThink?: { mode: OverThinkMode; budget: number; thinking: number };
 }
 
 export async function runSubagent(opts: SubagentOptions): Promise<SubagentResult> {
@@ -62,6 +67,8 @@ export async function runSubagent(opts: SubagentOptions): Promise<SubagentResult
     "--no-extensions",
     "-e",
     SUBAGENT_TRANSCRIPT_EXT,
+    "-e",
+    COST_TREE_EXT,
     "--no-tools",
     "--no-session",
     "--no-context-files",
@@ -76,8 +83,13 @@ export async function runSubagent(opts: SubagentOptions): Promise<SubagentResult
   if (opts.thinkingLevel) {
     args.push("--thinking", opts.thinkingLevel);
   }
+  let childEnv: NodeJS.ProcessEnv | undefined;
+  if (opts.thinkingBudget && opts.thinkingBudget > 0) {
+    args.push("-e", OVER_THINK_ABORT_EXT);
+    childEnv = { ...process.env, [BUDGET_ENV]: String(opts.thinkingBudget) };
+  }
   const start = Date.now();
-  const child = spawn("pi", args, { cwd: opts.cwd, stdio: ["pipe", "pipe", "pipe"] });
+  const child = spawn("pi", args, { cwd: opts.cwd, env: childEnv, stdio: ["pipe", "pipe", "pipe"] });
 
   let stdout = "";
   let stderr = "";
@@ -134,5 +146,6 @@ export async function runSubagent(opts: SubagentOptions): Promise<SubagentResult
 
   await writeTranscript(opts.transcriptDir, opts.id, body, opts.maxTranscripts);
   const usage = parseSummaryUsage(stderr);
-  return { answer: stdout.trim(), stderr, exitCode, timedOut, spawnError, elapsedMs, usage };
+  const overThink = parseOverThink(stderr);
+  return { answer: stdout.trim(), stderr, exitCode, timedOut, spawnError, elapsedMs, usage, overThink };
 }
