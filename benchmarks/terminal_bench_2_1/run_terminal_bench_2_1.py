@@ -8,7 +8,7 @@ Two agent kinds:
   --agent terminus-2 (default): Harbor's built-in terminus-2 agent.
   --agent cpi                 : pi + cpi harness (see harbor_agents/cpi_pi.py).
     Endpoint/model/provider/cpi-ref are CLI-driven; cpi is git-cloned into the
-    container, no pi-exa (no web search), caveman-micro on by default.
+    container, no pi-exa (no web search), caveman-micro off by default.
 
 Usage examples:
 

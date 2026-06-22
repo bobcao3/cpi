@@ -140,7 +140,7 @@ description = "View, create, and edit files. view on a directory lists it; view 
 prompt_snippet = "View/create/edit files (AI-mediated)"
 guidelines = [
 	"Use llm_editor for file reads and edits in preference to sh; use sh for git, build, test, search, and process control.",
-	"llm_editor view on a file takes a `query` describing what you are looking for; it returns only the relevant line ranges with line numbers (AI-filtered), not the whole file.",
+	"Set the `query` argument for llm_editor:view, describing what you are looking for; it returns only the relevant ranges with line numbers (AI-filtered), not the whole file, which saves context and reduces noise.",
 	"llm_editor edit takes a natural-language `instruction` naming the function/class/method to change; the subagent produces exact search-replace blocks. Be specific: 'In MyClass.my_method, change X to Y' beats 'fix the bug'.",
 	"If your edit instruction requires synthesizing novel logic the editor cannot derive deterministically from the file, do NOT use `edit`. Use `create` (you author file_text) or decompose into discrete deterministic edits.",
 	"llm_editor create fails if the path already exists; use llm_editor edit to modify existing files.",
