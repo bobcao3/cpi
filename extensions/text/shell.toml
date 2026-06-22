@@ -31,6 +31,10 @@ prompt_snippet = "Signal background shell commands"
 description = "List active background shells and repeat_until monitors."
 prompt_snippet = "List active background jobs"
 
+[sh_detach]
+description = "Release a background shell (by sh-returned PID) to run on its own, untracked: it survives this pi process, no completion notification fires, and sh_signal/killAll will not touch it. Output keeps draining to its log file. The child never receives SIGPIPE because pi never held its pipe (sh-monitor does)."
+prompt_snippet = "Detach background shells to run untracked"
+
 [schema.sh]
 description = "Short description of what this command is doing (a few words)"
 waitfor = "Seconds to wait before backgrounding (default {{max_waitfor}}, max {{max_waitfor}}; >{{max_waitfor}} errors)"
@@ -40,6 +44,9 @@ env = "Dotenv merged into sh env; dotenv wins"
 [schema.sh_signal]
 id = "Background shell PID (as returned by sh)"
 signal = "Signal name/number (default SIGINT; SIGKILL to terminate)"
+
+[schema.sh_detach]
+id = "Background shell PID (as returned by sh)"
 
 # ── promptGuidelines ──
 [guidelines]
@@ -59,6 +66,11 @@ sh_signal = [
   "sh_signal defaults to SIGINT, and signal is always delivered to the whole process group.",
   "Do not run `kill` via sh on background PIDs; use `sh_signal` instead.",
   "SIGKILL terminates the process group and suppresses the completion notice; no completion notification will fire for that shell, so do not call wait_any expecting one; any other signal (SIGINT, SIGTERM, …) may be caught or ignored, so the process is not guaranteed to stop. Its completion notification will still fire when the process eventually exits; call wait_any to yield until then."
+]
+sh_detach = [
+  "sh_detach releases a background shell to run untracked and survive this pi process; no completion notification fires afterward.",
+  "After detach, the PID is gone from sh_background_ps and unreachable by sh_signal — one-way.",
+  "For a process you know up-front must outlive pi, sh_detach after backgrounding; output keeps draining to the log file path sh returned.",
 ]
 sh_background_ps = [
   "Use sh_background_ps to list running background shells and monitors.",
