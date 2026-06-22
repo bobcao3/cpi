@@ -23,7 +23,14 @@ import {
   setRepeatCompletionHook,
   signalRepeat,
 } from "./repeat.ts";
-import { launchMonitor, type MonitorClient } from "./monitor.ts";
+import {
+  launchMonitor,
+  type MonitorClient,
+  ResumeClient,
+  writeResumeRecord,
+  readResumeRecords,
+  removeResumeRecord,
+} from "./monitor.ts";
 
 export type { OutputTruncation };
 
@@ -48,6 +55,7 @@ interface BackgroundChild {
   bytesEmitted: number;
   linesEmitted: number;
   colBytes: number;
+  sessDir?: string;
 }
 
 export interface OutputCursor {
@@ -69,7 +77,7 @@ export type CompletionHook = (
   id: string,
   cmd: string,
   code: number | null,
-  reason: "completed" | "stopped" | "breach",
+  reason: "completed" | "stopped" | "breach" | "resume-failed",
   log?: { path: string; startLine?: number; endLine?: number },
 ) => void;
 
@@ -115,6 +123,7 @@ export async function runShell(
   tunables: ShellTunables,
 ): Promise<ShResult> {
   const pathId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const sessDir = env.PI_SESSION_DIR;
   let handle: Awaited<ReturnType<typeof launchMonitor>>;
   try {
     handle = await launchMonitor(command, env, pathId);
@@ -148,6 +157,7 @@ export async function runShell(
     describe,
     client,
     logPath,
+    sessDir,
     acc: "",
     decoder,
     exitCode: null,
@@ -195,6 +205,7 @@ export async function runShell(
           completionHook?.(id, command, ev.exitCode, "completed", { path: logPath });
         bg.delete(id);
         client.close(); // backgrounded entry finished → disconnect; monitor drains + exits
+        if (sessDir) void removeResumeRecord(sessDir, id);
       }
       exitResolve();
     }
@@ -220,7 +231,7 @@ export async function runShell(
     }
     exitResolve();
   };
-  client.sock.on("close", onSockClose);
+  client.onClose(onSockClose);
 
   const onAbort = () => client.sendSignal("SIGKILL");
   signal?.addEventListener("abort", onAbort);
@@ -247,6 +258,10 @@ export async function runShell(
   }
   // still running → background it; the subscribe callback stays live for completion
   bg.set(id, entry);
+  if (sessDir)
+    void client.bindResume().then((sp) => {
+      if (sp && bg.has(id)) void writeResumeRecord(sessDir, id, sp, command);
+    });
   const { text } = await buildOutputText(entry.acc, { logPath, truncation, tunables });
   return {
     id,
@@ -285,6 +300,7 @@ export const detachChild = (id: string): string | null => {
   const e = bg.get(id);
   if (!e || e.done) return null;
   e.signaled = true; // suppress any in-flight completion hook
+  if (e.sessDir) void removeResumeRecord(e.sessDir, id);
   e.client.close();
   bg.delete(id);
   return e.logPath;
@@ -309,4 +325,35 @@ export function killAll(): void {
   }
   bg.clear();
   killAllRepeats();
+}
+
+/**
+ * Re-establish backgrounded shells after a pi restart/reload. For each resume
+ * record in the session folder, try to re-attach to its sh-monitor socket; if
+ * the socket is gone, fire the completion hook as "resume-failed" (ENOENT) so
+ * the user is notified ("could not locate or resume session shell #pid").
+ */
+export async function resumeBackgroundShells(sessionDir: string | undefined): Promise<void> {
+  if (!sessionDir) return;
+  const records = await readResumeRecords(sessionDir);
+  for (const r of records) {
+    const c = new ResumeClient(r.sockPath);
+    try {
+      await Promise.race([
+        c.whenReady,
+        new Promise<void>((_, rej) => setTimeout(() => rej(new Error("resume connect timeout")), 2000)),
+      ]);
+    } catch {
+      completionHook?.(r.pid, r.cmd, null, "resume-failed");
+      void removeResumeRecord(sessionDir, r.pid);
+      continue;
+    }
+    c.subscribe((ev) => {
+      if (ev.kind === "exit") {
+        completionHook?.(r.pid, r.cmd, ev.exitCode, "completed");
+        void removeResumeRecord(sessionDir, r.pid);
+        c.close();
+      }
+    });
+  }
 }

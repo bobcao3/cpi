@@ -1,0 +1,26 @@
+# Model-facing text for the backup-exec tool (cpi dev-only fallback runner).
+# Layered (project > user > shipped). See lib/text.ts for the renderer.
+#
+# NOTE: backup-exec is NOT part of the shipped cpi package. The extension
+# source lives at ~/cpi/.pi/backup-exec.ts and is registered as a single
+# extension file via ~/cpi/.pi/settings.json (project scope). The cpi package
+# manifest (pi.extensions: ["./extensions"]) never sweeps .pi/, and .pi/ is
+# absent from the npm `files` set, so `pi install npm:cpi` / `pi install -l .`
+# consumers never get the tool. This TOML ships as unused data when cpi is
+# installed as a package — no consumer extension loads it.
+
+[tool]
+description = "Dead-simple argv runner (Codex exec semantics): spawns `command` (an argv vector) directly with NO shell — e.g. [`make`, `test`] or [`bash`, `-c`, `ls -la`]. Use ONLY when the `sh` tool malfunctions. Optional `workdir` (default: cwd) and `timeout_ms` (default 30000, max 120000). If `command` is omitted or empty it defaults to [$SHELL] (argv[0] = $SHELL). Returns combined stdout+stderr and the exit code."
+prompt_snippet = "Fallback argv runner — use only when sh is broken"
+
+[schema]
+command = "Argv vector to exec directly (no shell), e.g. [`make`, `test`] or [`bash`, `-c`, `ls -la`]. Omit or leave empty to default to [$SHELL]."
+workdir = "Working directory; defaults to the current cwd."
+timeout_ms = "Kill the process after this many milliseconds and return partial output (default 30000, max 120000)."
+
+[guidelines]
+bullets = [
+  "Use backup-exec ONLY when the `sh` tool is malfunctioning; otherwise always prefer `sh` (it lints, backgrounds, and notifies on completion).",
+  "`command` is an argv vector exec'd directly with NO shell — pipes, globs, redirects, and `&&` do not work. For shell features, run through your shell: [`bash`, `-c`, `...`] or [`$SHELL`, `-c`, `...`].",
+  "Set `timeout_ms` for anything that may hang; on timeout the process is killed and partial output is returned.",
+]

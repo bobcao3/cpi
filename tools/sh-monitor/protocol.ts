@@ -21,7 +21,7 @@
 
 import { Type, type Static } from "typebox";
 import { Value } from "typebox/value";
-import type { Socket } from "node:net";
+
 
 export const FRAME_CONTROL = 0x01;
 export const FRAME_DATA = 0x02;
@@ -35,6 +35,7 @@ const StatReq = Type.Object({ kind: Type.Literal("stat") });
 const SignalReq = Type.Object({ kind: Type.Literal("signal"), sig: Type.String() });
 const SubscribeReq = Type.Object({ kind: Type.Literal("subscribe") });
 const ShutdownReq = Type.Object({ kind: Type.Literal("shutdown") });
+const BindResumeReq = Type.Object({ kind: Type.Literal("bindResume") });
 const StatusMsg = Type.Object({
   kind: Type.Literal("status"),
   pid: Type.Integer(),
@@ -44,6 +45,7 @@ const StatusMsg = Type.Object({
   logPath: Type.String(),
 });
 const SubscribedMsg = Type.Object({ kind: Type.Literal("subscribed"), offset: uint64 });
+const ResumeReadyMsg = Type.Object({ kind: Type.Literal("resumeReady"), sockPath: Type.String() });
 const OkMsg = Type.Object({ kind: Type.Literal("ok") });
 const ErrMsg = Type.Object({ kind: Type.Literal("err"), message: Type.String() });
 const ExitMsg = Type.Object({ kind: Type.Literal("exit"), exitCode: Type.Integer(), bytes: uint64 });
@@ -53,8 +55,10 @@ export const Message = Type.Union([
   SignalReq,
   SubscribeReq,
   ShutdownReq,
+  BindResumeReq,
   StatusMsg,
   SubscribedMsg,
+  ResumeReadyMsg,
   OkMsg,
   ErrMsg,
   ExitMsg,
@@ -62,11 +66,12 @@ export const Message = Type.Union([
 export type Message = Static<typeof Message>;
 export type StatusMsg = Static<typeof StatusMsg>;
 export type SubscribedMsg = Static<typeof SubscribedMsg>;
+export type ResumeReadyMsg = Static<typeof ResumeReadyMsg>;
 export type OkMsg = Static<typeof OkMsg>;
 export type ErrMsg = Static<typeof ErrMsg>;
 export type ExitMsg = Static<typeof ExitMsg>;
 
-export type Request = Extract<Message, { kind: "stat" | "signal" | "subscribe" | "shutdown" }>;
+export type Request = Extract<Message, { kind: "stat" | "signal" | "subscribe" | "shutdown" | "bindResume" }>;
 
 export function isMessage(msg: unknown): msg is Message {
   return Value.Check(Message, msg);
@@ -74,7 +79,7 @@ export function isMessage(msg: unknown): msg is Message {
 
 // ── writers ──────────────────────────────────────────────────────────────────
 
-export function writeControl(sock: Socket, msg: Message): void {
+export function writeControl(sock: NodeJS.WritableStream, msg: Message): void {
   const body = Buffer.from(JSON.stringify(msg), "utf8");
   if (body.length > MAX_FRAME) throw new Error(`control frame too large: ${body.length}`);
   const hdr = Buffer.allocUnsafe(5);
@@ -85,7 +90,7 @@ export function writeControl(sock: Socket, msg: Message): void {
 }
 
 /** Zero-copy: writes the 13-byte header, then the child buffer itself. */
-export function writeData(sock: Socket, off: number, buf: Buffer): void {
+export function writeData(sock: NodeJS.WritableStream, off: number, buf: Buffer): boolean {
   const payloadLen = 8 + buf.length;
   if (payloadLen > MAX_FRAME) throw new Error(`data frame too large: ${payloadLen}`);
   const hdr = Buffer.allocUnsafe(13);
@@ -93,7 +98,8 @@ export function writeData(sock: Socket, off: number, buf: Buffer): void {
   hdr.writeUInt32BE(payloadLen, 1);
   hdr.writeBigUInt64BE(BigInt(off), 5);
   sock.write(hdr);
-  if (buf.length) sock.write(buf);
+  if (buf.length) return sock.write(buf);
+  return true;
 }
 
 // ── reader ───────────────────────────────────────────────────────────────────

@@ -28,6 +28,7 @@ import {
   hasActiveBackground,
   killAll,
   runShell,
+  resumeBackgroundShells,
   setCompletionHook,
   signalChild,
   silenceChild,
@@ -97,20 +98,25 @@ export default async function (pi: ExtensionAPI) {
   setCompletionHook((id, cmd, code, reason, log) => {
     signalHoldEvent();
     const isRepeat = id.startsWith("rpt-");
+    const isResumeFail = reason === "resume-failed";
     const kind: NotificationKind = isRepeat
       ? reason === "breach"
         ? "repeat-breach"
         : "repeat-stopped"
-      : code === 0
+      : isResumeFail
         ? "shell-complete"
-        : "shell-failed";
+        : code === 0
+          ? "shell-complete"
+          : "shell-failed";
     const base = isRepeat
       ? reason === "breach"
         ? `Repeat monitor ${id} breached on exit ${code ?? "unknown"} (shell command time exceeded repeat interval)`
         : `Repeat monitor ${id} stopped on exit ${code ?? "unknown"}`
-      : code === 0
-        ? `Shell ${id} completed on exit ${code}`
-        : `Shell ${id} command failed on exit ${code ?? "unknown"}`;
+      : isResumeFail
+        ? `Could not locate or resume session shell ${id}`
+        : code === 0
+          ? `Shell ${id} completed on exit ${code}`
+          : `Shell ${id} command failed on exit ${code ?? "unknown"}`;
     const hasRange = log && log.startLine !== undefined && log.endLine !== undefined;
     const summary = log
       ? `${base}; log ${log.path}${hasRange ? ` lines ${log.startLine}..${log.endLine}` : ""}`
@@ -119,6 +125,7 @@ export default async function (pi: ExtensionAPI) {
       "shell-id": id,
       "exit-code": code ?? -1,
       summary,
+      ...(isResumeFail ? { errno: "ENOENT" } : {}),
     };
     sendNotification(pi, { kind, summary, payload }, { deliverAs: "steer" });
   });
@@ -380,6 +387,7 @@ export default async function (pi: ExtensionAPI) {
   pi.on("session_start", async (_event, ctx) => {
     shellStatus?.dispose();
     shellStatus = createShellStatusRefresher(ctx);
+    void resumeBackgroundShells(ctx.sessionManager?.getSessionDir());
     pi.setActiveTools(
       Array.from(
         new Set([
