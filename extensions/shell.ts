@@ -31,6 +31,7 @@ import {
   setCompletionHook,
   signalChild,
   silenceChild,
+  detachChild,
   type OutputTruncation,
 } from "./shell/exec.ts";
 import { createRepeatTool, getActiveRepeats } from "./shell/repeat.ts";
@@ -45,14 +46,16 @@ import { formatAgentsBlock } from "./lib/agents.ts";
 import { loadText, render, renderLines, textPath } from "./lib/text.ts";
 const SH_TOOL = "sh",
   SH_SIGNAL_TOOL = "sh_signal",
+  SH_DETACH_TOOL = "sh_detach",
   SH_REPEAT_TOOL = "sh_repeat_until",
   SH_BACKGROUND_PS_TOOL = "sh_background_ps";
 interface ShellText {
   sh: { description: string; prompt_snippet: string };
   sh_signal: { description: string; prompt_snippet: string };
+  sh_detach: { description: string; prompt_snippet: string };
   sh_background_ps: { description: string; prompt_snippet: string };
-  guidelines: { sh: string[]; sh_signal: string[]; sh_background_ps: string[] };
-  schema: { sh: Record<string, string>; sh_signal: Record<string, string> };
+  guidelines: { sh: string[]; sh_signal: string[]; sh_detach: string[]; sh_background_ps: string[] };
+  schema: { sh: Record<string, string>; sh_signal: Record<string, string>; sh_detach: Record<string, string> };
 }
 const SLEEP_UNITS: Record<string, number> = { s: 1, m: 60, h: 3600, d: 86400 };
 const fmtDiags = (diags: any[], fmt: (d: any[]) => string) => (diags.length ? fmt(diags) : "");
@@ -306,6 +309,34 @@ export default async function (pi: ExtensionAPI) {
       return {
         content: [{ type: "text", text }],
         details: { id: params.id, signal, completionNoticeSuppressed: isShell && isKill },
+      };
+    },
+  });
+
+  pi.registerTool({
+    name: SH_DETACH_TOOL,
+    label: "sh_detach",
+    description: render(T.sh_detach.description, switches),
+    promptSnippet: T.sh_detach.prompt_snippet,
+    promptGuidelines: renderLines(T.guidelines.sh_detach, switches),
+    parameters: Type.Object({
+      id: Type.String({ description: T.schema.sh_detach.id }),
+    }),
+    async execute(_toolCallId, params) {
+      const logPath = detachChild(params.id);
+      if (!logPath)
+        return {
+          content: [{ type: "text", text: `Background ${params.id} not active.` }],
+          isError: true,
+        };
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Detached ${params.id}: runs untracked, survives this pi process; no completion notification fires. Output continues to drain to ${logPath}.`,
+          },
+        ],
+        details: { id: params.id, detached: true, logPath },
       };
     },
   });
