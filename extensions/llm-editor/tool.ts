@@ -67,7 +67,6 @@ type WriteParams = { path: string; file_text: string };
 type AnyParams = ReadParams | EditParams | WriteParams;
 
 function okResult(
-  id: string,
   command: Command,
   path: string,
   body: string[],
@@ -78,7 +77,7 @@ function okResult(
     content: [
       {
         type: "text" as const,
-        text: resultXml([field("id", id), field("command", command), field("path", path), ...body]) + (suffix ? "\n" + suffix : ""),
+        text: resultXml([field("command", command), field("path", path), ...body]) + (suffix ? "\n" + suffix : ""),
       },
     ],
     details,
@@ -90,7 +89,6 @@ function errorResult(id: string, command: Command, path: string, message: string
       {
         type: "text" as const,
         text: resultXml([
-          field("id", id),
           field("command", command),
           field("path", path),
           field("error", message),
@@ -109,24 +107,20 @@ function textResult(id: string, kind: string, text: string, details?: Record<str
 
 /**
  * `read` success: raw payload (file content/tree/view ranges), then an
- * optional agents-context suffix, then the footer `---\nid: <id>\nerrors:`.
- * The footer is always last. No XML, no escaping — the model sees exact bytes.
- * `details` is passed through unchanged so the TUI (which renders from
- * `result.details`, not this text) is unaffected.
+ * optional agents-context suffix. No XML, no escaping — the model sees exact
+ * bytes. The call `id` lives only in `details` (the TUI renders from it) and
+ * the persisted transcript; the agent never needs it.
  */
-function readResult(id: string, payload: string, details: unknown, suffix?: string) {
+function readResult(payload: string, details: unknown, suffix?: string) {
   let text = payload;
   if (suffix) text = text ? `${text}\n${suffix}` : suffix;
-  const footer = `---\nid: ${id}\nerrors:`;
-  text = text ? `${text}\n${footer}` : footer;
   return { content: [{ type: "text" as const, text }], details };
 }
 
-/** `read` error: empty payload, the message goes in the `errors:` footer field. */
+/** `read` error: the message is the whole result text; `id` stays in `details`. */
 function readErrorResult(id: string, message: string) {
-  const text = `---\nid: ${id}\nerrors: ${message}`;
   return {
-    content: [{ type: "text" as const, text }],
+    content: [{ type: "text" as const, text: message }],
     isError: true,
     details: { id, kind: "error" as const, message },
   };
@@ -220,7 +214,7 @@ async function executeRead(
   if (isDir) {
     const tree = await listTree(abs, cwd);
     const agents = surfaceAgentsBlock(abs);
-    return readResult(id, tree, { id, kind: "tree", text: tree }, agents);
+    return readResult(tree, { id, kind: "tree", text: tree }, agents);
   }
 
   // Media detection requires a known media extension AND matching magic bytes:
@@ -242,7 +236,7 @@ async function executeRead(
     try {
       const content = await headRead(abs, cwd);
       const agents = surfaceAgentsBlock(dirname(abs));
-      return readResult(id, content, { id, kind: "content", text: content }, agents);
+      return readResult(content, { id, kind: "content", text: content }, agents);
     } catch (e) {
       return readErrorResult(id, fmt(T.errors.cannot_read, { path: abs, reason: (e as Error).message }));
     }
@@ -268,7 +262,7 @@ async function executeRead(
   if (r.error) return readErrorResult(id, r.error);
   requestFooterRender();
   const agents = surfaceAgentsBlock(dirname(abs));
-  return readResult(id, r.text, { id, kind: "view", text: r.text, usage: r.usage }, agents);
+  return readResult(r.text, { id, kind: "view", text: r.text, usage: r.usage }, agents);
 }
 
 async function executeWrite(
@@ -291,7 +285,7 @@ async function executeWrite(
     const lsp = await lspFields(abs);
     if (lsp) body.push(lsp);
     const agents = surfaceAgentsBlock(dirname(abs));
-    return okResult(id, "write", abs, body, { id, kind: "create", bytes: Buffer.byteLength(fileText, "utf-8") }, agents);
+    return okResult("write", abs, body, { id, kind: "create", bytes: Buffer.byteLength(fileText, "utf-8") }, agents);
   });
 }
 
@@ -330,7 +324,7 @@ async function executeEdit(
   if (r.lsp) body.push(r.lsp);
   const agents = surfaceAgentsBlock(dirname(abs));
   requestFooterRender();
-  return okResult(id, "edit", abs, body, {
+  return okResult("edit", abs, body, {
     id,
     kind: "edit",
     diff: r.diff,

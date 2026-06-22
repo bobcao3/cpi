@@ -7,9 +7,9 @@
  *     view/edit overwrites the same transcript slot, not a new file).
  *   - per-call: differs across distinct calls (command/path/text vary).
  *
- * The id is the `<id>` field in every result and the filename of the persisted
- * subagent transcript (`<dir>/<id>.md`), letting the agent resolve a result to
- * its transcript via the path convention stated in the system prompt.
+ * The id is carried in `result.details` (the TUI renders from it) and is the
+ * filename of the persisted subagent transcript (`<dir>/<id>.md`); it is never
+ * shown to the agent — the harness developer recovers it from the transcript.
  *
  * Pure leaf: node:crypto only.
  */
