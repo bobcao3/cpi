@@ -27,6 +27,7 @@
 import { writeFileSync } from "node:fs";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { renderToolCallMarkdown, type ToolCallBlock } from "../lib/transcript-registry.ts";
+import { getSubagentUsage, formatCost } from "../lib/cost-ledger.ts";
 
 const SUMMARY_PATH = process.env.PI_SUBAGENT_SUMMARY;
 
@@ -38,6 +39,7 @@ let startTimeMs = 0;
 let turns = 0;
 let inTokens = 0;
 let outTokens = 0;
+let costUsd = 0;
 let streamed = false;
 let asstTag = "";
 
@@ -97,11 +99,16 @@ function tallyUsage(m: any): void {
   if (!u) return;
   if (typeof u.input === "number") inTokens += u.input;
   if (typeof u.output === "number") outTokens += u.output;
+  if (typeof u.cost?.total === "number") costUsd += u.cost.total;
 }
 
 function conclusionSummary(): string {
   const elapsed = ((Date.now() - startTimeMs) / 1000).toFixed(1);
-  return `jsonl: ${sessionFile}\nsummary: time=${elapsed}s turns=${turns} in=${inTokens} out=${outTokens}\n`;
+  const sub = getSubagentUsage();
+  const inT = inTokens + sub.input;
+  const outT = outTokens + sub.output;
+  const cost = costUsd + sub.cost;
+  return `jsonl: ${sessionFile}\nsummary: time=${elapsed}s turns=${turns} in=${inT} out=${outT} cost=$${formatCost(cost)}\n`;
 }
 
 export default async function (pi: ExtensionAPI) {
@@ -113,6 +120,7 @@ export default async function (pi: ExtensionAPI) {
     turns = 0;
     inTokens = 0;
     outTokens = 0;
+    costUsd = 0;
     streamed = false;
     asstTag = "";
     stderr(`jsonl: ${sessionFile}\n`);

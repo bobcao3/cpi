@@ -32,7 +32,8 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 import { applySystemPromptTransforms } from "./lib/system-prompt.ts";
 import { drainAfterTool, drainBeforeUser } from "./lib/prepend-message.ts";
 import { registerNotificationRenderer } from "./lib/notification.ts";
-import { setupCpiFooter, disposeCpiFooter } from "./lib/footer.ts";
+import { setupCpiFooter, disposeCpiFooter, registerRightSegment } from "./lib/footer.ts";
+import { getSubagentUsage, resetSubagentUsage } from "./lib/cost-ledger.ts";
 import {
   awaitHoldInterval,
   buildHoldReminderText,
@@ -57,9 +58,12 @@ export default function coreExtension(pi: ExtensionAPI): void {
   // call setFooter. Re-setup on session_start/tree is idempotent.
   pi.on("session_start", async (_event, ctx: ExtensionContext) => {
     setupCpiFooter(pi, ctx);
+    resetSubagentUsage();
+    registerRightSegment("subagent-cost", costSegment);
   });
   pi.on("session_tree", async (_event, ctx: ExtensionContext) => {
     setupCpiFooter(pi, ctx);
+    registerRightSegment("subagent-cost", costSegment);
   });
   pi.on("session_shutdown", async () => {
     disposeCpiFooter();
@@ -203,6 +207,12 @@ function emitHoldNotice(ctx: any, pending: HoldSource[]): void {
     // stderr writes must never break the hold flow.
   }
   if (ctx.hasUI) ctx.ui.notify(text, "info");
+}
+
+function costSegment(): string | undefined {
+  const u = getSubagentUsage();
+  if (u.count === 0) return undefined;
+  return `sub $${u.cost.toFixed(4)}·${u.count}`;
 }
 
 const WAIT_ANY_TOOL = "wait_any";

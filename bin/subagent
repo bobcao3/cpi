@@ -3,7 +3,9 @@
 #
 #   stdout : the sub-agent's clean final answer, followed (at conclusion) by a
 #            `jsonl:` line (the raw session log path) and a `summary:` line
-#            (time, turns, input/output tokens).
+#            (time, turns, input/output tokens, cost). Token + cost totals are
+#            recursive: they include every nested sub-agent, so a parent
+#            parsing one number gets the whole subtree.
 #   stderr : the LIVE streaming markdown transcript (one block per message),
 #            prefixed at the start by a `jsonl:` line for the same raw log.
 #
@@ -22,13 +24,14 @@
 set -euo pipefail
 
 main() {
-    local provider="meshy-sglang-kimi" session_id="" proto out summary rc=0
+    local provider="meshy-sglang-kimi" model="" session_id="" proto out summary rc=0
 
-    while getopts "p:s:" opt; do
+    while getopts "p:s:m:" opt; do
         case "$opt" in
             p) provider="$OPTARG" ;;
+            m) model="$OPTARG" ;;
             s) session_id="$OPTARG" ;;
-            *) printf 'usage: subagent [-p provider] [-s session-id] [task]   # or pipe the task on stdin\n' >&2; exit 2 ;;
+            *) printf 'usage: subagent [-p provider] [-m model] [-s session-id] [task]   # or pipe the task on stdin\n' >&2; exit 2 ;;
         esac
     done
     shift "$((OPTIND - 1))"
@@ -39,7 +42,7 @@ main() {
         task="$(cat)"
     fi
     if [[ -z "$task" ]]; then
-        printf 'usage: subagent [-p provider] [-s session-id] [task]   # or pipe the task on stdin\n' >&2
+        printf 'usage: subagent [-p provider] [-m model] [-s session-id] [task]   # or pipe the task on stdin\n' >&2
         exit 2
     fi
     [[ -n "$session_id" ]] || session_id="sub-$(date +%Y%m%d-%H%M%S)-$$"
@@ -65,7 +68,11 @@ main() {
         session_dir_args=(--session-dir "$sub_dir")
     fi
 
+    local model_args=()
+    [[ -n "$model" ]] && model_args=(--model "$model")
+
     PI_SUBAGENT_SUMMARY="$summary" pi --provider "$provider" --session-id "$session_id" \
+        "${model_args[@]}" \
         "${session_dir_args[@]}" \
         --append-system-prompt "@$proto" \
         -p "$task" >"$out" || rc=$?

@@ -34,7 +34,7 @@ import { Text } from "@earendil-works/pi-tui";
 import { statSync } from "node:fs";
 import { queueMessage } from "./lib/prepend-message.ts";
 import { getCwd, resolveCwdPath, setCwd } from "./lib/cwd.ts";
-import { discoverAgentsFiles, formatAgentsBlock, type AgentsFile } from "./lib/agents.ts";
+import { formatAgentsBlock, seedAgentsContext, surfaceNewAgents } from "./lib/agents.ts";
 import { loadText, render, textPath, type ToolText } from "./lib/text.ts";
 
 // Re-export the live-cwd API so other tools import it from the cwd feature.
@@ -45,36 +45,7 @@ const REMINDER_TYPE = "cwd-reminder";
 const STATE_ENTRY = "cwd-state";
 const BOUNDARY_STEP = 25; // percent of context window
 const BOUNDARY_KEY = "__cpiCwdBoundary";
-const SEEN_AGENTS_KEY = "__cpiCwdSeenAgents";
 
-
-/**
- * Paths of AGENTS.md/CLAUDE.md files already seen by the agent — seeded
- * from pi's startup context (the old cwd's tree) and grown each set_cwd.
- * Backed by globalThis so it survives jiti extension reloads.
- */
-function seenAgents(): Set<string> {
-  const g = globalThis as Record<string, unknown>;
-  const existing = g[SEEN_AGENTS_KEY] as Set<string> | undefined;
-  if (existing instanceof Set) return existing;
-  const fresh = new Set<string>();
-  g[SEEN_AGENTS_KEY] = fresh;
-  return fresh;
-}
-
-/**
- * AGENTS.md files in `target`'s tree not already in the agent's context.
- * Seeds the seen set with the old cwd's tree (pi's startup snapshot) so
- * already-loaded ancestors are not re-surfaced. Mutates seen to include
- * the returned files.
- */
-function newAgentsForTarget(oldCwd: string, target: string): AgentsFile[] {
-  const seen = seenAgents();
-  for (const f of discoverAgentsFiles(oldCwd)) seen.add(f.path);
-  const surfaced = discoverAgentsFiles(target).filter((f) => !seen.has(f.path));
-  for (const f of surfaced) seen.add(f.path);
-  return surfaced;
-}
 
 function boundary(): { last: number } {
   const g = globalThis as Record<string, unknown>;
@@ -171,8 +142,7 @@ export default function (pi: ExtensionAPI): void {
           isError: true,
         };
       }
-      const oldCwd = getCwd();
-      const newAgents = newAgentsForTarget(oldCwd, target);
+      const newAgents = surfaceNewAgents(target);
       applyCwd(pi, target, `changed via ${CWD_TOOL}`);
       let text = `working directory: ${target}`;
       text += formatAgentsBlock(newAgents);
@@ -203,6 +173,7 @@ export default function (pi: ExtensionAPI): void {
 
   pi.on("session_start", async (_event, ctx) => {
     restoreFromSession(ctx);
+    seedAgentsContext(getCwd());
     boundary().last = 0;
     ensureToolActive(pi);
   });
