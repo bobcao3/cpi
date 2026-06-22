@@ -10,7 +10,7 @@
  * plain text, matching the prior fmt which also did not escape). `fmt` is
  * re-exported as `render` so existing call sites are unchanged; behavior is
  * equivalent because every placeholder is now substituted at a call site (the
- * one intentionally-literal token, <id> in the transcript_block, is plain text,
+ * one intentionally-literal token is plain text,
  * not a tag).
  */
 
@@ -49,7 +49,6 @@ export interface EditorText {
     section_completion: string;
     section_stderr: string;
   };
-  system_prompt: { transcript_block: string };
 }
 
 /** Mustache render with HTML-escaping disabled (alias kept for call sites). */

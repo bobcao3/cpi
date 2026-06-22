@@ -5,8 +5,8 @@
  * indent. Text fields are inlined RAW (never XML-escaped); attribute values
  * are still escaped. Newlines inside text (diff, ranges, listings) are
  * preserved. Replaces the old ad-hoc text format so results are structured +
- * greppable, with a stable `<id>` field (short-sha of the call's args)
- * correlating to a transcript.
+ * greppable. The call `id` is no longer emitted here — it lives in
+ * `result.details` and the persisted transcript filename.
  *
  * Pure leaf: no imports.
  *

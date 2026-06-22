@@ -200,14 +200,6 @@ section_user = "## User"
 section_completion = "## Completion"
 section_stderr = "## stderr"
 
-# ── Injected into the main system prompt by the cpi system-prompt transform (idempotent; wrapped in markers by index.ts) ──
-[system_prompt]
-transcript_block = '''
-Each read/write/edit result includes an `id` = short-sha of its args (command, path, plus query/instruction/file_text as applicable) — `read` results show it in the trailing `id:` footer (after a `---` separator); `edit`/`write` results carry it in the `<id>` field.
-For `read` with a query and `edit`, the subagent transcript is persisted at {{dir}}/<id>.md.
-'''
-
-
 # ── Completion tools for the Viewer/Editor subagents (registered by
 #    extensions/llm-editor/completion.ts in the child, role-gated by
 #    PI_SUBAGENT_ROLE). edit-complete mirrors pi's default multi-search-replace

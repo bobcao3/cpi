@@ -59,6 +59,21 @@ export function registerSystemPromptTransform(
 }
 
 /**
+ * Remove a previously-registered system-prompt transform by id. No-op if the
+ * id was never registered (or already removed). Returns `true` when an entry
+ * was present and has been deleted, `false` otherwise.
+ *
+ * This is needed because an old transform's closure survives in the
+ * `globalThis` registry across a jiti reload — so an extension that drops a
+ * transform must explicitly retire it, or the stale closure lingers (and may
+ * throw if the data it reads no longer exists).
+ */
+export function unregisterSystemPromptTransform(id: string): boolean {
+  assert(typeof id === "string" && id.length > 0, "id must be a non-empty string");
+  return registry().transforms.delete(id);
+}
+
+/**
  * Apply every registered transform to `systemPrompt`, in ascending `order`.
  * Ties keep insertion order (Array.prototype.sort is stable). Never throws:
  * a transform that throws is skipped and logged to stderr, so one faulty
