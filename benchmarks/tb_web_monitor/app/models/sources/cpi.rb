@@ -41,7 +41,7 @@ module Sources::Cpi
     return nil unless block.kind == :message
     m = block.event["message"] || {}
     return nil unless m["customType"] == "notification"
-    "blk notif #{(m['details'] || {})['kind'].to_s}"
+    "blk notif #{(m['details'] || {})['kind']}"
   end
 
   # wait_any: cpi's yield-until-event primitive. Renders as a compact,

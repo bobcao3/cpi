@@ -13,12 +13,13 @@ class MonitorsController < ApplicationController
       @job = params[:job]
       @jobs = []
       @trials = []
+      @trial_running = @job.present? && @selected.present? && TrialSummary.running?(@job, @selected)
     else
       @jobs = JobsDir.list_jobs
       @job = pick_job(@jobs, params[:job])
       @trials = @job ? TrialSummary.list(@job) : []
+      @trial_running = @selected.present? && @trials.any? { |t| t.trial == @selected && t.status == "running" }
     end
-    @trial_running = @selected.present? && @trials.any? { |t| t.trial == @selected && t.status == "running" }
     @transcript = (@job && @selected) ? Transcript.events(@job, @selected) : []
   end
 

@@ -46,7 +46,8 @@ module BlockRegistry
         next if b.is_a?(Hash) && b["type"] == "toolCall"
         ty = (b.is_a?(Hash) ? b["type"] : "text").to_s
         if groups.last && groups.last[:type] == ty then groups.last[:blocks] << b
-        else groups << { type: ty, blocks: [b] } end
+        else groups << { type: ty, blocks: [b] }
+        end
       end
       groups.each do |g|
         is_text = g[:type] == "text"
@@ -73,10 +74,10 @@ module BlockRegistry
     def first_line(blocks)
       b = blocks.first
       text = case b.is_a?(Hash) && b["type"]
-             when "thinking" then b["thinking"]
-             when "text"     then b["text"]
-             else b.to_s
-             end.to_s
+      when "thinking" then b["thinking"]
+      when "text"     then b["text"]
+      else b.to_s
+      end.to_s
       parts = text.split("\n", 2)
       [parts.first.to_s.strip, parts[1] && !parts[1].strip.empty?]
     end
@@ -180,7 +181,21 @@ module BlockRegistry
     end
   end
 
+  # Container startup block: a collapsed title section whose body is the raw
+  # startup text (a String block renders as an escaped <pre>).
+  module Container
+    module_function
+    TITLE = %(<span class="kind">container startup</span>).html_safe
+
+    def sections(block)
+      text = block.event.to_s
+      [TranscriptBlock::Section.new(name: :title, title: TITLE, open: false,
+                                    blocks: text.empty? ? [] : [text])]
+    end
+  end
+
   register :message, Message
   register :tool, Tool
   register :verifier, Verifier
+  register :container, Container
 end

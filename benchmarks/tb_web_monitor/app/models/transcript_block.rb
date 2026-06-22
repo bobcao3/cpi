@@ -74,6 +74,12 @@ module TranscriptBlock
     Block.new(kind: :verifier, id: "verdict", state: :finalized, event: v)
   end
 
+  # Container startup text as a finalized synthetic block (event holds the
+  # startup text String), mirroring how verifier_block carries a Result.
+  def container_block(text)
+    Block.new(kind: :container, id: "container-startup", state: :finalized, event: text)
+  end
+
   # Session T0 (ms epoch) for T+ min:sec offsets; nil if no session event yet.
   def session_t0(events)
     s = events.find { |e| e["type"] == "session" } or return nil

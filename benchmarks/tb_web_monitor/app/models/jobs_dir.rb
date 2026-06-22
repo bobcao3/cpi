@@ -20,6 +20,9 @@ module JobsDir
     File.join(root, job, trial, "agent", "pi.txt")
   end
 
+  def job_log_path(job)
+    File.join(root, job, "job.log")
+  end
 
   # Jobs = immediate subdirs of root, newest first (mtime desc).
   def list_jobs
