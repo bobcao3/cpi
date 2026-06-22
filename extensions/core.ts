@@ -39,20 +39,20 @@ import { setSessionDir } from "./lib/session-dir.ts";
 import { getSubagentUsage, resetSubagentUsage } from "./lib/cost-ledger.ts";
 import {
   awaitHoldInterval,
-  buildHoldReminderText,
-  clearReminderDelivered,
-  consumeHoldNotice,
   doubleHoldInterval,
   getHoldInterval,
   getHoldSources,
   getLastStopReason,
-  isReminderDelivered,
-  markReminderDelivered,
   resetHoldInterval,
   resetHoldTracking,
   setLastStopReason,
-  type HoldSource,
 } from "./lib/session-hold.ts";
+import {
+  armAntiStuckTimer,
+  disarmAntiStuckTimer,
+  markEventlessStart,
+  resetAntiStuck,
+} from "./lib/anti-stuck.ts";
 
 export default function coreExtension(pi: ExtensionAPI): void {
   // ── Footer owner ────────────────────────────────────────────────────────
@@ -64,6 +64,9 @@ export default function coreExtension(pi: ExtensionAPI): void {
     setSessionDir(ctx.sessionManager?.getSessionDir());
     resetSubagentUsage();
     registerRightSegment("subagent-cost", costSegment);
+    // A session switch (new/resume/fork/tree) ends any in-flight stuck wait.
+    resetAntiStuck();
+    disarmAntiStuckTimer();
   });
   pi.on("session_tree", async (_event, ctx: ExtensionContext) => {
     setupCpiFooter(pi, ctx);
@@ -104,11 +107,22 @@ export default function coreExtension(pi: ExtensionAPI): void {
   });
 
   // ── Session-hold owner ─────────────────────────────────────────────────
-  // The SINGLE extension that owns hold logic: one combined hold notice +
-  // one deadline await across all hold sources (alarm, shell). Sources only
+  // The SINGLE extension that owns hold logic. The hold is now a PURE
+  // keep-alive mechanism: in headless mode it stays alive until a pending
+  // source fires (no notifications/messages); in TUI mode the UI stays alive
+  // on its own. The "tell the agent" role — probing a stuck wait and
+  // appending a corrective message — is owned by the anti-stuck timer
+  // (lib/anti-stuck.ts), which is armed here in BOTH modes. Sources only
   // `registerHoldSource` + own their `onAbort` cleanup; they never run hold
-  // awaits or emit notices themselves.
-  pi.on("agent_start", () => resetHoldTracking());
+  // awaits or emit messages.
+  pi.on("agent_start", () => {
+    resetHoldTracking();
+    // With hold reminders gone, every turn is a real event (user input,
+    // background completion, alarm fire, or an anti-stuck abort), so disarm
+    // and reset the stuck clock in both TUI and headless.
+    disarmAntiStuckTimer();
+    resetAntiStuck();
+  });
 
   pi.on("agent_end", async (event: any, ctx: any) => {
     for (let i = event.messages.length - 1; i >= 0; i--) {
@@ -118,49 +132,42 @@ export default function coreExtension(pi: ExtensionAPI): void {
         break;
       }
     }
-    if (ctx.hasUI) return;
     const reason = getLastStopReason();
     if (reason === "error" || reason === "aborted") return;
     const sources = getHoldSources();
     const pending = sources.filter((s) => s.hasPending());
-    if (pending.length === 0) {
-      clearReminderDelivered();
-      return;
+    if (pending.length === 0) return;
+    const pendingAlarm = pending.some((s) => s.id === "alarm");
+    const pendingNonAlarm = pending.some((s) => s.id !== "alarm");
+    // Arms the anti-stuck escalation timer in BOTH TUI and headless — it now
+    // owns the "tell the agent" role; the hold is a pure keep-alive with no
+    // notifications. An alarm is a deterministic wakeup, so we don't arm when
+    // one is upcoming.
+    if (pendingNonAlarm && !pendingAlarm) {
+      markEventlessStart();
+      armAntiStuckTimer(pi, ctx);
     }
-    // When the agent stops without explicitly yielding via wait_any while hold
-    // sources are pending, surface the hold to the agent as a "system reminder"
-    // (headless-only) so it can decide — wait_any to yield, or sh_signal SIGKILL
-    // to return control. Delivered once per hold episode (reminderDelivered flag,
-    // cleared when pending hits zero) so a normally-stopping agent is not nagged
-    // into a reminder loop; the reminder's follow-up turn keeps the session alive,
-    // so no await here. The wait_any / already-reminded paths fall back to the
-    // deadline-bounded passive hold.
-    if (!endedViaWaitAny(event.messages) && !isReminderDelivered()) {
-      markReminderDelivered();
-      deliverHoldReminder(pi, pending);
-      return;
-    }
-    if (consumeHoldNotice()) emitHoldNotice(ctx, pending);
-    // Hold the run open until pending alarms/background shells fire. While we await,
-    // isStreaming stays true, so their sendNotification queues a steer/followUp that
-    // the run loop's hasQueuedMessages->continue turns into a follow-up turn —
-    // passive waiting without polling. Headless-only: TUI stays alive on its own.
-    const interval = getHoldInterval();
-    const fired = await awaitHoldInterval(sources, interval);
-    if (fired) {
-      resetHoldInterval();
-    } else {
+    // TUI stays alive on its own; the anti-stuck timer escalates.
+    if (ctx.hasUI) return;
+    // Headless pure keep-alive: stay alive until a pending source fires with no
+    // messages. The anti-stuck timer handles escalation and on ABORT calls
+    // signalHoldEvent() to release this loop so the appended turn can run. The
+    // doubling poll interval makes a long idle cheap while a real event
+    // resolves the await immediately.
+    let fired = await awaitHoldInterval(sources, getHoldInterval());
+    while (!fired) {
       doubleHoldInterval();
-      markReminderDelivered();
-      deliverHoldTimeoutReminder(pi, pending, interval, getHoldInterval());
+      fired = await awaitHoldInterval(sources, getHoldInterval());
     }
+    resetHoldInterval();
+    disarmAntiStuckTimer();
+    resetAntiStuck();
   });
 
   pi.on("session_shutdown", async (event: any, ctx: any) => {
     const reason = getLastStopReason();
     const sources = getHoldSources();
     const abortAll = () => {
-      clearReminderDelivered();
       for (const s of sources) {
         try {
           s.onAbort();
@@ -178,7 +185,6 @@ export default function coreExtension(pi: ExtensionAPI): void {
       abortAll();
       return;
     }
-    if (consumeHoldNotice()) emitHoldNotice(ctx, pending);
     const deadline = Date.now() + Math.max(...pending.map((s) => s.deadlineMs));
     await new Promise<void>((resolve) => {
       const check = () => {
@@ -203,94 +209,8 @@ export default function coreExtension(pi: ExtensionAPI): void {
   });
 }
 
-function emitHoldNotice(ctx: any, pending: HoldSource[]): void {
-  const text = pending
-    .map((s) => s.noticeText())
-    .filter(Boolean)
-    .join(" ; ");
-  try {
-    process.stderr.write(`[hold] ${text}\n`);
-  } catch {
-    // stderr writes must never break the hold flow.
-  }
-  if (ctx.hasUI) ctx.ui.notify(text, "info");
-}
-
 function costSegment(): string | undefined {
   const u = getSubagentUsage();
   if (u.count === 0) return undefined;
   return `sub $${u.cost.toFixed(4)}·${u.count}`;
-}
-
-const WAIT_ANY_TOOL = "wait_any";
-const HOLD_REMINDER_TYPE = "hold-reminder";
-
-// Detects whether the agent explicitly yielded via wait_any (so we skip the
-// reminder) vs ended its turn normally. wait_any returns terminate:true, so
-// it is always the last tool of a turn when used; scanning from the end for
-// the most recent toolResult and checking its toolName is sufficient.
-function endedViaWaitAny(messages: any[]): boolean {
-  for (let i = messages.length - 1; i >= 0; i--) {
-    const m = messages[i];
-    if (m.role === "toolResult") {
-      return m.toolName === WAIT_ANY_TOOL;
-    }
-  }
-  return false;
-}
-
-// Delivered during agent_end while isStreaming is still true (so deliverAs is
-// honored). Use "steer" (not "followUp") because steer is drained by the agent
-// loop into the imminent wake turn's context before its LLM call, so the
-// reminder is visible to the turn that wakes the agent; followUp is drained
-// only after tool calls/steer clear, which races the wake turn. triggerTurn:
-// true covers the idle non-streaming fallback via _runAgentPrompt. No await:
-// the queued steer is itself the effect the run loop's hasQueuedMessages->
-// continue exits the hold on; the follow-up turn holds the session open.
-function deliverHoldReminder(pi: ExtensionAPI, pending: HoldSource[]): void {
-  const text = buildHoldReminderText(pending);
-  try {
-    pi.sendMessage(
-      { customType: HOLD_REMINDER_TYPE, content: text, display: true },
-      { triggerTurn: true, deliverAs: "steer" },
-    );
-  } catch {
-    // Delivery failure must never break the hold flow.
-  }
-}
-
-// Fires on each eventless hold timeout (wait_any path) and carries the backoff
-// state. deliverAs:"steer" (not "followUp") is load-bearing: steer is drained
-// by the agent loop into the imminent wake turn before its LLM call, so the
-// "Held for Ns" text reaches the turn that wakes the agent. followUp is
-// drained only after tool calls/steer clear, which races the wake turn —
-// observed in tb21-cpi-kimi-c8 where the reminder landed one turn late and
-// the agent concluded wait_any "returned immediately" (it instead saw
-// wait_any's own "(see attached image)" mistranslation from pi-ai
-// convertMessages). The queued steer is the effect the run loop's
-// hasQueuedMessages->continue exits the hold on.
-function deliverHoldTimeoutReminder(
-  pi: ExtensionAPI,
-  pending: HoldSource[],
-  elapsedMs: number,
-  nextMs: number,
-): void {
-  const status = pending
-    .map((s) => s.noticeText())
-    .filter(Boolean)
-    .join("; ");
-  const elapsedSec = Math.round(elapsedMs / 1000);
-  const nextSec = Math.round(nextMs / 1000);
-  const text = [
-    `system reminder | ${status}`,
-    `system reminder | Held for ${elapsedSec}s without events, you can continue hold for up-to another ${nextSec}s, or check the status of the job.`,
-  ].join("\n");
-  try {
-    pi.sendMessage(
-      { customType: HOLD_REMINDER_TYPE, content: text, display: true },
-      { triggerTurn: true, deliverAs: "steer" },
-    );
-  } catch {
-    // Delivery failure must never break the hold flow.
-  }
 }

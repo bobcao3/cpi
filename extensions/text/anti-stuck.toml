@@ -1,0 +1,18 @@
+# Model-facing text for the anti-stuck fork probe + abort append.
+#
+# Available mustache variables:
+#   {{elapsed_min}}  minutes since the eventless wait began (hold start)
+#   {{pending}}       "; "-joined noticeText() of pending hold sources
+#   {{answer}}        (append.abort only) the fork child's final answer text
+
+[probe]
+# Sent to the FORK CHILD — a full copy of this session (via `pi --fork`) that can
+# run tools to investigate. Its last-line answer is matched by decide():
+# contains "ABORT" -> append to the original session; anything else (incl. WAIT)
+# -> leave the original untouched.
+prompt = "{{elapsed_min}} minutes have passed without completions (pending: {{pending}}), and no alarm is scheduled. Please review previous actions and background shells. If it is supposed to take this long, respond exactly: WAIT, and we will keep waiting for events. If it is incorrect or you think previous backgrounded commands might be stuck, respond exactly: ABORT, then we will wake up the agent to investigate"
+
+[append]
+# Appended to THIS (original) session as a custom \"anti-stuck\" message and
+# triggers a follow-up turn — only when the fork answered ABORT.
+abort = "We have waited {{elapsed_min}} min, please assess and check, backgrounded shells or agents (pending: {{pending}}) might be stuck."
