@@ -14,5 +14,5 @@
     "esModuleInterop": true,
     "allowImportingTsExtensions": true
   },
-  "include": ["extensions/**/*.ts"]
+  "include": ["extensions/**/*.ts", "tools/sh-monitor/**/*.ts"]
 }
