@@ -34,6 +34,7 @@ export interface SubagentOptions {
   task: string;
   provider: string;
   modelId: string;
+  thinkingLevel?: string;
   cwd: string;
   signal?: AbortSignal;
   timeoutMs: number;
@@ -71,6 +72,9 @@ export async function runSubagent(opts: SubagentOptions): Promise<SubagentResult
     "--model",
     opts.modelId,
   ];
+  if (opts.thinkingLevel) {
+    args.push("--thinking", opts.thinkingLevel);
+  }
   const start = Date.now();
   const child = spawn("pi", args, { cwd: opts.cwd, stdio: ["pipe", "pipe", "pipe"] });
 

@@ -26,6 +26,7 @@ export interface ViewFileOptions {
   maxTranscripts: number;
   maxFileBytes: number;
   onStream?: (accumulated: string) => void;
+  thinkingLevel?: string;
 }
 
 function parseRanges(answer: string): number[][] | null {
@@ -102,6 +103,7 @@ export async function viewFile(
     id: opts.id,
     maxTranscripts: opts.maxTranscripts,
     onStream: opts.onStream,
+    thinkingLevel: opts.thinkingLevel,
   });
 
   if (res.spawnError)

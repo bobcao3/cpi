@@ -22,6 +22,7 @@ import { loadEditorConfig } from "../lib/config.ts";
 import { resolveTranscriptDir } from "./log.ts";
 import { loadEditorText, fmt } from "./text.ts";
 import { llmEditorTool } from "./tool.ts";
+import { setThinkingApi } from "./model-select.ts";
 
 const BLOCK_START = "<llm_editor_transcripts>";
 const BLOCK_END = "</llm_editor_transcripts>";
@@ -37,6 +38,7 @@ function stripBlock(prompt: string): string {
 }
 
 export default function llmEditorExtension(pi: ExtensionAPI): void {
+  setThinkingApi(pi);
   pi.registerTool(llmEditorTool);
   registerSystemPromptTransform(TRANSFORM_ID, (prompt: string, ctx: any) => {
     const cwd: string = ctx?.cwd ?? process.cwd();
