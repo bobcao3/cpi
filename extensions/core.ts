@@ -30,6 +30,7 @@
 
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { applySystemPromptTransforms } from "./lib/system-prompt.ts";
+import { buildCpiSystemPrompt } from "./lib/system-prompt-build.ts";
 import { drainAfterTool, drainBeforeUser } from "./lib/prepend-message.ts";
 import { registerNotificationRenderer } from "./lib/notification.ts";
 import { setupCpiFooter, disposeCpiFooter, registerRightSegment } from "./lib/footer.ts";
@@ -86,10 +87,13 @@ export default function coreExtension(pi: ExtensionAPI): void {
   // systemPrompt, after applying every registered transform (from skill,
   // caveman-micro, …) in declared `order`. No other handler here returns a
   // value, so this is the sole systemPrompt return across all of cpi.
+  // The prompt is built from scratch via buildCpiSystemPrompt, which fully
+  // replaces pi-core's buildSystemPrompt (drops redundant tool listing, uses
+  // live cwd); transforms are then applied on top of that cpi-built prompt.
   pi.on("before_agent_start", async (event: any, ctx: any) => {
     return {
       systemPrompt: applySystemPromptTransforms(
-        event.systemPrompt,
+        buildCpiSystemPrompt(event.systemPromptOptions),
         ctx,
         event.systemPromptOptions,
       ),
