@@ -22,7 +22,7 @@ import { resolve, dirname, join } from "node:path";
 import { generateDiffString, generateUnifiedPatch } from "@earendil-works/pi-coding-agent";
 import { runSubagent } from "./subagent.ts";
 import { loadEditorText, fmt, type EditorText } from "./text.ts";
-import { parseBlocks, applyBlocks, type ApplyError, type ApplyResult } from "./apply.ts";
+import { applyBlocks, type ApplyError, type ApplyResult, type ReplaceBlock } from "./apply.ts";
 import { editDiffOps, type DiffOp } from "./diff.ts";
 import { withPathLock } from "./lock.ts";
 import { lspFields } from "./lsp.ts";
@@ -77,6 +77,22 @@ function formatApplyError(T: EditorText, e: ApplyError): string {
   }
 }
 
+/** Map the edit-complete tool's `edits` arg ({oldText, newText}) to the
+ *  applier's ReplaceBlock ({search=oldText, replace=newText}). Drops any element
+ *  that is not a {string,string} pair; an empty result => applyBlocks reports
+ *  no_blocks. */
+function mapEdits(raw: unknown): ReplaceBlock[] {
+  if (!Array.isArray(raw)) return [];
+  const blocks: ReplaceBlock[] = [];
+  for (const e of raw) {
+    if (!e || typeof e !== "object") continue;
+    const ed = e as Record<string, unknown>;
+    if (typeof ed.oldText !== "string" || typeof ed.newText !== "string") continue;
+    blocks.push({ search: ed.oldText, replace: ed.newText });
+  }
+  return blocks;
+}
+
 export async function editFile(path: string, opts: EditFileOptions): Promise<EditFileResult> {
   const T = loadEditorText(opts.cwd);
   const abs = resolve(opts.cwd, path);
@@ -126,16 +142,17 @@ export async function editFile(path: string, opts: EditFileOptions): Promise<Edi
     if (res.timedOut)
       return { ok: false, error: fmt(T.errors.editor_timeout, { ms: opts.timeoutMs }) };
 
-    // edit-complete signal: apply proceeds; cancel aborts; null means the
-    // subagent never signaled completion (truncated/incomplete output).
-    if (res.editAction !== "apply") {
-      return {
-        ok: false,
-        error: res.editAction === "cancel" ? T.errors.editor_cancelled : T.errors.editor_truncated,
-      };
+    // The completion tool call IS the signal: edit-complete with edits => apply;
+    // cancel=true => abort; null/wrong tool => the subagent never completed.
+    const c = res.completion;
+    if (!c || c.tool !== "edit-complete") {
+      return { ok: false, error: T.errors.editor_truncated };
+    }
+    if (c.args.cancel === true) {
+      return { ok: false, error: T.errors.editor_cancelled };
     }
 
-    const blocks = parseBlocks(res.answer);
+    const blocks = mapEdits(c.args.edits);
     const applied: ApplyResult = applyBlocks(content, blocks, { fuzzy: opts.fuzzyMatch });
     if (applied.ok === false) {
       return { ok: false, error: formatApplyError(T, applied.error) };

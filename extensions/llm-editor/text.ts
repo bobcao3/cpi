@@ -28,6 +28,11 @@ export interface EditorText {
   tasks: { viewer: string; editor: string };
   tool: { read: ToolMeta; write: ToolMeta; edit: ToolMeta };
   schema: { path: string; query: string; instruction: string; file_text: string };
+  completion: {
+    view_complete: ToolMeta;
+    edit_complete: ToolMeta;
+    schema: { ranges: string; edits: string; oldText: string; newText: string; cancel: string };
+  };
   messages: {
     view_no_ranges: string;
     empty_dir: string;
@@ -41,7 +46,7 @@ export interface EditorText {
     title: string;
     section_system: string;
     section_user: string;
-    section_assistant: string;
+    section_completion: string;
     section_stderr: string;
   };
   system_prompt: { transcript_block: string };
