@@ -30,8 +30,13 @@
 
 import { FooterComponent } from "@earendil-works/pi-coding-agent";
 import { getCwd } from "./cwd.ts";
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import type { TUI, Theme } from "@earendil-works/pi-tui";
+import type {
+  AgentSession,
+  ExtensionAPI,
+  ExtensionContext,
+  Theme,
+} from "@earendil-works/pi-coding-agent";
+import type { TUI } from "@earendil-works/pi-tui";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { resolve, relative, sep, isAbsolute } from "node:path";
 
@@ -243,12 +248,27 @@ export function setupCpiFooter(pi: ExtensionAPI, ctx: ExtensionContext): void {
       sessionManager: ctx.sessionManager,
       modelRegistry: ctx.modelRegistry,
       getContextUsage: () => ctx.getContextUsage(),
+      modelRuntime: {
+        // pi 0.80.8+ FooterComponent.render calls
+        // this.session.modelRuntime.isUsingOAuth(state.model.provider) to label
+        // OAuth-subscription cost with "(sub)". ExtensionContext exposes no
+        // ModelRuntime, so proxy through the synchronous modelRegistry facade.
+        // The builtin only ever passes the current model's provider, so we
+        // resolve back to ctx.model. Do not fake other ModelRuntime methods.
+        isUsingOAuth: (providerId: string): boolean => {
+          if (!ctx.model) return false;
+          if (ctx.model.provider !== providerId) return false;
+          return ctx.modelRegistry.isUsingOAuth(ctx.model);
+        },
+      },
     };
     // The shim omits setAutoCompactEnabled, so FooterComponent keeps its
     // default (autoCompactEnabled = true). Spliced lines 2/3 therefore always
     // show "(auto)" even when real auto-compact is disabled; there is no
     // public ExtensionContext API to read the real setting. Do not fake it.
-    const builtin = new FooterComponent(sessionLike, real);
+    // The shim also proxies modelRuntime.isUsingOAuth via modelRegistry
+    // (see above) because pi 0.80.8 added that read.
+    const builtin = new FooterComponent(sessionLike as unknown as AgentSession, real);
     // Re-render on pure-git branch changes (no contributor polling needed).
     const unsubBranch = real.onBranchChange(() => tui.requestRender());
     return {
