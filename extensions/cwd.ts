@@ -70,12 +70,11 @@ function applyCwd(pi: ExtensionAPI, target: string, reason: string): void {
 
 function enqueueBoundaryReminder(pi: ExtensionAPI): void {
   const cwd = getCwd();
-  const reason = "context-threshold";
   queueMessage({
     customType: REMINDER_TYPE,
-    content: `system reminder | Current cwd: ${cwd} (${reason})`,
+    content: `system reminder | Current cwd: ${cwd}`,
     display: true,
-    details: { cwd, reason: "context-threshold" },
+    details: { cwd },
     deliverAs: "beforeUser",
   });
 }
