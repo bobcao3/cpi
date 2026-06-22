@@ -16,9 +16,13 @@
 import { Type } from "typebox";
 import { readFile, stat, writeFile, mkdir, readdir } from "node:fs/promises";
 import type { Dirent } from "node:fs";
-import { resolve, dirname, relative, join } from "node:path";
+import { dirname, relative, join } from "node:path";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { loadEditorConfig } from "../lib/config.ts";
+import { resolveCwdPath, getCwd } from "../lib/cwd.ts";
+import { surfaceNewAgents, formatAgentsBlock } from "../lib/agents.ts";
+import { addSubagentUsage } from "../lib/cost-ledger.ts";
+import { requestFooterRender } from "../lib/footer.ts";
 import { resolveTranscriptDir } from "./log.ts";
 import { resolveEditorModel } from "./model-select.ts";
 import { loadEditorText, fmt } from "./text.ts";
@@ -60,12 +64,13 @@ function okResult(
   path: string,
   body: string[],
   details?: unknown,
+  suffix?: string,
 ) {
   return {
     content: [
       {
         type: "text" as const,
-        text: resultXml([field("id", id), field("command", command), field("path", path), ...body]),
+        text: resultXml([field("id", id), field("command", command), field("path", path), ...body]) + (suffix ? "\n" + suffix : ""),
       },
     ],
     details,
@@ -124,6 +129,11 @@ async function headRead(abs: string, cwd: string, max = 200): Promise<string> {
   return all.length > max ? `${body}\n${fmt(T.messages.head_more, { n: all.length - max })}` : body;
 }
 
+/** Helper: surface new agents and format them into a block string. */
+function surfaceAgentsBlock(dir: string): string {
+  return formatAgentsBlock(surfaceNewAgents(dir));
+}
+
 export async function execute(
   _toolCallId: string,
   params: Params,
@@ -131,10 +141,10 @@ export async function execute(
   onUpdate?: (partial: { content: unknown[]; details?: unknown }) => void,
   ctx: ExtensionContext,
 ) {
-  const T = loadEditorText(ctx.cwd);
+  const T = loadEditorText(getCwd());
   const id = shortSha(params);
-  const abs = resolve(ctx.cwd, params.path);
-  const cfg = loadEditorConfig(ctx.cwd);
+  const abs = resolveCwdPath(params.path);
+  const cfg = loadEditorConfig(getCwd());
   if (signal?.aborted) return errorResult(id, params.command, abs, T.errors.aborted);
 
   if (params.command === "view") {
@@ -145,21 +155,23 @@ export async function execute(
       return errorResult(id, params.command, abs, fmt(T.errors.not_found, { path: abs }));
     }
     if (isDir) {
-      const tree = await listTree(abs, ctx.cwd);
+      const tree = await listTree(abs, getCwd());
+      const agents = surfaceAgentsBlock(abs);
       return okResult(id, params.command, abs, [field("tree", tree)], {
         id,
         kind: "tree",
         text: tree,
-      });
+      }, agents);
     }
     if (!params.query) {
       try {
-        const content = await headRead(abs, ctx.cwd);
+        const content = await headRead(abs, getCwd());
+        const agents = surfaceAgentsBlock(dirname(abs));
         return okResult(id, params.command, abs, [field("content", content)], {
           id,
           kind: "content",
           text: content,
-        });
+        }, agents);
       } catch (e) {
         return errorResult(
           id,
@@ -177,21 +189,24 @@ export async function execute(
       query: params.query,
       provider: pick.provider,
       modelId: pick.modelId,
-      cwd: ctx.cwd,
+      cwd: getCwd(),
       signal,
       timeoutMs: cfg.subagentTimeoutMs,
-      transcriptDir: resolveTranscriptDir(cfg.transcriptDir, ctx.cwd),
+      transcriptDir: resolveTranscriptDir(cfg.transcriptDir, getCwd()),
       maxTranscripts: cfg.maxTranscripts,
       maxFileBytes: cfg.maxFileBytes,
       thinkingLevel: pick.thinkingLevel,
     });
     if (r.error) return errorResult(id, params.command, abs, r.error);
+    addSubagentUsage(r.usage);
+    requestFooterRender();
+    const agents = surfaceAgentsBlock(dirname(abs));
     return okResult(id, params.command, abs, [field("content", r.text)], {
       id,
       kind: "view",
       text: r.text,
       usage: r.usage,
-    });
+    }, agents);
   }
 
   if (params.command === "create") {
@@ -216,11 +231,12 @@ export async function execute(
       const body = [field("created", undefined, { bytes: Buffer.byteLength(fileText, "utf-8") })];
       const lsp = await lspFields(abs);
       if (lsp) body.push(lsp);
+      const agents = surfaceAgentsBlock(dirname(abs));
       return okResult(id, params.command, abs, body, {
         id,
         kind: "create",
         bytes: Buffer.byteLength(fileText, "utf-8"),
-      });
+      }, agents);
     });
   }
 
@@ -235,10 +251,10 @@ export async function execute(
     instruction: params.instruction,
     provider: pick.provider,
     modelId: pick.modelId,
-    cwd: ctx.cwd,
+    cwd: getCwd(),
     signal,
     timeoutMs: cfg.subagentTimeoutMs,
-    transcriptDir: resolveTranscriptDir(cfg.transcriptDir, ctx.cwd),
+    transcriptDir: resolveTranscriptDir(cfg.transcriptDir, getCwd()),
     maxTranscripts: cfg.maxTranscripts,
     maxFileBytes: cfg.maxFileBytes,
     fuzzyMatch: cfg.fuzzyMatch,
@@ -252,6 +268,9 @@ export async function execute(
     field("diff", r.diff),
   ];
   if (r.lsp) body.push(r.lsp);
+  const agents = surfaceAgentsBlock(dirname(abs));
+  addSubagentUsage(r.usage);
+  requestFooterRender();
   return okResult(id, params.command, abs, body, {
     id,
     kind: "edit",
@@ -263,7 +282,7 @@ export async function execute(
     firstChangedLine: r.firstChangedLine,
     diffOps: r.diffOps,
     usage: r.usage,
-  });
+  }, agents);
 }
 
 export const llmEditorTool = {

@@ -19,6 +19,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { registerSystemPromptTransform } from "../lib/system-prompt.ts";
 import { loadEditorConfig } from "../lib/config.ts";
+import { getCwd } from "../lib/cwd.ts";
 import { resolveTranscriptDir } from "./log.ts";
 import { loadEditorText, fmt } from "./text.ts";
 import { llmEditorTool } from "./tool.ts";
@@ -41,7 +42,7 @@ export default function llmEditorExtension(pi: ExtensionAPI): void {
   setThinkingApi(pi);
   pi.registerTool(llmEditorTool);
   registerSystemPromptTransform(TRANSFORM_ID, (prompt: string, ctx: any) => {
-    const cwd: string = ctx?.cwd ?? process.cwd();
+    const cwd = getCwd();
     const cfg = loadEditorConfig(cwd);
     const dir = resolveTranscriptDir(cfg.transcriptDir ?? "", cwd);
     const T = loadEditorText(cwd);

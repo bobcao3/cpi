@@ -25,6 +25,7 @@ import { fileURLToPath } from "node:url";
 import { writeTranscript } from "./log.ts";
 import { STREAM_UPDATE_MS } from "./render.ts";
 import { loadEditorText, fmt } from "./text.ts";
+import { parseSummaryUsage, type Usage } from "../lib/cost-ledger.ts";
 
 const SUBAGENT_TRANSCRIPT_EXT = fileURLToPath(new URL("../subagent-transcript/index.ts", import.meta.url));
 
@@ -51,7 +52,7 @@ export interface SubagentResult {
   timedOut: boolean;
   spawnError?: string;
   elapsedMs: number;
-  usage?: { input: number; output: number };
+  usage?: Usage;
 }
 
 export async function runSubagent(opts: SubagentOptions): Promise<SubagentResult> {
@@ -101,7 +102,7 @@ export async function runSubagent(opts: SubagentOptions): Promise<SubagentResult
           child.kill("SIGKILL");
         }, opts.timeoutMs)
       : undefined;
-  const onAbort = (): void => child.kill("SIGKILL");
+  const onAbort = (): void => { child.kill("SIGKILL"); };
   if (opts.signal) {
     if (opts.signal.aborted) child.kill("SIGKILL");
     else opts.signal.addEventListener("abort", onAbort, { once: true });
@@ -132,7 +133,6 @@ export async function runSubagent(opts: SubagentOptions): Promise<SubagentResult
     (stderr.trim() ? `\n${T.transcript.section_stderr}\n\n\`\`\`\n${stderr.trim()}\n\`\`\`\n` : "");
 
   await writeTranscript(opts.transcriptDir, opts.id, body, opts.maxTranscripts);
-  const sm = stderr.match(/summary:[^\n]*\bin=(\d+)\b[^\n]*\bout=(\d+)\b/);
-  const usage = sm ? { input: parseInt(sm[1], 10), output: parseInt(sm[2], 10) } : undefined;
+  const usage = parseSummaryUsage(stderr);
   return { answer: stdout.trim(), stderr, exitCode, timedOut, spawnError, elapsedMs, usage };
 }

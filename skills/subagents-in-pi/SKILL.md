@@ -11,8 +11,8 @@ and `sh` returns its PID + a logfile and fires a completion follow-up on exit.
 There is **no separate transcript file**: `pi` print-mode stdout is the clean
 final answer, while the helper streams the live markdown transcript to stderr
 (the `sh` background log) and prints the raw session `jsonl` path at start and
-end, with a run summary (time, turns, input/output tokens) at the very end of
-stdout.
+end, with a run summary (time, turns, input/output tokens, cost) at the very end of
+stdout. Token + cost totals are recursive: they include every nested sub-agent, so a parent parsing one number gets the whole subtree (no double counting).
 
 ## Launch / resume
 
@@ -57,7 +57,7 @@ log `/tmp/pi-sh-output-<PID>.log` (`<PID>` = the id returned by `sh`, reused in 
   streaming markdown transcript (one block per message; tool calls render as
   ```bash or ```xml). `tail -f` the log while a backgrounded subagent works.
 - **stdout, at the end:** the clean final answer, then a `jsonl: <path>` line and
-  a `summary: time=<s> turns=<n> in=<tok> out=<tok>` line.
+  a `summary: time=<s> turns=<n> in=<tok> out=<tok> cost=$<usd>` line (tokens + cost are subtree totals; cost is model-correct since pi prices each message by its own model).
 
 The `jsonl` path is pi's native raw session log (full-fidelity, structured) —
 read it for deep inspection. `rm` stale logs when finished.

@@ -15,6 +15,7 @@ import {
   type NotificationKind,
 } from "./lib/notification.ts";
 import { registerHoldSource, signalHoldEvent } from "./lib/session-hold.ts";
+import { feedCostInline, feedCostCompletion } from "./shell/cost-feed.ts";
 import {
   ensureShellTools,
   buildShellEnvWithDotenv,
@@ -94,8 +95,9 @@ export default async function (pi: ExtensionAPI) {
   const availability = await ensureShellTools().catch(
     () => ({ fd: false, rg: false, shuck: false, treeSitter: false }) as ToolAvailability,
   );
-  setCompletionHook((id, _cmd, code, reason, log) => {
+  setCompletionHook((id, cmd, code, reason, log) => {
     signalHoldEvent();
+    feedCostCompletion(log?.path, cmd);
     const isRepeat = id.startsWith("rpt-");
     const kind: NotificationKind = isRepeat
       ? reason === "breach"
@@ -271,6 +273,8 @@ export default async function (pi: ExtensionAPI) {
         truncation,
         tunables,
       );
+
+      if (res.status === "completed") feedCostInline(res.text, params.command);
 
       const tag = describe ? ` (${truncateDescribe(describe)})` : "";
       const status =
