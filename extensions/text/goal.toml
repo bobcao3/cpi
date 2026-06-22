@@ -1,0 +1,37 @@
+# Model-facing text for /goal (the persistent-objective evaluator). Layered
+# (project > user > shipped). Rendered with mustache; HTML-escaping disabled.
+#
+# Vars: {{objective}} {{reason}} {{elapsed_min}} {{pending}} {{turns}}
+#   {{state}} {{elapsed}}
+
+[command]
+# Shown in the slash-command popup (user-facing, not sent to the model).
+description = "Set a persistent goal the agent works toward across turns until verifiably met (no arg = status; /goal clear|pause|resume)"
+# /goal status line: {{state}} is "active"|"paused", {{elapsed}} is a short string.
+status = "Goal [{{state}}]: {{objective}} ({{turns}} turns, {{elapsed}})"
+# User notification when the evaluator confirms the goal is met.
+achieved = "Goal achieved ({{turns}} turns): {{objective}}"
+# User notification when the loop is paused by a turn/time cap or evaluator failure.
+budget = "Goal paused — {{reason}} ({{turns}} turns). Use /goal resume to continue."
+
+[evaluate]
+# Sent to the FORK CHILD — a full copy of this session (via `pi --fork`) that may
+# run read-only checks to verify. It is a VERIFIER: it must not modify files. Its
+# first non-empty line is matched by the parser: "YES" -> met; "NO" -> not met.
+prompt = """A user set this goal for the session above:
+\"{{objective}}\"
+
+You are an independent VERIFIER. Review the work done in this session. You may read files and run read-only checks (tests, builds, grep, cat) to verify. Do NOT modify, create, or delete any file — not via the edit/write tools and not via shell redirects or sed -i; running tests is fine. If you cannot verify without modifying, treat the goal as NOT met.
+
+Decide whether the goal's completion condition is NOW satisfied. On the FIRST line respond exactly YES or exactly NO. On the second line give a one-sentence reason citing concrete evidence (the command you ran and its result, or the file you inspected)."""
+
+[continue]
+# Appended to THIS (original) session as a goal-message and triggers a follow-up
+# turn — only when the evaluator answered NO (goal not yet met). The evaluator's
+# reason becomes guidance for the next turn.
+message = "system reminder | Goal not yet met. Continue toward: {{objective}}. Verifier: {{reason}} (turn {{turns}})."
+
+[stuck]
+# Appended when the stuck-check fires AND a goal is active — wakes the agent to
+# check stuck backgrounds and reminds it of the goal (the merged stuck-reminder).
+message = "system reminder | {{elapsed_min}} min idle with pending work ({{pending}}). Check whether backgrounded shells or agents are stuck, then continue toward your active goal: {{objective}}."
