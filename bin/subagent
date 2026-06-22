@@ -11,10 +11,10 @@
 #
 # No separate transcript file: the transcript streams straight into the logs
 # (stderr -> the sh background log), and pi's native session jsonl is the raw
-# log surfaced at start and end. The orchestrator tails the sh log for the live
-# transcript; pi's stdout is the clean answer.
+# log surfaced at start and end. The shell tool owns the live log/transcript;
+# pi's stdout is the clean answer.
 #
-# Usage: subagent [-p provider] [-s session-id] [task...]
+# Usage: subagent [-p provider] [-m [provider/]model[:effort]] [-s session-id] [task...]
 #   Preferred: pass the task on stdin via a QUOTED heredoc so backticks, $, and
 #   quotes in the prompt stay literal (no shell escaping):
 #       subagent -s my-task <<'TASK'
@@ -23,42 +23,99 @@
 #   A positional task arg still works for short, escape-free prompts.
 set -euo pipefail
 
+find_parent_session_value() {
+    local key="$1"
+    [[ -n "${PI_SESSION_DIR:-}" ]] || return 0
+    [[ -n "${PI_SESSION_ID:-}" ]] || return 0
+
+    local session_file matches match
+    session_file="$(fd --glob -d 1 -t f "*_${PI_SESSION_ID}.jsonl" "$PI_SESSION_DIR" 2>/dev/null | sed -n '1p' || true)"
+    [[ -n "$session_file" ]] || return 0
+
+    matches="$(rg -o "\"${key}\":\"[^\"]+\"" "$session_file" 2>/dev/null || true)"
+    match="${matches##*$'\n'}"
+    match="${match#\"${key}\":\"}"
+    match="${match%\"}"
+    printf '%s\n' "$match"
+}
+
+find_parent_provider() {
+    find_parent_session_value provider
+}
+
+find_parent_thinking_level() {
+    find_parent_session_value thinkingLevel
+}
+
 main() {
-    local provider="meshy-sglang-kimi" model="" session_id="" proto out summary rc=0
+    local provider="meshy-sglang-kimi" model="" effort="" session_id="" proto out summary task_file rc=0
+    local provider_explicit=false parent_provider="" model_parent_prefix_stripped=false
 
     while getopts "p:s:m:" opt; do
         case "$opt" in
-            p) provider="$OPTARG" ;;
+            p) provider="$OPTARG"; provider_explicit=true ;;
             m) model="$OPTARG" ;;
             s) session_id="$OPTARG" ;;
-            *) printf 'usage: subagent [-p provider] [-m model] [-s session-id] [task]   # or pipe the task on stdin\n' >&2; exit 2 ;;
+            *) printf 'usage: subagent [-p provider] [-m [provider/]model[:effort]] [-s session-id] [task]   # or pipe the task from stdin\n' >&2; exit 2 ;;
         esac
     done
     shift "$((OPTIND - 1))"
 
-    # Prefer positional args; otherwise read the task from stdin (heredoc/pipe).
-    local task="$*"
-    if [[ -z "$task" && ! -t 0 ]]; then
-        task="$(cat)"
+    out="$(mktemp)"
+    summary="$(mktemp)"
+    task_file="$(mktemp)"
+    # shellcheck disable=SC2064
+    trap "rm -f '$out' '$summary' '$task_file'" EXIT
+
+    # Prefer positional args; otherwise copy the task from stdin (heredoc/pipe).
+    if (( $# > 0 )); then
+        printf '%s' "$*" >"$task_file"
+    elif [[ ! -t 0 ]]; then
+        cat >"$task_file"
     fi
-    if [[ -z "$task" ]]; then
-        printf 'usage: subagent [-p provider] [-m model] [-s session-id] [task]   # or pipe the task on stdin\n' >&2
+    if [[ ! -s "$task_file" ]]; then
+        printf 'usage: subagent [-p provider] [-m [provider/]model[:effort]] [-s session-id] [task]   # or pipe the task from stdin\n' >&2
         exit 2
     fi
+
+    if [[ "$provider_explicit" == false ]]; then
+        parent_provider="$(find_parent_provider)"
+        [[ -n "$parent_provider" ]] && provider="$parent_provider"
+    fi
+    effort="$(find_parent_thinking_level)"
+
+    if [[ -n "$model" ]]; then
+        if [[ "$model" == *:* ]]; then
+            local suffix="${model##*:}"
+            case "$suffix" in
+                off|minimal|low|medium|high|xhigh)
+                    effort="$suffix"
+                    model="${model%:*}"
+                    ;;
+            esac
+        fi
+        if [[ "$provider_explicit" == false && -n "$parent_provider" && "$model" == "$parent_provider"/* ]]; then
+            model="${model#"$parent_provider"/}"
+            model_parent_prefix_stripped=true
+        fi
+    fi
+
+    local provider_args=()
+    if [[ "$provider_explicit" == true ]]; then
+        provider_args=(--provider "$provider")
+    elif [[ -z "$model" || "$model" != */* || "$model_parent_prefix_stripped" == true ]]; then
+        provider_args=(--provider "$provider")
+    fi
+
     [[ -n "$session_id" ]] || session_id="sub-$(date +%Y%m%d-%H%M%S)-$$"
     proto="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/output-protocol.md"
 
-    out="$(mktemp)"
-    summary="$(mktemp)"
-    # shellcheck disable=SC2064
-    trap "rm -f '$out' '$summary'" EXIT
-
-    # pi print-mode writes only the final assistant message to stdout (captured
-    # to $out); the transcript.ts extension streams the live transcript + jsonl
-    # path to stderr (inherited -> the sh background log) and writes the
-    # conclusion summary to $summary for us to emit after the answer.
-    # Nest this sub-agent's session under the parent's session dir, in a
-    # subagents_<PI_SESSION>/ folder, so it stays out of the parent's /resume
+    # pi print-mode reads the task from stdin and writes only the final assistant
+    # message to stdout (captured to $out); the transcript.ts extension streams
+    # the live transcript + jsonl path to stderr (inherited -> the sh background
+    # log) and writes the conclusion summary to $summary for us to emit after
+    # the answer. Nest this sub-agent's session under the parent's session dir,
+    # in a subagents_<PI_SESSION>/ folder, so it stays out of the parent's /resume
     # (pi lists sessions flat per dir; subfolders are not recursed). Absent
     # for ephemeral (--no-session) parents -> falls back to pi's default.
     local session_dir_args=()
@@ -69,13 +126,14 @@ main() {
     fi
 
     local model_args=()
-    [[ -n "$model" ]] && model_args=(--model "$model")
+    [[ -n "$model" ]] && model_args+=(--model "$model")
+    [[ -n "$effort" ]] && model_args+=(--thinking "$effort")
 
-    PI_SUBAGENT_SUMMARY="$summary" pi --provider "$provider" --session-id "$session_id" \
+    PI_SUBAGENT_SUMMARY="$summary" pi "${provider_args[@]}" --session-id "$session_id" \
         "${model_args[@]}" \
         "${session_dir_args[@]}" \
         --append-system-prompt "@$proto" \
-        -p "$task" >"$out" || rc=$?
+        -p <"$task_file" >"$out" || rc=$?
 
     # Clean answer first, then the conclusion jsonl path + summary at the very end.
     cat "$out"
