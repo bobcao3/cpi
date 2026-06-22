@@ -146,6 +146,17 @@ export async function editFile(path: string, opts: EditFileOptions): Promise<Edi
           }),
         };
 
+      // edit-complete signal: apply proceeds; cancel aborts; null means the
+      // subagent never signaled completion (truncated/incomplete output).
+      if (res.editAction !== "apply") {
+        return {
+          ok: false,
+          error: res.editAction === "cancel"
+            ? T.errors.editor_cancelled
+            : T.errors.editor_truncated,
+        };
+      }
+
       const blocks = parseBlocks(res.answer);
       const applied: ApplyResult = applyBlocks(content, blocks, { fuzzy: opts.fuzzyMatch });
       if (applied.ok === false) {
