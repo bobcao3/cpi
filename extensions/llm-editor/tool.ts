@@ -183,6 +183,7 @@ export async function execute(
       transcriptDir: resolveTranscriptDir(cfg.transcriptDir, ctx.cwd),
       maxTranscripts: cfg.maxTranscripts,
       maxFileBytes: cfg.maxFileBytes,
+      thinkingLevel: pick.thinkingLevel,
     });
     if (r.error) return errorResult(id, params.command, abs, r.error);
     return okResult(id, params.command, abs, [field("content", r.text)], {
@@ -241,6 +242,7 @@ export async function execute(
     maxTranscripts: cfg.maxTranscripts,
     maxFileBytes: cfg.maxFileBytes,
     fuzzyMatch: cfg.fuzzyMatch,
+    thinkingLevel: pick.thinkingLevel,
   });
   if (!r.ok) return errorResult(id, params.command, abs, r.error);
   const body = [

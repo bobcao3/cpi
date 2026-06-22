@@ -47,6 +47,8 @@ export interface EditFileOptions {
   /** Toggles Aider-style fuzzy fallback for block matching (default on). */
   fuzzyMatch?: boolean;
   onStream?: (accumulated: string) => void;
+  /** Optional thinking level for the Editor subagent. */
+  thinkingLevel?: string;
 }
 
 export type EditFileResult =
@@ -124,6 +126,7 @@ export async function editFile(path: string, opts: EditFileOptions): Promise<Edi
         id: opts.id,
         maxTranscripts: opts.maxTranscripts,
         onStream: opts.onStream,
+        thinkingLevel: opts.thinkingLevel,
       });
 
       if (res.spawnError)
