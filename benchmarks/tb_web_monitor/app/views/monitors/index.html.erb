@@ -17,10 +17,10 @@
       </tbody>
     </table>
   </div>
-  <div id="detail">
+  <turbo-frame id="detail" data-turbo-action="advance">
     <div id="trial-status"><%= @selected.presence || "select a trial" %></div>
-    <div class="pane active" id="p-transcript" data-controller="autoscroll" data-autoscroll-running-value="<%= @trial_running %>">
+    <div class="pane active" id="p-transcript" data-controller="autoscroll" data-autoscroll-running-value="<%= @trial_running %>" data-trial="<%= @selected %>">
       <%= render "transcript", events: @transcript, job: @job, trial: @selected %>
     </div>
-  </div>
+  </turbo-frame>
 </main>

@@ -1,4 +1,5 @@
 # frozen_string_literal: true
+
 require "time"
 
 # Port of server.ts listTrials(): summarize every trial dir under a job.
@@ -50,6 +51,16 @@ module TrialSummary
     )
   end
 
+  # Cheapest single-trial running check (no mtime/failover scan): mirrors the
+  # status branch of #summarize. Used by frame visits that skip TrialSummary.list
+  # (the trials panel is not re-rendered, so only the selected trial matters).
+  def running?(job, trial)
+    r = JobsDir.read_json(File.join(JobsDir.root, job, trial, "result.json"))
+    r&.dig("verifier_result", "rewards", "reward").nil? &&
+      !r&.[]("exception_info") &&
+      !r&.[]("finished_at")
+  end
+
   def duration_s(r)
     return nil unless r&.[]("started_at") && r&.[]("finished_at")
     (Time.iso8601(r["finished_at"]) - Time.iso8601(r["started_at"])).round
@@ -83,9 +94,9 @@ module TrialSummary
     return false if size.zero?
     tail = if size > 32768
              File.open(path, "rb") { |fh| fh.seek(size - 32768); fh.read(32768) }
-           else
+    else
              File.binread(path)
-           end
+    end
     text = tail.force_encoding("UTF-8")
     text.include?("provider-failover") || text.include?("no fallback candidate")
   rescue Errno::ENOENT
