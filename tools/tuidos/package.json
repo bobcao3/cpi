@@ -1,0 +1,29 @@
+{
+  "name": "tuidos",
+  "module": "src/index.tsx",
+  "type": "module",
+  "private": true,
+  "bin": {
+    "clidos": "src/clidos/index.ts"
+  },
+  "scripts": {
+    "dev": "bun run --watch src/index.tsx",
+    "clidos": "bun run src/clidos/index.ts"
+  },
+  "devDependencies": {
+    "@types/bun": "latest"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  },
+  "dependencies": {
+    "@babel/core": "^7.29.0",
+    "@babel/preset-typescript": "^7.28.5",
+    "@opentui/core": "^0.4.1",
+    "@opentui/solid": "^0.4.1",
+    "babel-preset-solid": "1.9.12",
+    "citty": "^0.2.2",
+    "picocolors": "^1.1.1",
+    "solid-js": "1.9.12"
+  }
+}
