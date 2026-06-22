@@ -10,10 +10,7 @@ import { renderShCall, renderShResult } from "./shell/render.ts";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { loadShellConfig } from "./lib/config.ts";
 import { checkShellPoll } from "./lib/poll-guard.ts";
-import {
-  sendNotification,
-  type NotificationKind,
-} from "./lib/notification.ts";
+import { sendNotification, type NotificationKind } from "./lib/notification.ts";
 import { registerHoldSource, signalHoldEvent } from "./lib/session-hold.ts";
 import {
   ensureShellTools,
@@ -29,6 +26,7 @@ import {
   killAll,
   runShell,
   resumeBackgroundShells,
+  setCurrentScope,
   setCompletionHook,
   signalChild,
   silenceChild,
@@ -45,6 +43,7 @@ import { surfaceCdAgents } from "./shell/cd-targets.ts";
 import { runLspHook } from "./shell/lsp-hook.ts";
 import { formatAgentsBlock } from "./lib/agents.ts";
 import { loadText, render, renderLines, textPath } from "./lib/text.ts";
+import { notifyForkedShells, notifyOrphanedShells, surfaceCompletedShells } from "./shell/orphan.ts";
 const SH_TOOL = "sh",
   SH_SIGNAL_TOOL = "sh_signal",
   SH_DETACH_TOOL = "sh_detach",
@@ -98,25 +97,20 @@ export default async function (pi: ExtensionAPI) {
   setCompletionHook((id, cmd, code, reason, log) => {
     signalHoldEvent();
     const isRepeat = id.startsWith("rpt-");
-    const isResumeFail = reason === "resume-failed";
     const kind: NotificationKind = isRepeat
       ? reason === "breach"
         ? "repeat-breach"
         : "repeat-stopped"
-      : isResumeFail
+      : code === 0
         ? "shell-complete"
-        : code === 0
-          ? "shell-complete"
-          : "shell-failed";
+        : "shell-failed";
     const base = isRepeat
       ? reason === "breach"
         ? `Repeat monitor ${id} breached on exit ${code ?? "unknown"} (shell command time exceeded repeat interval)`
         : `Repeat monitor ${id} stopped on exit ${code ?? "unknown"}`
-      : isResumeFail
-        ? `Could not locate or resume session shell ${id}`
-        : code === 0
-          ? `Shell ${id} completed on exit ${code}`
-          : `Shell ${id} command failed on exit ${code ?? "unknown"}`;
+      : code === 0
+        ? `Shell ${id} completed on exit ${code}`
+        : `Shell ${id} command failed on exit ${code ?? "unknown"}`;
     const hasRange = log && log.startLine !== undefined && log.endLine !== undefined;
     const summary = log
       ? `${base}; log ${log.path}${hasRange ? ` lines ${log.startLine}..${log.endLine}` : ""}`
@@ -125,7 +119,6 @@ export default async function (pi: ExtensionAPI) {
       "shell-id": id,
       "exit-code": code ?? -1,
       summary,
-      ...(isResumeFail ? { errno: "ENOENT" } : {}),
     };
     sendNotification(pi, { kind, summary, payload }, { deliverAs: "steer" });
   });
@@ -384,10 +377,16 @@ export default async function (pi: ExtensionAPI) {
     },
   });
 
-  pi.on("session_start", async (_event, ctx) => {
+  pi.on("session_start", async (event, ctx) => {
     shellStatus?.dispose();
     shellStatus = createShellStatusRefresher(ctx);
-    void resumeBackgroundShells(ctx.sessionManager?.getSessionDir());
+    const dir = ctx.sessionManager?.getSessionDir();
+    const scope = ctx.sessionManager?.getSessionId();
+    setCurrentScope(scope);
+    if (event.reason !== "fork" && event.reason !== "reload") await surfaceCompletedShells(dir, scope);
+    void resumeBackgroundShells(dir, scope);
+    if (event.reason === "fork") void notifyForkedShells(dir, event.previousSessionFile);
+    else if (event.reason !== "reload") void notifyOrphanedShells(dir, scope);
     pi.setActiveTools(
       Array.from(
         new Set([

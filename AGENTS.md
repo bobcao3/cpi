@@ -28,6 +28,8 @@ Principal: Use the **simplest architecture**, not necessarily solution with leas
 
 ## Working and debugging
 
+**Research**: When user asks about "industry standard", "latest", or "what tool should we use", always research online to get first-hand, up-to-date information.
+
 Developing an agent harness is iterative. Debugging is expected.
 
 No accusations shall be made without a consistent reproduction.

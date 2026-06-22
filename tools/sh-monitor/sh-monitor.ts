@@ -19,7 +19,7 @@
  * the runtime dir is unavailable or bind fails, resume is simply unavailable
  * for that shell and the pipe hot path is unaffected. Detached shells never bind
  * one (they are nohup). The socket is unlinked on exit so a resumed pi sees a
- * clean ENOENT ("could not locate or resume session shell #pid").
+ * clean ENOENT, which it treats as a stale record and removes silently (no notification).
  *
  * Control plane (stat/signal/subscribe/shutdown/bindResume) is JSON over the
  * framed stdin pipe; the data plane rides raw zero-copy DATA frames on stdout

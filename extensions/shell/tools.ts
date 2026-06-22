@@ -159,6 +159,10 @@ export function getToolEnv(): NodeJS.ProcessEnv {
  *
  *   PI_SESSION     short id of the parent's pi session (first 8 of its uuid;
  *                  stable across resume so sub-agent sessions persist)
+ *   PI_SESSION_ID  the parent's full session id (stable across resume), used
+ *                  to scope background-shell resume records under
+ *                  <sessionDir>/sh-mon/<PI_SESSION_ID>/ so concurrent agents
+ *                  in the same cwd don't cross-read each other's records
  *   PI_SESSION_DIR the parent's session dir (default or custom); absent for
  *                  ephemeral (--no-session) parents
  *
@@ -171,6 +175,7 @@ export function buildShellEnv(
   if (sm) {
     const id = sm.getSessionId();
     if (id) env.PI_SESSION = id.slice(0, 8);
+    if (id) env.PI_SESSION_ID = id;
     const dir = sm.getSessionDir();
     if (dir) env.PI_SESSION_DIR = dir;
   }
