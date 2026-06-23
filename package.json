@@ -13,6 +13,9 @@
     "cpi-config.default.json",
     "fallback-providers.example.json"
   ],
+  "workspaces": [
+    "tools/sh-monitor"
+  ],
   "pi": {
     "extensions": [
       "./extensions"
