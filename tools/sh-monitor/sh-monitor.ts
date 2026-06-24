@@ -1,4 +1,3 @@
-#!/usr/bin/env bun
 /**
  * sh-monitor — nohup-style supervisor for pi background shells.
  *
