@@ -1,7 +1,8 @@
 /**
- * Extension-side sh-monitor client + launcher. Runs in the pi (node) process.
+ * Extension-side sh-monitor client + launcher. Runs in the pi process (bun/node/deno).
  *
- * `launchMonitor` spawns `bun sh-monitor.ts spawn …` detached and unref'd so the
+ * `launchMonitor` spawns `<runtime> sh-monitor.ts spawn …` (whatever drives pi,
+ * via runtimeSpawn — never a hard-coded `bun`) detached and unref'd so the
  * supervisor (and its grandchild) outlive pi. pi talks to it over the spawned
  * stdin/stdout pipes — NO filesystem socket, NO bind race, NO /tmp dependency
  * (the original cluster failure). The typebox-defined framing from
@@ -45,6 +46,7 @@ import {
   type ErrMsg,
   type Request,
 } from "../../tools/sh-monitor/protocol.ts";
+import { runtimeSpawn } from "../lib/runtime.ts";
 
 const SH_MONITOR_TS = join(
   dirname(fileURLToPath(import.meta.url)),
@@ -82,9 +84,11 @@ export class MonitorClient {
   private stderrBuf = "";
   private exitInfo: ExitInfo | null = null;
   readonly logPath: string;
+  private readonly bin: string;
 
-  constructor(child: ChildProcess, logPath: string) {
+  constructor(child: ChildProcess, logPath: string, bin: string) {
     this.logPath = logPath;
+    this.bin = bin;
     this.stdin = child.stdin as NodeJS.WritableStream;
     this.reader = new FrameReader({
       onControl: (m) => {
@@ -126,7 +130,7 @@ export class MonitorClient {
     const err = this.stderrBuf.trim();
     if (this.exitInfo?.spawnError) {
       const m = this.exitInfo.spawnError.message;
-      return new Error(`sh-monitor spawn failed: ${m}${/ENOENT/i.test(m) ? " (is bun on PATH?)" : ""}`);
+      return new Error(`sh-monitor spawn failed: ${m}${/ENOENT/i.test(m) ? ` (runtime binary: ${this.bin})` : ""}`);
     }
     if (this.exitInfo) {
       const where =
@@ -425,12 +429,13 @@ export async function launchMonitor(
   pathId: string,
 ): Promise<MonitorHandle> {
   const logPath = join(tmpdir(), `pi-sh-output-${pathId}.log`);
+  const { bin, pre } = runtimeSpawn();
   const child = spawn(
-    "bun",
-    [SH_MONITOR_TS, "spawn", logPath, "--", "bash", "-c", command],
+    bin,
+    [...pre, SH_MONITOR_TS, "spawn", logPath, "--", "bash", "-c", command],
     { detached: true, stdio: ["pipe", "pipe", "pipe"], env },
   );
   child.unref();
-  const client = new MonitorClient(child, logPath);
+  const client = new MonitorClient(child, logPath, bin);
   return { client, logPath };
 }

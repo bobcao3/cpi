@@ -115,10 +115,12 @@ const READER_INIT_CAP = 65536;
 
 /** Streaming frame parser. Buffers partial frames; never copies data bytes. */
 export class FrameReader {
+  private h: FrameHandlers;
   private buf: Buffer;
   private start = 0; // first unconsumed byte
   private end = 0; // one past last buffered byte
-  constructor(private h: FrameHandlers) {
+  constructor(h: FrameHandlers) {
+    this.h = h;
     this.buf = Buffer.allocUnsafe(READER_INIT_CAP);
   }
 

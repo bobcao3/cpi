@@ -1,7 +1,7 @@
 /**
  * Per-user runtime directory for sh-monitor *resume* sockets.
  *
- * Resolved identically on the pi (node) side and the sh-monitor (bun) side so a
+ * Resolved identically on the pi side and the sh-monitor side so a
  * resumed pi can find the socket a still-living supervisor bound. Pure: only
  * node: builtins, no pi imports — importable from both process types.
  *
