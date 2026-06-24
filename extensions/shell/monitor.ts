@@ -30,6 +30,7 @@
  * framing).
  */
 import { spawn, type ChildProcess } from "node:child_process";
+import type { Readable } from "node:stream";
 import { connect, type Socket } from "node:net";
 import { mkdir, readFile, readdir, unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -77,6 +78,9 @@ interface ExitInfo {
 /** Synchronous client over the spawned stdin/stdout pipes. Never imports the CLI module. */
 export class MonitorClient {
   private readonly stdin: NodeJS.WritableStream;
+  private readonly child: ChildProcess;
+  private readonly stdout: Readable | null;
+  private readonly stderr: Readable | null;
   private readonly reader: FrameReader;
   private subs = new Set<(ev: MonitorEvent) => void>();
   private pending: { resolve: (m: Message) => void; reject: (e: Error) => void }[] = [];
@@ -90,6 +94,9 @@ export class MonitorClient {
     this.logPath = logPath;
     this.bin = bin;
     this.stdin = child.stdin as NodeJS.WritableStream;
+    this.child = child;
+    this.stdout = child.stdout;
+    this.stderr = child.stderr;
     this.reader = new FrameReader({
       onControl: (m) => {
         if (m.kind === "exit") {
@@ -206,6 +213,23 @@ export class MonitorClient {
       this.stdin.end();
     } catch {}
   }
+  /**
+   * True orphan: destroy every pipe handle pi holds to the supervisor so pi's
+   * libuv event loop can idle (letting `pi --print` exit). `close()` only ends
+   * stdin — enough once the grandchild is done (the supervisor then exits and
+   * the pipe closes), but for a still-running grandchild (e.g. a deliverable
+   * daemon) the supervisor never exits, so the open stdout pipe keeps pi's
+   * loop alive forever (B3: pi --print never exits). sh-monitor survives: it
+   * keeps draining the grandchild to its log (its stdout EPIPE is handled) and
+   * exits only after the grandchild does.
+   */
+  orphan(): void {
+    try { this.child.unref(); } catch {}
+    try { this.child.stdin?.end(); } catch {}
+    try { this.child.stdin?.destroy(); } catch {}
+    try { this.stdout?.destroy(); } catch {}
+    try { this.stderr?.destroy(); } catch {}
+  }
 }
 
 /**
@@ -280,6 +304,11 @@ export class ResumeClient {
     try {
       this.sock.end();
     } catch {}
+  }
+  /** True orphan (resume-socket path): unref + destroy the socket so pi's libuv loop can idle (mirror of MonitorClient.orphan for re-attached shells). */
+  orphan(): void {
+    try { this.sock.unref(); } catch {}
+    try { this.sock.destroy(); } catch {}
   }
 }
 

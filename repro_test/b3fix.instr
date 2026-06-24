@@ -1,0 +1,4 @@
+Follow these steps EXACTLY, in order:
+1. Call the sh tool with command: python3 -m http.server 18098  and set waitfor to 1. (Do NOT add & or nohup; let the sh tool background it.) It will return a "running PID".
+2. Call the sh_detach tool, passing that running PID as the id, to release it to run untracked.
+3. Reply with exactly this text and then stop: DONE: server detached, stopping now. Do NOT call wait_any. Do NOT kill the server.

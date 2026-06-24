@@ -329,8 +329,10 @@ export const silenceChild = (id: string): boolean => {
  * Release a background PID to run on its own: disconnect pi from the supervisor
  * without signalling the child. The child + sh-monitor keep running (detached),
  * output keeps draining to the log file, no completion notification fires, and
- * killAll/session-shutdown will not touch it. The child survives pi's exit
- * because pi never held its pipe. Returns the detached child's log path, or
+ * killAll/session-shutdown will not touch it. pi releases its own pipe/socket
+ * handles (orphan) so its libuv event loop can idle and `pi --print` can exit;
+ * the child + sh-monitor survive and keep draining to the log. Returns the detached
+ * child's log path, or
  * `null` if the id is not active.
  */
 export const detachChild = (id: string): string | null => {
@@ -338,7 +340,7 @@ export const detachChild = (id: string): string | null => {
   if (!e || e.done || e.sessScope !== currentScope) return null;
   e.signaled = true; // suppress any in-flight completion hook
   if (e.sessDir && e.sessScope) void removeResumeRecord(e.sessDir, e.sessScope, id);
-  e.client.close();
+  e.client.orphan();
   bg.delete(id);
   return e.logPath;
 };
