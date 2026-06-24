@@ -36,7 +36,7 @@
       { "search": "gemini-[^:]*", "replace": "gemini-3.1-flash-lite" },
       { "search": "grok-3[^:]*:xhigh", "replace": "grok-4.3:high" },
       { "search": "grok-3[^:]*", "replace": "grok-4.3" },
-      { "search": "(deepseek-v[0-9]*-)pro:xhigh", "replace": "$1flash:xhigh" },
+      { "search": "(deepseek-v[0-9]*-)pro:xhigh", "replace": "$1flash:high" },
       { "search": "(deepseek-v[0-9]*-)pro(?=:|$)", "replace": "$1flash" },
       { "search": "^(.+):xhigh$", "replace": "$1:medium" }
     ]
