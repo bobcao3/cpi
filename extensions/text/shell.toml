@@ -68,9 +68,9 @@ sh_signal = [
   "SIGKILL terminates the process group and suppresses the completion notice; no completion notification will fire for that shell, so do not call wait_any expecting one; any other signal (SIGINT, SIGTERM, …) may be caught or ignored, so the process is not guaranteed to stop. Its completion notification will still fire when the process eventually exits; call wait_any to yield until then."
 ]
 sh_detach = [
-  "sh_detach releases a background shell to run untracked and survive this pi process; no completion notification fires afterward.",
-  "After detach, the PID is gone from sh_background_ps and unreachable by sh_signal — one-way.",
-  "For a process you know up-front must outlive pi, sh_detach after backgrounding; output keeps draining to the log file path sh returned.",
+  "After detach, the PID is gone from sh_background_ps and unreachable by sh_signal, no completion notification fires afterward, but the process will continue to run as if it's in nohup",
+  "For a process you know that must outlive current session (such as a service or web server), you should invoke sh_detach after backgrounding to make it a detached daemon.",
+  "Detaching a background shell is basically equivalent to runnint it in a nohup / tmux."
 ]
 sh_background_ps = [
   "Use sh_background_ps to list running background shells and monitors.",

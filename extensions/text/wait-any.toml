@@ -7,4 +7,5 @@ prompt_snippet = "Yield control until an event wakes you"
 [guidelines]
 bullets = [
   "After wait_any the turn ends; you are woken by the next event — a user message, a shell-completion/error notification, or an alarm firing.",
+  "Only invoke wait_any if you intend to wait for background shell to exit; otherwise just end your turn."
 ]
