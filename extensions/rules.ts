@@ -24,7 +24,6 @@ import { registerSystemPromptTransform } from "./lib/system-prompt.ts";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 const USER_RULES_DIR = join(homedir(), ".pi", "agent", "rules");
-const PROJECT_RULES_DIR_NAME = "rules";
 const TRANSFORM_ORDER = 150; // after strip-skills (100), before caveman (200)
 const MAX_RULE_BYTES = 131072;
 const CACHE_KEY = "__cpiRulesCache";
@@ -116,7 +115,7 @@ export default function rulesExtension(_pi: ExtensionAPI): void {
   registerSystemPromptTransform(
     "cpi-rules",
     (systemPrompt) => {
-      const projectDir = join(process.cwd(), PROJECT_RULES_DIR_NAME);
+      const projectDir = join(process.cwd(), ".pi", "rules");
       const signature = `${dirSignature(USER_RULES_DIR)};${dirSignature(projectDir)}`;
 
       const cached = cache();
