@@ -25,6 +25,7 @@ import {
   type BuildSystemPromptOptions,
 } from "@earendil-works/pi-coding-agent";
 import { getCwd } from "./cwd.ts";
+import { render } from "./text.ts";
 
 function dateStr(): string {
   const d = new Date();
@@ -61,12 +62,14 @@ Pi documentation (read only when the user asks about pi itself, its SDK, extensi
 }
 
 /** Build cpi's system prompt from `systemPromptOptions`. Replaces pi-core's. */
-export function buildCpiSystemPrompt(options: BuildSystemPromptOptions): string {
+export function buildCpiSystemPrompt(options: BuildSystemPromptOptions, renderCtx?: Record<string, unknown>): string {
   const { customPrompt, promptGuidelines, appendSystemPrompt, contextFiles = [] } = options;
 
-  // Per-tool guidelines from TOMLs, pruned of empties, plus the always-on baselines.
+  // Per-tool guidelines: rendered as mustache templates against the per-turn
+  // renderCtx (e.g. {{#vision}}...{{/vision}}), then pruned of empties so a
+  // falsy section (renders to "") is dropped. Plus the always-on baselines.
   const guidelines = (promptGuidelines ?? [])
-    .map((g) => g.trim())
+    .map((g) => render(g, renderCtx).trim())
     .filter((g) => g.length > 0);
   guidelines.push("Be concise in your responses");
   guidelines.push("Show file paths clearly when working with files");

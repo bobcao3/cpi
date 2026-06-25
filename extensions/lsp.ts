@@ -4,7 +4,7 @@
  * Registers unconditionally at load (no globalThis dedup flag — AGENTS.md):
  *   • the `lsp` tool (list_sessions|list_supported_servers|start|stop|check),
  *   • a `session_shutdown` teardown → manager.disposeAll() (idempotent/reentrant).
-* Producers (shell, llm_editor) are pure clients of
+* Producers (shell, the view/edit/create tools) are pure clients of
  * lib/lsp/manager.ts — they never register the tool. Single owner ⇒ the shared
  * plumbing is present iff cpi is present.
  */

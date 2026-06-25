@@ -1,5 +1,5 @@
 /**
- * Content-addressed id for one llm_editor tool call.
+ * Content-addressed id for one view/edit/create tool call.
  *
  * `shortSha` hashes the call's input args (command, path, query/instruction/
  * file_text) to a short hex digest. It is:
@@ -17,7 +17,7 @@
 import { createHash } from "node:crypto";
 
 export interface ShaArgs {
-  command: string;
+  command?: string;
   path: string;
   query?: string;
   instruction?: string;
@@ -27,7 +27,7 @@ export interface ShaArgs {
 /** 8-hex short-sha of the args (sha256, first 4 bytes). */
 export function shortSha(args: ShaArgs): string {
   const payload = JSON.stringify({
-    command: args.command,
+    command: args.command ?? "",
     path: args.path,
     query: args.query ?? "",
     instruction: args.instruction ?? "",

@@ -138,7 +138,7 @@
 .blk.notif .sec.title .kind { color:var(--acc); }
 .blk.notif .sec.title .sum { color:var(--txt); font-weight:normal; min-width:0; flex:1; }
 
-/* cpi llm_editor result: parsed view/create/edit */
+/* cpi editor result: parsed view/create/edit */
 .blk .le-hdr { padding:4px 8px; color:var(--mut); font-size:11px; }
 .blk .le { margin:0; white-space:pre; overflow:auto; max-height:420px; border-top:1px solid var(--border); }
 .blk .le .vl, .blk .le .dl { display:block; min-height:1em; }

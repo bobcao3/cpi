@@ -1,10 +1,10 @@
 /**
- * Media helpers for the read-media tool.
+ * Media helpers for the `view` tool's image path (merged from the former read-media extension).
  *
  * pi's built-in `read` tool sniffs image magic bytes via `utils/mime.ts` and
  * renders via `core/tools/render-utils.ts`, but neither module is re-exported
  * by the public package (`exports` maps only `.`). We mirror the exact same
- * sniff logic here so read-media accepts precisely the image formats pi can
+ * sniff logic here so the `view` tool accepts precisely the image formats pi can
  * inline (jpg, png, gif, webp) — no more, no less — and reject animated PNG
  * the same way (pi declines to inline it).
  */
@@ -12,6 +12,7 @@
 import { open } from "node:fs/promises";
 import { homedir } from "node:os";
 import { resolve as resolvePath, sep } from "node:path";
+import type { Model } from "@earendil-works/pi-ai";
 
 const SNIFF_BYTES = 4100;
 const PNG_SIG = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
@@ -82,6 +83,11 @@ export async function detectImageMimeTypeFromFile(filePath: string): Promise<str
   } finally {
     await handle.close();
   }
+}
+
+/** Whether the current model can consume inline image content. */
+export function modelSupportsVision(model: Model<any> | undefined): boolean {
+  return model?.input?.includes("image") ?? false;
 }
 
 // pi-ai has no video content type (only TextContent | ImageContent) and the

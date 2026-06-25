@@ -31,6 +31,7 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { applySystemPromptTransforms } from "./lib/system-prompt.ts";
 import { buildCpiSystemPrompt } from "./lib/system-prompt-build.ts";
+import { modelSupportsVision } from "./lib/media.ts";
 import { drainAfterTool, drainBeforeUser } from "./lib/prepend-message.ts";
 import { registerNotificationRenderer } from "./lib/notification.ts";
 import { setupCpiFooter, disposeCpiFooter, registerRightSegment } from "./lib/footer.ts";
@@ -93,7 +94,7 @@ export default function coreExtension(pi: ExtensionAPI): void {
   pi.on("before_agent_start", async (event: any, ctx: any) => {
     return {
       systemPrompt: applySystemPromptTransforms(
-        buildCpiSystemPrompt(event.systemPromptOptions),
+        buildCpiSystemPrompt(event.systemPromptOptions, { vision: modelSupportsVision(ctx?.model) }),
         ctx,
         event.systemPromptOptions,
       ),

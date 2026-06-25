@@ -207,6 +207,49 @@ class MonitorChannelTest < ActionCable::Channel::TestCase
     refute finalized.include?("<llm_editor_result>"), "raw XML parsed away, not dumped"
   end
 
+  # split tools: cpi now exposes read/write/edit (tool name IS the command),
+  # overriding the builtins. New transcripts carry <editor_result> XML (still
+  # with a <command> field); legacy transcripts used a single `llm_editor` tool.
+  test "new split `edit` tool call renders and parses <editor_result>" do
+    subscribe job: "fakejob", trial: "faketrial"
+    xml = "<editor_result><id>abc</id><command>edit</command><path>/app/foo.py</path><blocks>1</blocks><rewrite>false</rewrite><match>exact</match><diff>  1 import os\n-  2 import sys\n+  2 import re</diff></editor_result>"
+    append_trial_line({
+      "type" => "tool_execution_end",
+      "toolCallId" => "functions.edit:0",
+      "toolName" => "edit",
+      "isError" => false,
+      "result" => { "content" => [{ "type" => "text", "text" => xml }] }
+    }.to_json)
+    perform :tick
+    finalized = trial_broadcasts.select { |m| m.include?("replace") && m.include?("tool_functions_edit_0") }.last
+    assert finalized, "expected a finalized edit block under the new split name"
+    assert finalized.include?(%(<span class="tname">edit</span>)), "title shows the new tool name"
+    assert finalized.include?("le diff"), "diff pre rendered"
+    assert finalized.include?("dl add"), "added green"
+    assert finalized.include?("dl del"), "removed red"
+    assert finalized.include?("/app/foo.py"), "path in header"
+    refute finalized.include?("<editor_result>"), "raw XML parsed away, not dumped"
+  end
+
+  test "new split `read` tool call renders view content" do
+    subscribe job: "fakejob", trial: "faketrial"
+    xml = "<editor_result><id>abc</id><command>read</command><path>/app/foo.py</path><content>  1\timport os\n  2\timport sys</content></editor_result>"
+    append_trial_line({
+      "type" => "tool_execution_end",
+      "toolCallId" => "functions.read:0",
+      "toolName" => "read",
+      "isError" => false,
+      "result" => { "content" => [{ "type" => "text", "text" => xml }] }
+    }.to_json)
+    perform :tick
+    finalized = trial_broadcasts.select { |m| m.include?("replace") && m.include?("tool_functions_read_0") }.last
+    assert finalized, "expected a finalized read block under the new split name"
+    assert finalized.include?(%(<span class="tname">read</span>)), "title shows the new tool name"
+    assert finalized.include?("import os"), "view content rendered"
+    assert finalized.include?("/app/foo.py"), "path in header"
+    refute finalized.include?("<editor_result>"), "raw XML parsed away, not dumped"
+  end
+
   test "verdict is broadcast when available and stays last after new transcript events" do
     subscribe job: "fakejob", trial: "faketrial"
 

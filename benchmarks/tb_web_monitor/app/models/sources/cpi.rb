@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "rexml/document"
+require "set"
 
 # cpi source: specializes rendering for cpi's `sh` tool and `notification`
 # custom messages.
@@ -19,14 +20,17 @@ module Sources::Cpi
   # cpi's wait tool is named `wait_any` (pi core is `wait`).
   WAIT_TOOL = "wait_any"
 
-  # cpi's editor tool is named `llm_editor` (pi core is `editor`).
-  EDITOR_TOOL = "llm_editor"
+  # cpi exposes three tools — read/write/edit (no command enum; the tool
+  # name IS the command), which override pi's built-in read/write/edit. Old
+  # transcripts used a single `llm_editor` tool whose result XML carried a
+  # <command> field (view/create/edit). Match all of them.
+  EDITOR_TOOLS = Set["llm_editor", "read", "write", "edit"].freeze
 
   def tool_sections(block)
     case block.tool_name
     when SHELL_TOOL then Sh.sections(block)
     when WAIT_TOOL then WaitAny.sections(block)
-    when EDITOR_TOOL then LlmEditor.sections(block)
+    when *EDITOR_TOOLS then LlmEditor.sections(block)
     else nil
     end
   end
@@ -141,9 +145,10 @@ module Sources::Cpi
     end
   end
 
-  # llm_editor: the generic title (args) + progress are reused from
-  # BlockRegistry::Tool; only the result is parsed. The <llm_editor_result>
-  # XML carries command + path plus a mode-specific payload: view -> <content>
+  # editor family (read/write/edit; formerly a single `llm_editor` tool): the
+  # generic title (args) + progress are reused from BlockRegistry::Tool; only the
+  # result is parsed. The <editor_result> (legacy <llm_editor_result>) XML carries
+  # command + path plus a mode-specific payload: view/read -> <content>
   # (line-numbered source, NN\tcode), create -> <created bytes=N/>, edit ->
   # <diff> (sign + line-number + code lines). Edit diffs render red/green with
   # dimmed line numbers.
@@ -167,15 +172,15 @@ module Sources::Cpi
       done = block.state == :finalized
       err = done && ev["isError"]
       TranscriptBlock::Section.new(name: :title,
-                                   title: title(args, done, err, block.updates),
+                                   title: title(args, done, err, block.updates, block.tool_name),
                                    open: !done,
                                    blocks: title_body(args))
     end
 
-    def title(args, done, err, updates)
+    def title(args, done, err, updates, tool_name)
       s = +""
       s << %(<span class="ico">#{done ? (err ? "⚠" : "✓") : "⚙"}</span>)
-      s << %(<span class="tname">llm_editor</span>)
+      s << %(<span class="tname">#{ERB::Util.html_escape(tool_name.to_s)}</span>)
       desc = [args["command"].to_s, args["path"].to_s].reject(&:empty?).join(" ")
       s << %(<span class="desc">#{ERB::Util.html_escape(desc)}</span>) unless desc.empty?
       s << %(<span class="updates">⟳#{updates}</span>) if updates.to_i.positive?
@@ -214,7 +219,7 @@ module Sources::Cpi
     end
 
     def render_result(text)
-      return nil unless text.to_s.include?("<llm_editor_result")
+      return nil unless text.to_s.include?("<editor_result") || text.to_s.include?("<llm_editor_result")
       doc = REXML::Document.new(text) rescue nil
       return nil unless doc && doc.root
       root = doc.root
@@ -222,8 +227,8 @@ module Sources::Cpi
       path = root.elements["path"]&.text
       h = ERB::Util
       case cmd
-      when "view" then render_view(path, root.elements["content"]&.text, h)
-      when "create" then render_create(path, root.elements["created"], h)
+      when "view", "read" then render_view(path, root.elements["content"]&.text, h)
+      when "create", "write" then render_create(path, root.elements["created"], h)
       when "edit" then render_edit(path, root, h)
       else nil
       end

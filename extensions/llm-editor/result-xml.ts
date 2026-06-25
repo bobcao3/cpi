@@ -1,7 +1,7 @@
 /**
  * Pretty-printed XML builder for llm_editor tool results.
  *
- * Every result is a `<llm_editor_result>` element: one field per line, 2-space
+ * Every result is a `<editor_result>` element: one field per line, 2-space
  * indent. Text fields are XML-escaped (code/diff with `<`, `>`, `&` is safe);
  * newlines inside text (diff, ranges, listings) are preserved. Replaces the old
  * ad-hoc text format so results are structured + greppable, with a stable
@@ -37,5 +37,5 @@ export function field(tag: string, text?: string, attrs?: Record<string, string 
 
 /** Wrap pre-built field lines in the result root element. */
 export function resultXml(fields: string[]): string {
-  return `<llm_editor_result>\n${fields.join("\n")}\n</llm_editor_result>`;
+  return `<editor_result>\n${fields.join("\n")}\n</editor_result>`;
 }

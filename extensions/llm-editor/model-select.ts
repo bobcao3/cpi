@@ -118,7 +118,7 @@ function compileRule(
     const tpl = T.errors.invalid_chain_regex;
     const msg = tpl
       ? fmt(tpl, { pattern: rule.search, i: i + 1 })
-      : `[llm-editor] chain rule ${i + 1}: invalid regex ${rule.search}`;
+      : `[editor] chain rule ${i + 1}: invalid regex ${rule.search}`;
     process.stderr.write(msg + "\n");
     return null;
   }
