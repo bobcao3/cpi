@@ -17,16 +17,17 @@
 import * as process from "node:process";
 import { loadText, render, textPath } from "../lib/text.ts";
 
+export interface ToolMeta {
+  description: string;
+  prompt_snippet: string;
+  guidelines: string[];
+}
+
 export interface EditorText {
   system: { viewer: string; editor: string; editor_fuzzy: string };
   tasks: { viewer: string; editor: string; editor_reconcile: string };
-  tool: {
-    label: string;
-    description: string;
-    prompt_snippet: string;
-    guidelines: string[];
-  };
-  schema: { command: string; path: string; query: string; instruction: string; file_text: string };
+  tool: { read: ToolMeta; write: ToolMeta; edit: ToolMeta };
+  schema: { path: string; query: string; instruction: string; file_text: string };
   messages: {
     view_no_ranges: string;
     empty_dir: string;

@@ -6,7 +6,7 @@ require "set"
 # ordered list of Sections (title always first). Handlers are plain modules
 # responding to `.sections(block)`. Built-ins are registered at the bottom;
 # future sources (e.g. Terminus 2 transcripts) register their own kind. Per-tool
-# policy (e.g. sh drops progress on finalize, llm_editor keeps it) lives in the
+# policy (e.g. sh drops progress on finalize, editor keeps it) lives in the
 # Tool handler as a small table, so most tools need no custom handler.
 module BlockRegistry
   module_function
@@ -95,7 +95,7 @@ module BlockRegistry
   module Tool
     module_function
     # Tools whose progress section survives finalize (subagent transcript etc.).
-    KEEP_PROGRESS = Set["llm_editor"].freeze
+    KEEP_PROGRESS = Set["llm_editor", "read", "edit"].freeze
 
     def sections(block)
       custom = Source.tool_sections(block)

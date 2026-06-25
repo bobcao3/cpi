@@ -4,7 +4,7 @@ Shared extensions and skills for the [pi coding agent](https://github.com/earend
 
 ## Features
 
-- **AI-mediated file I/O.** The builtin `read`/`write`/`edit` are stripped and replaced by one `llm_editor` tool. `view`/`create`/`edit` delegate the reasoning to tool-less pi subagents (SWE-Edit); edits come back as search-replace blocks (whole-file rewrite fallback) and every view/edit is transcribed to `<dir>/<id>.md`.
+- **AI-mediated file I/O.** The builtin `read`/`write`/`edit` are stripped and replaced by three same-named tools — `read`, `write`, `edit` (no command enum; the tool name is the command), which fully override the builtins so nothing needs disabling. `read` (with a query) and `edit` delegate the reasoning to tool-less pi subagents (SWE-Edit); edits come back as search-replace blocks (whole-file rewrite fallback) and every read/edit is transcribed to `<dir>/<id>.md`. `read` also inlines image files (jpg/png/gif/webp) for vision models.
 - **A shell that corrects itself.** `sh` is stateless `bash -c` with backgrounding, signalling, and busy-wait detection. Each command is parsed with tree-sitter, then **linted** (a worker-thread Shuck LSP — no temp files, no per-call spawning) and checked against **AST rules** (`reject` blocks execution, `warn` surfaces to the agent) before it runs — e.g. enforcing `fd`/`rg` over `find`/`grep`. The same tree-sitter captures **syntax-highlight** the command in the TUI.
 - **Live CWD + automatic project context.** `set_cwd` moves the working directory and re-announces it at 25/50/75% context-window boundaries. Since pi never reloads project context on a cwd change, cpi parses `cd <dir>` targets out of shell commands (and `set_cwd`) and surfaces the newly-entered tree's `AGENTS.md`/`CLAUDE.md` — each file at most once per process.
 - **Resilient providers.** Configured providers register at startup; unusable ones are stripped (e.g. ambient cloud creds shadowing a real provider); on repeated errored turns the active model fails over to the next fitting fallback — race-free at `turn_end`.
@@ -82,7 +82,7 @@ npm publish
 
 The `files` field ships only `extensions/`, `skills/`, `cpi-config.default.json`, and `fallback-providers.example.json`. Core pi modules (`@earendil-works/*`, `typebox`) are `peerDependencies` and are **not** bundled — pi provides them at runtime.
 
-After installation, start `pi` normally: the custom `sh` tool replaces the builtin `bash`, `llm_editor` replaces `read`/`write`/`edit`, `alarm` is available for scheduled wake-ups, and configured providers register automatically.
+After installation, start `pi` normally: the custom `sh` tool replaces the builtin `bash`, the `read`/`write`/`edit` tools replace the built-in `read`/`write`/`edit`, `alarm` is available for scheduled wake-ups, and configured providers register automatically.
 
 ### Uninstall
 
@@ -106,13 +106,13 @@ To disable a specific extension without deleting the file, use `pi config` (inte
   "packages": [
     {
       "source": "/home/you/cpi",
-      "extensions": ["extensions", "!extensions/disable-read-write-edit.ts"]
+      "extensions": ["extensions", "!extensions/caveman-micro/index.ts"]
     }
   ]
 }
 ```
 
-The directory discovers all cpi extensions; the `!` pattern filters out `disable-read-write-edit.ts`. See the [pi settings docs](https://pi.dev/docs/latest/settings) for full glob/exclusion syntax.
+The directory discovers all cpi extensions; the `!` pattern filters out `extensions/caveman-micro/index.ts`. See the [pi settings docs](https://pi.dev/docs/latest/settings) for full glob/exclusion syntax.
 
 ## Configuration
 

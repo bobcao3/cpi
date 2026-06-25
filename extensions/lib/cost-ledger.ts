@@ -16,7 +16,7 @@
 * One feed path, via the cost-tree socket extension: each pi process listens on
 * a Unix socket (CPI_COST_SOCKET, re-pointed per process); children connect at
 * shutdown and send their subtree total, which the parent's listener adds here.
-* Catches every spawning path uniformly (llm-editor subagents, the `subagent`
+* Catches every spawning path uniformly (view/edit subagents, the `subagent`
 * wrapper, manual `pi --print`) — no command-string gating.
  *
  * State on globalThis (shared across jiti reloads; same pattern as footer).

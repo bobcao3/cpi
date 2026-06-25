@@ -15,5 +15,5 @@ bullets = [
   "`lsp start file=<path>` searches upwards for a project root and starts a session.",
   "After env-capture, you can restart lsp in that env by running `lsp start file=<path> env=<dotenv>`.",
   "`lsp list_sessions` lists active sessions; `lsp stop file=<path>` stops one.",
-  "llm-editor writes will auto-start an LSP session in the discovered project root. Without a running LSP session diagnostics (including `lsp check`) are not available.",
+  "write/edit writes will auto-start an LSP session in the discovered project root. Without a running LSP session diagnostics (including `lsp check`) are not available.",
 ]

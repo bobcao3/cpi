@@ -1,11 +1,12 @@
 /**
- * TUI rendering for the `llm_editor` tool — three stages under a persistent
- * `llm_editor {mode} : {file}` header (mirrors shell.ts w/ Ctrl+O expansion):
+ * TUI rendering for the `view` / `edit` / `create` tools — three stages under a
+ * persistent `{command} : {file}` header (mirrors shell.ts w/ Ctrl+O expansion):
  *   1. preparation (args streaming, not yet executing): instruction/query/
  *      file_text tail (3 lines).
  *   2. subagent running: live transcript tail (5 lines, gray) + ⏳ running.
  *   3. done: rendered result — edit uses pi's `renderDiff` (colored, max 16),
- *      view/tree/content in toolOutput, create/error as status.
+ *      view/tree/content in toolOutput, image via pi's image pipeline (or a
+ *      terminal-cap fallback), create/error as status.
  * Each body is followed by a gray "Ctrl+O to expand/collapse" hint. Once
  * executing, renderCall shows the header only (body owned by renderResult).
  *
@@ -17,7 +18,7 @@
  * loaded via `-e`), relayed through `onUpdate` partial results.
  */
 
-import { truncateToWidth } from "@earendil-works/pi-tui";
+import { truncateToWidth, getCapabilities, getImageDimensions, imageFallback } from "@earendil-works/pi-tui";
 import type { DiffOp } from "./diff.ts";
 
 const CALL_TAIL = 3;
@@ -44,12 +45,13 @@ function truncView(lines: string[]): TruncView {
   };
 }
 
-interface LlmEditorDetails {
+interface EditorDetails {
   id?: string;
-  kind?: "edit" | "view" | "create" | "tree" | "content" | "error";
+  kind?: "edit" | "view" | "create" | "tree" | "content" | "image" | "video" | "error";
   diff?: string;
   diffOps?: DiffOp[];
   text?: string;
+  note?: string;
   blocks?: number;
   rewrite?: boolean;
   bytes?: number;
@@ -60,10 +62,10 @@ function callBody(args: any): string {
   return args.instruction ?? args.query ?? args.file_text ?? "";
 }
 
-function headerLine(args: any, theme: any): string {
+function headerLine(command: string, args: any, theme: any): string {
   return (
-    theme.fg("toolTitle", theme.bold("llm_editor")) +
-    theme.fg("toolTitle", ` ${args.command} : ${args.path}`)
+    theme.fg("toolTitle", theme.bold(command)) +
+    theme.fg("toolTitle", ` : ${args.path}`)
   );
 }
 
@@ -100,8 +102,31 @@ function renderDiffOps(ops: DiffOp[], theme: any): string {
     .join("\n");
 }
 
-export function renderLlmEditorCall(args: any, theme: any, context: any): TruncView {
-  const head = headerLine(args, theme);
+/**
+ * Image result: the text note always; when the terminal can't (or the user
+ * chose not to) render inline images, append a per-image fallback marker.
+ * Mirrors read-media's renderMediaResult (now merged here). Returns lines.
+ */
+function renderImageLines(result: any, showImages: boolean): string[] {
+  const content = result?.content ?? [];
+  const textBlocks = content.filter((c: any) => c.type === "text");
+  const imageBlocks = content.filter((c: any) => c.type === "image");
+  let output = textBlocks.map((c: any) => c.text ?? "").join("\n");
+  const caps = getCapabilities();
+  if (imageBlocks.length > 0 && (!caps.images || !showImages)) {
+    const indicators = imageBlocks
+      .map((img: any) => {
+        const dims = img.data && img.mimeType ? (getImageDimensions(img.data, img.mimeType) ?? undefined) : undefined;
+        return imageFallback(img.mimeType ?? "image/unknown", dims);
+      })
+      .join("\n");
+    output = output ? `${output}\n${indicators}` : indicators;
+  }
+  return output ? output.split("\n") : [];
+}
+
+export function renderEditorCall(command: string, args: any, theme: any, context: any): TruncView {
+  const head = headerLine(command, args, theme);
   // Executing: body (transcript/diff) is owned by renderResult — header only.
   if (context.executionStarted) return truncView([head]);
   const body = callBody(args);
@@ -124,10 +149,11 @@ export function renderLlmEditorCall(args: any, theme: any, context: any): TruncV
   ]);
 }
 
-export function renderLlmEditorResult(
+export function renderEditorResult(
   result: any,
   opts: { expanded: boolean; isPartial: boolean },
   theme: any,
+  context?: any,
 ): TruncView {
   const { expanded } = opts;
   const content = result.content?.[0];
@@ -153,7 +179,7 @@ export function renderLlmEditorResult(
   }
 
   // Stage 3: done — rendered result (edit → renderDiff colored).
-  const d = (result.details ?? {}) as LlmEditorDetails;
+  const d = (result.details ?? {}) as EditorDetails;
   const isError = result.isError || d.kind === "error";
   let status = isError ? theme.fg("error", "✗") : theme.fg("success", "✓");
   if (!isError) {
@@ -172,8 +198,16 @@ export function renderLlmEditorResult(
   else if (d.kind === "edit") {
     body = renderDiffOps(d.diffOps ?? [], theme);
     colored = true;
-  } else if ((d.kind === "view" || d.kind === "tree" || d.kind === "content") && d.text != null) {
-    body = d.text.trimEnd();
+  } else if (d.kind === "image") {
+    const imgLines = renderImageLines(result, context?.showImages ?? false);
+    const lines = imgLines.map((l: string) => theme.fg("toolOutput", l));
+    if (lines.length === 0) return truncView([status]);
+    if (expanded) return truncView([...lines, status + " " + hint(theme, expanded)]);
+    const shown = lines.length <= RESULT_MAX ? lines : lines.slice(-RESULT_MAX);
+    const range = lines.length > RESULT_MAX ? gray(theme, ` · L${lines.length - RESULT_MAX + 1}-${lines.length}`) + " " : "";
+    return truncView([...shown, status + range + hint(theme, expanded)]);
+  } else if ((d.kind === "view" || d.kind === "tree" || d.kind === "content" || d.kind === "video") && (d.text ?? d.note) != null) {
+    body = (d.text ?? d.note ?? "").trimEnd();
   }
 
   const lines = body ? body.split("\n").filter((l: string) => l !== "") : [];

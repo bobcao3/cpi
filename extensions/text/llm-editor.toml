@@ -1,4 +1,4 @@
-# All textual content for the llm_editor tool and its tool-less subagents.
+# All textual content for the editor tool and its tool-less subagents.
 # Layered, last-wins (project > user > shipped default), matching cpi's config
 # convention:
 #   extensions/llm-editor/text.toml             (shipped defaults)
@@ -110,6 +110,7 @@ You MAY use ellipsis (`...`) on its own line inside a SEARCH block to elide unch
 - The number of `...` lines MUST match between SEARCH and REPLACE.
 - Each non-`...` chunk must appear EXACTLY ONCE in the file.
 - `...` means "leave this region unchanged"; it is not a wildcard — the surrounding chunks must still match the file exactly.
+- Uniqueness rule still applies.
 
 Example — edit the first and last lines of a long function, omitting the unchanged middle:
 <<<<<<< SEARCH
@@ -133,26 +134,39 @@ viewer = "Here is the file with numbered lines:\n\n{{content}}\n\nQuery: {{query
 editor = "Here is the current file content:\n```\n{{content}}\n```\n\nInstruction: {{instruction}}\n\nPlease provide the search-replace blocks needed to make these changes."
 editor_reconcile = "A concurrent edit changed the file on disk since your previous attempt, so those blocks were not applied. Here is the CURRENT file content:\n```\n{{content}}\n```\n\nInstruction: {{instruction}}\n\nRe-apply the instruction against this current content. Output ONLY the search-replace blocks."
 
-# ── Tool metadata shown to the main agent ──
-[tool]
-label = "LLM editor"
-description = "View, create, and edit files. view on a directory lists it; view on a file with a query returns only the relevant ranges (AI-filtered); create writes a new file; edit applies a natural-language instruction via a subagent that emits exact search-replace blocks. Prefer this over sh for reading and editing files."
-prompt_snippet = "View/create/edit files (AI-mediated)"
+# ── Tool metadata shown to the main agent (one tool per command) ──
+[tool.read]
+description = "Read files and directories. On a directory, lists a non-hidden 2-level tree. On a file with a query, a Viewer subagent returns only the relevant line ranges (AI-filtered) with line numbers; without a query, a numbered head read. Prefer this over sh for reading."
+prompt_snippet = "Read files/dirs (AI-filtered)"
 guidelines = [
-	"Use llm_editor for file reads and edits in preference to sh; use sh for git, build, test, search, and process control.",
-	"Set the `query` argument for llm_editor:view, describing what you are looking for; it returns only the relevant ranges with line numbers (AI-filtered), not the whole file, which saves context and reduces noise.",
-	"llm_editor edit takes a natural-language `instruction` naming the function/class/method to change; the subagent produces exact search-replace blocks. Be specific: 'In MyClass.my_method, change X to Y' beats 'fix the bug'.",
-	"If your edit instruction requires synthesizing novel logic the editor cannot derive deterministically from the file, do NOT use `edit`. Use `create` (you author file_text) or decompose into discrete deterministic edits.",
-	"llm_editor create fails if the path already exists; use llm_editor edit to modify existing files.",
+	"`read` is for file and directory reads; prefer it over sh for reading (use sh for git, build, test, search, process control).",
+	"`read`: pass `query` to receive only the relevant line ranges (AI-filtered, with line numbers) instead of the whole file — less context, less noise.",
+	"{{#vision}}`read` on an image file (jpg/png/gif/webp) shows the image to the agent, never cat/sed/base64 images.{{/vision}}",
 ]
 
-# ── Schema field descriptions (injected into the TypeBox tool schema) ──
+[tool.edit]
+description = "Edit an existing file via a natural-language instruction. An Editor subagent emits exact search-replace blocks which the tool applies atomically (unique, exact, with a fuzzy fallback) and writes. Race-free per-path: concurrent same-path edits serialize; a mid-edit drift re-runs once against the updated content."
+prompt_snippet = "Edit files via natural-language instruction"
+guidelines = [
+	"`edit` takes a natural-language `instruction` naming the function/class/method to change; the subagent emits exact search-replace blocks. Be specific: 'In MyClass.my_method, change X to Y' beats 'fix the bug'.",
+	"`edit`: if the instruction requires synthesizing novel logic the subagent cannot derive deterministically from the file, do not use `edit` — use `write` (you author file_text) or decompose into discrete deterministic edits.",
+	"`edit` cannot create a new file; use `write` for that.",
+]
+
+[tool.write]
+description = "Write a new file. Fails if the path already exists (use edit to modify an existing file). Creates parent directories as needed."
+prompt_snippet = "Write new files"
+guidelines = [
+	"`write` writes a new file from `file_text`; it fails if the path already exists — use `edit` to modify an existing file.",
+	"`write` is preferred over `sh` heredocs for new files; it is atomic and shares `edit`'s per-path locking.",
+]
+
+# ── Schema field descriptions (injected into the TypeBox tool schemas) ──
 [schema]
-command = "view | create | edit"
 path = "Absolute path to a file or directory."
-query = "view on a file: natural-language query for what to find; an LLM returns only the relevant line ranges with line numbers."
+query = "read: natural-language query for what to find; an LLM returns only the relevant line ranges with line numbers."
 instruction = "edit: natural-language change description; name the function/class/method to change."
-file_text = "create: full content of the new file."
+file_text = "write: full content of the new file."
 
 # ── Short result/inline message strings ──
 [messages]
@@ -173,15 +187,15 @@ restart_hint = "LSP auto-started for {{root}}. If the env is wrong, run 'lsp sta
 aborted = "Aborted before start."
 not_found = "Not found: {{path}}"
 not_a_file = "Not a file: {{path}}"
-file_too_large = "File is {{size}} bytes (limit {{limit}}); too large for llm_editor to load ({{path}}). Use sh to inspect regions (`rg` to locate, `sed -n 'M,Np'` to read a range); llm_editor cannot load this file."
+file_too_large = "File is {{size}} bytes (limit {{limit}}); too large for editor to load ({{path}}). Use sh to inspect regions (`rg` to locate, `sed -n 'M,Np'` to read a range); editor cannot load this file."
 cannot_read = "Cannot read {{path}}: {{reason}}"
 create_requires_text = "create requires file_text."
-file_exists = "File already exists: {{path}}. Use llm_editor edit to modify it."
+file_exists = "File already exists: {{path}}. Use editor edit to modify it."
 create_failed = "Create failed: {{reason}}"
 edit_requires_instruction = "edit requires an instruction."
-no_editor_model = "llm_editor: no editor model (no editor config and no main model)."
-invalid_chain_regex = '[llm-editor] chain rule {{i}}: invalid regex "{{pattern}}"; skipping.'
-configured_unavailable = '[llm-editor] configured editor.model "{{model}}" not available/authed; falling back to chain.'
+no_editor_model = "editor: no editor model (no editor config and no main model)."
+invalid_chain_regex = '[editor] chain rule {{i}}: invalid regex "{{pattern}}"; skipping.'
+configured_unavailable = '[editor] configured editor.model "{{model}}" not available/authed; falling back to chain.'
 viewer_timeout = "Viewer subagent timed out after {{ms}}ms. Consider fewer query statements & use concrete keywords."
 editor_timeout = "Editor subagent timed out after {{ms}}ms. Consider reducing scope & increase specificity"
 editor_cancelled = "Editor subagent cancelled the edit (edit-complete action=cancel)."
@@ -199,7 +213,7 @@ apply_overlap = "Block {{i}} overlaps block {{j}}. Merge or separate them."
 
 # ── Transcript (persisted subagent log) labels ──
 [transcript]
-title = "# llm_editor {{role}} subagent"
+title = "# editor {{role}} subagent"
 section_system = "## System Prompt"
 section_user = "## User"
 section_assistant = "## Assistant"
@@ -208,6 +222,6 @@ section_stderr = "## stderr"
 # ── Injected into the main system prompt by the cpi system-prompt transform (idempotent; wrapped in markers by index.ts) ──
 [system_prompt]
 transcript_block = '''
-Each llm_editor result includes an `<id>` = short-sha of its args (command, path, query/instruction/file_text).
-For `view` with a query and `edit`, the subagent transcript is persisted at {{dir}}/<id>.md.
+Each read/write/edit result includes an `<id>` = short-sha of its args (path, plus query/instruction/file_text as applicable).
+For `read` with a query and `edit`, the subagent transcript is persisted at {{dir}}/<id>.md.
 '''
