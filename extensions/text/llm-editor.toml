@@ -132,7 +132,6 @@ Additionally, matching tolerates a UNIFORM leading-whitespace offset between SEA
 [tasks]
 viewer = "Here is the file with numbered lines:\n\n{{content}}\n\nQuery: {{query}}"
 editor = "Here is the current file content:\n```\n{{content}}\n```\n\nInstruction: {{instruction}}\n\nPlease provide the search-replace blocks needed to make these changes."
-editor_reconcile = "A concurrent edit changed the file on disk since your previous attempt, so those blocks were not applied. Here is the CURRENT file content:\n```\n{{content}}\n```\n\nInstruction: {{instruction}}\n\nRe-apply the instruction against this current content. Output ONLY the search-replace blocks."
 
 # ── Tool metadata shown to the main agent (one tool per command) ──
 [tool.read]
@@ -145,7 +144,7 @@ guidelines = [
 ]
 
 [tool.edit]
-description = "Edit an existing file via a natural-language instruction. An Editor subagent emits exact search-replace blocks which the tool applies atomically (unique, exact, with a fuzzy fallback) and writes. Race-free per-path: concurrent same-path edits serialize; a mid-edit drift re-runs once against the updated content."
+description = "Edit an existing file via a natural-language instruction. An Editor subagent emits exact search-replace blocks which the tool applies atomically (unique, exact, with a fuzzy fallback) and writes. Race-free per-path: concurrent same-path edits serialize."
 prompt_snippet = "Edit files via natural-language instruction"
 guidelines = [
 	"`edit` takes a natural-language `instruction` naming the function/class/method to change; the subagent emits exact search-replace blocks. Be specific: 'In MyClass.my_method, change X to Y' beats 'fix the bug'.",
@@ -202,7 +201,6 @@ editor_cancelled = "Editor subagent cancelled the edit (edit-complete action=can
 editor_truncated = "Editor subagent did not signal completion (edit-complete not called — output was truncated/incomplete). Re-run the edit."
 viewer_bad_output = "Viewer did not return a JSON line-range array.\nOutput: {{tail}}"
 write_failed = "Write failed: {{reason}}"
-file_drifted = "File changed on disk mid-edit (concurrent edit); not patched even after one automatic reconcile. Re-read {{path}} and apply the change again."
 spawn_not_found = "pi binary not found on PATH: {{reason}}"
 apply_no_blocks = "No search-replace blocks found in editor output."
 apply_not_found = "Block {{i}}: SEARCH text not found in file. It must match exactly (whitespace/indentation)."
@@ -222,6 +220,6 @@ section_stderr = "## stderr"
 # ── Injected into the main system prompt by the cpi system-prompt transform (idempotent; wrapped in markers by index.ts) ──
 [system_prompt]
 transcript_block = '''
-Each read/write/edit result includes an `<id>` = short-sha of its args (path, plus query/instruction/file_text as applicable).
+Each read/write/edit result includes an `<id>` = short-sha of its args (command, path, plus query/instruction/file_text as applicable).
 For `read` with a query and `edit`, the subagent transcript is persisted at {{dir}}/<id>.md.
 '''

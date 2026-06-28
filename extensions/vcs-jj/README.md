@@ -25,7 +25,7 @@ The label is refreshed every 2s (jj mutations emit no pi event) via
 
 vcs-jj does **not** own the footer. It registers a branch resolver with the
 shared cpi footer module (`extensions/lib/footer.ts`), which a single cpi
-extension (`extensions/footer/`) owns. The shared footer renders line 1 itself
+extension (`extensions/core.ts`) owns. The shared footer renders line 1 itself
 (composing branch + segments) and splices lines 2/3 from the built-in
 `FooterComponent`, so:
 

@@ -41,7 +41,7 @@ export interface ShellConfig {
    * 500). Independent of the TUI's folded preview (tailLines).
    */
   maxPreviewLines: number;
-  /** Maximum bytes of agent-facing output kept by the tail preview (default: 10240). */
+  /** Maximum bytes of agent-facing output kept by the tail preview (default: 32768). */
   previewMaxBytes: number;
   /** Max bytes accumulated in memory per shell before trimming (default: 4194304). */
   maxAcc: number;

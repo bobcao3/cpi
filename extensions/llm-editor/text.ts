@@ -25,7 +25,7 @@ export interface ToolMeta {
 
 export interface EditorText {
   system: { viewer: string; editor: string; editor_fuzzy: string };
-  tasks: { viewer: string; editor: string; editor_reconcile: string };
+  tasks: { viewer: string; editor: string };
   tool: { read: ToolMeta; write: ToolMeta; edit: ToolMeta };
   schema: { path: string; query: string; instruction: string; file_text: string };
   messages: {
