@@ -35,7 +35,7 @@ import { resolveEditorModel } from "./model-select.ts";
 import { loadEditorText, fmt } from "./text.ts";
 import { viewFile } from "./viewer.ts";
 import { editFile } from "./editor.ts";
-import { withPathLock } from "./cas.ts";
+import { withPathLock } from "./lock.ts";
 import { shortSha } from "./id.ts";
 import { resultXml, field } from "./result-xml.ts";
 import { lspFields } from "./lsp.ts";

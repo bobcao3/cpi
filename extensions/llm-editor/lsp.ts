@@ -6,7 +6,7 @@
  * provision) in the result XML so the model sees the project's diagnostics
  * inline. Always non-blocking: provisioning failure or any error degrades to
  * "" — the edit already succeeded, LSP is advisory. `view` is excluded (no
- * write → no caller). Invoked under the writer's per-path lock (cas.ts) so
+ * write → no caller). Invoked under the writer's per-path lock (lock.ts) so
  * `checkFile` reads the just-written content with no concurrent-write race.
  *
  * Pure leaf: lib/lsp/* + result-xml + text only (no pi/tui imports).

@@ -12,7 +12,7 @@ Runs [TerminalBench 3.0](https://github.com/harbor-framework/terminal-bench-3) u
 
 ```bash
 cd benchmarks
-uv run run_terminal_bench_3.py \
+uv run terminal_bench_3/run_terminal_bench_3.py \
   --endpoint http://localhost:30000/v1 \
   --api-key sk-dummy \
   --model Qwen/Qwen3-8B \
@@ -45,7 +45,7 @@ Results are written to `./jobs/<job-name>/`.
 ## Example: single-task smoke test
 
 ```bash
-uv run run_terminal_bench_3.py \
+uv run terminal_bench_3/run_terminal_bench_3.py \
   --endpoint http://localhost:30000/v1 \
   --api-key sk-dummy \
   --model Qwen/Qwen3-8B \
@@ -58,13 +58,13 @@ The main `uv run` process buffers output. For live, readable progress use the mo
 
 ```bash
 # Show last 10 steps from the most recent job
-python3 monitor_tb3.py -n 10
+python3 terminal_bench_3/monitor_tb3.py -n 10
 
 # Watch continuously, updating every 10 seconds
-python3 monitor_tb3.py -n 5 --watch
+python3 terminal_bench_3/monitor_tb3.py -n 5 --watch
 
 # Watch a specific job
-python3 monitor_tb3.py --job tb3-moonshotai-Kimi-K2.7-Code-20260618-010447 -n 10 --watch
+python3 terminal_bench_3/monitor_tb3.py --job tb3-moonshotai-Kimi-K2.7-Code-20260618-010447 -n 10 --watch
 ```
 
 Other useful logs:
