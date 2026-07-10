@@ -63,7 +63,7 @@ export function renderRanges(lines: string[], ranges: number[][], linesOmitted: 
     const end = Math.min(lines.length, e);
     if (end < start) continue;
     if (lastEnd && start > lastEnd + 1) out.push(fmt(linesOmitted, { n: start - lastEnd - 1 }));
-    for (let i = start - 1; i < end; i++) out.push(`${i + 1}\t${lines[i]}`);
+    for (let i = start - 1; i < end; i++) out.push(`${i + 1}|${lines[i]}`);
     lastEnd = end;
   }
   return out.join("\n");

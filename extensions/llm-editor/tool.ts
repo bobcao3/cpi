@@ -157,13 +157,13 @@ async function listTree(root: string, cwd: string): Promise<string> {
   return lines.length ? lines.join("\n") : T.messages.empty_dir;
 }
 
-/** Plain numbered head read — cheap fallback when no Viewer query is given. */
+/** Plain full-file head read (no line numbers) — cheap fallback when no Viewer query is given. */
 async function headRead(abs: string, cwd: string, max = 200): Promise<string> {
   const T = loadEditorText(cwd);
   const content = await readFile(abs, "utf-8");
   const all = content.split("\n");
   const lines = all.slice(0, max);
-  const body = lines.map((l, i) => `${i + 1}\t${l}`).join("\n");
+  const body = lines.join("\n");
   return all.length > max ? `${body}\n${fmt(T.messages.head_more, { n: all.length - max })}` : body;
 }
 

@@ -117,7 +117,7 @@ editor = "Here is the current file content:\n```\n{{content}}\n```\n\nInstructio
 
 # ── Tool metadata shown to the main agent (one tool per command) ──
 [tool.read]
-description = "Read files and directories. On a directory, lists a non-hidden 2-level tree. On a file with a query, a Viewer subagent returns only the relevant line ranges (AI-filtered) with line numbers; without a query, a numbered head read. Prefer this over sh for reading."
+description = "Read files and directories. On a directory, lists a non-hidden 2-level tree. On a file with a query, a Viewer subagent returns only the relevant line ranges (AI-filtered) with line numbers; without a query, a plain full-file read (no line numbers). Prefer this over sh for reading."
 prompt_snippet = "Read files/dirs (AI-filtered)"
 guidelines = [
 	"`read` is for file and directory reads; prefer it over sh for reading (use sh for git, build, test, search, process control).",
