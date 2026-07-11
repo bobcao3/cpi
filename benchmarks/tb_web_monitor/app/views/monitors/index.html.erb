@@ -2,10 +2,7 @@
   <h1>TB2.1 Monitor</h1>
   <span id="wsdot" class="dead" title="ws" data-monitor-target="wsdot"></span>
   <select id="jobSel" data-monitor-target="jobSel" data-action="change->monitor#changeJob">
-    <option value="">—</option>
-    <% @jobs.each do |j| %>
-      <option value="<%= j.name %>"<%= " selected" if j.name == @job %>><%= j.name %></option>
-    <% end %>
+    <%= render "job_options", jobs: @jobs, selected: @job %>
   </select>
   <span class="stats" id="stats"><%= render "stats", trials: @trials %></span>
 </header>

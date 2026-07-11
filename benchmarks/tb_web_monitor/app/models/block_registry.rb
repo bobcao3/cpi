@@ -164,16 +164,23 @@ module BlockRegistry
   end
 
   # Verifier verdict (final block for completed trials): title header carries
-  # reward + pass/fail; stdout (if any) is an open section.
+  # reward + pass/fail (or 'running' while the verifier streams, before reward exists);
+  # stdout (if any) is an open section.
   module Verifier
     module_function
     def sections(block)
       v = block.event
-      pass = !v.reward.nil? && v.reward.to_f.positive?
       h = ERB::Util
       t = +%(<span class="kind">verifier</span>)
-      t << %(<span class="reward">#{h.html_escape(v.reward.to_s)}</span>) unless v.reward.nil?
-      t << %(<span class="status #{pass ? 'pass' : 'fail'}">#{pass ? 'pass' : 'fail'}</span>)
+      if v.reward.nil?
+        # Verifier still running (stdout streaming, no reward yet): show
+        # "running", not a premature "fail". pass/fail only once reward exists.
+        t << %(<span class="status running">running</span>)
+      else
+        pass = v.reward.to_f.positive?
+        t << %(<span class="reward">#{h.html_escape(v.reward.to_s)}</span>)
+        t << %(<span class="status #{pass ? 'pass' : 'fail'}">#{pass ? 'pass' : 'fail'}</span>)
+      end
       secs = [TranscriptBlock::Section.new(name: :title, title: t.html_safe, open: true, blocks: [])]
       secs << TranscriptBlock::Section.new(name: :stdout, title: "stdout", open: true,
                                            blocks: [v.stdout]) unless v.stdout.nil?

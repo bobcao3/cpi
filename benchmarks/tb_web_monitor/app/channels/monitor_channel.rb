@@ -6,6 +6,7 @@
 # Streams:
 #   monitor:{job}           -> trials / stats / log   (job-wide, update/append)
 #   monitor:{job}:{trial}   -> transcript             (trial-specific, append)
+#   monitor:runs             -> job selector          (global, update) — new runs appear live
 #
 # The page is server-rendered with a snapshot; on subscribe the offsets and
 # signatures are seeded to the current end-of-file so only DELTAS are pushed.
@@ -32,8 +33,10 @@ class MonitorChannel < ApplicationCable::Channel
 
     stream_from "monitor:#{@job}"
     stream_from "monitor:#{@job}:#{@trial}" if @trial
+    stream_from "monitor:runs"
 
     @t_sig = trials_sig
+    @runs_sig = runs_sig
     @t_off = @trial ? Transcript.size(@job, @trial) : 0
 
     @tool_args = {}
@@ -54,6 +57,7 @@ class MonitorChannel < ApplicationCable::Channel
     end
 
     @v_sig = verifier_sig
+    @verdict_appended = !@v_sig.nil?
   end
 
   # Public so the periodically timer (instance_exec'd block) can call it.
@@ -61,7 +65,10 @@ class MonitorChannel < ApplicationCable::Channel
     @ticks = (@ticks || 0) + 1
     push_transcript
     push_verdict
-    push_stats if @ticks % SORT_EVERY == 0
+    if @ticks % SORT_EVERY == 0
+      push_stats
+      push_runs
+    end
   end
 
   private
@@ -78,6 +85,20 @@ class MonitorChannel < ApplicationCable::Channel
     Turbo::StreamsChannel.broadcast_update_to("monitor:#{@job}", target: "tbody",
                                                partial: "monitors/trial_rows",
                                                locals: { trials: trials, selected: @trial })
+  end
+
+  # Re-broadcast the job selector on the global monitor:runs stream whenever a
+  # new run directory appears, so every connected client sees new runs live
+  # without needing a page refresh.
+  def push_runs
+    jobs = JobsDir.list_jobs
+    sig = jobs.map(&:name).to_json
+    return if sig == @runs_sig
+
+    @runs_sig = sig
+    Turbo::StreamsChannel.broadcast_update_to("monitor:runs", target: "jobSel",
+                                               partial: "monitors/job_options",
+                                               locals: { jobs: jobs, selected: @job })
   end
 
   def push_transcript
@@ -121,6 +142,12 @@ class MonitorChannel < ApplicationCable::Channel
     end
   end
 
+  # Push the verifier verdict block. While the verifier STREAMS (stdout grows,
+  # reward not yet written) the block content changes every tick: REPLACE it in
+  # place so the pane follows the output without a remove/re-add flicker. Only
+  # when a transcript event arrived this tick (a block was appended after the
+  # verdict) do we remove + re-append to keep the verdict last. First appearance
+  # always appends (replace of an absent target is a no-op).
   def push_verdict
     return unless @trial
 
@@ -131,9 +158,20 @@ class MonitorChannel < ApplicationCable::Channel
     return if sig.nil?
 
     blk = TranscriptBlock.verifier_block(Verifier.for(@job, @trial))
-    Turbo::StreamsChannel.broadcast_remove_to("monitor:#{@job}:#{@trial}", target: blk.id)
-    Turbo::StreamsChannel.broadcast_append_to("monitor:#{@job}:#{@trial}", target: "p-transcript",
-      partial: "monitors/block", locals: { block: blk })
+    stream = "monitor:#{@job}:#{@trial}"
+    if @transcript_broadcast
+      Turbo::StreamsChannel.broadcast_remove_to(stream, target: blk.id)
+      Turbo::StreamsChannel.broadcast_append_to(stream, target: "p-transcript",
+        partial: "monitors/block", locals: { block: blk })
+      @verdict_appended = true
+    elsif !@verdict_appended
+      Turbo::StreamsChannel.broadcast_append_to(stream, target: "p-transcript",
+        partial: "monitors/block", locals: { block: blk })
+      @verdict_appended = true
+    else
+      Turbo::StreamsChannel.broadcast_replace_to(stream, target: blk.id,
+        partial: "monitors/block", locals: { block: blk })
+    end
   end
 
   # Broadcast a Block: replace an existing tool block in place (update/end), or
@@ -153,7 +191,12 @@ class MonitorChannel < ApplicationCable::Channel
     TrialSummary.list(@job).to_json
   end
 
+  def runs_sig
+    JobsDir.list_jobs.map(&:name).to_json
+  end
+
   def verifier_sig
+    return nil unless @trial
     v = Verifier.for(@job, @trial)
     return nil if v.reward.nil? && v.stdout.nil?
 

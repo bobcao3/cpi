@@ -39,6 +39,17 @@ class MonitorChannelTest < ActionCable::Channel::TestCase
     assert_has_stream "monitor:fakejob:faketrial"
   end
 
+  # The default / and /jobs/:job views subscribe with NO trial. verifier_sig
+  # must guard the nil trial; without the guard Verifier.for(job, nil) raised
+  # TypeError (File.join with nil), aborting the whole subscription and
+  # silently breaking ALL live updates on those views.
+  test "subscribes and confirms with no trial selected" do
+    subscribe job: "fakejob"
+    assert subscription.confirmed?
+    assert_has_stream "monitor:fakejob"
+    assert_has_stream "monitor:runs"
+  end
+
   test "tick broadcasts stats on trial summary change" do
     subscribe job: "fakejob", trial: "faketrial"
     tdir = File.join(@tmp, "fakejob", "some-task__t1")
@@ -280,5 +291,74 @@ class MonitorChannelTest < ActionCable::Channel::TestCase
     assert msg_idx, "new message broadcast after verdict"
     assert verdict_idx, "verdict re-broadcast after new message"
     assert_operator verdict_idx, :>, msg_idx, "verdict stays after new transcript events"
+  end
+
+  # While the verifier is still running (test-stdout.txt streaming, no reward
+  # yet), the verdict block must show "running" — not a premature "fail". Only
+  # once reward.txt exists does it show pass/fail. verifier_sig is non-nil as
+  # soon as stdout exists, so the block renders during streaming.
+  test "verifier shows running while streaming, pass/fail only with reward" do
+    subscribe job: "fakejob", trial: "faketrial"
+    verifier_dir = File.join(@tmp, "fakejob", "faketrial", "verifier")
+    FileUtils.mkdir_p(verifier_dir)
+    File.write(File.join(verifier_dir, "test-stdout.txt"), "running tests...\n")
+    perform :tick
+    streaming = trial_broadcasts.select { |m| m.to_s.include?("blk verifier") }.last.to_s
+    assert streaming, "verdict broadcast while streaming"
+    assert streaming.include?('"status running"'), "streaming verifier shows running"
+    refute streaming.include?('"status fail"'), "streaming verifier does not show fail"
+    refute streaming.include?('"status pass"'), "streaming verifier does not show pass"
+    refute streaming.include?("reward"), "no reward shown before reward exists"
+
+    File.write(File.join(verifier_dir, "reward.txt"), "0.0\n")
+    perform :tick
+    finalized = trial_broadcasts.select { |m| m.to_s.include?("blk verifier") }.last.to_s
+    assert finalized.include?('"status fail"'), "reward 0.0 -> fail"
+    assert finalized.include?("0.0"), "reward shown once present"
+  end
+
+  # While the verifier streams (stdout grows, no reward), push_verdict must
+  # REPLACE the verdict block in place — not remove + re-append — so the pane
+  # follows the output without a whole-window flicker. remove+append is only
+  # for keeping the verdict last after a transcript event; first appearance
+  # appends (replace of an absent target is a no-op).
+  test "verifier streaming replaces in place without remove/append flicker" do
+    subscribe job: "fakejob", trial: "faketrial"
+    verifier_dir = File.join(@tmp, "fakejob", "faketrial", "verifier")
+    FileUtils.mkdir_p(verifier_dir)
+    File.write(File.join(verifier_dir, "test-stdout.txt"), "line1\n")
+    perform :tick # first appearance -> append
+    first = trial_broadcasts.select { |m| m.to_s.include?("blk verifier") }.last.to_s
+    assert first.match?(/action="append"/), "first verdict appearance appends"
+
+    File.write(File.join(verifier_dir, "test-stdout.txt"), "line1\nline2\n")
+    perform :tick # stdout grew, no transcript event -> replace in place
+    second = trial_broadcasts.select { |m| m.to_s.include?("blk verifier") }.last.to_s
+    assert second.match?(/action="replace"/), "streaming verdict is replaced in place"
+    assert second.include?('target="verdict"'), "replace targets the verdict id"
+    refute second.include?("remove"), "no remove while streaming (no flicker)"
+    refute second.include?("append"), "no re-append while streaming (no flicker)"
+  end
+
+  # The job selector (#jobSel) is server-rendered once and otherwise only
+  # re-rendered on a full Turbo visit. push_runs must re-broadcast it on the
+  # global monitor:runs stream when a new run dir appears, so every connected
+  # client — whichever job it is viewing — sees new runs without a refresh.
+  test "tick broadcasts the runs list on the global stream when a new run appears" do
+    subscribe job: "fakejob", trial: "faketrial"
+    assert_has_stream "monitor:runs"
+
+    FileUtils.mkdir_p(File.join(@tmp, "newerjob"))
+    10.times { perform :tick } # push_runs runs every SORT_EVERY (10th) tick
+
+    msgs = broadcasts("monitor:runs")
+    assert_operator msgs.size, :>=, 1, "expected a runs-list broadcast"
+    body = JSON.parse(msgs.first.to_s)
+    assert_match(/turbo-stream/, body)
+    assert_match(/action="update"/, body)
+    assert body.include?('target="jobSel"'), "update targets the job selector"
+    assert body.include?("newerjob"), "new run appears in the selector"
+    assert body.include?('value="fakejob" selected'), "currently selected job stays selected"
+    refute body.include?('value="newerjob" selected'), "the new run is not auto-selected"
   end
 end
