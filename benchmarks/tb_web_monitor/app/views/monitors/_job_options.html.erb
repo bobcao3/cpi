@@ -1,0 +1,4 @@
+<option value="">—</option>
+<% jobs.each do |j| %>
+  <option value="<%= j.name %>"<%= " selected" if j.name == selected %>><%= j.name %></option>
+<% end %>

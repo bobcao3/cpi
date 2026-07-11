@@ -16,6 +16,11 @@ module JobsDir
     read_json(File.join(root, job, "result.json"))
   end
 
+  # Per-trial result.json, shared by TrialSummary and the running-check.
+  def trial_result(job, trial)
+    File.join(root, job, trial, "result.json")
+  end
+
   def transcript_path(job, trial)
     File.join(root, job, trial, "agent", "pi.txt")
   end

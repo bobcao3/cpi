@@ -23,22 +23,15 @@ module TrialSummary
   end
 
   def summarize(job, name)
-    r = JobsDir.read_json(File.join(JobsDir.root, job, name, "result.json"))
+    r = JobsDir.read_json(JobsDir.trial_result(job, name))
     reward = r&.dig("verifier_result", "rewards", "reward")
 
-    status =
-      if !reward.nil? then "completed"
-      elsif r&.[]("exception_info") then "errored"
-      elsif r&.[]("finished_at") then "completed"
-      else "running"
-      end
-
-    mtime = File.mtime(File.join(JobsDir.root, job, name, "agent", "pi.txt")) rescue nil
+    mtime = File.mtime(JobsDir.transcript_path(job, name)) rescue nil
 
     Trial.new(
       name,
       (r&.[]("task_name") || name).to_s.sub(/^terminal-bench\//, ""),
-      status,
+      status_for(reward, r),
       reward,
       r&.dig("agent_result", "n_input_tokens"),
       r&.dig("agent_result", "n_output_tokens"),
@@ -51,14 +44,25 @@ module TrialSummary
     )
   end
 
-  # Cheapest single-trial running check (no mtime/failover scan): mirrors the
-  # status branch of #summarize. Used by frame visits that skip TrialSummary.list
-  # (the trials panel is not re-rendered, so only the selected trial matters).
+  # Cheapest single-trial running check (no mtime/failover scan): delegates to
+  # #status_for so it can't drift from #summarize. Used by frame visits that skip
+  # TrialSummary.list (the trials panel is not re-rendered, so only the selected
+  # trial matters).
   def running?(job, trial)
-    r = JobsDir.read_json(File.join(JobsDir.root, job, trial, "result.json"))
-    r&.dig("verifier_result", "rewards", "reward").nil? &&
-      !r&.[]("exception_info") &&
-      !r&.[]("finished_at")
+    r = JobsDir.read_json(JobsDir.trial_result(job, trial))
+    status_for(r&.dig("verifier_result", "rewards", "reward"), r) == "running"
+  end
+
+  # Single source of truth for a trial's status from its result.json. Order
+  # matters: a reward (incl. 0.0, a genuine fail) -> completed; an exception
+  # -> errored; otherwise finished_at -> completed, else running. Both
+  # #summarize (full Trial struct) and #running? (cheap bool) go through here
+  # so the precedence cannot drift between the two call paths.
+  def status_for(reward, r)
+    return "completed" if !reward.nil?
+    return "errored"    if r&.[]("exception_info")
+    return "completed" if r&.[]("finished_at")
+    "running"
   end
 
   def duration_s(r)
@@ -84,7 +88,7 @@ module TrialSummary
     finished = !r&.[]("finished_at").nil?
     return @failover_cache[key] if finished && @failover_cache.key?(key)
 
-    f = detect_failover(File.join(JobsDir.root, job, name, "agent", "pi.txt"))
+    f = detect_failover(JobsDir.transcript_path(job, name))
     @failover_cache[key] = f if finished
     f
   end
