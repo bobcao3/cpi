@@ -31,7 +31,14 @@ export interface EditorText {
   completion: {
     view_complete: ToolMeta;
     edit_complete: ToolMeta;
-    schema: { ranges: string; range_start: string; range_end: string; edits: string; oldText: string; newText: string; cancel: string };
+    schema: {
+      ranges: string;
+      range_start: string;
+      range_end: string;
+      diffs: string;
+      diff: string;
+      cancel: string;
+    };
   };
   messages: {
     view_no_ranges: string;

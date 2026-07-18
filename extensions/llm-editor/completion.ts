@@ -12,11 +12,10 @@
  * returns terminate:true. The tool call IS the completion signal — a missing
  * completion file means the subagent never called its tool => truncation.
  *
- * edit-complete mirrors pi's default multi-search-replace `edit` tool
- * (edits[].oldText/newText; unique, non-overlapping, small-and-unique oldText)
- * plus an optional cancel:bool. The subagent's tool does not write files; the
- * parent applies the edits with cpi's own atomic apply engine. All model-facing
- * text lives in extensions/text/llm-editor.toml ([completion.*]).
+ * edit-complete accepts diffs:string[] of unified-diff hunks plus an optional
+ * cancel:bool. The subagent's tool does not write files; the parent applies the
+ * diffs with cpi's in-house atomic apply engine. All model-facing text lives in
+ * extensions/text/llm-editor.toml ([completion.*]).
  *
  * Pure leaf: typebox + node:fs + ./text.ts (the shared TOML loader).
  */
@@ -25,6 +24,7 @@ import { writeFileSync } from "node:fs";
 import { Type, type Static } from "typebox";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { loadEditorText } from "./text.ts";
+import { MAX_DIFF_BLOCKS, MAX_DIFF_BLOCK_BYTES } from "./udiff.ts";
 
 const COMPLETION_PATH = process.env.PI_SUBAGENT_COMPLETION;
 
@@ -39,7 +39,7 @@ function writeCompletion(tool: string, args: unknown): void {
   }
 }
 
-/** Coerce a JSON-string field into an array (Opus/GLM emit edits/ranges as a
+/** Coerce a JSON-string field into an array (Opus/GLM emit diffs/ranges as a
  *  JSON string). Runs in prepareArguments, BEFORE schema validation — mirroring
  *  pi's edit-tool prepareArguments. Mutates in place; leaves non-JSON strings so
  *  validation reports the real shape. */
@@ -91,15 +91,15 @@ export default function (pi: ExtensionAPI): void {
 
   if (!role || role === "editor") {
     const parameters = Type.Object({
-      edits: Type.Array(
-        Type.Object(
+      diffs: Type.Optional(
+        Type.Array(
+          Type.String({ description: T.completion.schema.diff, maxLength: MAX_DIFF_BLOCK_BYTES }),
           {
-            oldText: Type.String({ description: T.completion.schema.oldText }),
-            newText: Type.String({ description: T.completion.schema.newText }),
+            description: T.completion.schema.diffs,
+            minItems: 1,
+            maxItems: MAX_DIFF_BLOCKS,
           },
-          { additionalProperties: false },
         ),
-        { description: T.completion.schema.edits },
       ),
       cancel: Type.Optional(Type.Boolean({ description: T.completion.schema.cancel })),
     });
@@ -111,7 +111,7 @@ export default function (pi: ExtensionAPI): void {
       description: T.completion.edit_complete.description,
       parameters,
       prepareArguments(input: unknown): Static<typeof parameters> {
-        if (input && typeof input === "object") coerceArrayField(input as Record<string, unknown>, "edits");
+        if (input && typeof input === "object") coerceArrayField(input as Record<string, unknown>, "diffs");
         return input as Static<typeof parameters>;
       },
       async execute(_id: string, params: Static<typeof parameters>) {
@@ -124,4 +124,5 @@ export default function (pi: ExtensionAPI): void {
       },
     });
   }
+
 }

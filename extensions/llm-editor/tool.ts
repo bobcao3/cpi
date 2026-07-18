@@ -6,9 +6,9 @@
  *   read    directory → deterministic 2-level listing (no subagent)
  *           image file → inline image attachment (vision models only)
  *           file      → Viewer subagent returns relevant line ranges
- *           file (no query) → plain numbered head read (no subagent)
+ *           file (no query) → plain head read (no subagent)
  *   write   → write a new file (fails if it exists); no subagent
- *   edit    → Editor subagent emits SEARCH/REPLACE blocks; tool applies + writes
+ *   edit    → Editor subagent emits unified-diff hunks; tool applies + writes
  *
  * Image reading (formerly the standalone read-media extension) is merged into
  * `read`: when the selected model supports vision and the target is a supported
@@ -314,9 +314,9 @@ async function executeEdit(
     fuzzyMatch: cfg.fuzzyMatch,
     thinkingLevel: pick.thinkingLevel,
   });
-  if (!r.ok) return errorResult(id, "edit", abs, r.error);
+  if (r.ok === false) return errorResult(id, "edit", abs, r.error);
   const body = [
-    field("blocks", String(r.applied)),
+    field("hunks", String(r.applied)),
     field("rewrite", String(r.wholeFileRewrite)),
     field("match", r.match),
     field("diff", r.diff),
@@ -328,7 +328,7 @@ async function executeEdit(
     id,
     kind: "edit",
     diff: r.diff,
-    blocks: r.applied,
+    hunks: r.applied,
     rewrite: r.wholeFileRewrite,
     match: r.match,
     patch: r.patch,
