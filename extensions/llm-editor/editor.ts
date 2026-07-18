@@ -1,11 +1,11 @@
 /**
  * `edit`: delegate to the Editor subagent, then apply + write atomically.
  *
- * Reads the file, sends raw content + a natural-language instruction to the
- * tool-less Editor subagent (which emits SEARCH/REPLACE blocks), parses +
- * applies them (atomic, unique, exact) and writes the result. Mirrors SWE-Edit's
+ * Reads the file, sends numbered content + a natural-language instruction to the
+ * tool-less Editor subagent, parses its unified-diff hunks, resolves all hunks
+ * against one immutable snapshot, and writes the result atomically. Mirrors SWE-Edit's
  * Editor (§3.1): decouples the main agent's reasoning from format-sensitive
- * find-replace generation.
+ * unified-hunk generation.
  *
  * Race-free per-path: the whole edit runs under a per-path lock (lock.ts) so
  * parallel same-path edits serialize instead of clobbering — a later edit
@@ -13,7 +13,7 @@
  * same-path edits never overlap, so no compare-and-swap is needed; cross-process
  * drift (a concurrent `sh`/external edit during the subagent run) is out of
  * scope for a cross-platform extension. Atomicity is tmp-file + rename, so the
- * file is never left half-written; any block failure writes nothing. All prose
+ * file is never left half-written; any hunk failure writes nothing. All prose
  * lives in text.toml.
  */
 
@@ -22,7 +22,9 @@ import { resolve, dirname, join } from "node:path";
 import { generateDiffString, generateUnifiedPatch } from "@earendil-works/pi-coding-agent";
 import { runSubagent } from "./subagent.ts";
 import { loadEditorText, fmt, type EditorText } from "./text.ts";
-import { applyBlocks, type ApplyError, type ApplyResult, type ReplaceBlock } from "./apply.ts";
+import { parseUdiffs, type UdiffParseError } from "./udiff.ts";
+import { applyUdiffs, type UdiffApplyError, type UdiffApplyResult } from "./udiff-apply.ts";
+import { numberLines } from "./lines.ts";
 import { editDiffOps, type DiffOp } from "./diff.ts";
 import { withPathLock } from "./lock.ts";
 import { lspFields } from "./lsp.ts";
@@ -38,7 +40,7 @@ export interface EditFileOptions {
   transcriptDir: string;
   maxTranscripts: number;
   maxFileBytes: number;
-  /** Toggles Aider-style fuzzy fallback for block matching (default on). */
+  /** Toggles whitespace/elision fallback for hunk matching (default on). */
   fuzzyMatch?: boolean;
   onStream?: (accumulated: string) => void;
   /** Optional thinking level for the Editor subagent. */
@@ -60,37 +62,35 @@ export type EditFileResult =
     }
   | { ok: false; error: string };
 
-function formatApplyError(T: EditorText, e: ApplyError): string {
+function formatParseError(T: EditorText, e: UdiffParseError): string {
+  const values = { i: e.block ?? 0, line: e.line ?? 0 };
   switch (e.code) {
-    case "no_blocks":
-      return T.errors.apply_no_blocks;
-    case "empty_with_others":
-      return T.errors.apply_empty_with_others;
+    case "no_diffs": return T.errors.apply_no_diffs;
+    case "too_many": return fmt(T.errors.apply_too_many, values);
+    case "too_large": return fmt(T.errors.apply_too_large, values);
+    case "bad_block": return fmt(T.errors.apply_bad_block, values);
+    case "bad_header": return fmt(T.errors.apply_bad_header, values);
+    case "multiple_hunks": return fmt(T.errors.apply_multiple_hunks, values);
+    case "bad_prefix": return fmt(T.errors.apply_bad_prefix, values);
+    case "no_changes": return fmt(T.errors.apply_no_changes, values);
+    case "bad_count": return fmt(T.errors.apply_bad_count, values);
+    case "bad_elision": return fmt(T.errors.apply_bad_elision, values);
+    case "bad_newline": return fmt(T.errors.apply_bad_newline, values);
+  }
+}
+
+function formatApplyError(T: EditorText, e: UdiffApplyError): string {
+  switch (e.code) {
+    case "bad_anchor": return fmt(T.errors.apply_bad_anchor, { i: e.block });
     case "not_found":
       return e.fuzzy
         ? fmt(T.errors.apply_not_found_fuzzy, { i: e.block })
         : fmt(T.errors.apply_not_found, { i: e.block });
-    case "not_unique":
-      return fmt(T.errors.apply_not_unique, { i: e.block, n: e.occurrences });
-    case "overlap":
-      return fmt(T.errors.apply_overlap, { i: e.block, j: e.prev });
+    case "ambiguous": return fmt(T.errors.apply_ambiguous, { i: e.block });
+    case "bad_newline": return fmt(T.errors.apply_bad_newline, { i: e.block });
+    case "work_limit": return fmt(T.errors.apply_work_limit, { i: e.block });
+    case "overlap": return fmt(T.errors.apply_overlap, { i: e.block, j: e.previous });
   }
-}
-
-/** Map the edit-complete tool's `edits` arg ({oldText, newText}) to the
- *  applier's ReplaceBlock ({search=oldText, replace=newText}). Drops any element
- *  that is not a {string,string} pair; an empty result => applyBlocks reports
- *  no_blocks. */
-function mapEdits(raw: unknown): ReplaceBlock[] {
-  if (!Array.isArray(raw)) return [];
-  const blocks: ReplaceBlock[] = [];
-  for (const e of raw) {
-    if (!e || typeof e !== "object") continue;
-    const ed = e as Record<string, unknown>;
-    if (typeof ed.oldText !== "string" || typeof ed.newText !== "string") continue;
-    blocks.push({ search: ed.oldText, replace: ed.newText });
-  }
-  return blocks;
 }
 
 export async function editFile(path: string, opts: EditFileOptions): Promise<EditFileResult> {
@@ -118,7 +118,7 @@ export async function editFile(path: string, opts: EditFileOptions): Promise<Edi
       };
     }
 
-    const task = fmt(T.tasks.editor, { content, instruction: opts.instruction });
+    const task = fmt(T.tasks.editor, { content: numberLines(content), instruction: opts.instruction });
     const systemPrompt =
       opts.fuzzyMatch === false ? T.system.editor : T.system.editor + T.system.editor_fuzzy;
     const res = await runSubagent({
@@ -142,7 +142,7 @@ export async function editFile(path: string, opts: EditFileOptions): Promise<Edi
     if (res.timedOut)
       return { ok: false, error: fmt(T.errors.editor_timeout, { ms: opts.timeoutMs }) };
 
-    // The completion tool call IS the signal: edit-complete with edits => apply;
+    // The completion tool call IS the signal: edit-complete with diffs => apply;
     // cancel=true => abort; null/wrong tool => the subagent never completed.
     const c = res.completion;
     if (!c || c.tool !== "edit-complete") {
@@ -152,8 +152,11 @@ export async function editFile(path: string, opts: EditFileOptions): Promise<Edi
       return { ok: false, error: T.errors.editor_cancelled };
     }
 
-    const blocks = mapEdits(c.args.edits);
-    const applied: ApplyResult = applyBlocks(content, blocks, { fuzzy: opts.fuzzyMatch });
+    const parsed = parseUdiffs(c.args.diffs);
+    if (parsed.ok === false) {
+      return { ok: false, error: formatParseError(T, parsed.error) };
+    }
+    const applied: UdiffApplyResult = applyUdiffs(content, parsed.hunks, { fuzzy: opts.fuzzyMatch });
     if (applied.ok === false) {
       return { ok: false, error: formatApplyError(T, applied.error) };
     }

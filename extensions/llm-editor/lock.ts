@@ -3,7 +3,7 @@
  *
  * The agent may fan editing tool calls out in parallel. Same-path writes must
  * not race: a later writer must not clobber an earlier write whose
- * SEARCH/REPLACE blocks were computed against now-stale content ("wrongfully
+ * edit hunks were computed against now-stale content ("wrongfully
  * patch"). Different paths are independent and run in parallel.
  *
  * `withPathLock` is an in-process async mutex keyed by absolute path, stored on

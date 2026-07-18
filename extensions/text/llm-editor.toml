@@ -48,72 +48,51 @@ Query: "Where is the database connection configured?"
 view-complete({ ranges: [] })
 '''
 editor = '''
-You are an expert code editor. Your task is to analyze a file and make modifications according to the provided instructions.
+You are an expert code editor. Analyze the numbered file and return the requested changes by calling `edit-complete` with a `diffs` array.
 
-Return your changes by calling the `edit-complete` tool with an `edits` array. Each edit is an exact text replacement: `oldText` (exact text from the original file to find) and `newText` (the replacement). You may include multiple edits in one call.
+Each array element is exactly one single-file unified-diff hunk:
+- Start with `@@ -OLD_START,OLD_COUNT +NEW_START,NEW_COUNT @@`.
+- Prefix unchanged context with one space, removed lines with `-`, and added lines with `+`.
+- Do not include file headers, Markdown fences, prose, timestamps, or more than one hunk per array element.
+- OLD_START refers to the 1-indexed annotations in the supplied file. The annotations are not file content: never copy `LINE_NUMBER<TAB>` into a diff body.
+- For a normal hunk, header counts must equal the source/target body line counts. A count omitted from the header means 1.
+- Every hunk must contain at least one `+` or `-` line. Include enough unchanged context to validate its location.
+- To add or remove the final newline, put `\ No newline at end of file` immediately after the affected final source or target row, following standard unified-diff syntax.
+- All context and removed lines refer to the original supplied file, not the result of earlier hunks.
+- Use multiple array elements for separated changes. Do not emit overlapping changes.
+- For insertion into an empty file, use `@@ -0,0 +1,N @@`. Avoid context-free insertion into non-empty files.
+- Call `edit-complete` exactly once. Omit `cancel` or set it false to apply; call with only `cancel: true` to abort. Do not print diffs as text.
 
-IMPORTANT RULES:
-1. Each edit's `oldText` must match the original file content EXACTLY, including whitespace and indentation.
-2. You may include multiple edits as multiple entries in the `edits` array.
-3. If an edit's `oldText` is empty (""), it means REWRITE THE ENTIRE FILE with that edit's `newText` as the new full content. Use at most one such edit, and not together with others.
-4. Each edit's `oldText` must be unique in the file; if there are multiple matches, include more surrounding context.
-5. `oldText` values are matched against the original file, not after earlier edits. Do not emit overlapping or nested edits; merge nearby changes into one edit.
-6. Keep each `oldText` as small as possible while still being unique.
-7. Call `edit-complete` exactly once with your `edits` (omit `cancel` or set it false to apply; set `cancel: true` to abort without applying). Calling the tool ends your turn; not calling it is treated as an incomplete/truncated edit. Do not print the edits as text.
-
-Example 1 - Modifying specific lines:
-edit-complete({ edits: [
-  { oldText: "def calculate_total(items):
-    return sum(items)",
-    newText: "def calculate_total(items):
-    if not items:
-        return 0
-    return sum(items)" }
+Example 1 - replace lines 10-11 with four lines:
+edit-complete({ diffs: [
+  "@@ -10,2 +10,4 @@\n def calculate_total(items):\n-    return sum(items)\n+    if not items:\n+        return 0\n+    return sum(items)"
 ] })
 
-Example 2 - Multiple edits in one call:
-edit-complete({ edits: [
-  { oldText: "import os", newText: "import os
-import sys" },
-  { oldText: "def main():
-    pass", newText: "def main():
-    greet()" }
-] })
-
-Example 3 - Rewriting the entire file (empty oldText):
-edit-complete({ edits: [
-  { oldText: "", newText: "#!/usr/bin/env python3
-def new_function():
-    pass" }
+Example 2 - two separated hunks:
+edit-complete({ diffs: [
+  "@@ -1,1 +1,2 @@\n import os\n+import sys",
+  "@@ -20,2 +20,2 @@\n def main():\n-    pass\n+    greet()"
 ] })
 '''
 editor_fuzzy = '''
-ADDITIONAL CAPABILITIES (fuzzy matching is enabled for this edit):
+ADDITIONAL CAPABILITIES (fuzzy matching is enabled):
 
-You MAY put `...` on its own line inside an edit's `oldText` to elide unchanged code that sits BETWEEN two regions you are editing within the same `oldText`. This lets you skip restating long unchanged spans. Rules:
-- Put `...` alone on a line (optional leading whitespace) where code was omitted.
-- The number of `...` lines MUST match between `oldText` and `newText`.
-- Each non-`...` chunk must appear EXACTLY ONCE in the file.
-- `...` means "leave this region unchanged"; it is not a wildcard — the surrounding chunks must still match the file exactly.
-- Uniqueness rule still applies.
+The applier first validates a hunk at OLD_START, then may relocate it only when there is one unambiguous match. It tolerates trailing-whitespace differences and one uniform leading-indentation offset. Internal code whitespace remains significant. Preserve the indentation shown by the file whenever practical.
 
-Example — edit the first and last lines of a long function, omitting the unchanged middle:
-edit-complete({ edits: [
-  { oldText: "def f(x):
-    a = setup(x)
-...
-    return result",
-    newText: "def f(x):
-    a = setup(x, verbose=True)
-...
-    return result" }
+You MAY use a context line containing only `...` to preserve a long unchanged source span between two explicit regions in one hunk:
+- Write it as a unified-diff context row: one diff-prefix space followed by `...`.
+- Use it only between explicit regions, never first, last, or consecutively.
+- The explicit regions must identify one unambiguous ordered application path.
+- OLD_START points at the first explicit source line. For an elided hunk, counts MUST include the full logical span, including omitted unchanged lines; matching is bounded to that span.
+
+Example - modify the first and last portions of a long function:
+edit-complete({ diffs: [
+  "@@ -10,20 +10,20 @@\n def f(x):\n-    value = setup(x)\n+    value = setup(x, verbose=True)\n ...\n-    return value\n+    return finalize(value)"
 ] })
-
-Additionally, matching tolerates a UNIFORM leading-whitespace offset between `oldText` and the file (you may omit indentation that is consistent across the whole edit); `newText` is re-indented to the file's level. Prefer exact matches; use these only when an exact `oldText` would be impractical.
 '''
 [tasks]
 viewer = "Here is the file with numbered lines:\n\n{{content}}\n\nQuery: {{query}}"
-editor = "Here is the current file content:\n```\n{{content}}\n```\n\nInstruction: {{instruction}}\n\nPlease call edit-complete with the edits needed to make these changes."
+editor = "Here is the current file with 1-indexed line annotations in the form LINE_NUMBER<TAB>LINE_CONTENT. The prefix before each tab is not file content and must never appear in a diff body:\n\n{{content}}\n\nInstruction: {{instruction}}\n\nCall edit-complete with the unified-diff hunks needed to make these changes."
 
 # ── Tool metadata shown to the main agent (one tool per command) ──
 [tool.read]
@@ -126,10 +105,10 @@ guidelines = [
 ]
 
 [tool.edit]
-description = "Edit an existing file via a natural-language instruction. An Editor subagent emits exact search-replace blocks which the tool applies atomically (unique, exact, with a fuzzy fallback) and writes. Race-free per-path: concurrent same-path edits serialize."
+description = "Edit an existing file via a natural-language instruction. An Editor subagent emits bounded single-file unified-diff hunks which the tool matches and applies in-house, atomically and with a whitespace-fuzzy fallback. Race-free per-path: concurrent same-path edits serialize."
 prompt_snippet = "Edit files via natural-language instruction"
 guidelines = [
-	"`edit` takes a natural-language `instruction` naming the function/class/method to change; the subagent emits exact search-replace blocks. Be specific: 'In MyClass.my_method, change X to Y' beats 'fix the bug'.",
+	"`edit` takes a natural-language `instruction` naming the function/class/method to change; the subagent emits unified-diff hunks. Be specific: 'In MyClass.my_method, change X to Y' beats 'fix the bug'.",
 	"`edit`: if the instruction requires synthesizing novel logic the subagent cannot derive deterministically from the file, do not use `edit` — use `write` (you author file_text) or decompose into discrete deterministic edits.",
 	"`edit` cannot create a new file; use `write` for that.",
 ]
@@ -185,12 +164,23 @@ viewer_truncated = "Viewer subagent never called view-complete (output truncated
 viewer_bad_output = "view-complete returned malformed ranges (not a JSON array of {start, end} objects).\nOutput: {{tail}}"
 write_failed = "Could not write {{path}}: {{reason}}"
 spawn_not_found = "pi binary not found on PATH: {{reason}}"
-apply_no_blocks = "edit-complete was called with no edits."
-apply_not_found = "Edit {{i}}: oldText not found in file. It must match exactly (whitespace/indentation)."
-apply_not_found_fuzzy = "Edit {{i}}: oldText not found. Exact match and fuzzy fallback (uniform-indent tolerance + `...` elision) both missed."
-apply_not_unique = "Edit {{i}}: oldText is not unique ({{n}} matches). Add more surrounding context."
-apply_empty_with_others = "Empty oldText (whole-file rewrite) cannot coexist with other edits."
-apply_overlap = "Edit {{i}} overlaps edit {{j}}. Merge or separate them."
+apply_no_diffs = "edit-complete was called without any diff hunks."
+apply_too_many = "Diff block {{i}} exceeds the bounded hunk-count limit."
+apply_too_large = "Diff block {{i}} exceeds the bounded patch-size limit."
+apply_bad_block = "Diff block {{i}} is not a non-empty unified-diff string."
+apply_bad_header = "Diff block {{i}} line {{line}} must start with a valid `@@ -OLD_START,OLD_COUNT +NEW_START,NEW_COUNT @@` header."
+apply_multiple_hunks = "Diff block {{i}} line {{line}} starts another hunk. Put each hunk in its own `diffs` array element."
+apply_bad_prefix = "Diff block {{i}} line {{line}} must begin with a context space, `-`, or `+`."
+apply_no_changes = "Diff block {{i}} contains no added or removed lines."
+apply_bad_count = "Diff block {{i}} header counts do not match its source/target body lines."
+apply_bad_elision = "Diff block {{i}} has an invalid `...` context elision. Elisions must occur singly between explicit source regions."
+apply_bad_newline = "Diff block {{i}} has an invalid `No newline at end of file` marker or EOF location."
+apply_work_limit = "Diff block {{i}} exceeded the bounded matching-work limit. Add accurate line coordinates and more specific context."
+apply_bad_anchor = "Diff block {{i}} has an out-of-range insertion anchor."
+apply_not_found = "Diff block {{i}} does not match the file at its line anchor or at one unambiguous exact relocation."
+apply_not_found_fuzzy = "Diff block {{i}} did not match exactly or with the whitespace-fuzzy/`...` fallback."
+apply_ambiguous = "Diff block {{i}} has multiple possible application locations. Add context or correct its line header."
+apply_overlap = "Diff block {{i}} conflicts with diff block {{j}}. Separate or merge the changed regions."
 
 # ── Transcript (persisted subagent log) labels ──
 [transcript]
@@ -202,10 +192,9 @@ section_stderr = "## stderr"
 
 # ── Completion tools for the Viewer/Editor subagents (registered by
 #    extensions/llm-editor/completion.ts in the child, role-gated by
-#    PI_SUBAGENT_ROLE). edit-complete mirrors pi's default multi-search-replace
-#    `edit` tool plus an optional cancel:bool; the subagent's tool does not write
-#    files — it hands edits back to the parent, which applies them with cpi's own
-#    atomic apply engine. Plain text (no HTML escaping). ──
+#    PI_SUBAGENT_ROLE). edit-complete hands bounded unified-diff hunks to the
+#    parent, which parses, matches, and applies all hunks with cpi's in-house
+#    atomic engine. Plain text (no HTML escaping). ──
 [completion.view_complete]
 description = "Return the relevant line ranges from the file and end your turn. Call this exactly once with `ranges` = a JSON array of line-range objects, each with numeric `start` and `end` fields (inclusive, 1-indexed). Do not print the ranges as text."
 prompt_snippet = "Return relevant line ranges"
@@ -219,23 +208,23 @@ guidelines = [
 ]
 
 [completion.edit_complete]
-description = "Return the edits to apply to the file and end your turn. `edits` is an array of exact text replacements; each edits[].oldText must match a unique, non-overlapping region of the ORIGINAL file and edits[].newText is its replacement. To rewrite the entire file, use one edit with oldText empty and newText as the new full content. Set cancel=true to abort without applying anything."
-prompt_snippet = "Return file edits as exact text replacements"
+description = "Return one or more single-file unified-diff hunks in `diffs` and end your turn. Each array element contains exactly one hunk for the original numbered file. Set cancel=true to abort without applying anything."
+prompt_snippet = "Return file edits as unified-diff hunks"
 guidelines = [
-	"Each edits[].oldText must match the original file EXACTLY, including whitespace and indentation.",
-	"Each edits[].oldText must be unique in the file; if there are multiple matches, include more surrounding context.",
-	"edits[].oldText values are matched against the original file, not after earlier edits. Do not emit overlapping or nested edits; merge nearby changes into one edit.",
-	"Keep edits[].oldText as small as possible while still being unique.",
-	"To rewrite the entire file, emit one edit with oldText empty (\"\") and newText as the full new content.",
-	"Set cancel=true to abort the edit without applying anything. Otherwise leave `cancel` unset (defaults to false).",
-	"Call this tool exactly once; this ends your turn. Do not print the edits as text.",
+	"Each `diffs` element starts with `@@ -OLD_START,OLD_COUNT +NEW_START,NEW_COUNT @@` and contains exactly one hunk.",
+	"Prefix context with one space, removals with `-`, and additions with `+`; do not include file headers, fences, or prose.",
+	"Line-number annotations identify OLD_START but are not file content. Never copy the annotation prefix into hunk lines.",
+	"All context/removal rows refer to the original supplied file. Use separate array elements for separated, non-overlapping changes.",
+	"A context row containing only `...` may preserve an omitted unchanged span between explicit regions.",
+	"Use the standard `\\ No newline at end of file` marker only to change final-newline state.",
+	"Set cancel=true and omit `diffs` to abort without applying anything. Otherwise leave `cancel` unset.",
+	"Call this tool exactly once; this ends your turn. Do not print the diffs as text.",
 ]
 
 [completion.schema]
 ranges = "JSON array of line-range objects, each with numeric `start` and `end` fields (inclusive, 1-indexed), relevant to the query."
 range_start = "Start line of this range, 1-indexed and inclusive."
 range_end = "End line of this range, 1-indexed and inclusive."
-edits = "One or more targeted replacements. Each edit is matched against the original file, not incrementally. Do not include overlapping or nested edits; merge nearby changes into one edit instead."
-oldText = "Exact text for one targeted replacement. It must be unique in the original file and must not overlap any other edits[].oldText in the same call."
-newText = "Replacement text for this targeted edit."
+diffs = "One or more bounded single-file unified-diff hunks. Each array element contains exactly one hunk against the original supplied file. Required unless cancel is true."
+diff = "One unified-diff hunk beginning with an `@@ -OLD_START,OLD_COUNT +NEW_START,NEW_COUNT @@` header, followed by space/plus/minus-prefixed body lines."
 cancel = "Set to true to abort the edit without applying anything. Defaults to false."

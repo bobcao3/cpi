@@ -52,7 +52,7 @@ interface EditorDetails {
   diffOps?: DiffOp[];
   text?: string;
   note?: string;
-  blocks?: number;
+  hunks?: number;
   rewrite?: boolean;
   bytes?: number;
   message?: string;
@@ -186,7 +186,7 @@ export function renderEditorResult(
     if (d.kind === "edit")
       status += gray(
         theme,
-        ` · edited ${d.blocks} block${d.blocks !== 1 ? "s" : ""}${d.rewrite ? ", whole-file rewrite" : ""}`,
+        ` · applied ${d.hunks} hunk${d.hunks !== 1 ? "s" : ""}${d.rewrite ? ", whole-file rewrite" : ""}`,
       );
     else if (d.kind === "create") status += gray(theme, ` · created ${d.bytes} bytes`);
     else if (d.kind) status += gray(theme, ` · ${d.kind}`);

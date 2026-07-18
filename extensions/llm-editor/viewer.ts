@@ -14,6 +14,7 @@ import { readFile, stat } from "node:fs/promises";
 import { resolve } from "node:path";
 import { runSubagent } from "./subagent.ts";
 import { loadEditorText, fmt } from "./text.ts";
+import { lineBodies, numberLines } from "./lines.ts";
 
 export interface ViewFileOptions {
   query: string;
@@ -92,8 +93,8 @@ export async function viewFile(
     };
   }
 
-  const lines = content.split("\n");
-  const numbered = lines.map((l, i) => `${i + 1}\t${l}`).join("\n");
+  const lines = lineBodies(content);
+  const numbered = numberLines(content);
   const task = fmt(T.tasks.viewer, { content: numbered, query: opts.query });
   const res = await runSubagent({
     role: "viewer",
