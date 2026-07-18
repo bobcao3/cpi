@@ -84,7 +84,7 @@ export interface EditorConfig {
   transcriptDir?: string;
   /** Max transcript files retained; oldest rotated (default 200). */
   maxTranscripts?: number;
-  /** Aider-style fuzzy SEARCH/REPLACE fallback (uniform-indent tolerance + `...` elision) when an exact SEARCH misses. Default true. */
+  /** Unified-hunk whitespace fallback (trailing whitespace, uniform indentation, and `...` elision) when anchored exact matching misses. Default true. */
   fuzzyMatch?: boolean;
   /** Ordered {search,replace} rules producing candidate editor model ids from the main model id. Shipped defaults are a cost+recency ladder: a ≤0.6x-cost (primary ~0.2x) model that is also ≤6 months old, then a fallback, then implicit identity (fall-through = "if not available"). Stale/retired models are never targets. The GPT-5.x non-mini family keeps the main model and drops thinking effort to `low` instead of swapping to a cheaper model. */
   chain?: EditorChainRule[];
@@ -103,7 +103,7 @@ export interface ResolvedEditorConfig {
   transcriptDir: string;
   /** Max transcript files retained; oldest rotated. Always set by loadEditorConfig. */
   maxTranscripts: number;
-  /** Aider-style fuzzy SEARCH/REPLACE fallback. Always set by loadEditorConfig. */
+  /** Unified-hunk whitespace/elision fallback. Always set by loadEditorConfig. */
   fuzzyMatch: boolean;
   /** Ordered {search,replace} rules producing candidate editor model ids. Always set (possibly empty). */
   chain: EditorChainRule[];

@@ -21,14 +21,29 @@
     "maxTranscripts": 200,
     "fuzzyMatch": true,
     "chain": [
-      { "search": "(claude-)(fable|opus)[0-9.-]*:xhigh", "replace": "$1sonnet-4-6:high" },
-      { "search": "(claude-)(fable|opus)[0-9.-]*", "replace": "$1sonnet-4-6" },
-      { "search": "gpt-5\\.6-(sol|terra)[^:]*:[^:]*", "replace": "gpt-5.6-terra:minimal" },
-      { "search": "gpt-5\\.6-luna[^:]*:[^:]*", "replace": "gpt-5.6-luna:low" },
+      {
+        "search": "(claude-)(fable|opus)[0-9.-]*:xhigh",
+        "replace": "$1sonnet-5:medium"
+      },
+      {
+        "search": "(claude-)(fable|opus)[0-9.-]*",
+        "replace": "$1sonnet-5:low"
+      },
+      {
+        "search": "gpt-5\\.6-(sol|terra)[^:]*:[^:]*",
+        "replace": "gpt-5.6-luna:medium"
+      },
+      {
+        "search": "gpt-5\\.6-luna[^:]*:[^:]*",
+        "replace": "gpt-5.6-luna:medium"
+      },
       { "search": "gpt-(?:5|4o)[^:]*:[^:]*", "replace": "gpt-5.6-luna:medium" },
       { "search": "gemini-[^:]*:xhigh", "replace": "gemma-4-31b-it:high" },
       { "search": "gemini-[^:]*", "replace": "gemma-4-31b-it" },
-      { "search": "gemini-[^:]*:xhigh", "replace": "gemini-3.1-flash-lite:high" },
+      {
+        "search": "gemini-[^:]*:xhigh",
+        "replace": "gemini-3.1-flash-lite:high"
+      },
       { "search": "gemini-[^:]*", "replace": "gemini-3.1-flash-lite" },
       { "search": "grok-3[^:]*:xhigh", "replace": "grok-4.3:high" },
       { "search": "grok-3[^:]*", "replace": "grok-4.3" },
@@ -43,12 +58,20 @@
     "installTimeoutMs": 60000,
     "discoveryMaxDepth": 32,
     "servers": {
-      "typescript": { "package": "typescript-language-server", "version": "5.3.0", "tsVersion": "6.0.3" },
-      "python":     { "package": "pyrefly", "version": "1.0.0" },
-      "shell":      { "enabled": true }
+      "typescript": {
+        "package": "typescript-language-server",
+        "version": "5.3.0",
+        "tsVersion": "6.0.3"
+      },
+      "python": { "package": "pyrefly", "version": "1.0.0" },
+      "shell": { "enabled": true }
     },
     "tools": {
-      "uv":         { "version": "0.11.23", "repo": "astral-sh/uv", "verify": "attestation-then-sha256" }
+      "uv": {
+        "version": "0.11.23",
+        "repo": "astral-sh/uv",
+        "verify": "attestation-then-sha256"
+      }
     }
   }
 }
