@@ -23,7 +23,13 @@
  *   CPI_FORK_PI_BIN                    pin the pi binary for the fork child
  *
  * State is process-wide on a globalThis slot (per AGENTS.md: shared *state* on
- * globalThis is sound). It is reset by any turn — core.ts calls disarmAntiStuckTimer + resetAntiStuck on agent_start (with hold reminders gone, every turn is a real event) — and by an ABORT append. Producers call only markEventlessStart / resetAntiStuck / maybeAntiStuckProbe / armAntiStuckTimer / disarmAntiStuckTimer; this module registers no handlers (core.ts owns the hold loop and arms/disarms the timer).
+ * globalThis is sound). It is reset by any turn — core.ts calls
+ * disarmAntiStuckTimer + resetAntiStuck on agent_start (with hold reminders
+ * gone, every turn is a real event). Disarming also aborts an in-flight fork,
+ * and its canceled answer is barred from appending to the active session.
+ * Producers call only markEventlessStart / resetAntiStuck /
+ * maybeAntiStuckProbe / armAntiStuckTimer / disarmAntiStuckTimer; this module
+ * registers no handlers (core.ts owns the hold loop and arms/disarms the timer).
  *
  * Recursion: the fork child inherits the parent's extensions (including this
  * one) but cannot reach the first threshold within the probe's own wall-clock
@@ -35,7 +41,7 @@
  */
 
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { forkGate } from "./fork-probe.ts";
+import { forkGate, type ForkGateOutcome } from "./fork-probe.ts";
 import { getHoldSources, signalHoldEvent, type HoldSource } from "./session-hold.ts";
 import { goalStuckResume, isGoalActive } from "./goal.ts";
 import { loadText, render, textPath } from "./text.ts";
@@ -86,14 +92,30 @@ interface AntiStuckState {
   intervalMs: number;
   /** Self-rescheduling setTimeout handle (used in both TUI and headless). */
   timer: NodeJS.Timeout | null;
+  /** Abort controller for the fork currently checking this wait episode. */
+  probeController: AbortController | null;
 }
 
 function state(): AntiStuckState {
   const g = globalThis as Record<string, unknown>;
   if (!g[GLOBAL_KEY]) {
-    g[GLOBAL_KEY] = { waitSinceMs: null, nextProbeAtMs: null, intervalMs: cap(THRESHOLD_MS), timer: null } satisfies AntiStuckState;
+    g[GLOBAL_KEY] = {
+      waitSinceMs: null,
+      nextProbeAtMs: null,
+      intervalMs: cap(THRESHOLD_MS),
+      timer: null,
+      probeController: null,
+    } satisfies AntiStuckState;
   }
-  return g[GLOBAL_KEY] as AntiStuckState;
+  const current = g[GLOBAL_KEY] as AntiStuckState;
+  // Migrate process-wide state created by an older hot-loaded module copy.
+  if (current.probeController === undefined) current.probeController = null;
+  return current;
+}
+
+function cancelProbe(s: AntiStuckState): void {
+  s.probeController?.abort();
+  s.probeController = null;
 }
 
 /** Mark the start of the eventless wait. Idempotent — only the first call per
@@ -109,6 +131,7 @@ export function markEventlessStart(): void {
 /** Reset on a REAL hold event (fired) or an ABORT append — the episode ended. */
 export function resetAntiStuck(): void {
   const s = state();
+  cancelProbe(s);
   s.waitSinceMs = null;
   s.nextProbeAtMs = null;
   s.intervalMs = cap(THRESHOLD_MS);
@@ -164,27 +187,45 @@ export async function maybeAntiStuckProbe(
   }
 
   const prompt = render(T.probe?.prompt ?? "", { elapsed_min: elapsedMin, pending: pendingText });
+  if (s.probeController) return "not_applicable"; // one check per wait episode
+  const probeController = new AbortController();
+  s.probeController = probeController;
+  const abortFromContext = (): void => probeController.abort();
+  if (ctx.signal?.aborted) abortFromContext();
+  else ctx.signal?.addEventListener("abort", abortFromContext, { once: true });
 
-  const outcome = await forkGate({
-    command: process.env.CPI_FORK_PI_BIN,
-    parentSessionFile: parentFile,
-    cwd: ctx.cwd,
-    signal: ctx.signal,
-    timeoutMs: PROBE_TIMEOUT_MS,
-    prompt,
-    decide: (answer) => (answer.trim().toUpperCase().includes("ABORT") ? "ABORT" : null),
-    onSignal: (_signal, answer) => {
-      const text = render(T.append?.abort ?? "", { answer, elapsed_min: elapsedMin, pending: pendingText });
-      try {
-        pi.sendMessage(
-          { customType: REMINDER_TYPE, content: `system reminder | ${text}`, display: true },
-          { triggerTurn: true, deliverAs: "steer" },
-        );
-      } catch {
-        // Delivery failure must never break the hold flow.
-      }
-    },
-  });
+  let outcome: ForkGateOutcome<"ABORT">;
+  try {
+    outcome = await forkGate<"ABORT">({
+      command: process.env.CPI_FORK_PI_BIN,
+      parentSessionFile: parentFile,
+      cwd: ctx.cwd,
+      signal: probeController.signal,
+      timeoutMs: PROBE_TIMEOUT_MS,
+      prompt,
+      // A child may exit successfully while its cancellation is racing with
+      // SIGTERM. Never let such a stale answer wake the now-active session.
+      decide: (answer) => {
+        if (probeController.signal.aborted) return null;
+        return answer.trim().toUpperCase().includes("ABORT") ? "ABORT" : null;
+      },
+      onSignal: (_signal, answer) => {
+        const text = render(T.append?.abort ?? "", { answer, elapsed_min: elapsedMin, pending: pendingText });
+        try {
+          pi.sendMessage(
+            { customType: REMINDER_TYPE, content: `system reminder | ${text}`, display: true },
+            { triggerTurn: true, deliverAs: "steer" },
+          );
+        } catch {
+          // Delivery failure must never break the hold flow.
+        }
+      },
+    });
+  } finally {
+    ctx.signal?.removeEventListener("abort", abortFromContext);
+    if (s.probeController === probeController) s.probeController = null;
+  }
+  if (probeController.signal.aborted) return "not_applicable";
 
   const verdict = outcome.appended ? "ABORT" : outcome.ok ? "WAIT" : "FAILED";
   // Transcript-only audit (CustomEntry, excluded from LLM context) so /tree
@@ -222,9 +263,11 @@ function clearTimer(s: AntiStuckState): void {
   s.timer = null;
 }
 
-/** Disarm the self-rescheduling TUI timer. Called on agent_start / session_start. */
+/** Cancel the scheduled timer and any running probe. Called on agent_start / session_start. */
 export function disarmAntiStuckTimer(): void {
-  clearTimer(state());
+  const s = state();
+  clearTimer(s);
+  cancelProbe(s);
 }
 
 /** Arm (or re-arm) the self-rescheduling TUI timer. Called at agent_end. */
