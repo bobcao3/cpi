@@ -73,7 +73,7 @@ Check implementation.
 TASK
 
 # Explicit -p remains supported for slash-containing model IDs.
-subagent -p meshy-sglang -m zai-org/GLM-5.2-FP8:medium -s sub-task <<'TASK'
+subagent -p deepseek -m deepseek/deepseek-chat:medium -s sub-task <<'TASK'
 Inspect model health.
 TASK
 ```
