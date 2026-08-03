@@ -48,7 +48,9 @@ find_parent_thinking_level() {
 }
 
 main() {
-    local provider="meshy-sglang-kimi" model="" effort="" session_id="" proto out summary task_file rc=0
+    # No provider is hardcoded: without -p and without an inherited parent
+    # provider, --provider is omitted so pi uses its configured default provider.
+    local provider="" model="" effort="" session_id="" proto out summary task_file rc=0
     local provider_explicit=false parent_provider="" model_parent_prefix_stripped=false
 
     while getopts "p:s:m:" opt; do
@@ -103,7 +105,7 @@ main() {
     local provider_args=()
     if [[ "$provider_explicit" == true ]]; then
         provider_args=(--provider "$provider")
-    elif [[ -z "$model" || "$model" != */* || "$model_parent_prefix_stripped" == true ]]; then
+    elif [[ -n "$provider" && ( -z "$model" || "$model" != */* || "$model_parent_prefix_stripped" == true ) ]]; then
         provider_args=(--provider "$provider")
     fi
 
