@@ -25,8 +25,14 @@ if (!wasmPath) {
 const secretJson = process.env.CPI_MINISIGN_SECRET;
 const secret = secretJson
   ? JSON.parse(secretJson)
-  : JSON.parse(readFileSync(join(homedir(), ".ssh", "cpi-minisign-secret.json"), "utf8"));
-const priv = createPrivateKey({ key: Buffer.from(secret.pkcs8DerB64, "base64"), format: "der", type: "pkcs8" });
+  : JSON.parse(
+      readFileSync(join(homedir(), ".ssh", "cpi-minisign-secret.json"), "utf8"),
+    );
+const priv = createPrivateKey({
+  key: Buffer.from(secret.pkcs8DerB64, "base64"),
+  format: "der",
+  type: "pkcs8",
+});
 const keyId = Buffer.from(secret.keyId, "hex");
 
 const msg = readFileSync(wasmPath);
@@ -34,15 +40,23 @@ const hash = createHash("blake2b512").update(msg).digest(); // prehashed
 const sig = sign(null, hash, priv); // 64-byte Ed25519 signature over blake2b-512(msg)
 
 const trustedComment = `timestamp:${Math.floor(Date.now() / 1000)}\tfile:${basename(wasmPath)}`;
-const global = sign(null, Buffer.concat([sig, Buffer.from(trustedComment, "utf8")]), priv); // 64 bytes
+const global = sign(
+  null,
+  Buffer.concat([sig, Buffer.from(trustedComment, "utf8")]),
+  priv,
+); // 64 bytes
 
 // sig block: sig_alg "ED" (prehashed) | key_id | sig = 74 bytes
 const sigBlock = Buffer.concat([Buffer.from([0x45, 0x44]), keyId, sig]);
 const out =
   "untrusted comment: cpi tree-sitter-wasm signature\n" +
-  sigBlock.toString("base64") + "\n" +
-  "trusted comment: " + trustedComment + "\n" +
-  global.toString("base64") + "\n";
+  sigBlock.toString("base64") +
+  "\n" +
+  "trusted comment: " +
+  trustedComment +
+  "\n" +
+  global.toString("base64") +
+  "\n";
 
 const outPath = wasmPath + ".minisig";
 writeFileSync(outPath, out);

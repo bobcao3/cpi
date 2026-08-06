@@ -71,25 +71,42 @@ export function sessionId(language: Language, root: string): string {
 }
 
 export function sourceName(language: Language): string {
-  return language === "typescript" ? "tsserver" : language === "python" ? "pyrefly" : language === "ruby" ? "ruby-lsp" : "shuck";
+  return language === "typescript"
+    ? "tsserver"
+    : language === "python"
+      ? "pyrefly"
+      : language === "ruby"
+        ? "ruby-lsp"
+        : "shuck";
 }
 
 export function extForLanguage(language: Language): string {
-  return language === "typescript" ? "ts" : language === "python" ? "py" : language === "ruby" ? "rb" : "sh";
+  return language === "typescript"
+    ? "ts"
+    : language === "python"
+      ? "py"
+      : language === "ruby"
+        ? "rb"
+        : "sh";
 }
 
 export function mergeSpawnEnv(envPath?: string): NodeJS.ProcessEnv {
   const env = getToolEnv();
   if (envPath) {
-    for (const [k, v] of Object.entries(parseDotEnv(resolveCwdPath(envPath)))) env[k] = v;
+    for (const [k, v] of Object.entries(parseDotEnv(resolveCwdPath(envPath))))
+      env[k] = v;
   }
   return env;
 }
 
-function buildSpawnEnv(base: NodeJS.ProcessEnv, pathDir?: string): NodeJS.ProcessEnv {
+function buildSpawnEnv(
+  base: NodeJS.ProcessEnv,
+  pathDir?: string,
+): NodeJS.ProcessEnv {
   if (!pathDir) return { ...base };
   const env = { ...base };
-  const key = Object.keys(env).find((k) => k.toLowerCase() === "path") ?? "PATH";
+  const key =
+    Object.keys(env).find((k) => k.toLowerCase() === "path") ?? "PATH";
   env[key] = [pathDir, env[key] ?? ""].join(delimiter);
   return env;
 }
@@ -178,7 +195,10 @@ export function spawnSession(
   const logPath = join(getAgentDir(), "lsp_logs", `${session.id}.log`);
   mkdirSync(dirname(logPath), { recursive: true });
   const directive = spec.serverCommand(session.bin, root);
-  const spawnEnv = buildSpawnEnv(mergeSpawnEnv(session.envPath), session.pathDir);
+  const spawnEnv = buildSpawnEnv(
+    mergeSpawnEnv(session.envPath),
+    session.pathDir,
+  );
   const worker = new Worker(WORKER_PATH, {
     workerData: {
       spawn: {
@@ -213,7 +233,10 @@ export function sessionLint(
 ): Promise<Diagnostic[]> {
   // assert: ready before posting (design §13)
   if (session.state !== "ready" || !session.worker) return Promise.resolve([]);
-  assert(session.openDocs < MAX_OPEN_DOCS, `too many open docs: ${session.openDocs}`);
+  assert(
+    session.openDocs < MAX_OPEN_DOCS,
+    `too many open docs: ${session.openDocs}`,
+  );
   session.openDocs++;
   return new Promise((resolve) => {
     const t = setTimeout(() => {
@@ -226,7 +249,14 @@ export function sessionLint(
       session.openDocs = Math.max(0, session.openDocs - 1);
       resolve(dd);
     });
-    session.worker!.postMessage({ type: "lint", id, uri, languageId, text, file });
+    session.worker!.postMessage({
+      type: "lint",
+      id,
+      uri,
+      languageId,
+      text,
+      file,
+    });
   });
 }
 
@@ -244,7 +274,10 @@ export function stopSession(session: LspSession): void {
   }
 }
 
-export function awaitReady(session: LspSession, startupTimeoutMs: number): Promise<boolean> {
+export function awaitReady(
+  session: LspSession,
+  startupTimeoutMs: number,
+): Promise<boolean> {
   return new Promise<boolean>((resolve) => {
     let settled = false;
     const timer = setTimeout(() => {

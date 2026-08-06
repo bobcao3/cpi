@@ -1,30 +1,12 @@
 /**
- * Orphaned & forked background-shell discovery.
- *
- * Resume records are scoped per conversation (`<sessionDir>/sh-mon/<sessionId>/`),
- * so a shell belongs to exactly one session. On session start:
- *  - resumeBackgroundShells (in exec.ts) re-attaches the CURRENT session's own
- *    shells (alive) and silently cleans its stale records.
- *  - here we surface shells owned by OTHER sessions — "discoverable but
- *    orphaned" from the current session's view. They were started by a fork's
- *    parent, a previous/exited pi, or a concurrent agent in the same cwd.
- *
- * A fork inherits nothing: no live shells, no completion notices (those go only
- * to the owning/parent session when it is active). Instead the fork gets a
- * one-time notice — "Session is forked, shell PIDs: [...] still belongs to the
- * parent session" — listing the parent's alive shells so the user knows where
- * they went.
- *
- * Liveness is probed by connecting to the sh-monitor resume socket WITHOUT
- * subscribing: `ResumeClient.whenReady` resolves on connect (alive) or rejects
- * on ENOENT/ECONNREFUSED (dead). The probe socket coexists harmlessly with a
- * real (owning) subscriber and never forces an exit while the grandchild runs.
- * Dead records are stale debris and are removed silently (no notification).
+ * Background-shell liveness probing on session start: connect to the sh-monitor
+ * resume socket without subscribing — `whenReady` resolves on connect (alive),
+ * rejects on ENOENT/ECONNREFUSED (dead); dead records are stale debris, removed
+ * silently.
  */
 
 import {
   ResumeClient,
-  readAllResumeRecords,
   readCompletedRecords,
   readResumeRecords,
   removeCompletedRecord,
@@ -60,7 +42,6 @@ async function probeAlive(sockPath: string): Promise<boolean> {
   }
 }
 
-/** Probe records; return the alive ones and silently remove the dead (stale). */
 async function probeRecords(
   sessionDir: string,
   records: (ResumeRecord & { sessionId: string })[],
@@ -76,19 +57,6 @@ async function probeRecords(
   return alive;
 }
 
-/** Alive shells owned by sessions OTHER than `scope` (the current session). */
-export async function discoverOrphanedShells(
-  sessionDir: string | undefined,
-  scope: string | undefined,
-): Promise<OrphanedShell[]> {
-  if (!sessionDir) return [];
-  const records = (await readAllResumeRecords(sessionDir)).filter(
-    (r) => r.sessionId !== scope,
-  );
-  return probeRecords(sessionDir, records);
-}
-
-/** Alive shells owned by exactly one session `scope`. */
 export async function discoverShellsForScope(
   sessionDir: string | undefined,
   scope: string | undefined,
@@ -101,64 +69,37 @@ export async function discoverShellsForScope(
   return probeRecords(sessionDir, records);
 }
 
-/** One-line, user-facing summary of orphaned shells. */
 export function formatOrphanedSummary(orphans: OrphanedShell[]): string {
   const n = orphans.length;
-  const head = `${n} orphaned background shell${n !== 1 ? "s" : ""} from other session${
-    n !== 1 ? "s" : ""
-  } still running in this directory`;
+  const head = `${n} orphaned background shell${n !== 1 ? "s" : ""} from this session`;
   const list = orphans
     .map((o) => `[${o.pid} ${o.cmd} (sess ${o.sessionId.slice(0, 8)})]`)
     .join(" ");
   return `${head}: ${list}`;
 }
 
-/** Extract the session id (uuid) from a `<timestamp>_<uuid>.jsonl` file name. */
-function parseSessionId(sessionFile: string | undefined): string | undefined {
-  if (!sessionFile) return undefined;
-  return sessionFile.match(/_([^/]+)\.jsonl$/)?.[1];
-}
-
-/** On fork: tell the forked session which shells stayed with the parent. */
-export function notifyForkedShells(
-  sessionDir: string | undefined,
-  previousSessionFile: string | undefined,
-): Promise<void> {
-  const parentScope = parseSessionId(previousSessionFile);
-  return discoverShellsForScope(sessionDir, parentScope).then((shells) => {
-    if (shells.length === 0) return;
-    const pids = shells.map((s) => s.pid).join(" ");
-    const summary = `Session is forked, shell PIDs: [${pids}] still belongs to the parent session`;
-    queueMessage({
-      customType: NOTIFICATION_TYPE,
-      content: summary,
-      display: true,
-      details: { kind: "orphaned-shells", summary, payload: { shells } },
-      deliverAs: "beforeUser",
-    });
-  });
-}
-
-/** On (non-fork) session start: list other sessions' alive orphaned shells. */
+/** On session start: list this exact session's alive orphaned shells. */
 export function notifyOrphanedShells(
   sessionDir: string | undefined,
   scope: string | undefined,
 ): Promise<void> {
-  return discoverOrphanedShells(sessionDir, scope).then((orphans) => {
+  return discoverShellsForScope(sessionDir, scope).then((orphans) => {
     if (orphans.length === 0) return;
     const summary = formatOrphanedSummary(orphans);
     queueMessage({
       customType: NOTIFICATION_TYPE,
       content: summary,
       display: true,
-      details: { kind: "orphaned-shells", summary, payload: { shells: orphans } },
+      details: {
+        kind: "orphaned-shells",
+        summary,
+        payload: { shells: orphans },
+      },
       deliverAs: "beforeUser",
     });
   });
 }
 
-
-/** One-line summary of shells that completed while the owner was away. */
 export function formatCompletedSummary(recs: CompletedRecord[]): string {
   const n = recs.length;
   const head = `${n} background shell${n !== 1 ? "s" : ""} completed while you were away`;
@@ -168,11 +109,6 @@ export function formatCompletedSummary(recs: CompletedRecord[]): string {
   return `${head}: ${list}`;
 }
 
-/**
- * On (non-fork) session start: surface shells that completed while the owning
- * session was away (recorded by a suppressed completion), then consume the
- * markers. Delivered `beforeUser` so it appears as early as resume.
- */
 export async function surfaceCompletedShells(
   sessionDir: string | undefined,
   scope: string | undefined,
@@ -188,5 +124,7 @@ export async function surfaceCompletedShells(
     details: { kind: "completed-shells", summary, payload: { shells: recs } },
     deliverAs: "beforeUser",
   });
-  await Promise.all(recs.map((r) => removeCompletedRecord(sessionDir, scope, r.pid)));
+  await Promise.all(
+    recs.map((r) => removeCompletedRecord(sessionDir, scope, r.pid)),
+  );
 }

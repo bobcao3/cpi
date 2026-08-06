@@ -5,7 +5,9 @@ function eq(name, got, want) {
   const ok = got === want;
   if (!ok) {
     failures++;
-    console.error(`FAIL ${name}\n--- got ---\n${JSON.stringify(got)}\n--- want ---\n${JSON.stringify(want)}`);
+    console.error(
+      `FAIL ${name}\n--- got ---\n${JSON.stringify(got)}\n--- want ---\n${JSON.stringify(want)}`,
+    );
   } else {
     console.log(`ok   ${name}`);
   }
@@ -45,11 +47,7 @@ eq("empty_arr_sec", render("[{{#xs}}x{{/xs}}]", { xs: [] }), "[]");
 eq("empty_arr_inv", render("[{{^xs}}none{{/xs}}]", { xs: [] }), "[none]");
 
 // 10. nested sections
-eq(
-  "nested",
-  render("{{#a}}A{{#b}}B{{/b}}{{/a}}", { a: { b: true } }),
-  "AB",
-);
+eq("nested", render("{{#a}}A{{#b}}B{{/b}}{{/a}}", { a: { b: true } }), "AB");
 
 // 11. comment dropped
 eq("comment", render("a{{! this is a comment}}b", {}), "ab");
@@ -61,26 +59,54 @@ eq("dotted", render("{{user.name}}", { user: { name: "cc" } }), "cc");
 //     whitespace-only -> "")
 eq(
   "renderLines_prune",
-  renderLines(["keep", "{{#on}}yes{{/on}}", "{{#off}}no{{/off}}", "  "], { on: true, off: false }).join("|"),
+  renderLines(["keep", "{{#on}}yes{{/on}}", "{{#off}}no{{/off}}", "  "], {
+    on: true,
+    off: false,
+  }).join("|"),
   "keep|yes",
 );
 
 // 14. vision conditional — inline sections + inverted
-const visionBlock = "You can see images.{{#vision}} Use read_media to view image files.{{/vision}}{{^vision}} You cannot see images; do not attempt to read image files.{{/vision}}";
-eq("vision_on", render(visionBlock, { vision: true }), "You can see images. Use read_media to view image files.");
-eq("vision_off", render(visionBlock, { vision: false }), "You can see images. You cannot see images; do not attempt to read image files.");
+const visionBlock =
+  "You can see images.{{#vision}} Use read_media to view image files.{{/vision}}{{^vision}} You cannot see images; do not attempt to read image files.{{/vision}}";
+eq(
+  "vision_on",
+  render(visionBlock, { vision: true }),
+  "You can see images. Use read_media to view image files.",
+);
+eq(
+  "vision_off",
+  render(visionBlock, { vision: false }),
+  "You can see images. You cannot see images; do not attempt to read image files.",
+);
 
 // 15. unknown switch interpolates to "" (mustache default); a malformed
 //     (unclosed) tag throws — correct, it's a config error to surface.
-eq("unknown_var_empty", render("a{{nope}}b{{#missing}}x{{/missing}}", {}), "ab");
+eq(
+  "unknown_var_empty",
+  render("a{{nope}}b{{#missing}}x{{/missing}}", {}),
+  "ab",
+);
 let threw = false;
-try { render("a{{#unterminated", {}); } catch { threw = true; }
+try {
+  render("a{{#unterminated", {});
+} catch {
+  threw = true;
+}
 eq("badtag_throws", threw, true);
 
 // 16. HTML escaping is disabled (prompts are plain text): <, &, backticks survive.
 eq("no_escape_lt", render("{{x}}", { x: "a<b>&c" }), "a<b>&c");
-eq("no_escape_inline", render("use `sleep && true`", {}), "use `sleep && true`");
-eq("no_escape_search", render("{{x}}", { x: "<<<<<<< SEARCH" }), "<<<<<<< SEARCH");
+eq(
+  "no_escape_inline",
+  render("use `sleep && true`", {}),
+  "use `sleep && true`",
+);
+eq(
+  "no_escape_search",
+  render("{{x}}", { x: "<<<<<<< SEARCH" }),
+  "<<<<<<< SEARCH",
+);
 
 console.log(`\n${failures === 0 ? "ALL PASS" : failures + " FAILURES"}`);
 process.exit(failures === 0 ? 0 : 1);

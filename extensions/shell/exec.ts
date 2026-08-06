@@ -1,21 +1,16 @@
 /**
- * Shell execution engine — spawns each command through `sh-monitor` (a detached
- * nohup-style supervisor) so the child's stdout/stderr pipe is owned by the
- * supervisor, never by pi. pi drives it over the framed socket (control +
- * zero-copy live data). Benefits vs. the old direct-pipe path:
- *
- *   - `sh_detach`: a background PID can be released to run untracked and
- *     survive pi's own exit (no SIGPIPE — pi never held the child's pipe).
- *   - controlled-mode streaming is preserved (live DATA frames → onPartial).
- *   - the log file is the durable source of truth; acc is just live preview.
- *
- * Public interface preserved: runShell, signalChild, silenceChild, detachChild,
- * killAll, getters, buildOutputText, completion hook.
+ * Spawns each command through a detached `sh-monitor` supervisor so the
+ * child's output pipe is owned by the supervisor, never by pi: detach
+ * survives pi's exit (no SIGPIPE), and the log file is the durable source
+ * of truth — acc is only live preview.
  */
 
 import { rm, readFile } from "node:fs/promises";
 import { StringDecoder } from "node:string_decoder";
-import { truncateOutput, type OutputTruncation } from "../lib/output-truncate.ts";
+import {
+  truncateOutput,
+  type OutputTruncation,
+} from "../lib/output-truncate.ts";
 import {
   getActiveRepeats,
   hasActiveRepeats,
@@ -109,8 +104,19 @@ export async function buildOutputText(
     tunables: ShellTunables;
   },
 ): Promise<{ text: string; fullOutputPath?: string }> {
-  const { persistIfTruncated = true, emptyText = "(no output)", logPath, truncation, tunables } = opts;
-  const out = truncateOutput(acc, truncation, tunables.previewMaxBytes, emptyText);
+  const {
+    persistIfTruncated = true,
+    emptyText = "(no output)",
+    logPath,
+    truncation,
+    tunables,
+  } = opts;
+  const out = truncateOutput(
+    acc,
+    truncation,
+    tunables.previewMaxBytes,
+    emptyText,
+  );
   if (!out.truncated) return { text: out.body };
   let full: string | undefined;
   let text = out.body;
@@ -154,7 +160,12 @@ export async function runShell(
     status = await client.stat();
   } catch (e) {
     client.close();
-    return { id: null, status: "completed", exitCode: -1, text: `sh-monitor stat failed: ${(e as Error).message}` };
+    return {
+      id: null,
+      status: "completed",
+      exitCode: -1,
+      text: `sh-monitor stat failed: ${(e as Error).message}`,
+    };
   }
   const pid = status.pid;
   const id = String(pid);
@@ -184,28 +195,37 @@ export async function runShell(
   const exitP = new Promise<void>((resolve) => {
     exitResolve = resolve;
   });
-  const onEvent = (ev: { kind: "data"; off: number; buf: Buffer } | { kind: "exit"; exitCode: number; bytes: number }) => {
+  const onEvent = (
+    ev:
+      | { kind: "data"; off: number; buf: Buffer }
+      | { kind: "exit"; exitCode: number; bytes: number },
+  ) => {
     if (ev.kind === "data") {
       entry.acc += entry.decoder.write(ev.buf);
       entry.bytesEmitted = ev.off + ev.buf.length;
       const lastNl = ev.buf.lastIndexOf(0x0a);
       if (lastNl === -1) entry.colBytes += ev.buf.length;
       else {
-        entry.linesEmitted += ev.buf.subarray(0, lastNl).filter((b) => b === 0x0a).length + 1;
+        entry.linesEmitted +=
+          ev.buf.subarray(0, lastNl).filter((b) => b === 0x0a).length + 1;
         entry.colBytes = ev.buf.length - 1 - lastNl;
       }
       if (Buffer.byteLength(entry.acc) > tunables.maxAcc) {
         while (Buffer.byteLength(entry.acc) > tunables.maxAcc)
-          entry.acc = entry.acc.slice(Math.max(1, Math.ceil(entry.acc.length * 0.1)));
+          entry.acc = entry.acc.slice(
+            Math.max(1, Math.ceil(entry.acc.length * 0.1)),
+          );
         const c0 = entry.acc.charCodeAt(0);
         if (c0 >= 0xdc00 && c0 <= 0xdfff) entry.acc = entry.acc.slice(1); // drop lone low surrogate
       }
       const now = Date.now();
       if (onPartial && now - lastUpd >= tunables.updateMs) {
         lastUpd = now;
-        void buildOutputText(entry.acc, { persistIfTruncated: false, truncation, tunables }).then((r) =>
-          onPartial(r.text),
-        );
+        void buildOutputText(entry.acc, {
+          persistIfTruncated: false,
+          truncation,
+          tunables,
+        }).then((r) => onPartial(r.text));
       }
     } else {
       if (entry.done) return;
@@ -220,7 +240,12 @@ export async function runShell(
   } catch (e) {
     if (!entry.done) {
       client.close();
-      return { id: null, status: "completed", exitCode: -1, text: `sh-monitor subscribe failed: ${(e as Error).message}` };
+      return {
+        id: null,
+        status: "completed",
+        exitCode: -1,
+        text: `sh-monitor subscribe failed: ${(e as Error).message}`,
+      };
     }
   }
   const onSockClose = () => {
@@ -237,7 +262,10 @@ export async function runShell(
   const completed = await Promise.race([
     exitP.then(() => true),
     new Promise<boolean>((r) => {
-      timer = setTimeout(() => r(false), Math.min(waitforSec, maxWaitfor) * 1000);
+      timer = setTimeout(
+        () => r(false),
+        Math.min(waitforSec, maxWaitfor) * 1000,
+      );
     }),
   ]);
   signal?.removeEventListener("abort", onAbort);
@@ -249,7 +277,11 @@ export async function runShell(
     try {
       content = (await readFile(logPath)).toString("utf8"); // monitor flushed before sending exit
     } catch {}
-    const { text, fullOutputPath } = await buildOutputText(content, { logPath, truncation, tunables });
+    const { text, fullOutputPath } = await buildOutputText(content, {
+      logPath,
+      truncation,
+      tunables,
+    });
     if (!fullOutputPath) await rm(logPath, { force: true }).catch(() => {});
     return { id: null, status: "completed", exitCode, text, fullOutputPath };
   }
@@ -257,20 +289,36 @@ export async function runShell(
   bg.set(id, entry);
   if (sessDir && sessScope)
     void client.bindResume().then((sp) => {
-      if (sp && bg.has(id)) void writeResumeRecord(sessDir, sessScope, id, sp, command, logPath, describe);
+      if (sp && bg.has(id))
+        void writeResumeRecord(
+          sessDir,
+          sessScope,
+          id,
+          sp,
+          command,
+          logPath,
+          describe,
+        );
     });
-  const { text } = await buildOutputText(entry.acc, { logPath, truncation, tunables });
+  const { text } = await buildOutputText(entry.acc, {
+    logPath,
+    truncation,
+    tunables,
+  });
   return {
     id,
     status: "running",
     exitCode: null,
     text,
     fullOutputPath: logPath,
-    cursor: { line: entry.linesEmitted + 1, column: entry.colBytes, bytes: entry.bytesEmitted },
+    cursor: {
+      line: entry.linesEmitted + 1,
+      column: entry.colBytes,
+      bytes: entry.bytesEmitted,
+    },
   };
 }
 
-/** Complete a tracked background shell: notify (or marker if owner away), then clean up. */
 function completeBackground(entry: BackgroundChild, exitCode: number): void {
   if (entry.done) return;
   entry.done = true;
@@ -304,7 +352,8 @@ function stopBackground(entry: BackgroundChild): boolean {
   entry.acc += entry.decoder.end();
   const { id, command, client, logPath, sessDir, sessScope } = entry;
   if (!bg.has(id)) return true;
-  if (entry.sessScope === currentScope) completionHook?.(id, command, -1, "stopped", { path: logPath });
+  if (entry.sessScope === currentScope)
+    completionHook?.(id, command, -1, "stopped", { path: logPath });
   bg.delete(id);
   client.close();
   // supervisor connection dropped → the resume socket is gone too; drop the stale record
@@ -328,20 +377,17 @@ export const silenceChild = (id: string): boolean => {
 };
 
 /**
- * Release a background PID to run on its own: disconnect pi from the supervisor
- * without signalling the child. The child + sh-monitor keep running (detached),
- * output keeps draining to the log file, no completion notification fires, and
- * killAll/session-shutdown will not touch it. pi releases its own pipe/socket
- * handles (orphan) so its libuv event loop can idle and `pi --print` can exit;
- * the child + sh-monitor survive and keep draining to the log. Returns the detached
- * child's log path, or
- * `null` if the id is not active.
+ * Release a background PID to run on its own: disconnect without signalling,
+ * no completion notification, killAll/session-shutdown won't touch it. Orphan
+ * pi's pipe handles so its libuv loop can idle and `pi --print` can exit.
+ * Returns the log path, or null if the id is not active.
  */
 export const detachChild = (id: string): string | null => {
   const e = bg.get(id);
   if (!e || e.done || e.sessScope !== currentScope) return null;
   e.signaled = true; // suppress any in-flight completion hook
-  if (e.sessDir && e.sessScope) void removeResumeRecord(e.sessDir, e.sessScope, id);
+  if (e.sessDir && e.sessScope)
+    void removeResumeRecord(e.sessDir, e.sessScope, id);
   e.client.orphan();
   bg.delete(id);
   return e.logPath;
@@ -350,13 +396,18 @@ export const detachChild = (id: string): string | null => {
 export const getBackgroundCount = (): number =>
   [...bg.values()].filter((e) => e.sessScope === currentScope).length;
 export const hasActiveBackground = (): boolean =>
-  [...bg.values()].some((e) => !e.done && e.sessScope === currentScope) || hasActiveRepeats();
+  [...bg.values()].some((e) => !e.done && e.sessScope === currentScope) ||
+  hasActiveRepeats();
 
 export const getShellBackgrounds = () =>
-  [...bg.values()].filter((e) => e.sessScope === currentScope).map((e) => ({ id: e.id, describe: e.describe }));
+  [...bg.values()]
+    .filter((e) => e.sessScope === currentScope)
+    .map((e) => ({ id: e.id, describe: e.describe }));
 
 export const getActiveBackgrounds = () => [
-  ...[...bg.values()].filter((e) => e.sessScope === currentScope).map((e) => ({ id: e.id, describe: e.describe })),
+  ...[...bg.values()]
+    .filter((e) => e.sessScope === currentScope)
+    .map((e) => ({ id: e.id, describe: e.describe })),
   ...getActiveRepeats(),
 ];
 
@@ -364,23 +415,19 @@ export function killAll(): void {
   for (const e of bg.values()) {
     if (e.sessScope !== currentScope || e.done) continue;
     e.done = true;
-    e.client.kill("SIGKILL"); // fire-and-forget signal + destroy socket
+    e.client.kill("SIGKILL");
     bg.delete(e.id);
-    if (e.sessDir && e.sessScope) void removeResumeRecord(e.sessDir, e.sessScope, e.id);
+    if (e.sessDir && e.sessScope)
+      void removeResumeRecord(e.sessDir, e.sessScope, e.id);
   }
   killAllRepeats();
 }
 
 /**
- * Re-establish a conversation's backgrounded shells after a pi restart/reload.
- * `scope` is the conversation session id; only that conversation's resume
- * records (`<sessionDir>/sh-mon/<scope>/`) are read, so concurrent agents in
- * the same cwd never cross-read each other's records. Each still-living record
- * is re-attached as a full background entry (listable, signalable, detachable),
- * reusing the same completion path as in-process shells — so an off-screen
- * completion still notifies the owner (or records a marker if they're away).
- * A record whose socket is gone is stale (shell completed or supervisor died):
- * remove it silently — cleanup, not a shell event.
+ * Re-attach a conversation's backgrounded shells after a pi restart/reload.
+ * Records are scoped by conversation id, so concurrent agents in the same
+ * cwd never cross-read each other's. A record whose socket is gone is stale
+ * (shell completed or supervisor died): remove it silently.
  */
 export async function resumeBackgroundShells(
   sessionDir: string | undefined,
@@ -393,7 +440,9 @@ export async function resumeBackgroundShells(
     try {
       await Promise.race([
         c.whenReady,
-        new Promise<void>((_, rej) => setTimeout(() => rej(new Error("resume connect timeout")), 2000)),
+        new Promise<void>((_, rej) =>
+          setTimeout(() => rej(new Error("resume connect timeout")), 2000),
+        ),
       ]);
     } catch {
       c.close();

@@ -36,7 +36,12 @@ export interface FormatDiagnosticsOptions {
 /** Explicit limit on rendered diagnostics (design §13). */
 export const DIAGNOSTICS_FORMAT_MAX = 200;
 
-const SEVERITIES: ReadonlySet<DiagnosticSeverity> = new Set(["error", "warning", "hint", "info"]);
+const SEVERITIES: ReadonlySet<DiagnosticSeverity> = new Set([
+  "error",
+  "warning",
+  "hint",
+  "info",
+]);
 
 function assertDiag(d: Diagnostic, i: number): void {
   if (
@@ -88,6 +93,7 @@ export function formatDiagnostics(
     if (d.file) line += `  (${d.file})`;
     lines.push(line);
   }
-  if (diags.length > max) lines.push(`…and ${diags.length - max} more (capped at ${max})`);
+  if (diags.length > max)
+    lines.push(`…and ${diags.length - max} more (capped at ${max})`);
   return lines.join("\n");
 }

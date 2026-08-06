@@ -22,4 +22,6 @@ const compressed = zlib.brotliCompressSync(raw, {
   params: { [zlib.constants.BROTLI_PARAM_QUALITY]: 11 },
 });
 writeFileSync(path + ".br", compressed);
-console.log(`wrote ${path}.br (${compressed.length} bytes, ${Math.round((compressed.length / raw.length) * 100)}% of ${raw.length})`);
+console.log(
+  `wrote ${path}.br (${compressed.length} bytes, ${Math.round((compressed.length / raw.length) * 100)}% of ${raw.length})`,
+);

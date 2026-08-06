@@ -6,6 +6,11 @@
   "keywords": [
     "pi-package"
   ],
+  "scripts": {
+    "lint": "node scripts/comment-scan.mjs extensions scripts tools",
+    "format": "bun scripts/format.mjs --write",
+    "format:check": "bun scripts/format.mjs --check"
+  },
   "files": [
     "bin",
     "extensions",
@@ -30,14 +35,16 @@
     "smol-toml": "^1.6.1"
   },
   "peerDependencies": {
-    "@earendil-works/pi-coding-agent": ">=0.80.9",
-    "@earendil-works/pi-tui": ">=0.80.9",
+    "@earendil-works/pi-coding-agent": ">=0.83.0",
+    "@earendil-works/pi-tui": ">=0.83.0",
     "typebox": "*"
   },
   "devDependencies": {
-    "@earendil-works/pi-coding-agent": "0.80.9",
-    "@earendil-works/pi-tui": "0.80.9",
+    "@earendil-works/pi-coding-agent": "0.83.0",
+    "@earendil-works/pi-tui": "0.83.0",
     "@types/mustache": "^4.2.6",
-    "prettier": "^3"
+    "diff": "8.0.4",
+    "prettier": "^3",
+    "typescript": "~5.9"
   }
 }

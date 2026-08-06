@@ -8,7 +8,11 @@
  */
 
 import { extname } from "node:path";
-import { type Language, LANGUAGE_EXTENSIONS, LANGUAGE_MARKERS } from "./discover.ts";
+import {
+  type Language,
+  LANGUAGE_EXTENSIONS,
+  LANGUAGE_MARKERS,
+} from "./discover.ts";
 import { type LspConfig, loadLspConfig } from "../config.ts";
 
 /** Spawn directive: command + args (+ optional cwd override). */
@@ -55,7 +59,12 @@ function typescriptSpec(cfg: LspConfig): LspServerSpec {
     markers: LANGUAGE_MARKERS.typescript,
     languageId: (path) =>
       extname(path).toLowerCase() === ".tsx" ? "typescriptreact" : "typescript",
-    install: { method: "npm", package: ts.package, version: ts.version, tsVersion: ts.tsVersion },
+    install: {
+      method: "npm",
+      package: ts.package,
+      version: ts.version,
+      tsVersion: ts.tsVersion,
+    },
     binName: "typescript-language-server",
     serverCommand: (bin) => ({ cmd: bin, args: ["--stdio"] }),
     initOptions: { hostInfo: "cpi" },
@@ -128,7 +137,10 @@ function rubySpec(cfg: LspConfig): LspServerSpec {
 }
 
 /** Resolve the spec for one language, reading version pins from config. */
-export function getLspServerSpec(language: Language, cwd: string = process.cwd()): LspServerSpec {
+export function getLspServerSpec(
+  language: Language,
+  cwd: string = process.cwd(),
+): LspServerSpec {
   const cfg = loadLspConfig(cwd);
   switch (language) {
     case "typescript":
@@ -145,7 +157,9 @@ export function getLspServerSpec(language: Language, cwd: string = process.cwd()
 }
 
 /** Build specs for every language (for `lsp list_sessions` / enumeration). */
-export function loadAllLspSpecs(cwd: string = process.cwd()): Record<Language, LspServerSpec> {
+export function loadAllLspSpecs(
+  cwd: string = process.cwd(),
+): Record<Language, LspServerSpec> {
   const cfg = loadLspConfig(cwd);
   return {
     typescript: typescriptSpec(cfg),

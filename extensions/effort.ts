@@ -1,15 +1,6 @@
 /**
- * effort — `/effort` command to tune thinking effort.
- *
- * Thin wrapper around `pi.setThinkingLevel` / `pi.getThinkingLevel`. The
- * model registry clamps the requested level to model capabilities
- * (non-reasoning models force "off"); we detect that by comparing the
- * requested level against `getThinkingLevel()` after the call and surface it,
- * so a silent clamp never confuses the user.
- *
- * Usage:
- *   /effort            show current thinking level
- *   /effort <level>    set level (off|minimal|low|medium|high|xhigh)
+ * `/effort` — tune thinking effort; compares requested vs resulting level so
+ * a silent model clamp (non-reasoning → "off") never confuses the user.
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -40,7 +31,6 @@ export default function effortExtension(pi: ExtensionAPI): void {
     handler: async (args, ctx) => {
       const arg = args.trim().toLowerCase();
 
-      // No arg: report current level.
       if (!arg) {
         ctx.ui.notify(`Thinking effort: ${pi.getThinkingLevel()}`, "info");
         return;
@@ -59,12 +49,8 @@ export default function effortExtension(pi: ExtensionAPI): void {
       const after = pi.getThinkingLevel();
 
       if (after === arg) {
-        ctx.ui.notify(
-          `Thinking effort: ${before} → ${after}`,
-          "info",
-        );
+        ctx.ui.notify(`Thinking effort: ${before} → ${after}`, "info");
       } else {
-        // Model clamped the request (e.g. non-reasoning model → "off").
         ctx.ui.notify(
           `Requested "${arg}" but model supports "${after}".`,
           "warning",

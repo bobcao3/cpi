@@ -1,11 +1,6 @@
 /**
- * Paint a shell command with tree-sitter highlight captures for TUI display.
- *
- * Capture names (from the bash highlights.scm) map to the theme's `syntax*`
- * palette. Captures use UTF-8 byte offsets, so ranges are sliced from the
- * encoded bytes (not JS UTF-16 indices) — keeps non-ASCII commands correct.
- * Overlapping captures resolve last-wins (later, more-specific patterns
- * override earlier general ones, matching tree-sitter highlight convention).
+ * Captures carry UTF-8 byte offsets, so ranges slice the encoded bytes (not
+ * JS UTF-16 indices); overlapping captures resolve last-wins.
  */
 
 import type { Highlight } from "../lib/tree-sitter.ts";
@@ -17,8 +12,10 @@ interface ThemeLike {
 }
 
 function colorFor(capture: string): string | null {
-  if (capture === "comment" || capture === "keyword.directive") return "syntaxComment";
-  if (capture === "keyword" || capture.startsWith("keyword.")) return "syntaxKeyword";
+  if (capture === "comment" || capture === "keyword.directive")
+    return "syntaxComment";
+  if (capture === "keyword" || capture.startsWith("keyword."))
+    return "syntaxKeyword";
   switch (capture) {
     case "function":
     case "function.call":
@@ -82,23 +79,28 @@ export function highlightRange(
     let j = i;
     const col = colors[i];
     while (j < span && colors[j] === col) j++;
-    out += theme.fg(col ?? "text", dec.decode(bytes.subarray(startByte + i, startByte + j)));
+    out += theme.fg(
+      col ?? "text",
+      dec.decode(bytes.subarray(startByte + i, startByte + j)),
+    );
     i = j;
   }
   return out;
 }
 
-/** UTF-8 byte length of a string (capture offsets are byte-based). */
 export function byteLen(command: string): number {
   return new TextEncoder().encode(command).length;
 }
 
-/** Byte offsets of each line start and end (newline is 0x0a, never inside a
- *  UTF-8 multi-byte sequence, so scanning bytes is safe). */
-export function lineBounds(command: string): { starts: number[]; ends: number[] } {
+/** 0x0a never occurs inside a UTF-8 multi-byte sequence, so scanning bytes for line starts is safe. */
+export function lineBounds(command: string): {
+  starts: number[];
+  ends: number[];
+} {
   const bytes = new TextEncoder().encode(command);
   const starts = [0];
-  for (let i = 0; i < bytes.length; i++) if (bytes[i] === 0x0a) starts.push(i + 1);
+  for (let i = 0; i < bytes.length; i++)
+    if (bytes[i] === 0x0a) starts.push(i + 1);
   const ends = [...starts.slice(1), bytes.length];
   return { starts, ends };
 }

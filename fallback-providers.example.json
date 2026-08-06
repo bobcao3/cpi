@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft-07/schema",
-  "$comment": "Copy to ~/.pi/agent/fallback-providers.json (user) or .pi/fallback-providers.json (project). Project config overrides user config for matching provider keys; project fallbacks list replaces user's entirely.",
+  "$comment": "Copy to ~/.pi/agent/fallback-providers.json (user) or .pi/fallback-providers.json (project). Project config overrides user config for matching provider keys; project fallbacks list replaces user's entirely. Model stripping is configured with stripModels.",
   "providers": {
     "my-custom-llm": {
       "name": "My Custom LLM",
@@ -51,6 +51,18 @@
       "provider": "huggingface",
       "env": ["HF_TOKEN"],
       "match": "any"
+    }
+  ],
+  "stripModels": [
+    {
+      "model": "(?:^|[./])gpt-5\\.[345](?:$|[-:])",
+      "whenAvailable": "(?:^|[./])gpt-5\\.6(?:$|[-:])",
+      "$comment": "Strip GPT-5.3, GPT-5.4, and GPT-5.5 when GPT-5.6 is available. provider is an optional regex; set stripModels: [] to disable shipped defaults."
+    },
+    {
+      "model": "(?:^|[./])deepseek-v4-pro(?:$|:)",
+      "whenAvailable": "(?:^|[./])deepseek-v4-flash(?:$|:)",
+      "$comment": "Strip DeepSeek V4 Pro when V4 Flash is available from the same provider."
     }
   ],
   "failover": {

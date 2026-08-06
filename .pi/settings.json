@@ -1,6 +1,3 @@
 {
-  "packages": [
-    "..",
-    "./backup-exec.ts"
-  ]
+  "packages": ["..", "./backup-exec.ts"]
 }

@@ -30,13 +30,18 @@ export interface CostReport {
 }
 
 const WIRE_PREFIX = "cpi-cost";
-const WIRE_RE = /cpi-cost\s+in=(\d+)\s+out=(\d+)\s+cost=\$?([0-9]+(?:\.[0-9]+)?)/;
+const WIRE_RE =
+  /cpi-cost\s+in=(\d+)\s+out=(\d+)\s+cost=\$?([0-9]+(?:\.[0-9]+)?)/;
 
 /** Parse one wire line; undefined if it doesn't match. */
 export function parseCostReport(line: string): CostReport | undefined {
   const m = line.match(WIRE_RE);
   if (!m) return undefined;
-  return { input: parseInt(m[1], 10), output: parseInt(m[2], 10), cost: parseFloat(m[3]) };
+  return {
+    input: parseInt(m[1], 10),
+    output: parseInt(m[2], 10),
+    cost: parseFloat(m[3]),
+  };
 }
 
 /** Render one wire line. */
@@ -49,7 +54,10 @@ export function renderCostReport(r: CostReport): string {
  * called per completed child connection with the parsed subtree report. Returns
  * the socket path + a close() that shuts the server and unlinks the temp dir.
  */
-export function createCostSocket(onReport: (r: CostReport) => void): { path: string; close: () => void } {
+export function createCostSocket(onReport: (r: CostReport) => void): {
+  path: string;
+  close: () => void;
+} {
   const dir = mkdtempSync(join(tmpdir(), "cpi-cost-"));
   const path = join(dir, "sock");
   const server: Server = createServer((sock: Socket) => {
@@ -90,7 +98,11 @@ export function createCostSocket(onReport: (r: CostReport) => void): { path: str
  * Best-effort send of a subtree report to the parent's socket. Resolves on
  * delivery, timeout, or error (never rejects) — cost tracking is diagnostic.
  */
-export function sendCostReport(parentSocket: string, r: CostReport, timeoutMs = 1000): Promise<void> {
+export function sendCostReport(
+  parentSocket: string,
+  r: CostReport,
+  timeoutMs = 1000,
+): Promise<void> {
   return new Promise((resolve) => {
     let done = false;
     let sock: Socket | undefined;

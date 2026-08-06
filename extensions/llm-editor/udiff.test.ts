@@ -176,7 +176,9 @@ describe("udiff application", () => {
   test("fuzzes an outer context row only where the boundary is recognizable", () => {
     const object = '{\n  "bin": {\n    "a": "x"\n  },\n  "z": 1\n}\n';
     expect(
-      output(object, ['@@ -2,3 +2,3 @@\n   "bin": {\n-    "a": "x"\n+    "a": "y"\n   }']),
+      output(object, [
+        '@@ -2,3 +2,3 @@\n   "bin": {\n-    "a": "x"\n+    "a": "y"\n   }',
+      ]),
     ).toBe('{\n  "bin": {\n    "a": "y"\n  },\n  "z": 1\n}\n');
     const fenced = "intro\n\ntext\n\ntail\n";
     expect(
@@ -186,9 +188,9 @@ describe("udiff application", () => {
 
   test("never fuzzes away a change row", () => {
     // Trimming may only drop context, so a wrong `-` row stays unplaceable.
-    expect(apply("a\nb\nc\n", ["@@ -1,3 +1,3 @@\n a\n-WRONG\n+B\n c"])).toMatchObject(
-      { ok: false, error: { code: "not_found" } },
-    );
+    expect(
+      apply("a\nb\nc\n", ["@@ -1,3 +1,3 @@\n a\n-WRONG\n+B\n c"]),
+    ).toMatchObject({ ok: false, error: { code: "not_found" } });
     expect(
       apply("a\nb\nc\nd\n", ["@@ -1,4 +1,4 @@\n a\n b\n-WRONG\n+D"]),
     ).toMatchObject({ ok: false, error: { code: "not_found" } });
@@ -244,8 +246,10 @@ describe("udiff application", () => {
 
   test("bounds pathological matching work", () => {
     const source = Array(40_000).fill("a").join("\n") + "\n";
-    const diff = "@@ -1,200 +1,200 @@\n" +
-      Array(199).fill(" a").join("\n") + "\n-nowhere\n+A";
+    const diff =
+      "@@ -1,200 +1,200 @@\n" +
+      Array(199).fill(" a").join("\n") +
+      "\n-nowhere\n+A";
     expect(apply(source, [diff])).toMatchObject({
       ok: false,
       error: { code: "work_limit" },

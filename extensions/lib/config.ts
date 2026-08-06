@@ -1,67 +1,27 @@
 /**
- * Shared cpi configuration loader.
- *
- * Reads from three JSON files, deep-merged at load time (later layers win):
- *
- *   cpi-config.default.json       (shipped defaults — the documented base)
- *   ~/.pi/agent/cpi-config.json   (user-level, all projects)
- *   <cwd>/.pi/cpi-config.json     (project-level, overrides user)
- *
- * The merge is a recursive deep merge: for each key in both objects, if both
- * values are plain objects they are merged recursively; otherwise the project
- * value replaces the user value. Arrays are replaced wholesale (project wins).
- *
- * Each extension imports {@link loadCpiConfig} and reads its own section,
- * falling back to the shipped default config for any missing field. This keeps
- * extensions decoupled — they only know about their own config shape.
- *
- * Why a separate file (not pi's settings.json)?
- *   - pi's settings.json schema is owned by the pi framework; unknown keys
- *     may be rejected or silently dropped in future versions.
- *   - The provider-fallback extension already established the separate-file
- *     pattern (fallback-providers.json), so cpi-config.json is consistent.
- *   - Extensions load before pi's settings system is fully resolved in some
- *     code paths (e.g. provider registration in the factory body), so a
- *     standalone file read is more reliable.
+ * Shared cpi configuration loader: deep-merges three JSON files at load time
+ * (later wins): cpi-config.default.json, ~/.pi/agent/cpi-config.json,
+ * <cwd>/.pi/cpi-config.json. Plain objects merge recursively; arrays are
+ * replaced wholesale. A separate file, not pi's settings.json: that schema is
+ * pi-owned and extensions load before it resolves.
  */
 
-import { readFileSync, existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-// ── types ────────────────────────────────────────────────────────────────────
-
 export interface ShellConfig {
-  /** Shell executable to use (`auto` follows `$SHELL`; otherwise a command/path is used). */
+  /** Shell executable to use (`auto` follows `$SHELL`; otherwise a command/path). */
   executable: string;
-  /** Seconds to wait before backgrounding a command (default: 5). */
   defaultWaitfor: number;
-  /** Maximum allowed waitfor value; larger values error (default: 30). */
   maxWaitfor: number;
-  /**
-   * Maximum lines of agent-facing command output kept by the tail preview (default:
-   * 500). Independent of the TUI's folded preview (tailLines).
-   */
+  /** Agent-facing tail-preview lines (default 500); independent of the TUI's folded preview. */
   maxPreviewLines: number;
-  /** Maximum bytes of agent-facing output kept by the tail preview (default: 32768). */
   previewMaxBytes: number;
-  /** Max bytes accumulated in memory per shell before trimming (default: 4194304). */
   maxAcc: number;
-  /** Minimum ms between streaming partial updates; 0 disables throttling (default: 200). */
   updateMs: number;
-  /** TUI folded-preview line count, independent of agent output truncation (default: 5). */
   tailLines: number;
-  /** Max chars of the `describe` summary shown in the UI (default: 48). */
   describeMax: number;
-}
-
-export interface CavemanConfig {
-  /** Appended to the system prompt each turn when caveman is enabled. */
-  system_prompt: string;
-  /** User message injected when caveman is toggled ON mid-conversation. */
-  mid_convo_nudge_positive: string;
-  /** User message injected when caveman is toggled OFF mid-conversation. */
-  mid_convo_nudge_negative: string;
 }
 
 export interface EditorChainRule {
@@ -72,41 +32,33 @@ export interface EditorChainRule {
 }
 
 export interface EditorConfig {
-  /** Model id for the Viewer/Editor subagents (e.g. "claude-sonnet-4-5-20250929"). Omit to derive from the main model. */
+  /** Editor subagent model id; omit to derive from the main model. */
   model?: string;
-  /** Provider for the editor model; inferred from the model id when absent. */
   provider?: string;
-  /** Max file size (bytes) read/edited before refusing (default 262144). */
   maxFileBytes?: number;
-  /** Hard kill timeout for a subagent pi call, in ms (default 120000). */
   subagentTimeoutMs?: number;
-  /** Directory for persisted subagent transcripts (default ~/.pi/agent/cpi-editor). */
   transcriptDir?: string;
-  /** Max transcript files retained; oldest rotated (default 200). */
   maxTranscripts?: number;
-  /** Unified-hunk whitespace fallback (trailing whitespace, uniform indentation, and `...` elision) when anchored exact matching misses. Default true. */
+  /** Whitespace/elision fallback (trailing whitespace, uniform indentation, `...` elision) when anchored exact matching misses. Default true. */
   fuzzyMatch?: boolean;
-  /** Ordered {search,replace} rules producing candidate editor model ids from the main model id. Shipped defaults are a cost+recency ladder: a ≤0.6x-cost (primary ~0.2x) model that is also ≤6 months old, then a fallback, then implicit identity (fall-through = "if not available"). Stale/retired models are never targets. The GPT-5.x non-mini family keeps the main model and drops thinking effort to `low` instead of swapping to a cheaper model. */
+  /** Ordered {search,replace} rules deriving candidate editor model ids; fall-through = keep the main model. */
   chain?: EditorChainRule[];
 }
 
 export interface ResolvedEditorConfig {
-  /** Model id for the Viewer/Editor subagents; undefined when derived from the main model. */
   model?: string;
-  /** Provider for the editor model; inferred from the model id when absent. */
   provider?: string;
-  /** Max file size (bytes) read/edited before refusing. Always set by loadEditorConfig. */
   maxFileBytes: number;
-  /** Hard kill timeout for a subagent pi call, in ms. Always set by loadEditorConfig. */
   subagentTimeoutMs: number;
-  /** Directory for persisted subagent transcripts. Always set by loadEditorConfig ("" if unset). */
   transcriptDir: string;
-  /** Max transcript files retained; oldest rotated. Always set by loadEditorConfig. */
   maxTranscripts: number;
-  /** Unified-hunk whitespace/elision fallback. Always set by loadEditorConfig. */
   fuzzyMatch: boolean;
-  /** Ordered {search,replace} rules producing candidate editor model ids. Always set (possibly empty). */
   chain: EditorChainRule[];
+}
+
+export interface FastConfig {
+  providers: string[];
+  models: string[];
 }
 
 export interface LspTypescriptServerConfig {
@@ -144,26 +96,21 @@ export interface LspConfig {
 }
 export interface CpiConfig {
   shell?: ShellConfig;
-  caveman?: CavemanConfig;
   editor?: EditorConfig;
+  fast?: FastConfig;
   lsp?: LspConfig;
   // Future extensions add their sections here.
 }
 
-// ── defaults ─────────────────────────────────────────────────────────────────
-
 let defaultCache: CpiConfig | null = null;
 
-/**
- * Load the shipped default config (`cpi-config.default.json`, resolved relative
- * to this module). This is the documented base layer that user/project configs
- * deep-merge over. Cached after first read. Throws if missing or invalid — it
- * ships with the package, so absence is a packaging error worth surfacing rather
- * than silently degrading every extension that reads config.
- */
+/** Shipped defaults, cached after first read. Throws if missing/invalid —
+ *  absence is a packaging error; silent degradation would hide it. */
 export function loadDefaultConfig(): CpiConfig {
   if (defaultCache) return defaultCache;
-  const path = fileURLToPath(new URL("../../cpi-config.default.json", import.meta.url));
+  const path = fileURLToPath(
+    new URL("../../cpi-config.default.json", import.meta.url),
+  );
   const raw = loadConfigFile(path);
   if (!raw) {
     throw new Error(
@@ -173,8 +120,6 @@ export function loadDefaultConfig(): CpiConfig {
   defaultCache = raw as unknown as CpiConfig;
   return defaultCache;
 }
-
-// ── loading & merging ────────────────────────────────────────────────────────
 
 function loadConfigFile(path: string): Record<string, unknown> | null {
   if (!existsSync(path)) return null;
@@ -187,20 +132,19 @@ function loadConfigFile(path: string): Record<string, unknown> | null {
   }
 }
 
-/**
- * Recursive deep merge. For each key present in both `user` and `project`:
- *  - If both values are plain objects, merge them recursively.
- *  - Otherwise, project's value replaces user's.
- * Returns a new object; inputs are not mutated.
- */
+// Returns a new object; inputs are not mutated.
 export function deepMerge<T>(user: T, project: Partial<T> | undefined): T {
   if (project === undefined) return user;
   if (typeof user !== "object" || user === null) return project as T;
   if (typeof project !== "object" || project === null) return project as T;
   if (Array.isArray(user) || Array.isArray(project)) return project as T;
 
-  const merged: Record<string, unknown> = { ...(user as Record<string, unknown>) };
-  for (const [key, projectVal] of Object.entries(project as Record<string, unknown>)) {
+  const merged: Record<string, unknown> = {
+    ...(user as Record<string, unknown>),
+  };
+  for (const [key, projectVal] of Object.entries(
+    project as Record<string, unknown>,
+  )) {
     const userVal = (user as Record<string, unknown>)[key];
     if (
       userVal !== undefined &&
@@ -219,30 +163,30 @@ export function deepMerge<T>(user: T, project: Partial<T> | undefined): T {
   return merged as T;
 }
 
-/**
- * Load the full cpi config: user-level + project-level cpi-config.json, deep
- * merged, then defaults merged underneath so missing fields fall back.
- */
 export function loadCpiConfig(cwd: string = process.cwd()): CpiConfig {
-  const userPath = join(process.env.HOME ?? "", ".pi", "agent", "cpi-config.json");
+  const userPath = join(
+    process.env.HOME ?? "",
+    ".pi",
+    "agent",
+    "cpi-config.json",
+  );
   const projectPath = join(cwd, ".pi", "cpi-config.json");
 
   const user = loadConfigFile(userPath);
   const project = loadConfigFile(projectPath);
 
-  // Deep-merge user + project, then merge the shipped defaults under the
-  // result so any missing fields fall back to cpi-config.default.json.
   const merged = deepMerge(user ?? {}, project ?? {});
   const config = deepMerge(loadDefaultConfig(), merged);
 
   return config;
 }
 
-/**
- * Load and validate the shell section of the config.
- * Ensures numeric fields are sane and clamped to reasonable ranges.
- */
-function intInRange(v: unknown, fallback: number, min: number, max: number): number {
+function intInRange(
+  v: unknown,
+  fallback: number,
+  min: number,
+  max: number,
+): number {
   const n = Number(v);
   return Number.isInteger(n) && n >= min && n <= max ? n : fallback;
 }
@@ -257,10 +201,18 @@ export function loadShellConfig(cwd: string = process.cwd()): ShellConfig {
   return {
     executable: str(s.executable) || str(d.executable) || "auto",
     defaultWaitfor:
-      Number.isFinite(defaultWaitfor) && defaultWaitfor > 0 ? defaultWaitfor : d.defaultWaitfor,
-    maxWaitfor: Number.isFinite(maxWaitfor) && maxWaitfor > 0 ? maxWaitfor : d.maxWaitfor,
+      Number.isFinite(defaultWaitfor) && defaultWaitfor > 0
+        ? defaultWaitfor
+        : d.defaultWaitfor,
+    maxWaitfor:
+      Number.isFinite(maxWaitfor) && maxWaitfor > 0 ? maxWaitfor : d.maxWaitfor,
     maxPreviewLines: intInRange(s.maxPreviewLines, d.maxPreviewLines, 1, 10000),
-    previewMaxBytes: intInRange(s.previewMaxBytes, d.previewMaxBytes, 1024, 1048576),
+    previewMaxBytes: intInRange(
+      s.previewMaxBytes,
+      d.previewMaxBytes,
+      1024,
+      1048576,
+    ),
     maxAcc: intInRange(s.maxAcc, d.maxAcc, 65536, 67108864),
     updateMs: intInRange(s.updateMs, d.updateMs, 0, 60000),
     tailLines: intInRange(s.tailLines, d.tailLines, 1, 200),
@@ -268,37 +220,17 @@ export function loadShellConfig(cwd: string = process.cwd()): ShellConfig {
   };
 }
 
-/** Coerce a config value to a string, defaulting to "" when absent/non-string. */
 function str(value: unknown): string {
   return typeof value === "string" ? value : "";
 }
 
-/** Coerce a config value to a boolean, defaulting to `fallback` when absent/non-boolean. */
 function bool(value: unknown, fallback: boolean): boolean {
   return typeof value === "boolean" ? value : fallback;
 }
 
-/**
- * Load the caveman section: the default config's `caveman` deep-merged with the
- * user/project `caveman` config, with each string field coerced to a string
- * ("" if missing or non-string). Cheap file read; callers may invoke per-turn
- * without caching.
- */
-export function loadCavemanConfig(cwd: string = process.cwd()): CavemanConfig {
-  const config = loadCpiConfig(cwd);
-  const merged = deepMerge(loadDefaultConfig().caveman!, config.caveman);
-  return {
-    system_prompt: str(merged.system_prompt),
-    mid_convo_nudge_positive: str(merged.mid_convo_nudge_positive),
-    mid_convo_nudge_negative: str(merged.mid_convo_nudge_negative),
-  };
-}
-
-/**
- * Load and validate the editor section. Defaults from cpi-config.default.json
- * deep-merged under the user/project `editor` config; numeric fields clamped.
- */
-export function loadEditorConfig(cwd: string = process.cwd()): ResolvedEditorConfig {
+export function loadEditorConfig(
+  cwd: string = process.cwd(),
+): ResolvedEditorConfig {
   const config = loadCpiConfig(cwd);
   const d = loadDefaultConfig().editor ?? {};
   const e = deepMerge(d, config.editor ?? {}) as ResolvedEditorConfig;
@@ -307,28 +239,34 @@ export function loadEditorConfig(cwd: string = process.cwd()): ResolvedEditorCon
   const maxTranscripts = Number(e.maxTranscripts);
   const chain: EditorChainRule[] = Array.isArray(e.chain)
     ? e.chain
-        .filter((r) => r && typeof r.search === "string" && typeof r.replace === "string")
-        .map((r) => ({ search: r.search as string, replace: r.replace as string }))
+        .filter(
+          (r) =>
+            r && typeof r.search === "string" && typeof r.replace === "string",
+        )
+        .map((r) => ({
+          search: r.search as string,
+          replace: r.replace as string,
+        }))
     : [];
   return {
     model: typeof e.model === "string" ? e.model : undefined,
     provider: typeof e.provider === "string" ? e.provider : undefined,
-    maxFileBytes: Number.isFinite(maxFileBytes) && maxFileBytes > 0 ? maxFileBytes : 262144,
+    maxFileBytes:
+      Number.isFinite(maxFileBytes) && maxFileBytes > 0 ? maxFileBytes : 262144,
     subagentTimeoutMs:
-      Number.isFinite(subagentTimeoutMs) && subagentTimeoutMs > 0 ? subagentTimeoutMs : 120000,
+      Number.isFinite(subagentTimeoutMs) && subagentTimeoutMs > 0
+        ? subagentTimeoutMs
+        : 120000,
     transcriptDir: typeof e.transcriptDir === "string" ? e.transcriptDir : "",
-    maxTranscripts: Number.isFinite(maxTranscripts) && maxTranscripts > 0 ? maxTranscripts : 200,
+    maxTranscripts:
+      Number.isFinite(maxTranscripts) && maxTranscripts > 0
+        ? maxTranscripts
+        : 200,
     fuzzyMatch: bool(e.fuzzyMatch, true),
     chain,
   };
 }
 
-/**
- * Load and validate the lsp section (design §11). Defaults from
- * cpi-config.default.json deep-merged under the user/project `lsp` config;
- * numeric fields clamped via {@link intInRange}, string pins coerced via
- * {@link str} (defaulting to the shipped pin when absent).
- */
 export function loadLspConfig(cwd: string = process.cwd()): LspConfig {
   const config = loadCpiConfig(cwd);
   const d = loadDefaultConfig().lsp!;
@@ -342,10 +280,30 @@ export function loadLspConfig(cwd: string = process.cwd()): LspConfig {
   const ms = merged.servers?.shell;
   const mu = merged.tools?.uv;
   return {
-    startupTimeoutMs: intInRange(merged.startupTimeoutMs, d.startupTimeoutMs, 1000, 300000),
-    lintTimeoutMs: intInRange(merged.lintTimeoutMs, d.lintTimeoutMs, 500, 120000),
-    installTimeoutMs: intInRange(merged.installTimeoutMs, d.installTimeoutMs, 1000, 600000),
-    discoveryMaxDepth: intInRange(merged.discoveryMaxDepth, d.discoveryMaxDepth, 1, 256),
+    startupTimeoutMs: intInRange(
+      merged.startupTimeoutMs,
+      d.startupTimeoutMs,
+      1000,
+      300000,
+    ),
+    lintTimeoutMs: intInRange(
+      merged.lintTimeoutMs,
+      d.lintTimeoutMs,
+      500,
+      120000,
+    ),
+    installTimeoutMs: intInRange(
+      merged.installTimeoutMs,
+      d.installTimeoutMs,
+      1000,
+      600000,
+    ),
+    discoveryMaxDepth: intInRange(
+      merged.discoveryMaxDepth,
+      d.discoveryMaxDepth,
+      1,
+      256,
+    ),
     servers: {
       typescript: {
         package: str(mt?.package) || dt.package,

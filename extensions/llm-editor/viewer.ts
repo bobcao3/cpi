@@ -1,13 +1,8 @@
 /**
- * `view` on a file: delegate to the Viewer subagent.
- *
- * Reads the file, sends it (numbered, 1-indexed `LINE<TAB>CONTENT`) + the
- * natural-language query to the Viewer subagent, which returns the relevant
- * line ranges as the ARGUMENTS of a single `view-complete` tool call (read back
- * from the $PI_SUBAGENT_COMPLETION handoff file by runSubagent). Renders only
- * those ranges (with line numbers). Mirrors SWE-Edit's Viewer (§3.1):
- * query-conditioned snippet extraction beats raw dumps and classical retrieval
- * on recall + context. All prose lives in text.toml; this module holds logic.
+ * `view` on a file: delegate to the Viewer subagent. Mirrors SWE-Edit §3.1 —
+ * query-conditioned snippet extraction beats raw dumps on recall + context.
+ * The `view-complete` ranges arg is read back from the $PI_SUBAGENT_COMPLETION
+ * handoff file by runSubagent.
  */
 
 import { readFile, stat } from "node:fs/promises";
@@ -31,11 +26,7 @@ export interface ViewFileOptions {
   thinkingLevel?: string;
 }
 
-/** Normalize the view-complete tool's already-parsed `ranges` arg into validated
- *  [start, end] pairs. Each element may be either a `{"start", "end"}` object
- *  (schema form) or a legacy `[start, end]` tuple (defensive fallback).
- *  Non-array => null (caller reports bad output); invalid elements are dropped;
- *  an empty result is a legitimate "no ranges". */
+/** Validate the view-complete `ranges` arg into [start, end] pairs; invalid elements are dropped, non-array is bad output, empty is legitimate. */
 function normalizeRanges(raw: unknown): number[][] | null {
   if (!Array.isArray(raw)) return null;
   const ranges: number[][] = [];
@@ -50,20 +41,26 @@ function normalizeRanges(raw: unknown): number[][] | null {
       s = Number(o.start);
       e = Number(o.end);
     }
-    if (!Number.isInteger(s) || !Number.isInteger(e) || s < 1 || e < s) continue;
+    if (!Number.isInteger(s) || !Number.isInteger(e) || s < 1 || e < s)
+      continue;
     ranges.push([s, e]);
   }
   return ranges;
 }
 
-export function renderRanges(lines: string[], ranges: number[][], linesOmitted: string): string {
+export function renderRanges(
+  lines: string[],
+  ranges: number[][],
+  linesOmitted: string,
+): string {
   const out: string[] = [];
   let lastEnd = 0;
   for (const [s, e] of ranges) {
     const start = Math.max(1, s);
     const end = Math.min(lines.length, e);
     if (end < start) continue;
-    if (lastEnd && start > lastEnd + 1) out.push(fmt(linesOmitted, { n: start - lastEnd - 1 }));
+    if (lastEnd && start > lastEnd + 1)
+      out.push(fmt(linesOmitted, { n: start - lastEnd - 1 }));
     for (let i = start - 1; i < end; i++) out.push(`${i + 1}|${lines[i]}`);
     lastEnd = end;
   }
@@ -73,23 +70,35 @@ export function renderRanges(lines: string[], ranges: number[][], linesOmitted: 
 export async function viewFile(
   path: string,
   opts: ViewFileOptions,
-): Promise<{ text: string; error?: string; usage?: { input: number; output: number } }> {
+): Promise<{
+  text: string;
+  error?: string;
+  usage?: { input: number; output: number };
+}> {
   const T = loadEditorText(opts.cwd);
   const abs = resolve(opts.cwd, path);
   let content: string;
   try {
     const st = await stat(abs);
-    if (!st.isFile()) return { text: "", error: fmt(T.errors.not_a_file, { path: abs }) };
+    if (!st.isFile())
+      return { text: "", error: fmt(T.errors.not_a_file, { path: abs }) };
     if (st.size > opts.maxFileBytes)
       return {
         text: "",
-        error: fmt(T.errors.file_too_large, { size: st.size, limit: opts.maxFileBytes, path: abs }),
+        error: fmt(T.errors.file_too_large, {
+          size: st.size,
+          limit: opts.maxFileBytes,
+          path: abs,
+        }),
       };
     content = await readFile(abs, "utf-8");
   } catch (err) {
     return {
       text: "",
-      error: fmt(T.errors.cannot_read, { path: abs, reason: (err as Error).message }),
+      error: fmt(T.errors.cannot_read, {
+        path: abs,
+        reason: (err as Error).message,
+      }),
     };
   }
 
@@ -113,9 +122,15 @@ export async function viewFile(
   });
 
   if (res.spawnError)
-    return { text: "", error: fmt(T.errors.spawn_not_found, { reason: res.spawnError }) };
+    return {
+      text: "",
+      error: fmt(T.errors.spawn_not_found, { reason: res.spawnError }),
+    };
   if (res.timedOut)
-    return { text: "", error: fmt(T.errors.viewer_timeout, { ms: opts.timeoutMs }) };
+    return {
+      text: "",
+      error: fmt(T.errors.viewer_timeout, { ms: opts.timeoutMs }),
+    };
   // The view-complete tool call IS the signal: missing/wrong tool => truncation.
   const c = res.completion;
   if (!c || c.tool !== "view-complete") {
@@ -125,7 +140,9 @@ export async function viewFile(
   if (!ranges) {
     return {
       text: "",
-      error: fmt(T.errors.viewer_bad_output, { tail: JSON.stringify(c.args).slice(0, 400) }),
+      error: fmt(T.errors.viewer_bad_output, {
+        tail: JSON.stringify(c.args).slice(0, 400),
+      }),
     };
   }
   if (ranges.length === 0) return { text: T.messages.view_no_ranges };

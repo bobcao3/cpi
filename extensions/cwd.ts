@@ -1,31 +1,11 @@
 /**
- * CWD extension
+ * Keeps the model oriented to the working directory: set_cwd chdir()s and
+ * queues a <system-reminder> after the tool result; at each 25% context
+ * boundary a reminder lands before the next user turn.
  *
- * Keeps the model oriented to the working directory as context grows and as
- * it moves between trees:
- *
- *   - Registers a `set_cwd` tool. Executing it `setCwd()`s (process.chdir)
- *     to the target and queues a `<system-reminder>` of the new CWD to land
- *     right after the tool result, before the next LLM call (deliverAs
- *     "afterToolResult").
- *   - Tracks context-window usage; each time usage crosses a 25% boundary
- *     (25 / 50 / 75) it queues a `<system-reminder>` of the current CWD to
- *     land before the next user interaction (deliverAs "beforeUser").
- *
- * Both reminders go through the shared prepend-message queue
- * (lib/prepend-message.ts `queueMessage`), exercising its two drain points.
- *
- * Why process.chdir: the cpi shell tool spawns its configured/resolved shell
- * invocation with no cwd, so it inherits process.cwd(). pi exposes no public API to mutate its captured
- * `_cwd`, and built-in read/write/edit are disabled in cpi, so the shell is
- * the only path-sensitive tool — process.chdir is the minimal consistent
- * lever. Limitation: pi's system-prompt "Current working directory" line and
- * AGENTS.md discovery do not follow; the `<system-reminder>` carries the
- * truth instead.
- *
- * Public API (re-exported for other cpi tools): `getCwd()` returns the live
- * cwd following set_cwd; `resolveCwdPath()` resolves a path against it.
- * Source of truth lives in lib/cwd.ts.
+ * Why process.chdir: the shell inherits process.cwd() and pi exposes no API
+ * to mutate its own cwd. Limitation: pi's system-prompt cwd line and
+ * AGENTS.md discovery don't follow; the reminder carries the truth.
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -34,18 +14,26 @@ import { Text } from "@earendil-works/pi-tui";
 import { statSync } from "node:fs";
 import { queueMessage } from "./lib/prepend-message.ts";
 import { getCwd, resolveCwdPath, setCwd } from "./lib/cwd.ts";
-import { formatAgentsBlock, seedAgentsContext, surfaceNewAgents } from "./lib/agents.ts";
-import { loadText, render, renderLines, textPath, type ToolText } from "./lib/text.ts";
+import {
+  formatAgentsBlock,
+  seedAgentsContext,
+  surfaceNewAgents,
+} from "./lib/agents.ts";
+import {
+  loadText,
+  render,
+  renderLines,
+  textPath,
+  type ToolText,
+} from "./lib/text.ts";
 
-// Re-export the live-cwd API so other tools import it from the cwd feature.
 export { getCwd, resolveCwdPath } from "./lib/cwd.ts";
 
 const CWD_TOOL = "set_cwd";
 const REMINDER_TYPE = "cwd-reminder";
 const STATE_ENTRY = "cwd-state";
-const BOUNDARY_STEP = 25; // percent of context window
+const BOUNDARY_STEP = 25;
 const BOUNDARY_KEY = "__cpiCwdBoundary";
-
 
 function boundary(): { last: number } {
   const g = globalThis as Record<string, unknown>;
@@ -79,10 +67,16 @@ function enqueueBoundaryReminder(pi: ExtensionAPI): void {
   });
 }
 
-function restoreFromSession(ctx: { sessionManager: { getEntries: () => any[] } }): void {
+function restoreFromSession(ctx: {
+  sessionManager: { getEntries: () => any[] };
+}): void {
   let last: string | undefined;
   for (const entry of ctx.sessionManager.getEntries()) {
-    if (entry?.type === "custom" && entry?.customType === STATE_ENTRY && entry?.data?.cwd) {
+    if (
+      entry?.type === "custom" &&
+      entry?.customType === STATE_ENTRY &&
+      entry?.data?.cwd
+    ) {
       last = entry.data.cwd as string;
     }
   }
@@ -104,7 +98,11 @@ function registerReminderRenderer(pi: ExtensionAPI): void {
   pi.registerMessageRenderer(REMINDER_TYPE, (message, _options, theme) => {
     const d = (message.details ?? {}) as { cwd?: string };
     const cwd = d.cwd ?? "";
-    return new Text(`${theme.fg("muted", "📂")} ${theme.fg("muted", cwd)}`, 0, 0);
+    return new Text(
+      `${theme.fg("muted", "📂")} ${theme.fg("muted", cwd)}`,
+      0,
+      0,
+    );
   });
 }
 
@@ -152,7 +150,6 @@ export default function (pi: ExtensionAPI): void {
     },
   });
 
-  // 25% context-window boundary → queue CWD reminder before next user interaction
   pi.on("message_end", async (event, ctx) => {
     if (event.message?.role !== "assistant") return;
     const usage = ctx.getContextUsage?.();

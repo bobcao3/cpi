@@ -1,0 +1,9 @@
+[flag]
+description = "Start with OpenAI Fast mode enabled"
+
+[tool]
+description = "Toggle OpenAI Fast mode. Usage: /fast [on|off|toggle]"
+prompt_snippet = ""
+
+[guidelines]
+bullets = []

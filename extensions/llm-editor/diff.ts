@@ -1,53 +1,150 @@
 /**
- * Structured line-diff ops for the `llm_editor` edit-result TUI render.
- *
- * `generateDiffString` (pi-coding-agent) computes the diff + line numbers but
- * uses symmetric context and a fixed color set. For an asymmetric 3-before /
- * 2-after window + custom coloring (gray line numbers, bright code/±) we
- * re-parse its full-context output into ops and trim to the desired window.
- *
- * Pure leaf: only imports generateDiffString from pi-coding-agent.
+ * Structured line-diff ops for the `llm_editor` edit-result TUI render,
+ * computed from the two texts directly (no display-string parsing, no
+ * imports): a bounded Myers line diff, then a walk giving every line its old-
+ * and new-file number so the renderer draws two columns. Past the distance
+ * cap it degrades to a correct non-minimal delete+insert alignment.
  */
 
-import { generateDiffString } from "@earendil-works/pi-coding-agent";
-
 export type DiffOp =
-  | { type: "context"; lineNum: string; text: string }
-  | { type: "add"; lineNum: string; text: string }
-  | { type: "remove"; lineNum: string; text: string }
+  | { type: "context"; old: number; new: number; text: string }
+  | { type: "remove"; old: number; new: null; text: string }
+  | { type: "add"; old: null; new: number; text: string }
   | { type: "skip" };
 
-/** Huge context ⇒ generateDiffString emits every line (no skip markers). */
-const FULL_CONTEXT = 1_000_000_000;
+type RawOp = { type: "context" | "remove" | "add"; text: string };
 
-/** Mirrors pi's renderDiff parser: prefix + padded lineNum + content. */
-const LINE_RE = /^([+-\s])(\s*\d*)\s(.*)$/;
+const MAX_D = 600;
 
-function parseOps(diffStr: string): DiffOp[] {
-  const ops: DiffOp[] = [];
-  for (const line of diffStr.split("\n")) {
-    const m = line.match(LINE_RE);
-    if (!m) {
-      ops.push({ type: "skip" });
-      continue;
+function linesOf(text: string): string[] {
+  if (text === "") return [];
+  const lines = text.split("\n");
+  if (lines.at(-1) === "") lines.pop();
+  return lines;
+}
+
+function trivialOps(a: string[], b: string[]): RawOp[] {
+  const ops: RawOp[] = a.map((text) => ({ type: "remove", text }));
+  for (const text of b) ops.push({ type: "add", text });
+  return ops;
+}
+
+/** Forward Myers search with a bounded trace, backtracked into raw ops; null when the cap is hit. */
+function myersOps(a: string[], b: string[]): RawOp[] | null {
+  const n = a.length;
+  const m = b.length;
+  const cap = Math.min(n + m, MAX_D);
+  const offset = cap;
+  const v = new Int32Array(2 * cap + 1).fill(-1);
+  v[offset + 1] = 0;
+  const trace: Int32Array[] = [];
+  let distance = -1;
+  outer: for (let d = 0; d <= cap; d++) {
+    for (let k = -d; k <= d; k += 2) {
+      let x =
+        k === -d || (k !== d && v[offset + k - 1] < v[offset + k + 1])
+          ? v[offset + k + 1]
+          : v[offset + k - 1] + 1;
+      let y = x - k;
+      while (x < n && y < m && a[x] === b[y]) {
+        x++;
+        y++;
+      }
+      v[offset + k] = x;
+      if (x >= n && y >= m) {
+        distance = d;
+        break outer;
+      }
     }
-    const prefix = m[1];
-    const lineNum = m[2];
-    const text = m[3];
-    if (prefix === "+") ops.push({ type: "add", lineNum, text });
-    else if (prefix === "-") ops.push({ type: "remove", lineNum, text });
-    else ops.push({ type: "context", lineNum, text });
+    trace.push(v.slice());
+  }
+  if (distance < 0) return null;
+  const reversed: RawOp[] = [];
+  let x = n;
+  let y = m;
+  for (let d = distance; d >= 1; d--) {
+    const prev = trace[d - 1];
+    const k = x - y;
+    const prevK =
+      k === -d || (k !== d && prev[offset + k - 1] < prev[offset + k + 1])
+        ? k + 1
+        : k - 1;
+    const prevX = prev[offset + prevK];
+    const prevY = prevX - prevK;
+    while (x > prevX && y > prevY) {
+      reversed.push({ type: "context", text: a[x - 1] });
+      x--;
+      y--;
+    }
+    // Undo the move: k-1 came via delete, k+1 via insert.
+    if (prevK === k - 1) {
+      reversed.push({ type: "remove", text: a[x - 1] });
+      x--;
+    } else {
+      reversed.push({ type: "add", text: b[y - 1] });
+      y--;
+    }
+  }
+  while (x > 0 && y > 0) {
+    reversed.push({ type: "context", text: a[x - 1] });
+    x--;
+    y--;
+  }
+  return reversed.reverse();
+}
+
+function computeOps(oldText: string, newText: string): DiffOp[] {
+  const a = linesOf(oldText);
+  const b = linesOf(newText);
+  let start = 0;
+  while (start < a.length && start < b.length && a[start] === b[start]) start++;
+  let aEnd = a.length;
+  let bEnd = b.length;
+  while (aEnd > start && bEnd > start && a[aEnd - 1] === b[bEnd - 1]) {
+    aEnd--;
+    bEnd--;
+  }
+  const raw: RawOp[] = [];
+  for (let i = 0; i < start; i++) raw.push({ type: "context", text: a[i] });
+  const aMid = a.slice(start, aEnd);
+  const bMid = b.slice(start, bEnd);
+  const common = new Set(bMid);
+  const shares = aMid.some((line) => common.has(line));
+  raw.push(
+    ...(shares
+      ? (myersOps(aMid, bMid) ?? trivialOps(aMid, bMid))
+      : trivialOps(aMid, bMid)),
+  );
+  for (let i = aEnd; i < a.length; i++)
+    raw.push({ type: "context", text: a[i] });
+
+  const ops: DiffOp[] = [];
+  let old = 1;
+  let next = 1;
+  for (const op of raw) {
+    if (op.type === "context") {
+      ops.push({ type: "context", old, new: next, text: op.text });
+      old++;
+      next++;
+    } else if (op.type === "remove") {
+      ops.push({ type: "remove", old, new: null, text: op.text });
+      old++;
+    } else {
+      ops.push({ type: "add", old: null, new: next, text: op.text });
+      next++;
+    }
   }
   return ops;
 }
 
-/**
- * Trim ops to `before` context lines before / `after` after each change group,
- * collapsing runs with >before+after context between them into a single skip.
- * Mirrors git's hunk grouping with an asymmetric window.
- */
-export function trimOps(ops: DiffOp[], before: number, after: number): DiffOp[] {
-  const isChange = (o: DiffOp): boolean => o.type === "add" || o.type === "remove";
+/** Trim to `before` context before / `after` after each change group; distant groups collapse to a skip. */
+export function trimOps(
+  ops: DiffOp[],
+  before: number,
+  after: number,
+): DiffOp[] {
+  const isChange = (o: DiffOp): boolean =>
+    o.type === "add" || o.type === "remove";
   const changes: number[] = [];
   for (let i = 0; i < ops.length; i++) if (isChange(ops[i])) changes.push(i);
   if (changes.length === 0) return [];
@@ -75,17 +172,11 @@ export function trimOps(ops: DiffOp[], before: number, after: number): DiffOp[] 
   return out;
 }
 
-/** Full structured diff ops trimmed to an asymmetric before/after window. */
 export function editDiffOps(
   oldText: string,
   newText: string,
   before: number,
   after: number,
 ): DiffOp[] {
-  try {
-    const { diff } = generateDiffString(oldText, newText, FULL_CONTEXT);
-    return trimOps(parseOps(diff), before, after);
-  } catch {
-    return [];
-  }
+  return trimOps(computeOps(oldText, newText), before, after);
 }

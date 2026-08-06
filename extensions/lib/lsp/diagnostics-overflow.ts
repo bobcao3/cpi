@@ -17,10 +17,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import {
-  type Diagnostic,
-  formatDiagnostics,
-} from "./diagnostics.ts";
+import { type Diagnostic, formatDiagnostics } from "./diagnostics.ts";
 import { getSessionDir } from "../session-dir.ts";
 
 /** Inline cap (TigerStyle explicit limit, design §13). */
@@ -46,15 +43,21 @@ export interface RenderedDiagnostics {
 
 function assertCap(cap: unknown): asserts cap is number {
   if (!(Number.isInteger(cap) && (cap as number) > 0)) {
-    throw new Error(`renderDiagnostics: cap must be a positive int, got ${String(cap)}`);
+    throw new Error(
+      `renderDiagnostics: cap must be a positive int, got ${String(cap)}`,
+    );
   }
 }
 
 /** Resolve the overflow file path under `dir` (session dir) or `tmpdir()`. */
-function overflowPath(sessionDir: string | undefined): { path: string; makeDir: boolean } {
+function overflowPath(sessionDir: string | undefined): {
+  path: string;
+  makeDir: boolean;
+} {
   const base = sessionDir ?? tmpdir();
   const name = `pi-lsp-diags-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.log`;
-  if (sessionDir) return { path: join(base, "lsp-diagnostics", name), makeDir: true };
+  if (sessionDir)
+    return { path: join(base, "lsp-diagnostics", name), makeDir: true };
   return { path: join(base, name), makeDir: false };
 }
 
@@ -89,5 +92,8 @@ export async function renderDiagnostics(
     return { text: formatDiagnostics(diags, { max: cap }) };
   }
   const head = formatDiagnostics(diags.slice(0, cap), { max: cap });
-  return { text: `${head}\n…and ${diags.length - cap} more — full: ${path}`, fullPath: path };
+  return {
+    text: `${head}\n…and ${diags.length - cap} more — full: ${path}`,
+    fullPath: path,
+  };
 }

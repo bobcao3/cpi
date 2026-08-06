@@ -1,45 +1,14 @@
 /**
- * Editor subagent model resolution via a raw-regex search(capture)/replace chain.
- *
- *   1. `editor.model` (explicit) -> use if available (exact).
- *   2. `editor.chain`: ordered `{ search, replace }` rules. `search` is a plain
- *      JavaScript RegExp source applied to the combined string
- *      `"<provider>/<model-id>:<thinkingLevel>"`; `replace` is the replacement
- *      string (supports `$1`..`$9` backrefs, `$&` whole match). For each rule
- *      whose `search` tests against the combined input, the candidate is
- *      `combinedInput.replace(search, replace)` and is parsed into a provider
- *      (if the output contains '/'), model id, and optional thinking level (after
- *      the last colon). The resulting model is resolved EXACTLY across all
- *      providers; the first available+authed wins. Miss -> next rule. Captures
- *      reuse parts of the combined input (`$1`), so a rule can target a whole
- *      family version-aligned rather than a pinned id; multiple rules per family
- *      cover provider/env variants (gpt-5-mini under openai, gpt-5.4-mini under
- *      openai-codex) -- fall-through picks whichever exists. Rules may downgrade
- *      the model, the thinking effort, or both in a single transformation.
- *   3. Implicit identity: keep the main model and thinking level (guaranteed
- *      fallback). A safety clamp ensures that if the main model has thinking
- *      enabled (`thinkingLevel !== "off"`) and the resolved pick has thinking
- *      off or unspecified, the pick's thinking level defaults to `"minimal"`.
- *
- * Raw regex syntax: bare `(...)` capture, `|` alternation, `.` `*` `+` `?` `^`
- * `$` `[..]` `\d` `\w` `\s` are standard JS. No escaping beyond JSON's own; write
- * `(gpt-5).*` not `\(gpt-5\).*`. `$1` in `replace`, not `\1`.
- * Choosing a target (the rules themselves live in cpi-config.default.json):
- * rank candidates by measured cost per LANDED edit, not by per-token price. A
- * rejected patch is not free — it costs another editor call plus a main-agent
- * round trip — so a cheap model that misapplies a large fraction of its patches
- * is the expensive one, and a per-token cost ceiling selects the wrong model.
- * Prefer fresh models; identity keeps the main when nothing better qualifies.
- *
- * Resolution is EXACT (candidate must equal a registered model id). The only
- * transformation is `combinedInput.replace`, so what a rule does is fully
- * visible.
- *
- * Resolved pick cached in globalThis (shared across jiti reloads), keyed by
- * cwd + main-model id. Pure leaf: pi-ai + lib/config + text.
+ * Editor subagent model resolution: explicit `editor.model`, else the
+ * `editor.chain` search/replace rules — regex over "<provider>/<model-id>:<thinkingLevel>",
+ * `$1`..`$9` backrefs, EXACT id match, first authed wins — else identity.
+ * Cached in globalThis keyed by cwd + main model (survives jiti reloads).
  */
 
-import type { ExtensionContext, ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type {
+  ExtensionContext,
+  ExtensionAPI,
+} from "@earendil-works/pi-coding-agent";
 import type { Model, Api } from "@earendil-works/pi-ai";
 import { loadEditorConfig } from "../lib/config.ts";
 import { loadEditorText, fmt } from "./text.ts";
@@ -78,10 +47,14 @@ export function getThinkingApi(): ExtensionAPI | undefined {
   return _thinkingApi;
 }
 
-/** Infer a provider from a model id when `editor.provider` is absent. */
 function inferProvider(modelId: string): string | undefined {
   const id = modelId.toLowerCase();
-  if (id.includes("claude") || id.includes("sonnet") || id.includes("opus") || id.includes("haiku"))
+  if (
+    id.includes("claude") ||
+    id.includes("sonnet") ||
+    id.includes("opus") ||
+    id.includes("haiku")
+  )
     return "anthropic";
   if (id.includes("gpt")) return "openai";
   if (id.includes("gemini")) return "google";
@@ -90,7 +63,7 @@ function inferProvider(modelId: string): string | undefined {
   return undefined;
 }
 
-/** Exact model-id lookup: prefer `preferProvider`, else first authed match across all. */
+/** Exact id lookup: prefer `preferProvider`, else first authed match across all providers. */
 function resolveExact(
   ctx: ExtensionContext,
   modelId: string,
@@ -126,23 +99,36 @@ function compileRule(
 
 export function resolveEditorModel(ctx: ExtensionContext): EditorPick {
   const main = ctx.model;
-  const mainThinkingLevel = main ? (getThinkingApi()?.getThinkingLevel() ?? "off") : "off";
+  const mainThinkingLevel = main
+    ? (getThinkingApi()?.getThinkingLevel() ?? "off")
+    : "off";
   const mainKey = main ? `${main.provider}/${main.id}` : "";
   const cached = state().pick;
-  if (cached && cached.cwd === ctx.cwd && cached.mainKey === mainKey && cached.thinkingLevel === mainThinkingLevel) return cached.pick;
+  if (
+    cached &&
+    cached.cwd === ctx.cwd &&
+    cached.mainKey === mainKey &&
+    cached.thinkingLevel === mainThinkingLevel
+  )
+    return cached.pick;
 
   const cfg = loadEditorConfig(ctx.cwd);
   const T = loadEditorText(ctx.cwd);
   let pick: EditorPick | undefined;
 
-  // 1. Explicit configured model.
   if (cfg.model) {
-    const m = resolveExact(ctx, cfg.model, cfg.provider ?? inferProvider(cfg.model));
+    const m = resolveExact(
+      ctx,
+      cfg.model,
+      cfg.provider ?? inferProvider(cfg.model),
+    );
     if (m) pick = { provider: m.provider, modelId: m.id };
-    else process.stderr.write(fmt(T.errors.configured_unavailable, { model: cfg.model }) + "\n");
+    else
+      process.stderr.write(
+        fmt(T.errors.configured_unavailable, { model: cfg.model }) + "\n",
+      );
   }
 
-  // 2. regex->model chain over the main model id + thinking level.
   if (!pick && main) {
     const combinedInput = `${main.provider}/${main.id}:${mainThinkingLevel}`;
     for (let i = 0; i < cfg.chain.length; i++) {
@@ -150,13 +136,14 @@ export function resolveEditorModel(ctx: ExtensionContext): EditorPick {
       const re = compileRule(T, rule, i);
       if (!re || !re.test(combinedInput)) continue;
       const combinedOutput = combinedInput.replace(re, rule.replace);
-      // Split on last colon to separate model part and effort part.
-      const lastColon = combinedOutput.lastIndexOf(':');
-      const modelPart = lastColon === -1 ? combinedOutput : combinedOutput.slice(0, lastColon);
-      const effortPart = lastColon === -1 ? undefined : combinedOutput.slice(lastColon + 1);
+      const lastColon = combinedOutput.lastIndexOf(":");
+      const modelPart =
+        lastColon === -1 ? combinedOutput : combinedOutput.slice(0, lastColon);
+      const effortPart =
+        lastColon === -1 ? undefined : combinedOutput.slice(lastColon + 1);
       let m: Model<Api> | undefined;
-      if (modelPart.includes('/')) {
-        const slashIdx = modelPart.indexOf('/');
+      if (modelPart.includes("/")) {
+        const slashIdx = modelPart.indexOf("/");
         const provider = modelPart.slice(0, slashIdx);
         const modelId = modelPart.slice(slashIdx + 1);
         m = resolveExact(ctx, modelId, provider);
@@ -164,27 +151,38 @@ export function resolveEditorModel(ctx: ExtensionContext): EditorPick {
         m = resolveExact(ctx, modelPart, main.provider);
       }
       if (m) {
-        pick = { provider: m.provider, modelId: m.id, thinkingLevel: effortPart || undefined };
+        pick = {
+          provider: m.provider,
+          modelId: m.id,
+          thinkingLevel: effortPart || undefined,
+        };
         break;
       }
     }
-    // 3. Implicit identity: keep the main model and thinking level.
     if (!pick) {
-      pick = { provider: main.provider, modelId: main.id, thinkingLevel: mainThinkingLevel !== "off" ? mainThinkingLevel : undefined };
+      pick = {
+        provider: main.provider,
+        modelId: main.id,
+        thinkingLevel:
+          mainThinkingLevel !== "off" ? mainThinkingLevel : undefined,
+      };
     }
 
-    // Safety clamp: if the main model has thinking enabled and the resolved
-    // subagent model has thinking off or unspecified, default to "minimal".
-    // Chain rules should express the desired downgrade, but "off" is never
-    // safe when the main has thinking enabled.
-    if (mainThinkingLevel !== "off" && (!pick.thinkingLevel || pick.thinkingLevel === "off")) {
+    // Safety clamp: "off" is never safe when the main model has thinking enabled.
+    if (
+      mainThinkingLevel !== "off" &&
+      (!pick.thinkingLevel || pick.thinkingLevel === "off")
+    ) {
       pick.thinkingLevel = "minimal";
     }
   }
 
   if (!pick) throw new Error(T.errors.no_editor_model);
-  state().pick = { cwd: ctx.cwd, mainKey, thinkingLevel: mainThinkingLevel, pick };
+  state().pick = {
+    cwd: ctx.cwd,
+    mainKey,
+    thinkingLevel: mainThinkingLevel,
+    pick,
+  };
   return pick;
 }
-
-

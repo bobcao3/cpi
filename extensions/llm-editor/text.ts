@@ -1,18 +1,4 @@
-/**
- * llm-editor text: thin adapter over the shared lib/text.ts loader + mustache
- * renderer. All textual content (system prompts, task templates, tool
- * metadata, schema descriptions, messages, errors, transcript labels) lives in
- * extensions/text/llm-editor.toml, layered with ~/.pi/agent/llm-editor.toml
- * (user) and <cwd>/.pi/llm-editor.toml (project) overrides, deep-merged and
- * cached per-cwd with mtime invalidation by loadText.
- *
- * Templates use mustache {{name}} syntax (HTML-escaping disabled — prompts are
- * plain text, matching the prior fmt which also did not escape). `fmt` is
- * re-exported as `render` so existing call sites are unchanged; behavior is
- * equivalent because every placeholder is now substituted at a call site (the
- * one intentionally-literal token is plain text,
- * not a tag).
- */
+/** llm-editor text over lib/text.ts: all content lives in extensions/text/llm-editor.toml, layered with ~/.pi/agent and <cwd>/.pi overrides, deep-merged and cached per-cwd with mtime invalidation by loadText. Mustache {{name}} syntax, HTML-escaping disabled (plain text). */
 
 import * as process from "node:process";
 import { loadText, render, textPath } from "../lib/text.ts";
@@ -24,10 +10,20 @@ export interface ToolMeta {
 }
 
 export interface EditorText {
-  system: { viewer: string; editor: string; editor_fuzzy: string; editor_rewrite: string };
+  system: {
+    viewer: string;
+    editor: string;
+    editor_fuzzy: string;
+    editor_rewrite: string;
+  };
   tasks: { viewer: string; editor: string; editor_retry: string };
   tool: { read: ToolMeta; write: ToolMeta; edit: ToolMeta };
-  schema: { path: string; query: string; instruction: string; file_text: string };
+  schema: {
+    path: string;
+    query: string;
+    instruction: string;
+    file_text: string;
+  };
   completion: {
     view_complete: ToolMeta;
     edit_complete: ToolMeta;
@@ -48,7 +44,11 @@ export interface EditorText {
     head_more: string;
     lines_omitted: string;
   };
-  lsp: { diagnostics_none: string; install_failed: string; restart_hint: string };
+  lsp: {
+    diagnostics_none: string;
+    install_failed: string;
+    restart_hint: string;
+  };
   errors: Record<string, string>;
   transcript: {
     title: string;
@@ -59,10 +59,9 @@ export interface EditorText {
   };
 }
 
-/** Mustache render with HTML-escaping disabled (alias kept for call sites). */
+/** Mustache render with HTML-escaping disabled. */
 export const fmt = render;
 
-/** Load the layered llm-editor TOML (cached per-cwd by loadText). */
 export function loadEditorText(cwd: string = process.cwd()): EditorText {
   return loadText<EditorText>("llm-editor", textPath("llm-editor"), cwd);
 }

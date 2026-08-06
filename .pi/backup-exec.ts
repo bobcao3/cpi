@@ -65,7 +65,9 @@ export default function (pi: ExtensionAPI): void {
       Type.Array(Type.String(), { description: T.schema.command }),
     ),
     workdir: Type.Optional(Type.String({ description: T.schema.workdir })),
-    timeout_ms: Type.Optional(Type.Number({ description: T.schema.timeout_ms })),
+    timeout_ms: Type.Optional(
+      Type.Number({ description: T.schema.timeout_ms }),
+    ),
   });
 
   pi.registerTool({
@@ -96,7 +98,10 @@ export default function (pi: ExtensionAPI): void {
         typeof params.timeout_ms === "number" && params.timeout_ms > 0
           ? params.timeout_ms
           : DEFAULT_TIMEOUT_MS;
-      const timeoutMs = Math.min(Math.max(requested, MIN_TIMEOUT_MS), MAX_TIMEOUT_MS);
+      const timeoutMs = Math.min(
+        Math.max(requested, MIN_TIMEOUT_MS),
+        MAX_TIMEOUT_MS,
+      );
 
       const child = spawn(argv[0], argv.slice(1), {
         cwd: workdir,
@@ -149,7 +154,8 @@ export default function (pi: ExtensionAPI): void {
           signal?.removeEventListener("abort", onAbort);
           const aborted = signal?.aborted === true;
           let text = acc || "(no output)";
-          if (truncated) text += `\n[output truncated at ${MAX_OUTPUT_BYTES} bytes]`;
+          if (truncated)
+            text += `\n[output truncated at ${MAX_OUTPUT_BYTES} bytes]`;
           if (timedOut) text += `\n[timed out after ${timeoutMs}ms; killed]`;
           if (aborted) text += "\n[aborted]";
           const sigNote = sig ? ` (signal ${sig})` : "";

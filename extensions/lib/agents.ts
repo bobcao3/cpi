@@ -1,26 +1,4 @@
-/**
- * AGENTS.md context discovery + global seen-tracking.
- *
- * pi loads project context files (AGENTS.md/CLAUDE.md) once at startup from
- * the session cwd and never reloads them. This module lets cpi surface
- * newly-entered trees' context files to the agent — both via the explicit
- * `set_cwd` tool and via `cd ... && ...` calls parsed out of shell commands.
- *
- *   - `discoverAgentsFiles(cwd)` mirrors pi's loader
- *     (resource-loader.js `loadProjectContextFiles`): cwd→root walk, first
- *     match per dir among AGENTS.md/AGENTS.MD/CLAUDE.md/CLAUDE.MD, deduped,
- *     root-first. Excludes the global agentDir file (cwd-independent, always
- *     in context).
- *   - `seedAgentsContext(cwd)` marks the startup tree as already-in-context
- *     so it is never re-surfaced. Called once at session_start.
- *   - `surfaceNewAgents(target)` returns files in target's tree not yet seen
- *     and records them, so each file surfaces at most once per process.
- *   - `formatAgentsBlock(files, header)` renders the shared
- *     `--- path ---\n<content>` block for tool results.
- *
- * State is backed by globalThis so it survives jiti extension reloads and is
- * shared across the cwd and shell extensions (same pattern as lib/footer.ts).
- */
+/** AGENTS.md/CLAUDE.md discovery + global seen-tracking: pi loads project context files once at startup and never reloads, so cpi surfaces newly-entered trees' files. Seen-state lives on globalThis, surviving jiti reloads. */
 
 import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
@@ -65,7 +43,7 @@ function loadFromDir(dir: string): AgentsFile | null {
 export function discoverAgentsFiles(cwd: string): AgentsFile[] {
   const root = resolve("/");
   const seen = new Set<string>();
-  const stack: AgentsFile[] = []; // cwd-first; reversed below
+  const stack: AgentsFile[] = [];
   let dir = resolve(cwd);
   for (;;) {
     const f = loadFromDir(dir);
@@ -91,15 +69,15 @@ export function seedAgentsContext(cwd: string): void {
   s.seeded = true;
 }
 
-/** Unseen AGENTS.md/CLAUDE.md files in target's tree; records them as seen. */
 export function surfaceNewAgents(target: string): AgentsFile[] {
   const s = state();
-  const surfaced = discoverAgentsFiles(target).filter((f) => !s.seen.has(f.path));
+  const surfaced = discoverAgentsFiles(target).filter(
+    (f) => !s.seen.has(f.path),
+  );
   for (const f of surfaced) s.seen.add(f.path);
   return surfaced;
 }
 
-/** Render surfaced files as a context block for a tool result. Empty if none. */
 export function formatAgentsBlock(files: AgentsFile[]): string {
   if (files.length === 0) return "";
   let out = "";

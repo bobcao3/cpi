@@ -1,20 +1,7 @@
 /**
- * Rules extension
- *
- * Discovers markdown files in two scopes and appends them to the system
- * prompt every turn:
- *
- *   - User scope:  ~/.pi/agent/rules/*.md
- *   - Project scope: <cwd>/rules/*.md
- *
- * Each file is surfaced as:
- *
- *   --- <label>/<file>.md ---
- *   <content>
- *
- * Project rules are appended after user rules so project specifics take
- * precedence. The transform is applied by the single system-prompt owner in
- * core.ts; this extension only registers a transform.
+ * Rules — appends ~/.pi/agent/rules/*.md (user scope) then <cwd>/rules/*.md
+ * (project scope, after user so project specifics win) to the system prompt
+ * each turn. Only registers a transform; the owner in core.ts applies it.
  */
 
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
@@ -24,7 +11,7 @@ import { registerSystemPromptTransform } from "./lib/system-prompt.ts";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 const USER_RULES_DIR = join(homedir(), ".pi", "agent", "rules");
-const TRANSFORM_ORDER = 150; // after strip-skills (100), before caveman (200)
+const TRANSFORM_ORDER = 150; // after strip-skills (100)
 const MAX_RULE_BYTES = 131072;
 const CACHE_KEY = "__cpiRulesCache";
 
@@ -39,7 +26,9 @@ interface RulesCache {
 }
 
 function cache(): RulesCache | undefined {
-  return (globalThis as Record<string, unknown>)[CACHE_KEY] as RulesCache | undefined;
+  return (globalThis as Record<string, unknown>)[CACHE_KEY] as
+    | RulesCache
+    | undefined;
 }
 
 function setCache(entry: RulesCache): void {
@@ -55,7 +44,9 @@ function dirSignature(dir: string): string {
     return `${dir}:unreadable`;
   }
   const parts: string[] = [dir];
-  for (const name of names.filter((n) => n.endsWith(".md")).sort((a, b) => a.localeCompare(b))) {
+  for (const name of names
+    .filter((n) => n.endsWith(".md"))
+    .sort((a, b) => a.localeCompare(b))) {
     const path = join(dir, name);
     try {
       const st = statSync(path);
@@ -89,7 +80,9 @@ function listRules(dir: string, labelPrefix: string): RuleFile[] {
     return [];
   }
   const out: RuleFile[] = [];
-  for (const name of names.filter((n) => n.endsWith(".md")).sort((a, b) => a.localeCompare(b))) {
+  for (const name of names
+    .filter((n) => n.endsWith(".md"))
+    .sort((a, b) => a.localeCompare(b))) {
     const path = join(dir, name);
     try {
       if (!statSync(path).isFile()) continue;
@@ -123,7 +116,10 @@ export default function rulesExtension(_pi: ExtensionAPI): void {
         return cached.block ? systemPrompt + cached.block : systemPrompt;
       }
 
-      const files = [...listRules(USER_RULES_DIR, "user-rules"), ...listRules(projectDir, "rules")];
+      const files = [
+        ...listRules(USER_RULES_DIR, "user-rules"),
+        ...listRules(projectDir, "rules"),
+      ];
       const block = buildRulesBlock(files);
       setCache({ signature, block });
 

@@ -17,7 +17,10 @@ export function truncatedPreview(
   return {
     invalidate() {},
     render(width: number): string[] {
-      return [...lines.map((l) => truncateLine(l, width)), truncateLine(summary, width)];
+      return [
+        ...lines.map((l) => truncateLine(l, width)),
+        truncateLine(summary, width),
+      ];
     },
   };
 }
@@ -29,9 +32,12 @@ export function renderShCall(
   defaultWaitfor: number,
   tailLines: number,
 ): Text {
-  const text = (context.lastComponent as Text | undefined) ?? new Text("", 0, 0);
+  const text =
+    (context.lastComponent as Text | undefined) ?? new Text("", 0, 0);
   const waitfor = args.waitfor ?? defaultWaitfor;
-  const waitforSuffix = waitfor ? theme.fg("muted", ` (waitfor ${waitfor}s)`) : "";
+  const waitforSuffix = waitfor
+    ? theme.fg("muted", ` (waitfor ${waitfor}s)`)
+    : "";
   const repeatSuffix =
     args.interval != null
       ? theme.fg("muted", ` (every ${args.interval}s · stop on non-zero exit)`)
@@ -50,7 +56,11 @@ export function renderShCall(
       ? highlightRange(args.command, captures, theme, 0, byteLen(args.command))
       : cmdLines.map((l: string) => theme.fg("toolTitle", l)).join("\n");
     text.setText(
-      prefix + body + theme.fg("dim", " · Ctrl+O to collapse") + waitforSuffix + repeatSuffix,
+      prefix +
+        body +
+        theme.fg("dim", " · Ctrl+O to collapse") +
+        waitforSuffix +
+        repeatSuffix,
     );
   } else {
     const { starts, ends } = lineBounds(args.command);
@@ -60,8 +70,17 @@ export function renderShCall(
       : theme.fg("toolTitle", theme.bold(cmdLines[0]));
     const tailByteStart = starts[Math.max(0, n - 4)];
     const tail = captures
-      ? highlightRange(args.command, captures, theme, tailByteStart, byteLen(args.command))
-      : cmdLines.slice(-4).map((l: string) => theme.fg("toolTitle", theme.bold(l))).join("\n");
+      ? highlightRange(
+          args.command,
+          captures,
+          theme,
+          tailByteStart,
+          byteLen(args.command),
+        )
+      : cmdLines
+          .slice(-4)
+          .map((l: string) => theme.fg("toolTitle", theme.bold(l)))
+          .join("\n");
     text.setText(
       prefix +
         head +
@@ -128,11 +147,16 @@ export function renderShResult(
     let summary =
       theme.fg("warning", "⏳ running") +
       (hidden > 0
-        ? theme.fg("dim", ` · showing L${hidden + 1}-${outputLines.length} (Ctrl+O to expand)`)
+        ? theme.fg(
+            "dim",
+            ` · showing L${hidden + 1}-${outputLines.length} (Ctrl+O to expand)`,
+          )
         : theme.fg("dim", ` · ${outputLines.length} lines`));
     return outputText.trim()
       ? new Text(
-          tail.map((l: string) => theme.fg("toolOutput", l)).join("\n") + "\n" + summary,
+          tail.map((l: string) => theme.fg("toolOutput", l)).join("\n") +
+            "\n" +
+            summary,
           0,
           0,
         )
@@ -148,7 +172,8 @@ export function renderShResult(
   else if (isRunning) {
     status = theme.fg("warning", "⏳ backgrounded");
     if (details?.id) status += theme.fg("dim", ` PID=${details.id}`);
-    if (details?.fullOutputPath) status += theme.fg("dim", ` · ${details.fullOutputPath}`);
+    if (details?.fullOutputPath)
+      status += theme.fg("dim", ` · ${details.fullOutputPath}`);
   } else if (isRepeating) {
     status =
       theme.fg("warning", "⏳ repeating") +
@@ -156,11 +181,13 @@ export function renderShResult(
         "dim",
         ` PID=${details.id} every ${details.interval}s · stop on non-zero exit`,
       );
-  } else if (exitCode != null && exitCode !== 0) status = theme.fg("error", `exit ${exitCode}`);
+  } else if (exitCode != null && exitCode !== 0)
+    status = theme.fg("error", `exit ${exitCode}`);
   else status = theme.fg("success", "✓");
 
   if (expanded) {
-    let summary = status + theme.fg("dim", ` · ${totalLines} lines · Ctrl+O to collapse`);
+    let summary =
+      status + theme.fg("dim", ` · ${totalLines} lines · Ctrl+O to collapse`);
     if (details?.fullOutputPath) summary += theme.fg("warning", " [truncated]");
     let t =
       totalLines > 0
@@ -171,7 +198,8 @@ export function renderShResult(
     return new Text(t + "\n" + summary, 0, 0);
   }
 
-  if (totalLines === 0) return new Text(theme.fg("dim", "(no output)") + "\n" + status, 0, 0);
+  if (totalLines === 0)
+    return new Text(theme.fg("dim", "(no output)") + "\n" + status, 0, 0);
   if (totalLines <= tailLines)
     return truncatedPreview(
       outputLines.map((l: string) => theme.fg("toolOutput", l)),
@@ -179,7 +207,11 @@ export function renderShResult(
     );
   const startLine = totalLines - tailLines + 1;
   let summary =
-    status + theme.fg("dim", ` · showing L${startLine}-${totalLines} (Ctrl+O to expand)`);
+    status +
+    theme.fg(
+      "dim",
+      ` · showing L${startLine}-${totalLines} (Ctrl+O to expand)`,
+    );
   if (details?.fullOutputPath) summary += theme.fg("warning", " [truncated]");
   return truncatedPreview(
     outputLines.slice(-tailLines).map((l: string) => theme.fg("toolOutput", l)),

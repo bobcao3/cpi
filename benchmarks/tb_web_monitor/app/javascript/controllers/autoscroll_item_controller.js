@@ -1,4 +1,4 @@
-import { Controller } from "@hotwired/stimulus"
+import { Controller } from "@hotwired/stimulus";
 
 // Per-block insertion trigger: on connect (append or replace), delegate to the
 // pane's autoscroll controller, which scrolls to the bottom only if the user
@@ -6,8 +6,10 @@ import { Controller } from "@hotwired/stimulus"
 // the appended element carries a controller whose connect() fires on insertion.
 export default class extends Controller {
   connect() {
-    const pane = this.element.closest("[data-controller~='autoscroll']")
-    const ctrl = pane && this.application.getControllerForElementAndIdentifier(pane, "autoscroll")
-    ctrl?.itemAdded()
+    const pane = this.element.closest("[data-controller~='autoscroll']");
+    const ctrl =
+      pane &&
+      this.application.getControllerForElementAndIdentifier(pane, "autoscroll");
+    ctrl?.itemAdded();
   }
 }

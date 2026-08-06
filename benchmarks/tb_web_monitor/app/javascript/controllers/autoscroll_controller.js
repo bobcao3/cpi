@@ -1,4 +1,4 @@
-import { Controller } from "@hotwired/stimulus"
+import { Controller } from "@hotwired/stimulus";
 
 // Auto-scrolls a scrollable pane to the bottom ONLY while a run is live, then
 // preserves the user's scroll position once it completes. `running` (a Stimulus
@@ -14,43 +14,43 @@ import { Controller } from "@hotwired/stimulus"
 // The appended element's connect() (autoscroll-item) is the insertion trigger;
 // this controller is the running-gate + atBottom owner + scroll actor.
 export default class extends Controller {
-  static values = { running: Boolean }
+  static values = { running: Boolean };
 
   connect() {
-    this.atBottom = true
-    this.onScroll = this.onScroll.bind(this)
-    this.element.addEventListener("scroll", this.onScroll)
-    if (this.runningValue) this.scrollToBottom()
+    this.atBottom = true;
+    this.onScroll = this.onScroll.bind(this);
+    this.element.addEventListener("scroll", this.onScroll);
+    if (this.runningValue) this.scrollToBottom();
   }
 
   disconnect() {
-    this.element.removeEventListener("scroll", this.onScroll)
+    this.element.removeEventListener("scroll", this.onScroll);
   }
 
   onScroll() {
-    const el = this.element
-    this.atBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 4
+    const el = this.element;
+    this.atBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 4;
   }
 
   // Called by autoscroll-item on each appended/replaced block.
   itemAdded() {
-    if (this.runningValue && this.atBottom) this.scrollToBottom()
+    if (this.runningValue && this.atBottom) this.scrollToBottom();
   }
 
   // Called by tabs_controller when this pane becomes visible.
   activate() {
-    if (this.runningValue) this.scrollToBottom()
+    if (this.runningValue) this.scrollToBottom();
   }
 
   // Running state flipped mid-session (e.g. trial/job completed, applied via a
   // morph refresh that updates data-autoscroll-running-value): stop following
   // when it goes false; resume at the bottom if it (re)goes true.
   runningValueChanged(value) {
-    if (value && this.atBottom) this.scrollToBottom()
+    if (value && this.atBottom) this.scrollToBottom();
   }
 
   scrollToBottom() {
-    this.element.scrollTop = this.element.scrollHeight
-    this.atBottom = true
+    this.element.scrollTop = this.element.scrollHeight;
+    this.atBottom = true;
   }
 }
