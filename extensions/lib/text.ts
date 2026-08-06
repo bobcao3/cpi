@@ -1,24 +1,6 @@
 /**
- * Shared prompt-text loader + mustache renderer.
- *
- * Extraction target for cpi extension model-facing strings (tool descriptions,
- * prompt snippets/guidelines, system-prompt blocks, result messages). Ships
- * TOML defaults layered with user (`~/.pi/agent/<id>.toml`) and project
- * (`<cwd>/.pi/<id>.toml`) overrides, deep-merged via lib/config.deepMerge.
- *
- * Renderer: the real `mustache` package (spec-complete — sections, inverted
- * sections, array loops, partials, lambdas, standalone-tag whitespace
- * stripping). Prompts are plain text, not HTML, so HTML-escaping (mustache's
- * default) is disabled per-render via RenderOptions.escape: authors write
- * {{var}} naturally and `<`, `&`, backticks survive untouched. Standalone tags
- * (a line holding only a tag + whitespace) have their newline stripped, so a
- * switch conditional like {{#fd}} ... {{/fd}} on its own lines deletes cleanly
- * with no blank-line residue — that is what lets switch logic live entirely in
- * the template rather than in TS.
- *
- * Loader is cached per (id, cwd) keyed on file mtimes, so an edited TOML is
- * picked up on the next call without a jiti reload (module-level cache, like
- * llm-editor/text.ts — fine for a perf cache).
+ * Loads and renders model-facing TOML text; escaping is disabled and
+ * standalone tags are supported.
  */
 
 import { readFileSync, existsSync, statSync } from "node:fs";
@@ -28,7 +10,6 @@ import { parse as parseToml } from "smol-toml";
 import Mustache from "mustache";
 import { deepMerge } from "./config.ts";
 
-/** Uniform shape for a single-tool TOML ([tool] + [guidelines] tables). */
 export interface ToolText {
   tool: { description: string; prompt_snippet: string };
   schema?: Record<string, string>;
@@ -37,20 +18,13 @@ export interface ToolText {
 
 const TEXT_DIR = fileURLToPath(new URL("../text/", import.meta.url));
 
-/** Canonical shipped-TOML path for extension `id` inside extensions/text/. */
 export function textPath(id: string): string {
   return join(TEXT_DIR, `${id}.toml`);
 }
 
-// ── Renderer ────────────────────────────────────────────────────────────────
-
 const NO_ESCAPE = (text: string): string => text;
 
-/**
- * Render a mustache template against `ctx`. HTML-escaping is disabled (prompts
- * are plain text); unknown names interpolate to "" and never throw. Full syntax:
- * https://mustache.github.io/mustache.5.html
- */
+// Unknown names render as "" and never throw.
 export function render(
   tpl: string,
   ctx: Record<string, unknown> | undefined,
@@ -59,11 +33,6 @@ export function render(
   return Mustache.render(tpl, ctx ?? {}, undefined, { escape: NO_ESCAPE });
 }
 
-/**
- * Render each guideline template against `ctx`, dropping any that render to an
- * empty (or whitespace-only) string — e.g. a falsy inline `{{#switch}}…{{/}}`
- * section. Returns the surviving lines in order.
- */
 export function renderLines(
   tpls: string[] | undefined,
   ctx: Record<string, unknown> | undefined,
@@ -76,8 +45,6 @@ export function renderLines(
   }
   return out;
 }
-
-// ── Loader ──────────────────────────────────────────────────────────────────
 
 interface CacheEntry {
   signature: string;
@@ -98,7 +65,6 @@ function readToml(path: string): Record<string, unknown> | null {
   }
 }
 
-/** mtime signature so edits to any layer invalidate the cache without a reload. */
 function signature(paths: string[]): string {
   return paths
     .map((p) => {
@@ -113,15 +79,7 @@ function signature(paths: string[]): string {
     .join("\x01");
 }
 
-/**
- * Load + deep-merge the three TOML layers for `id`, returning the merged object
- * as `T`. Layer resolution:
- *   defaultPath                         (shipped defaults, required)
- *   ~/.pi/agent/<id>.toml               (user, all projects)
- *   <cwd>/.pi/<id>.toml                 (project, overrides user)
- * Cached per (id, cwd) keyed on file mtimes, so an edited TOML is picked up on
- * the next call without a jiti reload.
- */
+// Defaults, user, and project layers are deep-merged and cached by file signatures and cwd.
 export function loadText<T = Record<string, unknown>>(
   id: string,
   defaultPath: string,

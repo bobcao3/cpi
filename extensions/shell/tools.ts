@@ -1,5 +1,3 @@
-/** Shell tool deps: fd + rg + shuck install and PATH augmentation; pure leaf module (no pi/tui imports). */
-
 import { createWriteStream, existsSync, readFileSync } from "node:fs";
 import {
   chmod,
@@ -232,7 +230,7 @@ async function doEnsureShellTools(): Promise<ToolAvailability> {
           console.warn("[shell-ext] Failed to download tree-sitter-wasm:", err);
         }
       }
-      if (have) await ensureTreeSitterReady(); // eager: lets renderCall highlight sync on first paint
+      if (have) await ensureTreeSitterReady(); // keep first-paint highlighting synchronous
       return have;
     })(),
   ]);
@@ -258,15 +256,7 @@ export function getToolEnv(): NodeJS.ProcessEnv {
   };
 }
 
-/**
- * Env for the `sh` tool: base PATH env plus the parent session identity;
- * sub-agents (via the `subagent` script on PATH) nest under
- * `subagents_${PI_SESSION}/`, hidden from the parent's flat `/resume` list.
- *   PI_SESSION     first 8 chars of the session uuid (stable across resume)
- *   PI_SESSION_ID  full session id; scopes sh-mon resume records so concurrent
- *                  agents in the same cwd don't cross-read each other's records
- *   PI_SESSION_DIR session dir; absent for ephemeral (--no-session) parents
- */
+/** Session identity scopes nested subagent shell records and resume visibility. */
 export function buildShellEnv(sm?: {
   getSessionId(): string | undefined;
   getSessionDir(): string | undefined;
@@ -282,7 +272,6 @@ export function buildShellEnv(sm?: {
   return env;
 }
 
-/** `buildShellEnv(sm)` plus an optional dotenv overlay merged on top (dotenv wins). */
 export function buildShellEnvWithDotenv(
   sm?: {
     getSessionId(): string | undefined;

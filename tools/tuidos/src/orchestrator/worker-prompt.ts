@@ -1,13 +1,3 @@
-// Emit a STAGE-specific worker subagent prompt for one card, to stdout.
-//   worker-prompt.ts <stage> <cardId>     stage ∈ PRD|Outline|Implement|Validate
-//
-// The pipeline is the board (Basecamp card-table-through-phases): a card's
-// column is its stage, its thread is the running record. Each stage agent does
-// ONE bounded job, posts its deliverable to the thread, and moves the card to
-// the next column. No external tracking — the claim ("Dispatched to <stage>")
-// and deliverables all live in the card's thread (clidos). Separation of
-// duties: PRD/Outline do NOT code; Implement does NOT validate; Validate does
-// NOT fix (it loops a failure back to Implement).
 import { listAllProjects } from "../core/db";
 import { listColumns } from "../core/columns";
 import { getTask } from "../core/tasks";
@@ -16,18 +6,26 @@ const stage = process.argv[2];
 const cardId = process.argv[3];
 const VALID = ["PRD", "Outline", "Implement", "Validate"];
 if (!VALID.includes(stage ?? "") || !cardId) {
-  console.error("usage: worker-prompt.ts <PRD|Outline|Implement|Validate> <card-id>");
+  console.error(
+    "usage: worker-prompt.ts <PRD|Outline|Implement|Validate> <card-id>",
+  );
   process.exit(2);
 }
 const st = stage as "PRD" | "Outline" | "Implement" | "Validate";
 
 const project = listAllProjects().find((p) => p.name === "tuidos");
 const pid = project?.id ?? "tuidos";
-const col = (name: string) => listColumns(pid).find((c) => c.name === name)?.name ?? name;
+const col = (name: string) =>
+  listColumns(pid).find((c) => c.name === name)?.name ?? name;
 const task = getTask(pid, cardId);
 const titleHint = task ? `\n# Card title: ${task.title}` : "";
 
-const next = { PRD: "Outline", Outline: "Implement", Implement: "Validate", Validate: "Done" }[st]!;
+const next = {
+  PRD: "Outline",
+  Outline: "Implement",
+  Implement: "Validate",
+  Validate: "Done",
+}[st]!;
 const nextCol = col(next);
 const implementCol = col("Implement");
 

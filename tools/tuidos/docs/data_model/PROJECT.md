@@ -142,23 +142,23 @@ CREATE INDEX audit_log_project ON audit_log(project_id);
 - **Core vs presentation.** Core (`columns`, `tasks`, `task_topics`,
   `card_messages`, `message_media`) holds identity, status, relationships, and
   content only. On-board ordering — `column_display.position` and
-  `task_display.position` — is presentation: persisted and shared, but
-  non-core, each a 1:1 row with a real FK + `ON DELETE CASCADE`. Board rendering
-  is deferred (see `DESIGN.md`); these tables only store the prefs.
+  `task_display.position` — is presentation: persisted and shared, but non-core,
+  each a 1:1 row with a real FK + `ON DELETE CASCADE`. Board rendering is
+  deferred (see `DESIGN.md`); these tables only store the prefs.
 - **A task has exactly one column** (`column_id NOT NULL`, `ON DELETE RESTRICT`)
-  and **zero or more topics**. A project is initialized with at least one
-  column (e.g. Backlog, In Progress, Done) so a status always exists. Columns
-  are archived (`archived_at` tombstone, never hard-deleted); you must move a
+  and **zero or more topics**. A project is initialized with at least one column
+  (e.g. Backlog, In Progress, Done) so a status always exists. Columns are
+  archived (`archived_at` tombstone, never hard-deleted); you must move a
   column's active tasks elsewhere before archiving it.
 - **Card content = summary + thread + media.** `tasks.description` is an
   optional, hand-written at-a-glance summary (not a cache of anything). The body
-  and conversation are a thread of `card_messages`, ordered by `(created_at,
-  id)` — the same ordering the `audit_log` uses — so the **body is the first
-  message** (a rendering convention, no flag) and the rest are the conversation.
-  The thread is optional: a task with zero `card_messages` is title-only.
-  Editing the body edits that first message (`updated_at` moves; `created_at`
-  and ordering stay stable); deleting a message is an `archived_at` tombstone,
-  so the thread never loses its shape on sync.
+  and conversation are a thread of `card_messages`, ordered by
+  `(created_at, id)` — the same ordering the `audit_log` uses — so the **body is
+  the first message** (a rendering convention, no flag) and the rest are the
+  conversation. The thread is optional: a task with zero `card_messages` is
+  title-only. Editing the body edits that first message (`updated_at` moves;
+  `created_at` and ordering stay stable); deleting a message is an `archived_at`
+  tombstone, so the thread never loses its shape on sync.
 - **Media is content-addressed, never in the DB.** Bytes are stored at
   `projects/<project-id>/media/<content_hash>` (`content_hash` = SHA-256 hex),
   never as BLOBs in SQLite — BLOBs would bloat the DB, break WAL/sync, and
@@ -184,7 +184,7 @@ CREATE INDEX audit_log_project ON audit_log(project_id);
 - Identifiers are 160-bit random ids (`TEXT`, 32-char Crockford base32).
 - **Audit trail is append-only.** This file's `audit_log` records task, column,
   message, and media changes for this project; project/topic lifecycle is
-  audited in GLOBAL.md. Rows are inserted in the same transaction as the
-  change, never updated or deleted. Actions include `task.*`, `column.*`,
+  audited in GLOBAL.md. Rows are inserted in the same transaction as the change,
+  never updated or deleted. Actions include `task.*`, `column.*`,
   `message.create|update|archive`, and `media.create|archive`. `clidos audit`
   (and `clidos project audit <project>`) merges all files by `ts` (UTC unix ms).

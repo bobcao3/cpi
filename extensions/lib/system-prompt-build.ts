@@ -1,4 +1,4 @@
-/** Replaces pi-core's buildSystemPrompt: drops the redundant "Available tools" / <available_skills> prose (tool schemas and the skill tool's description already carry both) and uses the live cwd (lib/cwd.ts) so the working-directory line follows set_cwd. */
+/** Omits redundant generated sections and uses the live cwd. */
 import {
   getDocsPath,
   getExamplesPath,
@@ -63,8 +63,7 @@ export function buildCpiSystemPrompt(
   guidelines.push("Be concise in your responses");
   guidelines.push("Show file paths clearly when working with files");
 
-  // A custom --system-prompt replaces the identity + guidelines + pi-docs
-  // baseline (matching pi-core's contract); everything else is still appended.
+  // A custom --system-prompt replaces the identity/guidelines/pi-docs baseline; appended content remains.
   const base = customPrompt ? customPrompt : defaultPrompt(guidelines);
 
   let prompt = base;

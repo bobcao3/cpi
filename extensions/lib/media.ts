@@ -1,9 +1,4 @@
-/**
- * Media helpers for the `read` tool's media path. A file is media only when a
- * known media extension AND matching magic bytes agree (`.ts` is text unless
- * MPEG-TS). We mirror pi's detectSupportedImageMimeType exactly (utils/mime.ts
- * is not re-exported); pi-ai has no video type, so video returns a note.
- */
+/** Media requires a matching extension and magic bytes; video is reported as a note because pi-ai has no video type. */
 
 import { open } from "node:fs/promises";
 import { homedir } from "node:os";
@@ -78,8 +73,8 @@ function isMpegTs(buf: Uint8Array): boolean {
 
 function detectVideoMagic(buf: Uint8Array): boolean {
   if (isMpegTs(buf)) return true;
-  if (startsWithAscii(buf, 4, "ftyp")) return true; // mp4, mov, m4v, 3gp, …
-  if (startsWith(buf, [0x1a, 0x45, 0xdf, 0xa3])) return true; // webm, mkv (EBML)
+  if (startsWithAscii(buf, 4, "ftyp")) return true;
+  if (startsWith(buf, [0x1a, 0x45, 0xdf, 0xa3])) return true;
   if (startsWithAscii(buf, 0, "RIFF") && startsWithAscii(buf, 8, "AVI "))
     return true;
   if (startsWith(buf, [0x46, 0x4c, 0x56, 0x01])) return true;
@@ -90,8 +85,8 @@ function detectVideoMagic(buf: Uint8Array): boolean {
     buf[2] === 1 &&
     (buf[3] === 0xba || buf[3] === 0xb3)
   )
-    return true; // mpeg program/elementary stream
-  if (startsWith(buf, [0x30, 0x26, 0xb2, 0x75])) return true; // asf/wmv
+    return true;
+  if (startsWith(buf, [0x30, 0x26, 0xb2, 0x75])) return true;
   if (startsWith(buf, [0x4f, 0x67, 0x67, 0x53, 0x00])) return true;
   return false;
 }

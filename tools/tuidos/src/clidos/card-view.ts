@@ -6,7 +6,16 @@ import { listAllTopics, type TopicRow } from "../core/topics";
 import { matchIdPrefix } from "../core/id";
 import { uid } from "./uid";
 import { fail } from "./audit-view";
-import { accent, muted, bold, ok, note, relativeTime, padAccent, heading } from "./format";
+import {
+  accent,
+  muted,
+  bold,
+  ok,
+  note,
+  relativeTime,
+  padAccent,
+  heading,
+} from "./format";
 
 // --- resolution (id or unambiguous id prefix; names where unique) ---
 
@@ -17,7 +26,8 @@ export function resolveTaskId(projectId: string, arg: string): string {
   const ids = listAllTaskIds(projectId);
   if (ids.includes(arg)) return arg;
   const pm = matchIdPrefix(arg, ids);
-  if (pm.length > 1) fail(`ambiguous task id prefix '${arg}' — matches ${pm.length} tasks`);
+  if (pm.length > 1)
+    fail(`ambiguous task id prefix '${arg}' — matches ${pm.length} tasks`);
   if (pm[0]) return pm[0];
   fail(`no task '${arg}' in this project`);
 }
@@ -43,7 +53,11 @@ export function resolveColumnId(projectId: string, arg: string): string {
 }
 
 /** Resolve a message reference on a task: exact id or an unambiguous prefix. */
-export function resolveMessageId(projectId: string, taskId: string, arg: string): string {
+export function resolveMessageId(
+  projectId: string,
+  taskId: string,
+  arg: string,
+): string {
   if (!arg) fail("message id is required");
   const ids = listAllMessageIds(projectId, taskId);
   if (ids.includes(arg)) return arg;
@@ -54,7 +68,11 @@ export function resolveMessageId(projectId: string, taskId: string, arg: string)
 }
 
 /** Resolve a media reference on a task: exact id or an unambiguous prefix. */
-export function resolveMediaId(projectId: string, taskId: string, arg: string): string {
+export function resolveMediaId(
+  projectId: string,
+  taskId: string,
+  arg: string,
+): string {
   if (!arg) fail("media id is required");
   const ids = listMediaForTask(projectId, taskId).map((m) => m.id);
   if (ids.includes(arg)) return arg;
@@ -91,7 +109,10 @@ export function resolveTopicId(projectId: string, arg: string): string {
   const exact = topics.find((t) => t.name === arg);
   if (exact) return exact.id;
   const pm = matchIdPrefix(arg, ids);
-  if (pm.length > 1) fail(`ambiguous topic id prefix '${arg}' — matches ${pm.length} (use more characters)`);
+  if (pm.length > 1)
+    fail(
+      `ambiguous topic id prefix '${arg}' — matches ${pm.length} (use more characters)`,
+    );
   if (pm[0]) return pm[0];
   const lower = arg.toLowerCase();
   const ci = topics.filter((t) => t.name.toLowerCase() === lower);
@@ -129,15 +150,19 @@ export function renderTaskShow(
   messages: MessageRow[],
   media: MediaRow[],
   columns: ColumnRow[],
- topics: TopicRow[],
- taskIds: string[],
+  topics: TopicRow[],
+  taskIds: string[],
 ): string {
   const cmap = columnMap(columns);
   const lines: string[] = [];
   lines.push(heading(task.title));
-  lines.push(`  ${muted("id")} ${uid(task.id, taskIds)}  ${muted("column")} ${accent(cmap.get(task.column_id) ?? "?")}`);
+  lines.push(
+    `  ${muted("id")} ${uid(task.id, taskIds)}  ${muted("column")} ${accent(cmap.get(task.column_id) ?? "?")}`,
+  );
   if (topics.length > 0) {
-    lines.push(`  ${muted("topics")} ${topics.map((t) => accent(t.name)).join("  ")}`);
+    lines.push(
+      `  ${muted("topics")} ${topics.map((t) => accent(t.name)).join("  ")}`,
+    );
   }
   const meta: string[] = [];
   if (task.completed_at != null) meta.push(ok("✓ done"));
@@ -182,7 +207,10 @@ export function renderMediaList(media: MediaRow[]): string {
   if (media.length === 0) return muted("  (no media)");
   const ids = media.map((m) => m.id);
   return media
-    .map((m) => `  ${accent(m.filename)}  ${uid(m.id, ids)}  ${muted(m.content_hash.slice(0, 10))}  ${muted(`${m.size_bytes}B`)}`)
+    .map(
+      (m) =>
+        `  ${accent(m.filename)}  ${uid(m.id, ids)}  ${muted(m.content_hash.slice(0, 10))}  ${muted(`${m.size_bytes}B`)}`,
+    )
     .join("\n");
 }
 /** Render a task's topics as accent labels (or a muted placeholder). */
@@ -225,7 +253,11 @@ export function renderTaskReopened(label: string): string {
 export function renderTaskArchived(title: string): string {
   return `${ok("✓")} Archived task ${accent(title)}`;
 }
-export function renderTaskRestored(title: string, column: string, relocated: boolean): string {
+export function renderTaskRestored(
+  title: string,
+  column: string,
+  relocated: boolean,
+): string {
   return relocated
     ? `${ok("✓")} Restored task ${accent(title)} (moved to ${accent(column)})`
     : `${ok("✓")} Restored task ${accent(title)}`;
@@ -250,7 +282,10 @@ export function renderMediaExported(filename: string, dest: string): string {
 }
 
 /** Render a column list: position + name + task count + id. */
-export function renderColumnList(columns: ColumnRow[], counts: Map<string, number>): string {
+export function renderColumnList(
+  columns: ColumnRow[],
+  counts: Map<string, number>,
+): string {
   if (columns.length === 0) return muted("  (no columns)");
   const ids = columns.map((c) => c.id);
   const width = Math.max(8, ...columns.map((c) => c.name.length));
@@ -258,7 +293,7 @@ export function renderColumnList(columns: ColumnRow[], counts: Map<string, numbe
     .map((c, i) => {
       const n = counts.get(c.id) ?? 0;
       const cnt = muted(`${n} task${n === 1 ? "" : "s"}`);
-     return `  ${muted(String(i).padStart(2))}  ${padAccent(c.name, width)}  ${cnt}  ${uid(c.id, ids)}`;
+      return `  ${muted(String(i).padStart(2))}  ${padAccent(c.name, width)}  ${cnt}  ${uid(c.id, ids)}`;
     })
     .join("\n");
 }

@@ -1,16 +1,4 @@
 #!/usr/bin/env node
-/**
- * Sign a file with the minisign keypair from scripts/minisign-keygen.mjs.
- *
- * Zero deps (node:crypto). Emits a standard minisign signature file
- * (prehashed "ED" algorithm: ed25519(blake2b-512(msg)) + global sig over
- * sig||trusted_comment), written next to the input as <file>.minisig.
- *
- * Usage: node scripts/sign-wasm.mjs <path-to-wasm>
- *
- * Output verifies under extensions/lib/minisig.ts (the runtime verifier) and
- * under the reference minisign CLI (standard format).
- */
 import { createPrivateKey, createHash, sign } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
@@ -36,17 +24,16 @@ const priv = createPrivateKey({
 const keyId = Buffer.from(secret.keyId, "hex");
 
 const msg = readFileSync(wasmPath);
-const hash = createHash("blake2b512").update(msg).digest(); // prehashed
-const sig = sign(null, hash, priv); // 64-byte Ed25519 signature over blake2b-512(msg)
+const hash = createHash("blake2b512").update(msg).digest();
+const sig = sign(null, hash, priv);
 
 const trustedComment = `timestamp:${Math.floor(Date.now() / 1000)}\tfile:${basename(wasmPath)}`;
 const global = sign(
   null,
   Buffer.concat([sig, Buffer.from(trustedComment, "utf8")]),
   priv,
-); // 64 bytes
+);
 
-// sig block: sig_alg "ED" (prehashed) | key_id | sig = 74 bytes
 const sigBlock = Buffer.concat([Buffer.from([0x45, 0x44]), keyId, sig]);
 const out =
   "untrusted comment: cpi tree-sitter-wasm signature\n" +

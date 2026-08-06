@@ -1,34 +1,4 @@
-/**
- * sh-monitor — nohup-style supervisor for pi background shells.
- *
- * pi spawns this detached (own session, SIGHUP ignored) so it outlives pi. It
- * owns the grandchild's stdout/stderr pipe and drains it to a log file, so pi
- * can come and go without ever signalling the grandchild (no SIGPIPE).
- *
- *   pi  ──stdin (control)──►  sh-monitor  ──pipe──►  grandchild
- *    │──stdout (resp+DATA)──▲        │
- *    │                               └─writes──► log file (durable drain)
- *
- * The default hot path is the stdin/stdout pipes — NO filesystem socket, so no
- * /tmp dependency, no bind race, no `connect ENOENT` (the cluster failure).
- *
- * Resume socket (best-effort, lazy): when a shell is backgrounded, pi sends
- * `bindResume`; sh-monitor binds an AF_UNIX socket in the per-user runtime dir
- * (resolveRuntimeDir) so a restarted pi can re-attach. Bind is non-fatal — if
- * the runtime dir is unavailable or bind fails, resume is simply unavailable
- * for that shell and the pipe hot path is unaffected. Detached shells never bind
- * one (they are nohup). The socket is unlinked on exit so a resumed pi sees a
- * clean ENOENT, which it treats as a stale record and removes silently (no notification).
- *
- * Control plane (stat/signal/subscribe/shutdown/bindResume) is JSON over the
- * framed stdin pipe; the data plane rides raw zero-copy DATA frames on stdout
- * (and, for resume subscribers, on their socket). Backpressure: stdout.write
- * ===false pauses the grandchild; resumes on 'drain', gated with the log
- * writeStream so the grandchild resumes only when BOTH sinks have drained.
- *
- * Wire format + schema live in `./protocol.ts` (typebox, validated at read).
- * Usage: sh-monitor spawn <log> -- <cmd> [args...]
- */
+/** Keeps detached child output drainable and supports framed control/data with resumable subscribers. */
 import { spawn, type ChildProcess } from "node:child_process";
 import { createServer, type Socket, type Server } from "node:net";
 import {
@@ -46,10 +16,10 @@ import {
 } from "./protocol.ts";
 import { resolveRuntimeDir } from "./runtime-dir.ts";
 
-const DRAIN_MS = 200; // grace after grandchild exit for subscribers to drain
-const HARD_CAP_MS = 5000; // force-exit this long after grandchild exit even if a subscriber hangs
-const MAX_LOG_BYTES = 64 * 1024 * 1024; // per-process log cap (64 MiB)
-const MAX_SUBS = 8; // max simultaneous resume-socket subscribers
+const DRAIN_MS = 200;
+const HARD_CAP_MS = 5000;
+const MAX_LOG_BYTES = 64 * 1024 * 1024; // Bound each process log.
+const MAX_SUBS = 8; // Bound resume-socket subscribers.
 
 function signum(sig: string): number {
   switch (sig) {
@@ -81,14 +51,12 @@ interface MonitorState {
 }
 
 function runMonitor(logPath: string, cmd: string[]): void {
-  // nohup-like: own session (pi spawns us detached), ignore terminal hangups.
-  // SIGTERM means "stop supervising" → forward to grandchild.
   process.title = "sh-monitor";
   process.on("SIGHUP", () => {});
   process.on("SIGTERM", () => forward("SIGTERM"));
 
   const child: ChildProcess = spawn(cmd[0], cmd.slice(1), {
-    detached: true, // grandchild is its own pg leader; signals hit the group
+    detached: true,
     stdio: ["ignore", "pipe", "pipe"],
   });
   const pid = child.pid ?? -1;
@@ -101,11 +69,11 @@ function runMonitor(logPath: string, cmd: string[]): void {
   let pipeSubscribed = false;
   let logBlocked = false;
   let stdoutBlocked = false;
-  const sockSubs = new Set<Socket>(); // resume-socket subscribers
+  const sockSubs = new Set<Socket>();
   let resumeServer: Server | null = null;
   let resumeSockPath: string | null = null;
 
-  // Grandchild resumes only when both sinks (log + stdout) have drained.
+  // Resume the child only after both sinks drain.
   const resumeChild = (): void => {
     if (!logBlocked && !stdoutBlocked) {
       child.stdout?.resume();
@@ -120,7 +88,7 @@ function runMonitor(logPath: string, cmd: string[]): void {
     stdoutBlocked = false;
     resumeChild();
   });
-  // pi gone (read end closed) → EPIPE on next write; treat as subscriber gone.
+  // A closed pi pipe means the subscriber is gone.
   process.stdout.on("error", () => {
     pipeSubscribed = false;
     maybeExit();
@@ -135,7 +103,7 @@ function runMonitor(logPath: string, cmd: string[]): void {
     if (pipeSubscribed && !writeData(process.stdout, off, buf))
       stdoutBlocked = true;
     for (const s of sockSubs) {
-      if (s.writable && !s.destroyed) writeData(s, off, buf); // zero-copy to resume subs
+      if (s.writable && !s.destroyed) writeData(s, off, buf);
     }
     if (logBlocked || stdoutBlocked) {
       child.stdout?.pause();
@@ -167,10 +135,10 @@ function runMonitor(logPath: string, cmd: string[]): void {
     if (!childDone) return;
     const past = Date.now() - exitStartedAt >= HARD_CAP_MS;
     if (pipeSubscribed || sockSubs.size > 0) {
-      if (past) process.exit(0); // force on hard cap
-      return; // wait for subscribers to drain + close
+      if (past) process.exit(0);
+      return;
     }
-    if (everSubscribed || past) process.exit(0); // drained, or never-attached leak cap
+    if (everSubscribed || past) process.exit(0);
   };
   const finish = (code: number | null): void => {
     if (childDone) return;
@@ -188,7 +156,7 @@ function runMonitor(logPath: string, cmd: string[]): void {
   child.on("error", () => finish(-1));
   if (pid <= 0) finish(-1);
 
-  // Unlink the resume socket on exit so a resumed pi sees a clean ENOENT.
+  // Remove the resume socket so resumed clients see ENOENT.
   process.on("exit", () => {
     try {
       resumeServer?.close();
@@ -206,14 +174,13 @@ function runMonitor(logPath: string, cmd: string[]): void {
       else if (!s.startsWith("SIG")) s = "SIG" + s.toUpperCase();
     }
     try {
-      process.kill(-pid, s as NodeJS.Signals); // whole pg
+      process.kill(-pid, s as NodeJS.Signals);
       return true;
     } catch {
       return false;
     }
   }
 
-  // Per-resume-socket handler (a restarted pi re-attaching).
   function handle(sock: Socket): void {
     if (sockSubs.size >= MAX_SUBS) {
       sock.destroy();
@@ -261,9 +228,7 @@ function runMonitor(logPath: string, cmd: string[]): void {
             });
         }
       },
-      onData() {
-        // server never receives DATA frames
-      },
+      onData() {},
       onFrameError() {
         sock.destroy();
       },
@@ -271,7 +236,6 @@ function runMonitor(logPath: string, cmd: string[]): void {
     sock.on("data", (c: Buffer) => r.feed(c));
   }
 
-  // Best-effort: bind the resume socket in the per-user runtime dir. Non-fatal.
   function bindResume(): void {
     if (resumeSockPath) {
       writeControl(process.stdout, {
@@ -332,7 +296,7 @@ function runMonitor(logPath: string, cmd: string[]): void {
           );
           break;
         case "subscribe":
-          // live DATA frames carry off >= this offset; client reads [cursor, offset) backlog from file
+          // Live frames start at this offset; the client reads earlier bytes from the log.
           pipeSubscribed = true;
           everSubscribed = true;
           writeControl(process.stdout, {
@@ -345,7 +309,7 @@ function runMonitor(logPath: string, cmd: string[]): void {
           bindResume();
           break;
         case "shutdown":
-          forward("SIGTERM"); // drives finish()
+          forward("SIGTERM");
           writeControl(process.stdout, { kind: "ok" });
           break;
         default:
@@ -355,16 +319,14 @@ function runMonitor(logPath: string, cmd: string[]): void {
           });
       }
     },
-    onData() {
-      // server never receives DATA frames; ignore
-    },
+    onData() {},
     onFrameError() {
-      // pi sent a malformed frame; ignore (don't kill the supervisor over one bad control msg)
+      // Ignore malformed control input; the supervisor must keep draining.
     },
   });
   process.stdin.on("data", (c: Buffer) => reader.feed(c));
   process.stdin.on("end", () => {
-    // pi closed the pipe (detach / done) → pipe subscriber gone; keep draining, exit after grandchild
+    // The pipe subscriber is gone; keep draining until the child exits.
     pipeSubscribed = false;
     maybeExit();
   });
@@ -396,7 +358,7 @@ async function main(argv: string[]): Promise<number> {
       return 2;
     }
     runMonitor(log, split.after);
-    return 0; // never reached while serving
+    return 0;
   }
   console.error("usage: sh-monitor spawn <log> -- <cmd> [args...]");
   return 2;

@@ -1,25 +1,3 @@
-/**
- * LSP server provisioning (design §6.6, Layer 3).
- *
- * `resolveBin` answers "where is this language's server binary?" for the
- * manager, in three tiers:
- *   (a) env-PATH-first reuse — `which(spec.binName)` against the merged spawn
- *       env (`getToolEnv()` + dotenv). A project's own toolchain wins; no
- *       install. This also picks up the cached shuck via `getToolEnv`'s PATH.
- *   (b) shell reuse — `getShuckBinPath()` (+ `ensureShellTools()` if missing).
- *   (c) install user-scoped — typescript via bare `npm install --prefix`; python
- *       via a downloaded static `uv` (GitHub Artifact Attestation primary,
- *       sha256 fallback — NEVER minisign for uv) then `uv venv` + `uv pip
- *       install`. Idempotent: skip when `--version` matches the pin; reinstall
- *       on mismatch so a pin bump re-provisions.
- *
- * All installs are bounded by `installTimeoutMs`; on timeout/failure the
- * result is `{ source:"install-failed" }` and the caller degrades (design §9).
- * Returns `{ bin, source, pathDir? }` where `pathDir` is prepended to the
- * server's PATH so it can spawn its own tooling (tsc/pyrefly/python). Pure node
- * except `getAgentDir` (pi) + `shell/tools.ts` reuse (design §5 correction).
- */
-
 import { execFile, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { createWriteStream, existsSync, readFileSync } from "node:fs";
@@ -52,11 +30,7 @@ function installs(): Map<string, Promise<void>> {
 }
 
 /**
- * Serialize installs that share a destination (e.g. all TypeScript roots use one
- * `lsp_envs/typescript` dir). The fn re-checks the binary on entry, so a caller
- * that waited behind another install returns the cached result without
- * re-running `npm install`/`uv pip install`. `globalThis` holds shared mutable
- * state (re-read every call), not a dedup flag.
+ * Installs sharing a destination serialize; the callback rechecks the binary.
  */
 async function withInstallLock<T>(
   key: string,
@@ -83,7 +57,6 @@ export type ResolveSource = "env" | "installed" | "reuse" | "install-failed";
 export interface ResolveResult {
   bin: string;
   source: ResolveSource;
-  /** Dir prepended to the server PATH so it finds its own tooling. */
   pathDir?: string;
   error?: string;
 }
@@ -93,7 +66,6 @@ export interface ResolveOptions {
   uv: { version: string; repo: string; verify: string };
 }
 
-/** Locate `name` on PATH (env-PATH-first). Returns null when absent. */
 export function whichOnPath(
   name: string,
   env: NodeJS.ProcessEnv,
@@ -140,7 +112,7 @@ async function runCapture(
   return (r.stdout ?? "") + (r.stderr ?? "");
 }
 
-/** Run to completion (exit 0) or reject. tsc/pyrefly exit non-zero on errors. */
+/** Run to exit 0 or reject on non-zero exit. */
 async function runToCompletion(
   cmd: string,
   args: string[],
@@ -205,7 +177,6 @@ function sha256file(path: string): string {
   return createHash("sha256").update(readFileSync(path)).digest("hex");
 }
 
-/** First hex token of a `<hash>  <name>` checksum file. */
 function parseSha256(content: string): string | null {
   const m = content
     .trim()
@@ -214,7 +185,7 @@ function parseSha256(content: string): string | null {
   return m ? m[0].toLowerCase() : null;
 }
 
-// astral-sh/uv release asset per platform (musl on linux for a static binary).
+// Linux uses musl assets for static binaries.
 const UV_TARGETS: Record<string, string> = {
   "linux-x64": "x86_64-unknown-linux-musl",
   "linux-arm64": "aarch64-unknown-linux-musl",
@@ -242,9 +213,7 @@ async function ensureUv(
         opts.installTimeoutMs,
       );
       if (v.includes(want)) return bin;
-    } catch {
-      /* stale; re-provision */
-    }
+    } catch {}
   }
   const target = UV_TARGETS[platformKey()];
   if (!target) throw new Error(`no uv asset for ${platformKey()}`);
@@ -276,7 +245,7 @@ async function verifyUv(
   opts: ResolveOptions,
   tmp: string,
 ): Promise<void> {
-  // Primary: GitHub Artifact Attestation (keyless Sigstore). Fallback: sha256.
+  // Attestation first, sha256 as fallback.
   if (opts.uv.verify === "attestation-then-sha256") {
     try {
       await execFileAsync(
@@ -287,9 +256,7 @@ async function verifyUv(
         },
       );
       return;
-    } catch {
-      /* gh absent or attestation absent → sha256 fallback */
-    }
+    } catch {}
   }
   const shaUrl = `https://github.com/${opts.uv.repo}/releases/download/${want}/${aname}.sha256`;
   const shaTmp = join(tmp, `${aname}.sha256`);
@@ -325,9 +292,7 @@ async function installNpm(
       );
       if (want && v.includes(want))
         return { bin, source: "installed", pathDir: dirname(bin) };
-    } catch {
-      /* stale; reinstall */
-    }
+    } catch {}
   }
   const pkgJson = join(envDir, "package.json");
   if (!existsSync(pkgJson))
@@ -372,9 +337,7 @@ async function installUv(
       );
       if (want && v.includes(want))
         return { bin, source: "installed", pathDir: dirname(bin) };
-    } catch {
-      /* stale; reinstall */
-    }
+    } catch {}
   }
   const venvPython = join(envDir, "bin", IS_WIN ? "python.exe" : "python");
   await runToCompletion(
@@ -405,8 +368,8 @@ async function installUv(
 }
 
 /**
- * Resolve the server binary for `spec`. Never throws: install/lookup failure is
- * returned as `{ source:"install-failed" }` so the manager degrades (§9).
+ * Resolve the server binary for `spec`; lookup/install failures return
+ * `{ source: "install-failed" }` rather than throwing.
  */
 export async function resolveBin(
   spec: LspServerSpec,

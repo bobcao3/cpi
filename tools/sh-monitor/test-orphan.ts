@@ -1,12 +1,5 @@
 #!/usr/bin/env bun
-/**
- * Clean-fork semantics + exact-owner shell discovery + completion suppression.
- *  - in-memory live tracking is scoped by conversation session id (a fork does
- *    not see or manage the parent's background shells);
- *  - a fork inherits nothing: completion notices for the parent's shells are
- *    suppressed while the fork is active; only the owning session gets them;
- *  - discoverShellsForScope lists exactly one owner's alive shells.
- */
+/** Shell discovery and completion notices are scoped to the owning session. */
 import {
   runShell,
   setCompletionHook,
@@ -70,7 +63,6 @@ const waitMarker = async (m: string): Promise<boolean> => {
 const marker = (n: string) => `/tmp/pi-orphan-marker-${n}-${Date.now()}`;
 
 try {
-  // 1. background a long shell owned by A
   setCurrentScope(A);
   const r = await runShell(
     "sleep 30",
@@ -94,7 +86,6 @@ try {
     await new Promise((res) => setTimeout(res, 50));
   }
 
-  // 2. clean fork: A sees its shell; B does not; B cannot signal it
   ok(
     getShellBackgrounds().some((e: { id: string }) => e.id === id),
     "A sees its own background shell",
@@ -109,7 +100,6 @@ try {
     "forked session B cannot signal A's shell",
   );
 
-  // 3. exact-owner discovery: A's shells, not B's
   const bShells = await discoverShellsForScope(sessDir, B);
   ok(bShells.length === 0, "discoverShellsForScope(B) returns none");
   const aShells = await discoverShellsForScope(sessDir, A);
@@ -118,7 +108,6 @@ try {
     "discoverShellsForScope(A) returns A's alive shell",
   );
 
-  // 4. stale record from a dead session is cleaned, not listed
   await writeResumeRecord(
     sessDir,
     "sess-c",
@@ -140,8 +129,6 @@ try {
     "stale record from dead session removed silently",
   );
 
-  // 5. completion suppression: fork inherits nothing; only the owner gets notices
-  // 5a. shell owned by A completes while B (fork) is active -> suppressed
   setCurrentScope(B);
   const m2 = marker("b");
   const r2 = await runShell(
@@ -167,7 +154,6 @@ try {
     "completion suppressed for fork (B inherits nothing)",
   );
 
-  // 5b. shell owned by A completes while A is active -> owner gets the notice
   setCurrentScope(A);
   const m3 = marker("a");
   const r3 = await runShell(
@@ -193,8 +179,6 @@ try {
     "owner (A) gets the completion notice when active",
   );
 
-  // 6. completed-shell markers: off-screen completions persist + surface on resume.
-  //    5a wrote a marker for id2 (suppressed); 5b wrote none for id3 (owner active).
   const doneA = await readCompletedRecords(sessDir, A);
   ok(
     doneA.some((r) => r.pid === id2 && r.exitCode === 0),
@@ -215,7 +199,6 @@ try {
     "surfaceCompletedShells consumed the markers (one-shot)",
   );
 
-  // cleanup: kill A's remaining shells (scoped killAll affects only current session A)
   setCurrentScope(A);
   killAll();
 

@@ -1,12 +1,11 @@
 # Feature comparison: communicating ticket and project status — Linear versus Basecamp
 
-Research date: 2026-06-23
-Researcher: pi agent
+Research date: 2026-06-23 Researcher: pi agent
 
 ## Scope and method
 
 This is a narrow, feature-focused comparison of the mechanisms each product
-gives a team to *communicate status* — where a ticket or project stands, and how
+gives a team to _communicate status_ — where a ticket or project stands, and how
 that standing reaches the people who need it. It is descriptive, with no
 recommendation. All Linear quotations are verbatim from the canonical
 `linear.app/docs/*` articles, read in full on 2026-06-23 with a headless
@@ -21,7 +20,7 @@ Linear communicates status at three levels, and much of it is derived from issue
 state rather than written by hand.
 
 **At the ticket level**, status is the issue's typed field, and its position on
-a board *is* that status — grouped by status, the board becomes the team's
+a board _is_ that status — grouped by status, the board becomes the team's
 per-team workflow ("Backlog > Todo > In Progress > Done > Canceled,"
 [docs: Issue status](https://linear.app/docs/configuring-workflows)). Changes
 fan out as events: "You'll always see notifications in your Linear inbox. For
@@ -30,15 +29,16 @@ email digests," across Desktop, Mobile, Email, and Slack channels
 ([docs: Notifications](https://linear.app/docs/notifications)). Discussion is
 attached to the ticket: "Comments and reactions allow for team collaboration
 within an issue. All users with access to an issue can post comments and
-threaded replies" ([docs: Comments and reactions](https://linear.app/docs/comment-on-issues)).
+threaded replies"
+([docs: Comments and reactions](https://linear.app/docs/comment-on-issues)).
 
 **At the project level**, there is a deliberate split between a manual human
 signal and auto-computed graphs. The human signal is a typed status field:
 "Project statuses clarify where each project is in its lifecycle... A project
 status offers a quick update for stakeholders," with categories Backlog,
 Planned, In Progress, Completed, and Canceled — and it is explicitly manual:
-"Project statuses are updated manually — we do not do this automatically, even if
-all issues are completed"
+"Project statuses are updated manually — we do not do this automatically, even
+if all issues are completed"
 ([docs: Project status](https://linear.app/docs/project-status)). Alongside it
 sits a structured written update: "Initiative and Project updates are structured
 reports that keep teams and leaders informed on progress and alignment. They
@@ -65,7 +65,8 @@ together insights from across teams and projects onto a single page"
 project page to subscribe to that project's notifications," and a project can
 post to its own Slack channel — "a great way to keep other team members in the
 loop," where "Linear members will be able to take actions on the issue directly
-from Slack" ([docs: Project notifications](https://linear.app/docs/project-notifications)).
+from Slack"
+([docs: Project notifications](https://linear.app/docs/project-notifications)).
 Status also arrives from outside the product: GitHub PR and commit state drive
 issue status, and comments and checks sync both ways
 ([docs: GitHub](https://linear.app/docs/github)). Inbound requests enter the
@@ -79,11 +80,10 @@ Basecamp communicates status almost entirely through human judgment and
 conversation; nothing is computed from a dataset.
 
 **The signature status signal is the Hill Chart**, a qualitative shape rather
-than a number. "Hill Charts show you where things really stand," and per *Shape
-Up* the method lets you "see the status of the project without counting tasks
+than a number. "Hill Charts show you where things really stand," and per _Shape
+Up_ the method lets you "see the status of the project without counting tasks
 and without numerical estimates," with "an uphill phase of figuring out" and "a
-downhill phase of execution"
-([features](https://basecamp.com/features),
+downhill phase of execution" ([features](https://basecamp.com/features),
 [ch.13](https://basecamp.com/shapeup/3.4-chapter-13)). The team "intuitively
 drag the scopes into position, and save a new update that's logged on the
 project" ([Hill Charts](https://basecamp.com/hill-charts)) — status is a dragged
@@ -98,13 +98,12 @@ updates, Basecamp asks people to write them on a cadence.
 
 **Conversation carries the rest.** Message Boards "essentially replace email...
 a shared inbox for the project... All project announcements, discussions,
-presentations, etc, live on the message board," and Campfire provides
-"real-time conversations, quick file sharing"
-([features](https://basecamp.com/features)). **Overview reports** aggregate
-status for leaders: "Mission Control shows you every project's status in one
-view," "The Hilltop shows you every project's Hill Chart on a single screen,"
-and the Lineup plots projects on a timeline, alongside Added/Completed,
-Overdue, and Unassigned lists
+presentations, etc, live on the message board," and Campfire provides "real-time
+conversations, quick file sharing" ([features](https://basecamp.com/features)).
+**Overview reports** aggregate status for leaders: "Mission Control shows you
+every project's status in one view," "The Hilltop shows you every project's Hill
+Chart on a single screen," and the Lineup plots projects on a timeline,
+alongside Added/Completed, Overdue, and Unassigned lists
 ([features](https://basecamp.com/features)). At the item level, notification
 routing is configured per surface: "Specify who should be notified when a new
 card is added to the table, or to a specific column," and "Set up who gets
@@ -112,20 +111,20 @@ notified when a to-do is completed" ([features](https://basecamp.com/features)).
 
 ## How they differ
 
-| Dimension | Linear | Basecamp |
-|---|---|---|
-| Project status signal | A typed status field, set manually; plus structured written updates with a health indicator | A Hill Chart position, dragged manually |
-| Quantitative progress | Auto-computed: project graph (velocity-based completion prediction), cycle graph (burndown), Insights, Dashboards | None — "without counting tasks and without numerical estimates" |
-| Cadence mechanism | Configurable reminders to post updates (weekly/biweekly) | Automatic Check-ins ask a question on a schedule; answers logged |
-| Where status lands | Inbox + Slack channels (per-project `#p-project-name`, workspace `#project-updates`); actions from Slack | Message Boards (shared inbox) + Campfire (chat) |
-| Leadership overview | Dashboards and Insights across teams/projects | Mission Control grid, Hilltop all-hills, Lineup timeline |
-| Ticket-level movement | Board column = issue status; moving a card mutates the typed field | Card/to-do position; per-column and per-to-do notification routing |
-| External coupling | GitHub PR/commit state drives issue status both ways | Cloud files linked, not synced |
+| Dimension             | Linear                                                                                                            | Basecamp                                                           |
+| --------------------- | ----------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
+| Project status signal | A typed status field, set manually; plus structured written updates with a health indicator                       | A Hill Chart position, dragged manually                            |
+| Quantitative progress | Auto-computed: project graph (velocity-based completion prediction), cycle graph (burndown), Insights, Dashboards | None — "without counting tasks and without numerical estimates"    |
+| Cadence mechanism     | Configurable reminders to post updates (weekly/biweekly)                                                          | Automatic Check-ins ask a question on a schedule; answers logged   |
+| Where status lands    | Inbox + Slack channels (per-project `#p-project-name`, workspace `#project-updates`); actions from Slack          | Message Boards (shared inbox) + Campfire (chat)                    |
+| Leadership overview   | Dashboards and Insights across teams/projects                                                                     | Mission Control grid, Hilltop all-hills, Lineup timeline           |
+| Ticket-level movement | Board column = issue status; moving a card mutates the typed field                                                | Card/to-do position; per-column and per-to-do notification routing |
+| External coupling     | GitHub PR/commit state drives issue status both ways                                                              | Cloud files linked, not synced                                     |
 
-The core difference is what the status *is*. In Linear, status is a field on a
+The core difference is what the status _is_. In Linear, status is a field on a
 typed record, so it can be computed against (graphs, velocity predictions,
-burndowns, dashboards) and pushed as events to the right Slack channel; the human
-project-status note coexists with, and is distinct from, the auto-derived
+burndowns, dashboards) and pushed as events to the right Slack channel; the
+human project-status note coexists with, and is distinct from, the auto-derived
 graphs — and Linear is careful to keep the human note manual even when all
 issues are done. In Basecamp, status is a person's judgment of where the work
 sits on a hill, surfaced through a dragged position, a scheduled check-in

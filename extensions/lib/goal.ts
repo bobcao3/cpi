@@ -1,11 +1,4 @@
-/**
- * Goal — persistent user-set objective with a fork-probe evaluator.
- *
- * State is process-wide on a globalThis slot and mirrored to the session
- * transcript ("goal-state", excluded from LLM context) so it survives
- * --resume. Recursion: fork-probe sets CPI_FORK_PROBE=1 on every child, which
- * disables all goal logic — an evaluator/stuck fork never re-forks.
- */
+/** Goal state persists on globalThis and in the session transcript; fork-probe children disable goal logic to prevent recursion. */
 
 import type {
   ExtensionAPI,
@@ -20,11 +13,11 @@ function envInt(key: string, fallback: number): number {
 }
 const MAX_TURNS = envInt("CPI_GOAL_MAX_TURNS", 40);
 const MAX_DURATION_MS = envInt("CPI_GOAL_MAX_DURATION_MS", 2 * 60 * 60 * 1000);
-/** Wall-clock bound for the evaluator fork child. */
+/** Probe timeout bound. */
 const PROBE_TIMEOUT_MS = envInt("CPI_GOAL_PROBE_TIMEOUT_MS", 3 * 60 * 1000);
 export const GOAL_STATE_ENTRY = "goal-state";
-export const GOAL_MSG_TYPE = "goal-message"; // custom message in LLM context
-const AUDIT_TYPE = "goal-eval"; // transcript-only audit (excluded from LLM context)
+export const GOAL_MSG_TYPE = "goal-message";
+const AUDIT_TYPE = "goal-eval";
 const FORK_ENV = "CPI_FORK_PROBE";
 
 interface GoalText {
@@ -63,7 +56,7 @@ function state(): GoalState {
   return g[GLOBAL_KEY] as GoalState;
 }
 
-/** True inside a fork-probe child — disables all goal continuation/eval/stuck. */
+/** Fork-child guard. */
 function inForkChild(): boolean {
   return process.env[FORK_ENV] === "1";
 }
@@ -92,12 +85,10 @@ function persistGoal(pi: ExtensionAPI): void {
       turnCount: s.turnCount,
       startedAtMs: s.startedAtMs,
     });
-  } catch {
-    /* best-effort */
-  }
+  } catch {}
 }
 
-/** Reconstruct goal state from the latest "goal-state" entry on the branch. */
+/** Replay latest goal-state. */
 export function reconstructGoal(ctx: ExtensionContext): void {
   let found: GoalState | undefined;
   for (const entry of ctx.sessionManager.getBranch()) {
@@ -197,9 +188,7 @@ function sendGoalMessage(
       },
       { triggerTurn: true, deliverAs: "steer" },
     );
-  } catch {
-    /* best-effort */
-  }
+  } catch {}
 }
 
 function audit(
@@ -213,9 +202,7 @@ function audit(
       ...extra,
       at: new Date().toISOString(),
     });
-  } catch {
-    /* best-effort */
-  }
+  } catch {}
 }
 
 export type GoalEvalStatus = "met" | "continue" | "failed";
@@ -224,7 +211,7 @@ export interface GoalEvalResult {
   reason: string;
 }
 
-/** Parse the verifier's first non-empty line: "YES" | "NO" | null (ambiguous). */
+/** Parse YES/NO/null. */
 function parseVerdict(answer: string): "YES" | "NO" | null {
   for (const raw of answer.split("\n")) {
     const line = raw.trim().toUpperCase();
@@ -249,7 +236,7 @@ function extractReason(answer: string): string {
     .trim();
 }
 
-/** Fork-probe an independent verifier; never rejects — failed/ambiguous probe → failed/continue. */
+/** Probe failures never reject. */
 export async function evaluateGoal(
   pi: ExtensionAPI,
   ctx: ExtensionContext,
@@ -297,7 +284,7 @@ export async function evaluateGoal(
   };
 }
 
-/** Continue toward the goal; budget-pauses on MAX_TURNS/MAX_DURATION_MS breach. */
+/** Budget pause. */
 export function continueGoal(
   pi: ExtensionAPI,
   ctx: ExtensionContext,
@@ -330,7 +317,7 @@ export function continueGoal(
   persistGoal(pi);
 }
 
-/** Verifier said YES: clear the goal, notify, record an audit — no new turn. */
+/** Success starts no turn. */
 export function achieveGoal(pi: ExtensionAPI, ctx: ExtensionContext): void {
   const s = state();
   const objective = s.objective ?? "";
@@ -339,13 +326,11 @@ export function achieveGoal(pi: ExtensionAPI, ctx: ExtensionContext): void {
   const T = loadText<GoalText>("goal", textPath("goal"));
   try {
     ctx.ui.notify(render(T.command.achieved, { objective, turns }), "info");
-  } catch {
-    /* best-effort */
-  }
+  } catch {}
   audit(pi, "achieved", { objective, turns });
 }
 
-/** Pause the goal with a budget/limit reason — no new turn. */
+/** Budget starts no turn. */
 export function budgetPauseGoal(
   pi: ExtensionAPI,
   ctx: ExtensionContext,
@@ -364,13 +349,11 @@ export function budgetPauseGoal(
       }),
       "warning",
     );
-  } catch {
-    /* best-effort */
-  }
+  } catch {}
   audit(pi, "budget", { reason, turns: s.turnCount });
 }
 
-/** When the stuck-check is due and a goal is active, resume the agent to check stuck backgrounds and remind it of the goal (fire-and-forget, mirroring anti-stuck's ABORT). */
+/** Stuck resume enforces budget. */
 export function goalStuckResume(
   pi: ExtensionAPI,
   elapsedMin: number,

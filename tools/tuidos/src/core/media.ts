@@ -25,7 +25,8 @@ function sha256Hex(bytes: Buffer): string {
   return createHash("sha256").update(bytes).digest("hex");
 }
 
-const MEDIA_COLS = "id, message_id, content_hash, filename, mime_type, size_bytes, created_at, archived_at";
+const MEDIA_COLS =
+  "id, message_id, content_hash, filename, mime_type, size_bytes, created_at, archived_at";
 
 /** Attach a file as media to a message: hash it, store the blob
  *  content-addressed (dedup), insert a metadata row. Returns the new row. */
@@ -50,22 +51,35 @@ export function addMedia(
   const db = openProjectWrite(projectId);
   try {
     db.transaction(() => {
-      const msg = db.prepare(
-        `SELECT m.id FROM card_messages m WHERE m.id = ? AND m.task_id = ? AND m.archived_at IS NULL`,
-      ).get(messageId, taskId) as { id: string } | null;
-      if (!msg) throw new Error(`no active message '${messageId}' on task '${taskId}'`);
+      const msg = db
+        .prepare(
+          `SELECT m.id FROM card_messages m WHERE m.id = ? AND m.task_id = ? AND m.archived_at IS NULL`,
+        )
+        .get(messageId, taskId) as { id: string } | null;
+      if (!msg)
+        throw new Error(`no active message '${messageId}' on task '${taskId}'`);
       db.prepare(
         `INSERT INTO message_media (id, message_id, content_hash, filename, mime_type, size_bytes, created_at)
          VALUES (?, ?, ?, ?, ?, ?, ?)`,
       ).all(id, messageId, hash, fname, mime, bytes.length, now);
       recordAudit(db, {
-        ts: now, project_id: projectId, action: "media.create", entity_type: "media",
-        entity_id: id, summary: cap(`attached ${fname} (${bytes.length}B)`),
+        ts: now,
+        project_id: projectId,
+        action: "media.create",
+        entity_type: "media",
+        entity_id: id,
+        summary: cap(`attached ${fname} (${bytes.length}B)`),
       });
     })();
     return {
-      id, message_id: messageId, content_hash: hash, filename: fname, mime_type: mime,
-      size_bytes: bytes.length, created_at: now, archived_at: null,
+      id,
+      message_id: messageId,
+      content_hash: hash,
+      filename: fname,
+      mime_type: mime,
+      size_bytes: bytes.length,
+      created_at: now,
+      archived_at: null,
     };
   } finally {
     db.close();
@@ -73,13 +87,18 @@ export function addMedia(
 }
 
 /** Active media on one message. */
-export function listMediaForMessage(projectId: string, messageId: string): MediaRow[] {
+export function listMediaForMessage(
+  projectId: string,
+  messageId: string,
+): MediaRow[] {
   const db = openProjectRead(projectId);
   if (!db) return [];
   try {
-    return db.prepare(
-      `SELECT ${MEDIA_COLS} FROM message_media WHERE message_id = ? AND archived_at IS NULL ORDER BY created_at`,
-    ).all(messageId) as MediaRow[];
+    return db
+      .prepare(
+        `SELECT ${MEDIA_COLS} FROM message_media WHERE message_id = ? AND archived_at IS NULL ORDER BY created_at`,
+      )
+      .all(messageId) as MediaRow[];
   } catch {
     return [];
   } finally {
@@ -88,18 +107,23 @@ export function listMediaForMessage(projectId: string, messageId: string): Media
 }
 
 /** All active media across a task's messages (joined), for `task show`. */
-export function listMediaForTask(projectId: string, taskId: string): MediaRow[] {
+export function listMediaForTask(
+  projectId: string,
+  taskId: string,
+): MediaRow[] {
   const db = openProjectRead(projectId);
   if (!db) return [];
   try {
-    return db.prepare(
-      `SELECT mm.id, mm.message_id, mm.content_hash, mm.filename, mm.mime_type,
+    return db
+      .prepare(
+        `SELECT mm.id, mm.message_id, mm.content_hash, mm.filename, mm.mime_type,
               mm.size_bytes, mm.created_at, mm.archived_at
        FROM message_media mm
        JOIN card_messages m ON m.id = mm.message_id
        WHERE m.task_id = ? AND mm.archived_at IS NULL AND m.archived_at IS NULL
        ORDER BY mm.created_at`,
-    ).all(taskId) as MediaRow[];
+      )
+      .all(taskId) as MediaRow[];
   } catch {
     return [];
   } finally {
@@ -108,23 +132,36 @@ export function listMediaForTask(projectId: string, taskId: string): MediaRow[] 
 }
 
 /** Archive (soft-delete) a media row. The blob stays on disk (GC is deferred). */
-export function archiveMedia(projectId: string, taskId: string, mediaId: string): string {
+export function archiveMedia(
+  projectId: string,
+  taskId: string,
+  mediaId: string,
+): string {
   const now = Date.now();
   let filename = "";
   const db = openProjectWrite(projectId);
   try {
     db.transaction(() => {
-      const row = db.prepare(
-        `SELECT mm.filename FROM message_media mm
+      const row = db
+        .prepare(
+          `SELECT mm.filename FROM message_media mm
          JOIN card_messages m ON m.id = mm.message_id
          WHERE mm.id = ? AND m.task_id = ? AND mm.archived_at IS NULL`,
-      ).get(mediaId, taskId) as { filename: string } | null;
+        )
+        .get(mediaId, taskId) as { filename: string } | null;
       if (!row) throw new Error(`no active media '${mediaId}' on this task`);
       filename = row.filename;
-      db.prepare("UPDATE message_media SET archived_at = ? WHERE id = ?").all(now, mediaId);
+      db.prepare("UPDATE message_media SET archived_at = ? WHERE id = ?").all(
+        now,
+        mediaId,
+      );
       recordAudit(db, {
-        ts: now, project_id: projectId, action: "media.archive", entity_type: "media",
-        entity_id: mediaId, summary: cap(`removed media ${filename}`),
+        ts: now,
+        project_id: projectId,
+        action: "media.archive",
+        entity_type: "media",
+        entity_id: mediaId,
+        summary: cap(`removed media ${filename}`),
       });
     })();
   } finally {

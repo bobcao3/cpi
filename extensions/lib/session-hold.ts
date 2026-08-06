@@ -1,8 +1,4 @@
-/**
- * Registry of hold sources — extensions that may still emit a follow-up
- * notification after a turn (pending alarm, background shell). One owner
- * (core.ts) runs a single await: pi runs session_shutdown handlers sequentially, so per-source holds would stack.
- */
+/** Single-owner invariant: core.ts performs one await; pi runs session_shutdown handlers sequentially. */
 
 export interface HoldSource {
   id: string;
@@ -79,7 +75,7 @@ export function getLastStopReason(): string | undefined {
   return state().lastStopReason;
 }
 
-/** True only on the first call per turn — the first caller emits the notice. */
+/** First caller per turn emits the notice. */
 export function consumeHoldNotice(): boolean {
   const s = state();
   if (s.holdNoticeSent) return false;
@@ -87,7 +83,7 @@ export function consumeHoldNotice(): boolean {
   return true;
 }
 
-/** Per-episode flag; deliberately not cleared by resetHoldTracking, else a normal stop would re-trigger the reminder forever. */
+/** resetHoldTracking must not clear reminderDelivered. */
 export function markReminderDelivered(): void {
   state().reminderDelivered = true;
 }
@@ -109,14 +105,14 @@ export function buildHoldReminderText(pending: HoldSource[]): string {
   ].join("\n");
 }
 
-/** Resolve an active hold the instant a real event fires — hasPending() can't observe extension sends. No-op when no hold is awaiting. */
+/** Resolves sends because hasPending() cannot observe extension sends. */
 export function signalHoldEvent(): void {
   const resolve = state().holdResolve;
   state().holdResolve = null;
   if (resolve) resolve(true);
 }
 
-/** True on a real event (hasPending drops / signalHoldEvent); false on timeout — the caller doubles the interval and nudges, never ends the session. */
+/** True means a real event; false means timeout—the caller doubles the interval and nudges. */
 export async function awaitHoldInterval(
   sources: HoldSource[],
   intervalMs: number,

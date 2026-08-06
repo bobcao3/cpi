@@ -1,11 +1,4 @@
-/**
- * `edit`: delegate to the Editor subagent, then apply + write atomically.
- * Sends numbered content + an instruction to the tool-less Editor subagent,
- * resolves its unified-diff hunks against one immutable snapshot, and writes
- * the result atomically (tmp + rename; any hunk failure writes nothing).
- * Mirrors SWE-Edit §3.1. Runs under the per-path lock (lock.ts) — same-path
- * edits serialize, so no compare-and-swap is needed.
- */
+/** Applies editor changes atomically under a per-path lock. */
 
 import { readFile, stat, writeFile, rename, unlink } from "node:fs/promises";
 import { resolve, dirname, join } from "node:path";
@@ -37,7 +30,7 @@ export interface EditFileOptions {
   transcriptDir: string;
   maxTranscripts: number;
   maxFileBytes: number;
-  /** Toggles whitespace-fuzzy and context-fuzz fallbacks for matching (default on). */
+  /** Controls fuzzy matching (default on). */
   fuzzyMatch?: boolean;
   onStream?: (accumulated: string) => void;
   thinkingLevel?: string;
@@ -143,8 +136,6 @@ export async function editFile(
         ? T.system.editor
         : T.system.editor + T.system.editor_fuzzy;
 
-    /** One subagent round; `failure` (the previous round's error) switches it
-     *  to rewrite mode, which needs no matching and cannot repeat a miss. */
     const attempt = async (failure?: string): Promise<Attempt> => {
       const res = await runSubagent({
         role: "editor",
@@ -184,14 +175,11 @@ export async function editFile(
           error: fmt(T.errors.editor_timeout, { ms: opts.timeoutMs }),
         };
 
-      // The completion tool call IS the signal: edit-complete with diffs or
-      // content => apply; cancel=true => abort; null/wrong tool => truncation.
       const c = res.completion;
       if (!c || c.tool !== "edit-complete")
         return { ok: "fatal", error: T.errors.editor_truncated };
       if (c.args.cancel === true)
         return { ok: "fatal", error: T.errors.editor_cancelled };
-      // Both rounds are billed, so the reported usage is their sum.
       if (res.usage)
         usage = {
           input: (usage?.input ?? 0) + res.usage.input,
@@ -225,8 +213,6 @@ export async function editFile(
       return { ok: "applied", result };
     };
 
-    // The apply failure is the only signal to switch to rewrite mode: retry
-    // exactly once, and only on a retryable failure.
     let outcome = await attempt();
     if (outcome.ok === "retryable") outcome = await attempt(outcome.error);
     if (outcome.ok !== "applied") return { ok: false, error: outcome.error };

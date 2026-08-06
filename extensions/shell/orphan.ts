@@ -1,10 +1,3 @@
-/**
- * Background-shell liveness probing on session start: connect to the sh-monitor
- * resume socket without subscribing — `whenReady` resolves on connect (alive),
- * rejects on ENOENT/ECONNREFUSED (dead); dead records are stale debris, removed
- * silently.
- */
-
 import {
   ResumeClient,
   readCompletedRecords,
@@ -78,7 +71,6 @@ export function formatOrphanedSummary(orphans: OrphanedShell[]): string {
   return `${head}: ${list}`;
 }
 
-/** On session start: list this exact session's alive orphaned shells. */
 export function notifyOrphanedShells(
   sessionDir: string | undefined,
   scope: string | undefined,

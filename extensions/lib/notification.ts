@@ -1,7 +1,4 @@
-/**
- * Shared notification module for delivering async events to the LLM as
- * user-role messages wrapped in <notification> XML (distinct from user input).
- */
+/** Delivers async events to the LLM as user-role messages wrapped in <notification> XML, distinct from user input. */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
@@ -28,7 +25,7 @@ export interface NotificationDetails {
   payload: Record<string, unknown>;
 }
 
-/** Wrap content in XML: nested objects become child elements; { __rawXml } values are inserted verbatim. */
+/** Nested objects become child elements; __rawXml values are inserted verbatim. */
 export function wrapNotification(details: NotificationDetails): string {
   const lines: string[] = [`<notification type="${details.kind}">`];
   lines.push(...renderPayload(details.payload, "  "));
@@ -94,10 +91,7 @@ export function sendNotification(
   );
 }
 
-/**
- * Register the notification TUI renderer — owner core.ts re-registers on every
- * load (renderers live on the transient extension instance).
- */
+/** Re-register because renderers are transient per extension instance. */
 export function registerNotificationRenderer(pi: ExtensionAPI): void {
   pi.registerMessageRenderer(NOTIFICATION_TYPE, (message, _options, theme) => {
     const details = message.details as NotificationDetails | undefined;

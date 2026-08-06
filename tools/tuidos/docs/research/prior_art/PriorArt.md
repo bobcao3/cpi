@@ -1,7 +1,6 @@
 # Prior Art: Linear versus Basecamp (a sourced comparison)
 
-Research date: 2026-06-23
-Researcher: pi agent
+Research date: 2026-06-23 Researcher: pi agent
 
 ## Purpose
 
@@ -9,12 +8,12 @@ This document compares Linear and Basecamp as two opposing reference
 philosophies for managing work. For each design dimension it describes Linear's
 approach and the situations that approach suits, then Basecamp's approach and
 the situations that approach suits, and finally the way the two differ. Every
-Linear claim is grounded in a first-hand article from Linear's own docs, read
-in full on 2026-06-23 with a headless Chromium browser (system Chromium 149
-driven by Playwright) against the canonical `linear.app/docs/*` URLs; every
-Basecamp claim is grounded in the *Shape Up* book or the Basecamp features site.
-The comparison is descriptive throughout: it offers no recommendations and
-expresses no opinion about what tuidos should do.
+Linear claim is grounded in a first-hand article from Linear's own docs, read in
+full on 2026-06-23 with a headless Chromium browser (system Chromium 149 driven
+by Playwright) against the canonical `linear.app/docs/*` URLs; every Basecamp
+claim is grounded in the _Shape Up_ book or the Basecamp features site. The
+comparison is descriptive throughout: it offers no recommendations and expresses
+no opinion about what tuidos should do.
 
 ### tuidos context, stated factually
 
@@ -24,14 +23,14 @@ its current state consists of a named project registry in which projects are
 "Tasks, kanban columns, and metadata"; and two clients — a non-TTY CLI called
 `clidos` and an interactive TUI called `tuidos` — that read and write the same
 SQLite files over a WAL-enabled database with "no global coordination server."
-`DESIGN.md` is silent on the semantics of kanban columns, on task hierarchy,
-and on the progress model. This is mentioned only as factual context, and the
+`DESIGN.md` is silent on the semantics of kanban columns, on task hierarchy, and
+on the progress model. This is mentioned only as factual context, and the
 comparison that follows draws no conclusion about tuidos.
 
 ### A note on sources
 
 Both vendors' first-hand material is now read directly. Basecamp publishes the
-entire *Shape Up* book online and free, so its first-hand material is unusually
+entire _Shape Up_ book online and free, so its first-hand material is unusually
 rich. Linear's docs are a JavaScript single-page application, but its canonical
 article URLs live on `linear.app/docs/*` (not `docs.linear.app/features/*`,
 which renders only the docs index); those articles were each loaded in a real
@@ -43,8 +42,8 @@ first-hand and are folded in below, corrected where the source differed.
 Other terminal and local-first tools — Taskwarrior with vit, dstask, todo.txt,
 taskell, and the 2025–2026 wave of SQLite-backed TUI tools (Kairo, RustKanban,
 cli_kanban, fulsomenko/kanban, tasc, kaban, and TaskYou) — form the real
-competitive set for tuidos, but they belong in a separate document and are
-named here only for context.
+competitive set for tuidos, but they belong in a separate document and are named
+here only for context.
 
 ## Linear: an issue-centric execution system
 
@@ -59,16 +58,17 @@ projects — each appears as a child of the team in the docs' own sidebar
 work item: "Issues are always linked to a single team. They have an issue ID
 (the team's issue identifier and unique number) and are required to have a title
 and a status — all other properties and relations are optional"
-([docs: Create issues](https://linear.app/docs/creating-issues)). Its
-identifier looks like `ENG-123` and is scoped to the team — the GitHub docs show
-the magic-word form "Fixes ENG-123" ([docs: GitHub](https://linear.app/docs/github)),
-and moving an issue to another team "generates a new issue ID" while the old one
-stays searchable ([docs: Edit issues](https://linear.app/docs/editing-issues)).
+([docs: Create issues](https://linear.app/docs/creating-issues)). Its identifier
+looks like `ENG-123` and is scoped to the team — the GitHub docs show the
+magic-word form "Fixes ENG-123"
+([docs: GitHub](https://linear.app/docs/github)), and moving an issue to another
+team "generates a new issue ID" while the old one stays searchable
+([docs: Edit issues](https://linear.app/docs/editing-issues)).
 
 A workflow is a per-team, ordered state machine rather than a single global
 enum: "Issues statuses define the type and order of states that issues can move
-through from start to completion. These workflows are team-specific and come with
-a default set and order: Backlog > Todo > In Progress > Done > Canceled,"
+through from start to completion. These workflows are team-specific and come
+with a default set and order: Backlog > Todo > In Progress > Done > Canceled,"
 and "Statuses can be rearranged within a category but categories cannot be moved
 around" ([docs: Issue status](https://linear.app/docs/configuring-workflows)).
 Issue relations "indicate blocked, blocking, related, and duplicate issues" —
@@ -93,24 +93,25 @@ stories" ([Linear Method](https://linear.app/method)).
 ### Linear's GitHub status automation, in the vendor's words
 
 The pattern that matters most for this comparison is the way Linear's status
-advances automatically from code. The [GitHub integration docs](https://linear.app/docs/github)
-state it directly. "Linear supports linking your GitHub pull requests,
-automating workflow statuses, and syncing issues between GitHub and Linear."
-The status is driven by a magic word plus the issue ID: "Use a magic word + issue
-ID in the PR description or title (e.g. Fixes ENG-123...)." The behavior is
-explicit: "When using a closing magic word, Linear will move the issue to In
-Progress when the branch is pushed and Done when the commit is merged to the
-default branch." The closing magic words are listed verbatim — "close, closes,
-closed, closing, fix, fixes, fixed, fixing, resolve, resolves, resolved,
-resolving, complete, completes, completed, completing, implement, implements,
-implemented, implementing, linear issue" — alongside non-closing words ("ref,
-refs, references, part of, related to, relates to, contributes to, toward,
-towards") that "will still move the issue through other statuses per Workflow
-settings, but will not automate the issue's status when the PR or commit merges."
-An issue is linked through its identifier in the branch name, the pull-request
-title, or the PR description, and the integration is two-way: comments and
-checks sync between GitHub and Linear. The integration is event-driven rather
-than poll-driven, so updates land within seconds of a merge.
+advances automatically from code. The
+[GitHub integration docs](https://linear.app/docs/github) state it directly.
+"Linear supports linking your GitHub pull requests, automating workflow
+statuses, and syncing issues between GitHub and Linear." The status is driven by
+a magic word plus the issue ID: "Use a magic word + issue ID in the PR
+description or title (e.g. Fixes ENG-123...)." The behavior is explicit: "When
+using a closing magic word, Linear will move the issue to In Progress when the
+branch is pushed and Done when the commit is merged to the default branch." The
+closing magic words are listed verbatim — "close, closes, closed, closing, fix,
+fixes, fixed, fixing, resolve, resolves, resolved, resolving, complete,
+completes, completed, completing, implement, implements, implemented,
+implementing, linear issue" — alongside non-closing words ("ref, refs,
+references, part of, related to, relates to, contributes to, toward, towards")
+that "will still move the issue through other statuses per Workflow settings,
+but will not automate the issue's status when the PR or commit merges." An issue
+is linked through its identifier in the branch name, the pull-request title, or
+the PR description, and the integration is two-way: comments and checks sync
+between GitHub and Linear. The integration is event-driven rather than
+poll-driven, so updates land within seconds of a merge.
 
 ## Basecamp: a conversation-centric collaboration system
 
@@ -121,19 +122,19 @@ dedicated page for every project that you customize "with built-in tools
 (to-dos, message boards, chat rooms, a calendar, kanban card tables, etc)."
 Message Boards are meant to "essentially replace email" and to act as "a shared
 inbox for the project." To-do Lists let you "make a list, or ten lists," assign
-items, set due dates, create subtasks, and drag items between lists. Card
-Tables are Basecamp's take on kanban: you "add cards, set up columns, move work
-through phases," and you can specify who is notified when a card is added.
-Campfire provides per-project group chat, the Schedule offers a project
-calendar plus a global aggregating calendar with iCal support, and Automatic
-Check-ins "cut back on meetings and stand ups" by asking questions on a
-schedule and saving the answers to a single log. Hill Charts show qualitative
-progress ([Hill Charts page](https://basecamp.com/hill-charts),
-[Shape Up ch.13](https://basecamp.com/shapeup/3.4-chapter-13)). The Reports
-view offers a Lineup timeline, a Mission Control status grid, a Hilltop view of
-every Hill Chart, and lists of added, completed, overdue, unassigned, and
-time-sheeted work. The personal "My Bar" aggregates your tasks, events, and
-bookmarks and is keyboard accessible.
+items, set due dates, create subtasks, and drag items between lists. Card Tables
+are Basecamp's take on kanban: you "add cards, set up columns, move work through
+phases," and you can specify who is notified when a card is added. Campfire
+provides per-project group chat, the Schedule offers a project calendar plus a
+global aggregating calendar with iCal support, and Automatic Check-ins "cut back
+on meetings and stand ups" by asking questions on a schedule and saving the
+answers to a single log. Hill Charts show qualitative progress
+([Hill Charts page](https://basecamp.com/hill-charts),
+[Shape Up ch.13](https://basecamp.com/shapeup/3.4-chapter-13)). The Reports view
+offers a Lineup timeline, a Mission Control status grid, a Hilltop view of every
+Hill Chart, and lists of added, completed, overdue, unassigned, and time-sheeted
+work. The personal "My Bar" aggregates your tasks, events, and bookmarks and is
+keyboard accessible.
 
 ### Basecamp's Shape Up, in the book's words
 
@@ -145,12 +146,12 @@ with a betting table: "there's no giant list of ideas to review... no time spent
 grooming a backlog... just a few well-shaped, risk-reduced options," and the
 lists that do exist are decentralized, so that "none of these lists are direct
 inputs to the betting process"
-([ch.7](https://basecamp.com/shapeup/2.1-chapter-07)). Each cycle starts from
-"a clean slate... one cycle at a time... never carrying scraps of old work over
+([ch.7](https://basecamp.com/shapeup/2.1-chapter-07)). Each cycle starts from "a
+clean slate... one cycle at a time... never carrying scraps of old work over
 without first shaping and considering them"
-([ch.8](https://basecamp.com/shapeup/2.2-chapter-08)). Two explicit design
-goals are uninterrupted time for makers and a "circuit breaker" that stops
-projects which will not finish in-cycle
+([ch.8](https://basecamp.com/shapeup/2.2-chapter-08)). Two explicit design goals
+are uninterrupted time for makers and a "circuit breaker" that stops projects
+which will not finish in-cycle
 ([ch.8](https://basecamp.com/shapeup/2.2-chapter-08)). Progress is represented
 as a hill: every piece of work has "an uphill phase of figuring out... a
 downhill phase of execution," and the method lets you "see the status of the
@@ -194,9 +195,9 @@ want status without a separate field or any automation. The difference is
 between an explicit, typed, event-driven state machine and an implicit status
 defined by placement.
 
-**3. Hierarchy depth.** Linear uses a deep, typed graph with sub-issues,
-parent issues, and blocked, blocking, related, and duplicate relations — "You
-can mark issues as blocked, blocking, related, and duplicate"
+**3. Hierarchy depth.** Linear uses a deep, typed graph with sub-issues, parent
+issues, and blocked, blocking, related, and duplicate relations — "You can mark
+issues as blocked, blocking, related, and duplicate"
 ([docs: Issue relations](https://linear.app/docs/issue-relations),
 [docs: Parent and sub-issues](https://linear.app/docs/parent-and-sub-issues));
 this suits work that decomposes and depends on other work. Basecamp is
@@ -228,14 +229,14 @@ accurately?" ([docs: Insights](https://linear.app/docs/insights)); this suits
 data-driven review. Basecamp is qualitative, using Hill Charts that show uphill
 and downhill position "without counting tasks and without numerical estimates"
 ([ch.13](https://basecamp.com/shapeup/3.4-chapter-13),
-[Hill Charts page](https://basecamp.com/hill-charts)); this suits surfacing
-what is still unknown against what is already solved. The difference is between
+[Hill Charts page](https://basecamp.com/hill-charts)); this suits surfacing what
+is still unknown against what is already solved. The difference is between
 progress derived from data and progress expressed through human judgment of a
 hill position.
 
-**6. Capture versus commitment.** Linear separates captured from committed
-work with a triage inbox — "Triage is an additional status category that acts
-as an Inbox for your team... particularly powerful when combined with other
+**6. Capture versus commitment.** Linear separates captured from committed work
+with a triage inbox — "Triage is an additional status category that acts as an
+Inbox for your team... particularly powerful when combined with other
 integrations like Asks, Slack, or our support ticketing integrations"
 ([docs: Issue status](https://linear.app/docs/configuring-workflows),
 [docs: Triage](https://linear.app/docs/triage)) — and treats scoping as a
@@ -260,9 +261,10 @@ Basecamp.
 **8. Interruption model.** Linear is real-time and fast — "You'll always see
 notifications in your Linear inbox. For real-time alerts, you can use the Linear
 desktop app, mobile app, Slack, or email digests," across Desktop, Mobile,
-Email, and Slack channels ([docs: Notifications](https://linear.app/docs/notifications));
-this suits high-velocity, roughly synchronous teams. Basecamp is calm by
-design, with uninterrupted time, a circuit breaker, and asynchronous rituals
+Email, and Slack channels
+([docs: Notifications](https://linear.app/docs/notifications)); this suits
+high-velocity, roughly synchronous teams. Basecamp is calm by design, with
+uninterrupted time, a circuit breaker, and asynchronous rituals
 ([ch.8](https://basecamp.com/shapeup/2.2-chapter-08),
 [features](https://basecamp.com/features)); this suits async, meeting-light
 collaboration. The difference is between optimizing for real-time flow and
@@ -271,18 +273,20 @@ optimizing for calm, asynchronous work.
 **9. Integration depth.** Linear is deep and code-native: status advances from
 pull-request and commit state, and comments and checks sync both ways — "Linear
 supports linking your GitHub pull requests, automating workflow statuses, and
-syncing issues between GitHub and Linear" ([docs: GitHub](https://linear.app/docs/github));
-this suits engineering workflows in which code state should drive task state.
-Basecamp is shallow and link-based, keeping cloud files linked rather than
-synced ([features](https://basecamp.com/features)); this suits light external
-linking without state coupling. The difference is that integrations drive state
-in Linear and act as links in Basecamp.
+syncing issues between GitHub and Linear"
+([docs: GitHub](https://linear.app/docs/github)); this suits engineering
+workflows in which code state should drive task state. Basecamp is shallow and
+link-based, keeping cloud files linked rather than synced
+([features](https://basecamp.com/features)); this suits light external linking
+without state coupling. The difference is that integrations drive state in
+Linear and act as links in Basecamp.
 
 **10. Authoring into tracking.** Linear turns authoring into tracking through
 conversion semantics: "If you have a list (bulleted, numbered or checklist) you
 can highlight the checklist and hit Cmd/Ctrl Shift O to convert to sub-issues,"
 a comment can be turned into a sub-issue, and an issue can be converted into a
-project ([docs: Parent and sub-issues](https://linear.app/docs/parent-and-sub-issues));
+project
+([docs: Parent and sub-issues](https://linear.app/docs/parent-and-sub-issues));
 issues also carry "documents... to create specs"
 ([docs: Issue documents](https://linear.app/docs/issue-documents)); this suits
 turning written specs into tracked work. Basecamp treats documents as filing, as

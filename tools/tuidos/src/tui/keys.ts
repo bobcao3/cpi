@@ -21,7 +21,12 @@ export function matchKey(key: KeyEvent, def: KeyDef): boolean {
   return !key.shift && !key.ctrl && !key.meta && def.keys.includes(key.name);
 }
 
-const help: KeyDef = { keys: ["/"], shift: true, label: "help", run: S.toggleHelp };
+const help: KeyDef = {
+  keys: ["/"],
+  shift: true,
+  label: "help",
+  run: S.toggleHelp,
+};
 const quit: KeyDef = { keys: ["q"], label: "quit", hidden: true, run: S.quit };
 
 export const KEYMAP: Record<View, KeyDef[]> = {
@@ -29,9 +34,14 @@ export const KEYMAP: Record<View, KeyDef[]> = {
     { keys: ["j", "down"], label: "down", run: S.navProjectDown },
     { keys: ["k", "up"], label: "up", run: S.navProjectUp },
     { keys: ["enter", "return"], label: "open", run: S.openSelectedProject },
-    { keys: ["n"], label: "new", run: () => S.openPrompt("New project", "", S.newProject) },
+    {
+      keys: ["n"],
+      label: "new",
+      run: () => S.openPrompt("New project", "", S.newProject),
+    },
     { keys: ["a"], label: "audit", run: () => S.goto("audit") },
-    help, quit,
+    help,
+    quit,
   ],
   board: [
     { keys: ["j", "down"], label: "down", run: S.navDown },
@@ -39,7 +49,11 @@ export const KEYMAP: Record<View, KeyDef[]> = {
     { keys: ["h", "left"], label: "prev col", run: S.navLeft },
     { keys: ["l", "right"], label: "next col", run: S.navRight },
     { keys: ["enter", "return"], label: "open card", run: S.openCurrentCard },
-    { keys: ["n"], label: "new card", run: () => S.openPrompt("New card", "", S.newCard) },
+    {
+      keys: ["n"],
+      label: "new card",
+      run: () => S.openPrompt("New card", "", S.newCard),
+    },
     { keys: ["h"], shift: true, label: "move ←", run: S.moveCardLeft },
     { keys: ["l"], shift: true, label: "move →", run: S.moveCardRight },
     { keys: ["d"], label: "done", run: S.toggleDone },
@@ -49,29 +63,39 @@ export const KEYMAP: Record<View, KeyDef[]> = {
     { keys: ["t"], label: "topics", run: () => S.goto("topics") },
     { keys: ["a"], label: "audit", run: () => S.goto("audit") },
     { keys: ["p"], label: "projects", run: S.backToProjects },
-    help, quit,
+    help,
+    quit,
   ],
   card: [
-    { keys: ["m"], label: "message", run: () => S.openPrompt("Add message", "", S.addMessage) },
+    {
+      keys: ["m"],
+      label: "message",
+      run: () => S.openPrompt("Add message", "", S.addMessage),
+    },
     { keys: ["t"], label: "tags", run: () => S.goto("topics") },
     { keys: ["d"], label: "done", run: S.toggleDoneCard },
     { keys: ["x"], label: "archive", run: S.archiveCardFromDetail },
     { keys: ["u"], label: "restore", run: S.unarchiveLastArchive },
-    help, quit,
+    help,
+    quit,
   ],
   topics: [
     { keys: ["j", "down"], label: "down", run: S.navTopicDown },
     { keys: ["k", "up"], label: "up", run: S.navTopicUp },
     {
-      keys: ["enter", "return"], label: "toggle",
+      keys: ["enter", "return"],
+      label: "toggle",
       run: () => S.toggleCurrentTopicOnCard(),
     },
-    { keys: ["n"], label: "new", run: () => S.openPrompt("New topic", "", S.newTopic) },
+    {
+      keys: ["n"],
+      label: "new",
+      run: () => S.openPrompt("New topic", "", S.newTopic),
+    },
     { keys: ["r"], label: "rename", run: S.renameCurrentTopic },
     { keys: ["x"], label: "archive", run: S.archiveCurrentTopic },
-    help, quit,
+    help,
+    quit,
   ],
-  audit: [
-    help, quit,
-  ],
+  audit: [help, quit],
 };

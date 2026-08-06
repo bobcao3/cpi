@@ -1,5 +1,4 @@
 #!/usr/bin/env bun
-/** Direct harness: jiti-loads the real shell/exec.ts and exercises runShell. */
 import {
   runShell,
   signalChild,
@@ -27,7 +26,6 @@ function assert(cond: unknown, msg: string): void {
   console.log("ok:", msg);
 }
 
-// 1. fast foreground command — must return completed with output
 let r = await runShell(
   "echo hello-world",
   5,
@@ -47,7 +45,6 @@ assert(
 );
 console.log("   fast text:", JSON.stringify(r.text));
 
-// 2. failing command — exit code propagated
 r = await runShell(
   "exit 3",
   5,
@@ -61,7 +58,6 @@ r = await runShell(
 );
 assert(r.status === "completed" && r.exitCode === 3, "failing command exit 3");
 
-// 3. binary-safe output (non-UTF8 bytes)
 r = await runShell(
   "printf 'BINARY:\\xff\\xfe\\x00END\\n'",
   5,
@@ -77,7 +73,6 @@ assert(
   r.status === "completed" && (r.text ?? "").includes("BINARY:"),
   "binary output present",
 );
-// verify the log file (fullOutputPath) has the raw bytes
 if (r.fullOutputPath) {
   const { readFile } = await import("node:fs/promises");
   const buf = await readFile(r.fullOutputPath);
@@ -87,7 +82,6 @@ if (r.fullOutputPath) {
   );
 }
 
-// 4. backgrounding: a command longer than waitfor → running, returns id
 r = await runShell(
   "for i in 1 2 3 4 5 6 7 8 9 10; do echo bg$i; sleep 0.2; done",
   0.5,
@@ -106,7 +100,6 @@ assert(
 const bgId = r.id!;
 console.log("   bg id:", bgId, "partial:", JSON.stringify(r.text));
 
-// 5. detach it — must succeed, child keeps running, no longer in active list
 const logPath = detachChild(bgId);
 assert(!!logPath, "detach returns logPath");
 assert(
@@ -115,10 +108,8 @@ assert(
 );
 console.log("   detached logPath:", logPath);
 
-// 6. signal on detached id must fail (not active)
 assert(!signalChild(bgId, "SIGINT"), "signal on detached id fails");
 
-// 7. a backgrounded (non-detached) command completes and fires the hook
 hookFired = null;
 r = await runShell(
   "for i in 1 2 3; do echo s$i; sleep 0.15; done",
@@ -133,7 +124,6 @@ r = await runShell(
 );
 assert(r.status === "running", "hook-test backgrounded");
 const hookId = r.id!;
-// wait for the completion hook to fire
 const deadline = Date.now() + 5000;
 while (!hookFired && Date.now() < deadline)
   await new Promise((r) => setTimeout(r, 100));
@@ -142,6 +132,5 @@ assert(
   "completion hook fired for backgrounded shell: " + JSON.stringify(hookFired),
 );
 
-// 8. killAll cleans up anything left
 killAll();
 console.log("\nALL PASS");

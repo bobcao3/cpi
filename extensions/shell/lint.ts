@@ -16,7 +16,6 @@ export interface LintResult {
   available: boolean;
 }
 
-/** No-op — the `lsp` owner disposes all sessions. */
 export function disposeLspClient(): void {}
 
 export function formatDiagnostics(d: ShuckDiagnostic[]): string {
@@ -28,7 +27,6 @@ export function formatDiagnostics(d: ShuckDiagnostic[]): string {
     .join("\n");
 }
 
-/** C003/SC1091 are always false positives here: the synthetic /tmp doc can't resolve relative `source` targets. */
 const INLINE_UNACTIONABLE_CODES: Set<string> = new Set(["C003", "SC1091"]);
 
 function toShuck(d: Diagnostic): ShuckDiagnostic {
@@ -48,7 +46,6 @@ function toShuck(d: Diagnostic): ShuckDiagnostic {
   };
 }
 
-/** `shuckPath` is accepted for signature stability but ignored — the manager resolves shuck itself. */
 export async function lintCommand(
   command: string,
   _shuckPath: string,

@@ -1,4 +1,10 @@
-import { openReadonly, openReadWrite, openProjectRead, openProjectWrite, isUniqueViolation } from "./db";
+import {
+  openReadonly,
+  openReadWrite,
+  openProjectRead,
+  openProjectWrite,
+  isUniqueViolation,
+} from "./db";
 import { globalDbPath } from "./paths";
 import { newId, shortId } from "./id";
 import { recordAudit } from "./audit";
@@ -23,9 +29,11 @@ export function listTopics(projectId: string): TopicRow[] {
   const db = openReadonly(globalDbPath());
   if (!db) return [];
   try {
-    return db.prepare(
-      "SELECT id, project_id, name, created_at, updated_at, archived_at FROM topics WHERE project_id = ? AND archived_at IS NULL ORDER BY name",
-    ).all(projectId) as TopicRow[];
+    return db
+      .prepare(
+        "SELECT id, project_id, name, created_at, updated_at, archived_at FROM topics WHERE project_id = ? AND archived_at IS NULL ORDER BY name",
+      )
+      .all(projectId) as TopicRow[];
   } catch {
     return [];
   } finally {
@@ -56,30 +64,50 @@ export function createTopic(projectId: string, name: string): TopicRow {
         });
       })();
     } catch (e) {
-      if (isUniqueViolation(e)) throw new Error(`topic '${name}' already exists in this project — use a different name`);
+      if (isUniqueViolation(e))
+        throw new Error(
+          `topic '${name}' already exists in this project — use a different name`,
+        );
       throw e;
     }
   } finally {
     db.close();
   }
-  return { id, project_id: projectId, name, created_at: now, updated_at: now, archived_at: null };
+  return {
+    id,
+    project_id: projectId,
+    name,
+    created_at: now,
+    updated_at: now,
+    archived_at: null,
+  };
 }
 
 /** Rename a topic by its ULID. Returns the old name. Throws if not found or the
  *  new name is taken (UNIQUE). Names are labels, never lookup keys. */
-export function renameTopic(projectId: string, topicId: string, newName: string): string {
+export function renameTopic(
+  projectId: string,
+  topicId: string,
+  newName: string,
+): string {
   const now = Date.now();
   let oldName = "";
   const db = openReadWrite(globalDbPath());
   try {
     db.exec(GLOBAL_DDL);
     db.transaction(() => {
-      const row = db.prepare(
-        "SELECT id, name FROM topics WHERE project_id = ? AND archived_at IS NULL AND id = ?",
-      ).get(projectId, topicId) as { id: string; name: string } | null;
+      const row = db
+        .prepare(
+          "SELECT id, name FROM topics WHERE project_id = ? AND archived_at IS NULL AND id = ?",
+        )
+        .get(projectId, topicId) as { id: string; name: string } | null;
       if (!row) throw new Error(`no topic '${topicId}' in this project`);
       oldName = row.name;
-      db.prepare("UPDATE topics SET name = ?, updated_at = ? WHERE id = ?").all(newName, now, row.id);
+      db.prepare("UPDATE topics SET name = ?, updated_at = ? WHERE id = ?").all(
+        newName,
+        now,
+        row.id,
+      );
       recordAudit(db, {
         ts: now,
         project_id: projectId,
@@ -90,7 +118,10 @@ export function renameTopic(projectId: string, topicId: string, newName: string)
       });
     })();
   } catch (e) {
-    if (isUniqueViolation(e)) throw new Error(`topic '${newName}' already exists in this project — use a different name`);
+    if (isUniqueViolation(e))
+      throw new Error(
+        `topic '${newName}' already exists in this project — use a different name`,
+      );
     throw e;
   } finally {
     db.close();
@@ -107,15 +138,22 @@ export function archiveTopic(projectId: string, topicId: string): string {
   try {
     db.exec(GLOBAL_DDL);
     db.transaction(() => {
-      const row = db.prepare(
-        "SELECT id, name, archived_at FROM topics WHERE project_id = ? AND id = ?",
-      ).get(projectId, topicId) as
-        | { id: string; name: string; archived_at: number | null }
-        | null;
+      const row = db
+        .prepare(
+          "SELECT id, name, archived_at FROM topics WHERE project_id = ? AND id = ?",
+        )
+        .get(projectId, topicId) as {
+        id: string;
+        name: string;
+        archived_at: number | null;
+      } | null;
       if (!row) throw new Error(`no topic '${topicId}' in this project`);
-      if (row.archived_at != null) throw new Error(`topic '${row.name}' is already archived`);
+      if (row.archived_at != null)
+        throw new Error(`topic '${row.name}' is already archived`);
       name = row.name;
-      db.prepare("UPDATE topics SET archived_at = ?, updated_at = ? WHERE id = ?").all(now, now, row.id);
+      db.prepare(
+        "UPDATE topics SET archived_at = ?, updated_at = ? WHERE id = ?",
+      ).all(now, now, row.id);
       recordAudit(db, {
         ts: now,
         project_id: projectId,
@@ -137,9 +175,11 @@ export function listAllTopics(projectId: string): TopicRow[] {
   const db = openReadonly(globalDbPath());
   if (!db) return [];
   try {
-    return db.prepare(
-      "SELECT id, project_id, name, created_at, updated_at, archived_at FROM topics WHERE project_id = ? ORDER BY name",
-    ).all(projectId) as TopicRow[];
+    return db
+      .prepare(
+        "SELECT id, project_id, name, created_at, updated_at, archived_at FROM topics WHERE project_id = ? ORDER BY name",
+      )
+      .all(projectId) as TopicRow[];
   } catch {
     return [];
   } finally {
@@ -154,8 +194,17 @@ export function listAllTopics(projectId: string): TopicRow[] {
 function requireActiveTopic(projectId: string, topicId: string): string {
   const all = listAllTopics(projectId);
   const t = all.find((x) => x.id === topicId);
-  if (!t) throw new Error(`no topic '${shortId(topicId, all.map((x) => x.id))}' in this project`);
-  if (t.archived_at != null) throw new Error(`topic '${t.name}' is archived — archived topics can't be tagged`);
+  if (!t)
+    throw new Error(
+      `no topic '${shortId(
+        topicId,
+        all.map((x) => x.id),
+      )}' in this project`,
+    );
+  if (t.archived_at != null)
+    throw new Error(
+      `topic '${t.name}' is archived — archived topics can't be tagged`,
+    );
   return t.name;
 }
 
@@ -173,12 +222,14 @@ export function attachTopic(
   const db = openProjectWrite(projectId);
   try {
     db.transaction(() => {
-      const task = db.prepare("SELECT id FROM tasks WHERE id = ? AND archived_at IS NULL").get(taskId) as
-        | { id: string }
-        | null;
+      const task = db
+        .prepare("SELECT id FROM tasks WHERE id = ? AND archived_at IS NULL")
+        .get(taskId) as { id: string } | null;
       if (!task) throw new Error(`no active task '${taskId}'`);
       const res = db
-        .prepare("INSERT OR IGNORE INTO task_topics (task_id, topic_id, created_at) VALUES (?, ?, ?)")
+        .prepare(
+          "INSERT OR IGNORE INTO task_topics (task_id, topic_id, created_at) VALUES (?, ?, ?)",
+        )
         .run(taskId, topicId, now);
       attached = res.changes > 0;
       if (attached) {
@@ -207,17 +258,24 @@ export function detachTopic(
 ): { detached: boolean; name: string } {
   const all = listAllTopics(projectId);
   const t = all.find((x) => x.id === topicId);
-  const name = t?.name ?? shortId(topicId, all.map((x) => x.id));
+  const name =
+    t?.name ??
+    shortId(
+      topicId,
+      all.map((x) => x.id),
+    );
   const now = Date.now();
   let detached = false;
   const db = openProjectWrite(projectId);
   try {
     db.transaction(() => {
-      const task = db.prepare("SELECT id FROM tasks WHERE id = ? AND archived_at IS NULL").get(taskId) as
-        | { id: string }
-        | null;
+      const task = db
+        .prepare("SELECT id FROM tasks WHERE id = ? AND archived_at IS NULL")
+        .get(taskId) as { id: string } | null;
       if (!task) throw new Error(`no active task '${taskId}'`);
-      const res = db.prepare("DELETE FROM task_topics WHERE task_id = ? AND topic_id = ?").run(taskId, topicId);
+      const res = db
+        .prepare("DELETE FROM task_topics WHERE task_id = ? AND topic_id = ?")
+        .run(taskId, topicId);
       detached = res.changes > 0;
       if (detached) {
         recordAudit(db, {
@@ -238,19 +296,26 @@ export function detachTopic(
 
 /** A task's active topics, alphabetical by name. Tags (task_topics) live in the
  *  project DB, names in global — joined by id across the two databases. */
-export function listTopicsForTask(projectId: string, taskId: string): TopicRow[] {
+export function listTopicsForTask(
+  projectId: string,
+  taskId: string,
+): TopicRow[] {
   const pdb = openProjectRead(projectId);
   if (!pdb) return [];
   let ids: string[] = [];
   try {
-    ids = (pdb
-      .prepare("SELECT topic_id FROM task_topics WHERE task_id = ?")
-      .all(taskId) as { topic_id: string }[]).map((r) => r.topic_id);
+    ids = (
+      pdb
+        .prepare("SELECT topic_id FROM task_topics WHERE task_id = ?")
+        .all(taskId) as { topic_id: string }[]
+    ).map((r) => r.topic_id);
   } catch {
     return [];
   } finally {
     pdb.close();
   }
   if (ids.length === 0) return [];
-  return listAllTopics(projectId).filter((t) => ids.includes(t.id) && t.archived_at == null);
+  return listAllTopics(projectId).filter(
+    (t) => ids.includes(t.id) && t.archived_at == null,
+  );
 }

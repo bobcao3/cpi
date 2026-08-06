@@ -1,11 +1,9 @@
-/**
- * Detects busy-wait / idle-poll: models re-running the same shell command in an alarm→check loop instead of yielding for a background event; warns when the gap from the last poll anchor beats exponential backoff 2^(n+1)s.
- */
+/** Warns against repeated rapid shell polls; yield to background events instead. */
 
 const GLOBAL_KEY = "__cpiPollGuard";
-/** Tolerates a single rapid retry after a transient error without nagging. */
+/** Allows one rapid retry after a transient error. */
 const WARN_MIN_REPEAT = 2;
-/** Gap (s) after which a command is considered abandoned; repeat counter resets. */
+/** Resets repeats after 120s of inactivity. */
 const STALE_RESET_S = 120;
 const THROTTLE_MS = 15_000;
 const MAX_HISTORY = 32;

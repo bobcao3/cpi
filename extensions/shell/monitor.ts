@@ -1,15 +1,4 @@
-/**
- * Spawns sh-monitor via runtimeSpawn (never a hard-coded `bun`), detached and
- * unref'd so the supervisor (and its grandchild) outlive pi. Protocol rides
- * raw on the spawned stdin/stdout pipes — no filesystem socket, no bind race.
- * sh-monitor owns the grandchild's output pipe and drains it to a log, so pi
- * can come and go without signalling the child (no SIGPIPE); when pi closes
- * the pipe it keeps draining and exits after the grandchild. Readiness is the
- * first `stat()` round-trip; on spawn crash `stat` rejects with captured
- * stderr instead of a bare ENOENT. Backgrounded shells bind a resume socket,
- * scoped by conversation (`<sessionDir>/sh-mon/<sessionId>/<pid>.json`); we
- * never import `sh-monitor.ts` (its top-level `main()` is a CLI side effect).
- */
+/** Detached supervisor drains child output; resume records are scoped per session. */
 import { spawn, type ChildProcess } from "node:child_process";
 import type { Readable } from "node:stream";
 import { connect, type Socket } from "node:net";
@@ -188,7 +177,6 @@ export class MonitorClient {
   shutdown(): Promise<OkMsg> {
     return this.call({ kind: "shutdown" }) as Promise<OkMsg>;
   }
-  /** Best-effort: ask sh-monitor to bind a resume socket; returns its path or null. */
   bindResume(): Promise<string | null> {
     return this.call({ kind: "bindResume" }).then((m) =>
       m.kind === "resumeReady" ? m.sockPath : null,

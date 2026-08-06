@@ -1,7 +1,4 @@
-/**
- * Advisory only — the command already ran, so this reports, never blocks.
- * `__cpiLspWarned` is shared mutable data (not a dedup flag), re-read per call.
- */
+/** Advisory only: the command already ran. */
 
 import { detectEdits, type EditTarget } from "./edit-detect.ts";
 import type { JsonNode as Node } from "../lib/tree-sitter.ts";

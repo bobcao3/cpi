@@ -1,14 +1,4 @@
-/**
- * The shell executable and the linter dialect are one contract: a command
- * launched as `/bin/sh` must not be linted as Bash merely because Bash is
- * available on the host. `auto` follows `$SHELL`, falling back to Bash when
- * absent or unusable; an explicit executable fails closed, never silently
- * swapping in Bash.
- *
- * The executable is snapshotted to an absolute path at resolution time so a
- * later `process.chdir` / `set_cwd` cannot change which file runs; `realpath`
- * is consulted only to detect the implementation/dialect.
- */
+/** Explicit shells fail closed; auto follows $SHELL, then Bash. The resolved executable is snapshotted to an absolute path. */
 
 import { accessSync, constants, realpathSync, statSync } from "node:fs";
 import { basename, delimiter, resolve } from "node:path";

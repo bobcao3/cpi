@@ -1,18 +1,8 @@
 /**
- * LSP manager (design §6.3, Layer 3).
- *
- * Owns the per-`(language, root)` session registry on `globalThis.__cpiLsp`
- * (state survives jiti reload; the facade is re-bound each load — same pattern
- * as `lib/footer.ts`). Session lifecycle lives in `session.ts`; this module is
- * the orchestration + public API.
- *
- * `ensureSession` is the SINGLE spawn point: idempotent on `(language, root)`,
- * restarts on `envPath` change or `force`, respawns when a session is `dead`.
- * It resolves even when provisioning fails (state `install-failed`) so producers
- * degrade instead of stalling (design §9/§13). `checkFile`/`lintText` open one
- * doc, await `publishDiagnostics` (bounded by `lintTimeoutMs`), close, return
- * normalized `Diagnostic[]`. `lintText` uses a synthetic `/tmp/cpi-lsp-<n>.<ext>`
- * doc with `rootUri=null` (the shuck inline path).
+ * LSP manager: session registry lives on `globalThis.__cpiLsp` (survives
+ * jiti reload; the facade re-binds each load). `ensureSession` is the single
+ * spawn point — idempotent, never throws; provisioning failure yields an
+ * `install-failed` session the caller degrades on.
  */
 
 import { readFileSync } from "node:fs";
@@ -64,13 +54,9 @@ function getState(): LspState {
 }
 
 /**
- * Resolve-or-install + spawn a worker for `(language, root)`. Idempotent:
- * returns the existing session unless `force`, an `envPath` change, or a `dead`
- * session triggers a restart. Never throws — install failure yields an
- * `install-failed` session the caller degrades on. The single spawn point.
- * Spawns/restarts are serialized per id: concurrent callers awaiting the same
- * `(language, root)` re-check the registry after in-flight provisioning settles
- * instead of racing a second spawn (design §13).
+ * Idempotent and concurrency-safe: reuses the live session unless `force`,
+ * an `envPath` change, or `dead`; concurrent spawns for one `(language,
+ * root)` serialize on `inflight`.
  */
 export async function ensureSession(
   language: Language,
@@ -79,12 +65,9 @@ export async function ensureSession(
 ): Promise<LspSession> {
   const st = getState();
   const id = sessionId(language, root);
-  // Serialize spawn/restart per id: a concurrent caller awaiting the same id
-  // re-checks the registry after the in-flight provisioning settles, instead
-  // of racing a second spawn against the same (language, root).
   for (;;) {
     const existing = st.sessions.get(id);
-    // Only an EXPLICITLY-provided differing envPath restarts (the §5 dot_env reload path). An undefined opts.envPath means "no override" — keep the existing session's env, so `lsp check`/`checkFile` (which pass no envPath) don't restart (and break) an env-provided session (e.g. ruby-lsp under a Mise dotenv, or pyrefly in a venv).
+    // Only an explicitly-supplied changed envPath restarts the session.
     const envChanged =
       existing && opts.envPath !== undefined
         ? existing.envPath !== opts.envPath
@@ -151,8 +134,7 @@ async function provisionSession(
   session.onDead = () => {
     getState().sessions.delete(session.id);
   };
-  // A concurrent disposeAll raced with provisioning: don't publish a session
-  // that shutdown already drained. Stop the worker and degrade.
+  // Draining means disposeAll won the race: don't publish — stop and degrade.
   if (st.draining) {
     stopSession(session);
     return installFailed();
@@ -194,7 +176,7 @@ export async function lintText(
   text: string,
   opts: LintTextOptions = {},
 ): Promise<Diagnostic[]> {
-  // root="" -> rootUri=null inline session (shuck inline path, design §6.3)
+  // Empty root creates an inline null-root session.
   const session = await ensureSession(language, "");
   const cfg = loadLspConfig();
   if (session.state !== "ready")
@@ -254,7 +236,6 @@ export function list(): SessionInfo[] {
   return [...getState().sessions.values()].map(toInfo);
 }
 
-/** Idempotent/reentrant: drains every session, resolves pending `[]`. */
 export async function disposeAll(): Promise<void> {
   const st = getState();
   if (st.draining) return;

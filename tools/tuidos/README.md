@@ -21,5 +21,5 @@ bun run clidos     # the CLI
 
 The TUI is keyboard-driven; `?` shows the keymap for the active view, and the
 status bar lists the keys that work right now. The board is the main surface:
-move with `h/j/k/l`, open a card with enter, create with `n`, move a card
-across columns with `H`/`L`, toggle done with `d`.
+move with `h/j/k/l`, open a card with enter, create with `n`, move a card across
+columns with `H`/`L`, toggle done with `d`.
