@@ -17,7 +17,8 @@ CREATE INDEX IF NOT EXISTS audit_log_ts ON audit_log(ts DESC);
 CREATE INDEX IF NOT EXISTS audit_log_project ON audit_log(project_id);
 `;
 
-export const GLOBAL_DDL = `
+export const GLOBAL_DDL =
+  `
 CREATE TABLE IF NOT EXISTS meta (
   key   TEXT PRIMARY KEY,
   value TEXT NOT NULL
@@ -56,7 +57,8 @@ CREATE TABLE IF NOT EXISTS topic_display (
 );
 ` + AUDIT_DDL;
 
-export const PROJECT_DDL = `
+export const PROJECT_DDL =
+  `
 CREATE TABLE IF NOT EXISTS meta (
   key   TEXT PRIMARY KEY,
   value TEXT NOT NULL

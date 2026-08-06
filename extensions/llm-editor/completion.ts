@@ -1,6 +1,4 @@
-/** Completion tools for the subagent handoff: the tool call IS the completion
- *  signal — execute writes the structured args to $PI_SUBAGENT_COMPLETION
- *  (read back by the parent runSubagent); a missing file means truncation. */
+/** Tool calls write structured args; a missing completion file indicates truncation. */
 
 import { writeFileSync } from "node:fs";
 import { Type, type Static } from "typebox";
@@ -18,13 +16,9 @@ function writeCompletion(tool: string, args: unknown): void {
   if (!COMPLETION_PATH) return;
   try {
     writeFileSync(COMPLETION_PATH, JSON.stringify({ tool, args }) + "\n");
-  } catch {
-    // best effort; never break the turn over the handoff write
-  }
+  } catch {}
 }
 
-/** Models sometimes emit array fields as JSON strings; parse before schema
- *  validation so the validator reports the real shape. */
 function coerceArrayField(args: Record<string, unknown>, key: string): void {
   if (typeof args[key] !== "string") return;
   try {

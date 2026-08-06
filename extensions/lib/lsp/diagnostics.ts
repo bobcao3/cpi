@@ -1,27 +1,11 @@
-/**
- * LSP diagnostic type + formatter (pure node).
- *
- * Canonical diagnostic shape for the LSP subsystem: `tsserver`, `pyrefly`, and
- * `shuck` diagnostics all normalize into {@link Diagnostic}. `formatDiagnostics`
- * renders the `Lr:c severity[source] msg  (file)` line form (design §6.5).
- *
- * `shell/lint.ts` keeps its own `ShuckDiagnostic` + `formatDiagnostics` until
- * Layer 4 rewrites it as a thin client over the manager; this module is the
- * target type the manager/editor path renders. Pure node — no pi import.
- */
-
 export type DiagnosticSeverity = "error" | "warning" | "hint" | "info";
 
 export interface Diagnostic {
   severity: DiagnosticSeverity;
-  /** Tool-specific code, e.g. "TS2304" / "null-overlap". Omitted when absent. */
   code?: string;
   message: string;
-  /** Origin server: "tsserver" | "pyrefly" | "shuck". */
   source: string;
-  /** Absolute path; "" for synthetic inline docs (/tmp lintText). */
   file: string;
-  /** 1-based, inclusive. */
   startLine: number;
   startCol: number;
   endLine: number;
@@ -29,11 +13,9 @@ export interface Diagnostic {
 }
 
 export interface FormatDiagnosticsOptions {
-  /** Render cap (TigerStyle explicit limit, design §13). Default 200. */
   max?: number;
 }
 
-/** Explicit limit on rendered diagnostics (design §13). */
 export const DIAGNOSTICS_FORMAT_MAX = 200;
 
 const SEVERITIES: ReadonlySet<DiagnosticSeverity> = new Set([
@@ -65,13 +47,7 @@ function assertDiag(d: Diagnostic, i: number): void {
   }
 }
 
-/**
- * Render diagnostics as one line each (design §6.5):
- *   `L<line>:<col> <severity>[<source>] <message>  (<file>)`
- * The `(<file>)` suffix is omitted when `file` is "" (synthetic inline docs).
- * Capped at `opts.max` (default 200); a trailing `…and N more` line notes any
- * overflow so a silent drop never happens. Returns "" for an empty list.
- */
+/** Output is capped at `opts.max`; overflow is marked. */
 export function formatDiagnostics(
   diags: Diagnostic[],
   opts: FormatDiagnosticsOptions = {},

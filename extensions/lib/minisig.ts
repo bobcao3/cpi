@@ -1,9 +1,4 @@
-/**
- * Minisign signature verification — pure node:crypto (zero deps), for the
- * tree-sitter wasm download. Format (jedisct1/minisign): pubkey = "Ed"|key_id
- * [8]|ed25519_pub[32]; sig block = sig_alg|key_id[8]|sig[64] (74 bytes).
- * "ED" sigs are prehashed (blake2b512); "Ed" verifies the message directly.
- */
+/** Minisign: pubkey = "Ed"|key_id[8]|Ed25519 pub[32]; sig = sig_alg|key_id[8]|sig[64] (74 bytes); "ED" uses blake2b512 prehashing, while "Ed" verifies the message directly. */
 
 import {
   createHash,

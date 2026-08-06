@@ -1,12 +1,3 @@
-/**
- * Language registry — `LspServerSpec` per language (pure node, design §6.2).
- *
- * One spec per language describing how to discover, install, spawn, and
- * spawn its LSP server. Version pins come from {@link loadLspConfig} so a
- * config pin bump re-provisions on the next session (the version-match check
- * in provision.ts, Layer 3). Pure node — imports only config + discover types.
- */
-
 import { extname } from "node:path";
 import {
   type Language,
@@ -15,14 +6,12 @@ import {
 } from "./discover.ts";
 import { type LspConfig, loadLspConfig } from "../config.ts";
 
-/** Spawn directive: command + args (+ optional cwd override). */
 export interface SpawnDirective {
   cmd: string;
   args: string[];
   cwd?: string;
 }
 
-/** Install description; versions pinned via config (§6.6, §12). */
 export interface LspInstallSpec {
   method: "npm" | "uv" | "reuse" | "env-only";
   /** npm/uv package name (absent for "reuse"). */
@@ -33,7 +22,6 @@ export interface LspInstallSpec {
   tsVersion?: string;
 }
 
-/** Complete description of one language's LSP server (design §6.2). */
 export interface LspServerSpec {
   language: Language;
   extensions: string[];
@@ -41,11 +29,8 @@ export interface LspServerSpec {
   /** LSP languageId for a path: "typescript"|"typescriptreact"|"python"|"bash"|"bats"|"sh"|"zsh"|"mksh"|"ruby". */
   languageId: (path: string) => string;
   install: LspInstallSpec;
-  /** Server binary name to resolve on PATH before installing. */
   binName: string;
-  /** Build the stdio server spawn directive from the resolved binary + root. */
   serverCommand: (bin: string, root: string) => SpawnDirective;
-  /** `initialize` options (passed through by the worker, Layer 3). */
   initOptions?: unknown;
   /** Diagnostics transport: "push" (server publishes via textDocument/publishDiagnostics, the default) or "pull" (worker calls textDocument/diagnostic per LSP 3.17 — used by ruby-lsp 0.26+, which is pull-only). */
   diagnosticMode?: "push" | "pull";
@@ -81,11 +66,7 @@ function pythonSpec(cfg: LspConfig): LspServerSpec {
     install: { method: "uv", package: py.package, version: py.version },
     binName: "pyrefly",
     serverCommand: (bin) => ({ cmd: bin, args: ["lsp"] }),
-    // typeCheckingMode:"default" sets the preset to default (full standard type
-    // checking) for implicit projects (no pyrefly.toml) — the non-deprecated
-    // replacement for displayTypeErrors (deprecated in pyrefly v1.0). A project
-    // pyrefly.toml with its own `preset` still overrides this. Requires
-    // pyrefly >=1.0.
+    // Implicit projects (no pyrefly.toml) require typeCheckingMode "default"; pyrefly.toml presets override it. Requires pyrefly >=1.0.
     initOptions: { pyrefly: { typeCheckingMode: "default" } },
   };
 }
@@ -106,8 +87,6 @@ function shellLanguageId(path: string): string {
 }
 
 function shellSpec(cfg: LspConfig): LspServerSpec {
-  // cfg.servers.shell.enabled is consulted by the manager (Layer 3); the spec
-  // itself is built unconditionally so resolution can reuse the global shuck.
   void cfg;
   return {
     language: "shell",
@@ -121,8 +100,6 @@ function shellSpec(cfg: LspConfig): LspServerSpec {
 }
 
 function rubySpec(cfg: LspConfig): LspServerSpec {
-  // ruby-lsp runs over stdio with no flags and reads its config from the
-  // project; no install step is performed (env-only reuse of `ruby-lsp`).
   void cfg;
   return {
     language: "ruby",
@@ -136,7 +113,6 @@ function rubySpec(cfg: LspConfig): LspServerSpec {
   };
 }
 
-/** Resolve the spec for one language, reading version pins from config. */
 export function getLspServerSpec(
   language: Language,
   cwd: string = process.cwd(),
@@ -156,7 +132,6 @@ export function getLspServerSpec(
   }
 }
 
-/** Build specs for every language (for `lsp list_sessions` / enumeration). */
 export function loadAllLspSpecs(
   cwd: string = process.cwd(),
 ): Record<Language, LspServerSpec> {

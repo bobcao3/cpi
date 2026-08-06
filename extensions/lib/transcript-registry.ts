@@ -1,25 +1,10 @@
-/**
- * Shared registry for markdown transcript rendering of tool calls.
- *
- * transcript.ts writes the live markdown transcript (one block per message).
- * For each tool call it asks this module: "how should this render?" Extensions
- * register a per-tool renderer (e.g. the shell extension renders `sh` calls as a
- * ```bash block). Tools without a registered renderer fall back to the default
- * pretty-printed XML serialization of their arguments.
- *
- * Sharing: pi loads each extension via jiti with `moduleCache: false`, so each
- * extension gets its own module graph — module-level state here would NOT be
- * shared between importers. The registry is therefore backed by a single
- * `globalThis` slot, process-wide and identical across jiti loads (same pattern
- * as lib/footer.ts).
- */
+// Renderers live in globalThis because jiti module state is per-importer.
 
 export interface ToolCallBlock {
   type: "toolCall";
   name: string;
   id?: string;
-  // Upstream types `arguments` as an object, but openai-completions providers
-  // deliver tool-call arguments as a JSON string at runtime, so accept either.
+  // Providers may deliver `arguments` as a JSON string rather than an object.
   arguments?: unknown;
 }
 
@@ -28,8 +13,7 @@ export type ToolCallMarkdownRenderer = (
   block: ToolCallBlock,
 ) => string[] | null;
 
-// Bound recursion: tool-call args are JSON-deserialized (no cycles possible),
-// but a pathological nesting depth must not overflow the stack. Truncate beyond.
+// Bound recursion: pathological nesting must not overflow the stack (args are JSON, so no cycles).
 const MAX_XML_DEPTH = 32;
 const GLOBAL_KEY = "__cpiTranscriptRenderers";
 const IDS_KEY = "__cpiTranscriptIds";
@@ -49,7 +33,6 @@ function registry(): Registry {
   return r as Registry;
 }
 
-/** Register (or replace) a markdown renderer for tool calls of the given name. */
 export function registerToolCallRenderer(
   toolName: string,
   renderer: ToolCallMarkdownRenderer,
@@ -62,23 +45,8 @@ export function registerToolCallRenderer(
   registry().set(toolName, renderer);
 }
 
-// --- short tool-call ids --------------------------------------------------
-
-/**
- * Providers assign long tool-use ids (`call_1985a6111ece41f1972ab897`,
- * `toolu_…`). cpi's subagent transcript renders every call head and result
- * block with that id, and the orchestrating agent tails that transcript into
- * its own context, so the long ids cost real tokens (twice per call).
- * `shortToolCallId` maps each real id to a short monotonic id (`sh0001`,
- * `re0002`, …) preserving call↔result correlation. Display-only — never
- * touches the provider API envelope's tool_use_id.
- *
- * State lives in a `globalThis` slot `__cpiTranscriptIds` holding
- * `{ map: Map<string,string>, counter: number }`, shared across jiti module
- * graphs and surviving reloads (same pattern as the `__cpiTranscriptRenderers`
- * registry). Each `pi -p` subagent process starts fresh, so ids are short and
- * per-transcript.
- */
+// Long ids render twice per call — map to short monotonic ids to keep
+// call↔result correlation. Display-only; never touches the envelope's tool_use_id.
 interface IdState {
   map: Map<string, string>;
   counter: number;
@@ -99,7 +67,6 @@ function idState(): IdState {
   return fresh;
 }
 
-/** First 2 alphanumeric chars of toolName lowercased, fallback `"tc"`. */
 function prefixFor(toolName: string): string {
   const match = String(toolName).match(/[A-Za-z0-9]/g);
   if (match && match.length >= 2)
@@ -108,11 +75,6 @@ function prefixFor(toolName: string): string {
   return "tc";
 }
 
-/**
- * Map a real tool-use id to a short monotonic id, preserving call↔result
- * correlation across the transcript. Returns `""` for a falsy realId
- * (preserves current empty-id behavior). Display-only.
- */
 export function shortToolCallId(
   realId: string | undefined,
   toolName: string,
@@ -125,8 +87,6 @@ export function shortToolCallId(
   st.map.set(realId, short);
   return short;
 }
-
-// --- default renderer: pretty-printed XML of the arguments -----------------
 
 function escapeXmlText(s: string): string {
   return s.replace(/[&<>"']/g, (ch) => {
@@ -145,8 +105,7 @@ function escapeXmlText(s: string): string {
   });
 }
 
-// XML names: NameStartChar then NameChars; collapse anything else to _, prefix
-// when it would start with a digit/hyphen/dot.
+// XML names: collapse invalid chars to _, prefix when starting with digit/hyphen/dot.
 function sanitizeTag(name: string): string {
   const t = String(name).replace(/[^A-Za-z0-9_.:-]/g, "_");
   if (/^[0-9.-]/.test(t)) return "_" + t;
@@ -174,7 +133,6 @@ function pushXml(
     out.push(`${pad}<${tag}>${escapeXmlText(String(value))}</${tag}>`);
     return;
   }
-  // Object/array: truncate deep nesting instead of recursing further.
   if (depth >= MAX_XML_DEPTH) {
     out.push(`${pad}<${tag}>…</${tag}>`);
     return;
@@ -200,13 +158,10 @@ function pushXml(
     out.push(`${pad}</${tag}>`);
     return;
   }
-  // function / symbol / bigint-ish: best-effort textual.
   out.push(`${pad}<${tag}>${escapeXmlText(String(value))}</${tag}>`);
 }
 
-// Arguments arrive as a parsed object (most providers) or a JSON string
-// (openai-completions providers); normalize to a value. On a malformed JSON
-// string, return the raw string so the serializer shows it as text.
+// Providers deliver args as object or JSON string; malformed JSON renders as raw text.
 export function parseArgs(block: ToolCallBlock): unknown {
   const a = block.arguments;
   if (typeof a === "string") {
@@ -226,19 +181,14 @@ function defaultXmlLines(block: ToolCallBlock): string[] {
   return [head, "```xml", ...xml, "```", ""];
 }
 
-/**
- * Render a tool-call block to markdown lines. Never throws: a registered
- * renderer that throws or returns null/empty falls back to the default XML.
- */
+// Never throws: a throwing or empty renderer falls back to the default XML.
 export function renderToolCallMarkdown(block: ToolCallBlock): string[] {
   const custom = registry().get(block.name);
   if (custom) {
     try {
       const lines = custom(block);
       if (lines && lines.length) return lines;
-    } catch {
-      // A renderer must never break the transcript; fall back to default XML.
-    }
+    } catch {}
   }
   return defaultXmlLines(block);
 }

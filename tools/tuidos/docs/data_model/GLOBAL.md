@@ -1,8 +1,8 @@
 # Global state — `global.sqlite`
 
-Stored at `~/.local/state/tuidos/global.sqlite`. Holds the project registry
-and its topics — the complete project→topic tree, readable from one file. No
-tasks live here; they are per-project (see `PROJECT.md`).
+Stored at `~/.local/state/tuidos/global.sqlite`. Holds the project registry and
+its topics — the complete project→topic tree, readable from one file. No tasks
+live here; they are per-project (see `PROJECT.md`).
 
 Universal invariants apply (see `DESIGN.md` → Schema → Universal invariants);
 notably rule 1: every timestamp is UTC unix milliseconds.
@@ -84,9 +84,10 @@ CREATE INDEX audit_log_project ON audit_log(project_id);
 
 - **Core vs presentation.** The core schema holds identity, relationships, and
   lifecycle only. UI constructs — topic ordering (`position`) and `color` — live
-  in the separate `topic_display` table (same DB, real FK + `ON DELETE CASCADE`).
-  They are persisted and shared across clients, but are not core: dropping
-  `topic_display` loses only display prefs, never the topics themselves.
+  in the separate `topic_display` table (same DB, real FK +
+  `ON DELETE CASCADE`). They are persisted and shared across clients, but are
+  not core: dropping `topic_display` loses only display prefs, never the topics
+  themselves.
 - **Topics are never hard-deleted, only archived.** This is load-bearing: the
   per-project `task_topics.topic_id` (see `PROJECT.md`) references `topics.id`
   across database files, where SQLite cannot enforce a foreign key. Because
@@ -96,7 +97,8 @@ CREATE INDEX audit_log_project ON audit_log(project_id);
   cannot be deleted while it owns topics. Archive the topics, or archive the
   project, instead.
 - Projects and topics are soft-deleted via `archived_at`; history is preserved.
-- Identifiers are 160-bit random ids (`TEXT`, 32-char Crockford base32), generated locally — no central id assignment.
+- Identifiers are 160-bit random ids (`TEXT`, 32-char Crockford base32),
+  generated locally — no central id assignment.
 - **There is no implicit default topic.** A project may have zero topics.
   "Unassigned" is not a row in this file; it is the absence of a task's topic
   association, materialized as a virtual group by the client.
@@ -106,4 +108,4 @@ CREATE INDEX audit_log_project ON audit_log(project_id);
   the change, never updated or deleted. `clidos audit` merges this file's
   `audit_log` with every project's into one timeline ordered by `ts`; that
   cross-file merge is why the UTC-unix-ms timestamp invariant (DESIGN.md, rule
-  1) is load-bearing.
+  1. is load-bearing.

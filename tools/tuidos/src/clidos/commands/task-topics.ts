@@ -3,8 +3,11 @@ import { requireProject } from "../context";
 import { listTopicsForTask, attachTopic, detachTopic } from "../../core/topics";
 import { guard, fail } from "../audit-view";
 import {
-  resolveTaskId, resolveTopicId, renderTaskTopics,
-  renderTopicAttached, renderTopicDetached,
+  resolveTaskId,
+  resolveTopicId,
+  renderTaskTopics,
+  renderTopicAttached,
+  renderTopicDetached,
 } from "../card-view";
 
 export const topicSubcommand = defineCommand({
@@ -13,8 +16,16 @@ export const topicSubcommand = defineCommand({
     add: defineCommand({
       meta: { name: "add", description: "Attach a topic to a task" },
       args: {
-        task: { type: "positional", description: "Task id or prefix", required: true },
-        topic: { type: "positional", description: "Topic id or name", required: true },
+        task: {
+          type: "positional",
+          description: "Task id or prefix",
+          required: true,
+        },
+        topic: {
+          type: "positional",
+          description: "Topic id or name",
+          required: true,
+        },
       },
       run({ args }) {
         if (!args.task || !args.topic) fail("add requires <task> <topic>");
@@ -28,8 +39,16 @@ export const topicSubcommand = defineCommand({
     remove: defineCommand({
       meta: { name: "remove", description: "Detach a topic from a task" },
       args: {
-        task: { type: "positional", description: "Task id or prefix", required: true },
-        topic: { type: "positional", description: "Topic id or name", required: true },
+        task: {
+          type: "positional",
+          description: "Task id or prefix",
+          required: true,
+        },
+        topic: {
+          type: "positional",
+          description: "Topic id or name",
+          required: true,
+        },
       },
       run({ args }) {
         if (!args.task || !args.topic) fail("remove requires <task> <topic>");
@@ -42,7 +61,13 @@ export const topicSubcommand = defineCommand({
     }),
     list: defineCommand({
       meta: { name: "list", description: "List a task's topics" },
-      args: { task: { type: "positional", description: "Task id or prefix", required: true } },
+      args: {
+        task: {
+          type: "positional",
+          description: "Task id or prefix",
+          required: true,
+        },
+      },
       run({ args }) {
         if (!args.task) fail("task id is required");
         const projectId = requireProject();

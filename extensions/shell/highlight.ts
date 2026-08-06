@@ -1,11 +1,6 @@
-/**
- * Captures carry UTF-8 byte offsets, so ranges slice the encoded bytes (not
- * JS UTF-16 indices); overlapping captures resolve last-wins.
- */
-
 import type { Highlight } from "../lib/tree-sitter.ts";
 
-const MAX_HL_BYTES = 8000; // bound painting work for pathological long commands
+const MAX_HL_BYTES = 8000;
 
 interface ThemeLike {
   fg(color: string, text: string): string;
@@ -48,7 +43,6 @@ function colorFor(capture: string): string | null {
   }
 }
 
-/** Paint `command[startByte..endByte)` using captures. Gaps use `text` color. */
 export function highlightRange(
   command: string,
   captures: Highlight[],
@@ -92,7 +86,7 @@ export function byteLen(command: string): number {
   return new TextEncoder().encode(command).length;
 }
 
-/** 0x0a never occurs inside a UTF-8 multi-byte sequence, so scanning bytes for line starts is safe. */
+/** Scanning byte 0x0a is safe because UTF-8 continuation bytes cannot equal it. */
 export function lineBounds(command: string): {
   starts: number[];
   ends: number[];

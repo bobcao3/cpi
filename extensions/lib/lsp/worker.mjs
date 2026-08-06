@@ -1,27 +1,6 @@
 /**
- * Generic JSON-RPC stdio LSP worker (design §6.6, Layer 3).
- *
- * One Worker thread owns ONE language server child process and all its LSP
- * stdio I/O (Content-Length framing). Generalizes `shell/lsp-worker.mjs`: the
- * server spawn directive comes from `workerData`, so the same worker drives
- * shuck, tsserver, and pyrefly. Pure node — no pi import.
- *
- * Protocol (main -> worker):
- *   { type:"lint", id, uri, languageId, text, file }
- *   { type:"dispose" }
- * Protocol (worker -> main):
- *   { type:"ready", ok:boolean, error? }
- *   { type:"result", id, diagnostics: Diagnostic[] }
- *   { type:"dead" }
- *
- * `lint` = didOpen(uri,languageId,text) -> await publishDiagnostics (bounded by
- * `lintTimeoutMs`) -> didClose -> return normalized diagnostics. `file` is the
- * caller-chosen absolute path ("" for synthetic inline docs), stamped onto each
- * diagnostic verbatim (the worker never parses URIs).
- *
- * Explicit limits (design §13): 16 MiB recv buffer; `for(;;)` read loop breaks
- * on an incomplete frame and resets the buffer on a breach; `Content-Length`
- * parse is asserted; the server is `initialize`d before any `lint` is posted.
+ * Invariants: the receive buffer is capped at 16 MiB; frames are parsed only
+ * when complete; the server is initialized before any lint is posted.
  */
 
 import { spawn } from "node:child_process";
@@ -91,7 +70,7 @@ function send(msg) {
   try {
     proc.stdin.write(`Content-Length: ${Buffer.byteLength(j)}\r\n\r\n${j}`);
   } catch {
-    /* EPIPE: server gone; exit handler will surface dead */
+    // The exit handler reports a server that died before the write.
   }
 }
 
@@ -125,35 +104,31 @@ function handle(msg) {
       cb(msg.params.diagnostics ?? []);
     }
   }
-  // other notifications (window/logMessage, etc.) are ignored
 }
 
 function onData(data) {
   buffer += data.toString("utf8");
   if (buffer.length > RECV_BUF_MAX) {
-    // breach: a single framed response exceeded the budget; reset and let the
-    // server exit handler (or next lint's timeout) surface the failure.
     log("lsp-worker", "recv buffer breach (>16MiB); resetting");
     buffer = "";
     return;
   }
   for (;;) {
     const he = buffer.indexOf("\r\n\r\n");
-    if (he === -1) break; // incomplete header: wait for more
+    if (he === -1) break;
     const m = buffer.slice(0, he).match(/Content-Length:\s*(\d+)/i);
     if (!m) {
       buffer = buffer.slice(he + 4);
       continue;
-    } // skip non-LSP header block
+    }
     const len = Number(m[1]);
-    // assert: Content-Length parsed as a finite positive integer (design §13)
     if (!Number.isFinite(len) || len <= 0) {
       log("lsp-worker", "malformed Content-Length; resetting");
       buffer = "";
       return;
     }
     const bs = he + 4;
-    if (buffer.length < bs + len) break; // incomplete body: wait for more
+    if (buffer.length < bs + len) break;
     let msg;
     try {
       msg = JSON.parse(buffer.slice(bs, bs + len));

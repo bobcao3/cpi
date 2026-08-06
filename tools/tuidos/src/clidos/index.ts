@@ -13,17 +13,10 @@ import { setProjectArg } from "./context";
 import { fail } from "./audit-view";
 
 /**
- * Global flags, stripped from argv before `runMain` so they work on every
- * subcommand (citty parses args per-command and would reject an undeclared flag
- * on a leaf). These are surfaced via channels the core already reads:
- *   --state-dir <path>      -> $TUIDOS_STATE_DIR (paths.tuidosDir)
- *   --author-suffix <s>     -> $TUIDOS_AUTHOR_SUFFIX (identity.authorSuffix)
- *   --project/-p <id>      -> context.setProjectArg (requireProject)
- * Declared on the root command's args below purely so `clidos --help` lists
- * them; the values are consumed here, never read from root's parsed args.
- *
- * Only the space forms (`--flag X`, `-p X`) and `--flag=X` are supported — not
- * `-pX`, so a positional value that happens to start with `-p` is never eaten.
+ * Global flags are stripped from argv before citty parses it, so they work on
+ * every subcommand. Supported forms: `--flag X`, `-p X`, and `--flag=X`;
+ * `-pX` is intentionally not consumed, so a positional value that starts with
+ * `-p` is never eaten.
  */
 function applyGlobalFlags(argv: string[]): string[] {
   const out: string[] = [];
@@ -72,15 +65,21 @@ function applyGlobalFlags(argv: string[]): string[] {
 }
 
 const main = defineCommand({
-  meta: { name: "clidos", version: "0.1.0", description: "Local task tracking — non-TTY CLI" },
+  meta: {
+    name: "clidos",
+    version: "0.1.0",
+    description: "Local task tracking — non-TTY CLI",
+  },
   args: {
     "state-dir": {
       type: "string",
-      description: "Path to the tuidos state dir (default: $TUIDOS_STATE_DIR or XDG state)",
+      description:
+        "Path to the tuidos state dir (default: $TUIDOS_STATE_DIR or XDG state)",
     },
     "author-suffix": {
       type: "string",
-      description: "Suffix appended to the author name as Name+suffix (default: $TUIDOS_AUTHOR_SUFFIX); marks an agent",
+      description:
+        "Suffix appended to the author name as Name+suffix (default: $TUIDOS_AUTHOR_SUFFIX); marks an agent",
     },
     project: {
       type: "string",
@@ -88,14 +87,22 @@ const main = defineCommand({
       description: "Project id or name to scope project commands like `topics`",
     },
   },
-  subCommands: { project: projectCommand, audit: auditCommand, topics: topicsCommand, task: taskCommand, columns: columnsCommand },
-  // Bare `clidos` discovers itself: its subcommands, the active state, the
-  // project count, and a few latest projects — rather than dumping generic help.
+  subCommands: {
+    project: projectCommand,
+    audit: auditCommand,
+    topics: topicsCommand,
+    task: taskCommand,
+    columns: columnsCommand,
+  },
   async run({ rawArgs }) {
-    // A subcommand was invoked: citty runs ancestor run()s after the leaf, so bail.
+    // citty runs ancestor run()s after the leaf, so the ancestor must return.
     if (rawArgs.length > 0) return;
     console.log(
-      renderDiscovery({ statePath: tuidosDir(), count: countProjects(), latest: listProjects(5) }),
+      renderDiscovery({
+        statePath: tuidosDir(),
+        count: countProjects(),
+        latest: listProjects(5),
+      }),
     );
   },
 });

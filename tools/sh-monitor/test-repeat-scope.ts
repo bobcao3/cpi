@@ -1,10 +1,5 @@
 #!/usr/bin/env bun
-/**
- * Repeat monitors are session-scoped, mirroring background shells: a fork
- * inherits none of the parent's repeats (not listed, not signalable, not killed
- * by the fork's killAllRepeats). Repeats remain in-memory/ephemeral (not
- * resumable) — only their ownership is scoped.
- */
+/** Repeat visibility and control are scoped to the owning session. */
 import { setCurrentScope } from "../../extensions/shell/exec.ts";
 import {
   startRepeat,
@@ -38,7 +33,6 @@ try {
   );
   ok(getRepeatCount() === 1, "A's repeat count is 1");
 
-  // fork (B) inherits nothing: no repeats visible, can't signal
   setCurrentScope(B);
   ok(
     getActiveRepeats().length === 0,
@@ -47,7 +41,6 @@ try {
   ok(getRepeatCount() === 0, "B's repeat count is 0");
   ok(signalRepeat(id, "SIGKILL") === false, "B cannot signal A's repeat");
 
-  // back to A: the repeat survived the fork and is still manageable
   setCurrentScope(A);
   ok(
     getActiveRepeats().some((r) => r.id === id),
@@ -56,7 +49,6 @@ try {
   ok(signalRepeat(id, "SIGKILL") === true, "A can signal (stop) its repeat");
   ok(getRepeatCount() === 0, "A's repeat removed after signaling");
 
-  // killAllRepeats is scoped: B's killAll must not touch A's repeats
   startRepeat("echo hi", 60, env, "rpt-A2");
   startRepeat("echo hi", 60, env, "rpt-A3");
   setCurrentScope(A);

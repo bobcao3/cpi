@@ -1,8 +1,4 @@
-/**
- * Pure output-truncation computation (from shell/exec.ts) via `truncateTail`.
- * Contract: when truncated, `body` omits the trailing `]` / ` full: <path>`
- * line — the caller appends those, since persistence is impure.
- */
+/** Contract: truncated body excludes the caller-appended closing marker and persistence suffix. */
 
 import { truncateTail } from "@earendil-works/pi-coding-agent";
 

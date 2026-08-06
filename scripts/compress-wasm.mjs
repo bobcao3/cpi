@@ -1,13 +1,4 @@
 #!/usr/bin/env node
-/**
- * Brotli-compress a file (used by CI to shrink the tree-sitter wasm release
- * asset). Writes <path>.br next to the input.
- *
- * Zero deps (node:zlib). Decompression on the client side is
- * zlib.brotliDecompressSync (available since Node 11.7; pi requires >=22.19).
- *
- * Usage: node scripts/compress-wasm.mjs <path-to-wasm>
- */
 import * as zlib from "node:zlib";
 import { readFileSync, writeFileSync } from "node:fs";
 

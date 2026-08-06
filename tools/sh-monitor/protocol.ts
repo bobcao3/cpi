@@ -1,22 +1,6 @@
 /**
- * sh-monitor wire protocol: a type-tagged, length-prefixed binary framing with
- * a typebox-defined control-message schema. Pure data — no pi/net imports
- * beyond the Socket type.
- *
- * Frame layout (uniform, bounded):
- *   [type:1][len:uint32 BE][payload:len]   assert len <= MAX_FRAME
- *
- *   0x01 CONTROL  payload = UTF-8 JSON `Message`        (low-volume, debuggable)
- *   0x02 DATA     payload = [off:uint64 BE][child bytes]   zero-copy byte stream
- *
- * The data plane (child stdout/stderr) rides raw DATA frames — no base64, no
- * encode/decode cost. The control plane is JSON, validated against the typebox
- * `Message` schema at the read boundary. One schema definition is the single
- * source of truth for the TS type, the JSON schema, and the runtime validator.
- *
- * DATA frame contract: a `buf` delivered to `onData` is a subarray of the
- * reader's internal buffer and is valid only for the duration of the callback.
- * Consume it synchronously, or copy (`Buffer.from(buf)`) to retain it.
+ * Frames are [type:1][len:uint32 BE][payload:len], capped at MAX_FRAME. CONTROL is validated JSON; DATA is [off:uint64 BE][bytes].
+ * Message defines the TypeScript type, JSON schema, and runtime validator. onData receives a callback-lifetime subarray; copy it to retain.
  */
 
 import { Type, type Static } from "typebox";
@@ -24,11 +8,9 @@ import { Value } from "typebox/value";
 
 export const FRAME_CONTROL = 0x01;
 export const FRAME_DATA = 0x02;
-export const MAX_FRAME = 4 * 1024 * 1024; // 4 MiB hard cap — explicit limit
+export const MAX_FRAME = 4 * 1024 * 1024;
 
 const uint64 = Type.Integer({ minimum: 0 });
-
-// ── control-message schema (discriminated union on `kind`) ──────────────────
 
 const StatReq = Type.Object({ kind: Type.Literal("stat") });
 const SignalReq = Type.Object({
@@ -95,8 +77,6 @@ export function isMessage(msg: unknown): msg is Message {
   return Value.Check(Message, msg);
 }
 
-// ── writers ──────────────────────────────────────────────────────────────────
-
 export function writeControl(sock: NodeJS.WritableStream, msg: Message): void {
   const body = Buffer.from(JSON.stringify(msg), "utf8");
   if (body.length > MAX_FRAME)
@@ -108,7 +88,6 @@ export function writeControl(sock: NodeJS.WritableStream, msg: Message): void {
   sock.write(body);
 }
 
-/** Zero-copy: writes the 13-byte header, then the child buffer itself. */
 export function writeData(
   sock: NodeJS.WritableStream,
   off: number,
@@ -126,23 +105,19 @@ export function writeData(
   return true;
 }
 
-// ── reader ───────────────────────────────────────────────────────────────────
-
 export interface FrameHandlers {
   onControl(msg: Message): void;
   onData(off: number, buf: Buffer): void;
-  /** Protocol violation on this socket — caller should close it. */
   onFrameError(reason: string): void;
 }
 
 const READER_INIT_CAP = 65536;
 
-/** Streaming frame parser. Buffers partial frames; never copies data bytes. */
 export class FrameReader {
   private h: FrameHandlers;
   private buf: Buffer;
-  private start = 0; // first unconsumed byte
-  private end = 0; // one past last buffered byte
+  private start = 0;
+  private end = 0;
   constructor(h: FrameHandlers) {
     this.h = h;
     this.buf = Buffer.allocUnsafe(READER_INIT_CAP);
@@ -183,7 +158,7 @@ export class FrameReader {
         this.h.onFrameError(`frame too large: ${len}`);
         return;
       }
-      if (avail < 5 + len) return; // wait for the rest of the payload
+      if (avail < 5 + len) return;
       const payload = this.buf.subarray(this.start + 5, this.start + 5 + len);
       this.start += 5 + len;
       if (type === FRAME_CONTROL) {
@@ -205,9 +180,8 @@ export class FrameReader {
           return;
         }
         const off = Number(payload.readBigUInt64BE(0));
-        this.h.onData(off, payload.subarray(8)); // zero-copy subarray; see contract
+        this.h.onData(off, payload.subarray(8));
       }
-      // unknown frame types: skip (forward-compatible)
     }
   }
 }

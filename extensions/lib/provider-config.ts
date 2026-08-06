@@ -1,10 +1,6 @@
 /**
- * Shared provider-fallback config + helpers (register providers, strip
- * unusable ones, pick/switch fallback candidates). Config is JSON, merged
- * project-over-user: ~/.pi/agent/fallback-providers.json then
- * <cwd>/.pi/fallback-providers.json. State lives on a globalThis slot
- * because jiti runs with moduleCache disabled — module-level `let` would not
- * survive reloads and two instances would double-register.
+ * Shared provider-fallback config/helpers; config merges project-over-user: ~/.pi/agent/fallback-providers.json then <cwd>/.pi/fallback-providers.json.
+ * GlobalThis state survives jiti moduleCache-disabled reloads and prevents duplicate registration.
  */
 
 import { readFileSync, existsSync, appendFileSync } from "node:fs";
@@ -20,11 +16,8 @@ const debug = (msg: string): void => {
   if (!process.env.PF_DEBUG) return;
   try {
     appendFileSync("/tmp/provider-fallback-debug.log", `${msg}\n`);
-  } catch {
-    // ignore
-  }
+  } catch {}
 };
-
 
 interface CompatConfig {
   supportsStore?: boolean;
@@ -64,15 +57,15 @@ interface FallbackCandidate {
 
 export interface StripRule {
   provider: string;
-  /** Env vars whose presence signals ambient (shadowing) auth. */
+  /** Env vars signaling ambient auth. */
   env?: string[];
-  /** "any" (default) = strip if any env is set; "all" = strip only if all set. */
+  /** any matches one; all requires every var. */
   match?: "any" | "all";
 }
 
 export interface FailoverConfig {
   failureThreshold?: number;
-  /** Status codes counted as failures. null/omit = any status >= 400. */
+  /** Counted failure statuses; omitted/null means >=400. */
   statusCodes?: number[] | null;
 }
 
@@ -83,7 +76,6 @@ export interface FallbackConfig {
   stripModels?: ModelStripRule[];
   failover?: FailoverConfig;
 }
-
 
 interface ProviderState {
   registered: Set<string>;
@@ -115,23 +107,21 @@ export function getConfig(): FallbackConfig | null {
   return getState().config;
 }
 
-
 const ZERO_COST = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
 
-/** Defaults every model's cost; dynamic registerProvider does not. */
+/** Defaults model costs; dynamic registration does not. */
 function withDefaultCosts(pcfg: ProviderConfig): void {
   for (const model of pcfg.models ?? []) {
     model.cost = { ...ZERO_COST, ...(model.cost ?? {}) };
   }
 }
 
-
 const DEFAULT_COMPAT: CompatConfig = {
   supportsDeveloperRole: false,
   maxTokensField: "max_tokens",
 };
 
-/** Relocate provider-level compat onto each model; returns warnings. Mutates. */
+/** Moves provider compat onto models; mutates and returns warnings. */
 function validateAndNormalizeCompat(
   key: string,
   pcfg: ProviderConfig,
@@ -157,8 +147,6 @@ function validateAndNormalizeCompat(
   return warnings;
 }
 
-// ── config loading & merging ─────────────────────────────────────────────────
-
 function loadConfigFile(path: string): FallbackConfig | null {
   if (!existsSync(path)) return null;
   try {
@@ -171,7 +159,7 @@ function loadConfigFile(path: string): FallbackConfig | null {
   }
 }
 
-/** Deep merge: project providers override user by key; project lists replace. */
+/** Project providers override by key; project lists replace user lists. */
 function mergeConfigs(
   user: FallbackConfig | null,
   project: FallbackConfig | null,
@@ -206,9 +194,7 @@ export function loadMergedConfig(cwd: string): FallbackConfig {
   return mergeConfigs(user, project);
 }
 
-// ── provider registration ────────────────────────────────────────────────────
-
-/** Register one provider idempotently (shared `registered` set guards dupes). */
+/** Register once; shared state guards duplicates. */
 export function registerProviderConfig(
   pi: ExtensionAPI,
   key: string,
@@ -235,9 +221,7 @@ export function registerProviderConfig(
   }
 }
 
-// ── strip rules ──────────────────────────────────────────────────────────────
-
-/** Backward-compatible defaults (used when config has no `strip` section). */
+/** Defaults for configs without strip. */
 export const DEFAULT_STRIP_RULES: StripRule[] = [
   {
     provider: "amazon-bedrock",
@@ -255,15 +239,13 @@ export const DEFAULT_STRIP_RULES: StripRule[] = [
   { provider: "huggingface", match: "any", env: ["HF_TOKEN"] },
 ];
 
-/** True if the rule's auth-match fires (env vars present per `match`). */
+/** Whether configured env vars match. */
 export function stripMatches(rule: StripRule): boolean {
   const vars = rule.env ?? [];
   if (vars.length === 0) return false;
   const present = vars.filter((v) => !!process.env[v]?.trim()).length;
   return rule.match === "all" ? present === vars.length : present > 0;
 }
-
-// ── failover defaults ────────────────────────────────────────────────────────
 
 export const DEFAULT_FAILURE_THRESHOLD = 3;
 
@@ -275,19 +257,12 @@ export function isFailureStatus(
   return codes ? codes.includes(status) : status >= 400;
 }
 
-// ── fallback selection ───────────────────────────────────────────────────────
-
 export interface FallbackPick {
   model: NonNullable<ExtensionContext["model"]>;
   candidate: FallbackCandidate;
 }
 
-/**
- * Pick the next fallback candidate after `afterProvider` (or the first one if
- * null) whose context window fits the current context. "If context allows":
- * skips candidates whose `contextWindow` is smaller than current token usage.
- * Returns null if none fit or none are registered.
- */
+/** Selects the next registered, unstripped fallback fitting context usage. */
 export function selectFallback(
   ctx: ExtensionContext,
   fallbacks: FallbackCandidate[] | undefined,

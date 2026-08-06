@@ -1,24 +1,12 @@
 /**
- * Tree-sitter WASM bridge — shared lib module.
- *
- * Loads our CI-built tree-sitter-wasm.wasm (WASI module bundling
- * tree-sitter + tree-sitter-bash + the bash highlight query) and exposes:
- *   - parseCommand(command)        → AST (JsonNode), for semantic rules
- *   - highlightCommandSync(command) → capture byte-ranges, for TUI coloring
- *
- * Pure node (node:fs / node:wasi) — no pi/tui imports. The wasm path is
- * injected by the owner (shell/tools.ts) via initTreeSitterWasm so this module
- * stays a dependency-free leaf.
- *
- * The WebAssembly instance is cached on globalThis: it survives jiti hot-reloads
- * of this file (re-read on every call, never used to skip registration — it is
- * pure data, not a dedup flag).
+ * Dependency-free Node WASM bridge (node:fs / node:wasi). The instance is
+ * cached on globalThis so it survives jiti hot-reloads of this file.
  */
 
 import { readFileSync } from "node:fs";
 import { WASI } from "node:wasi";
 
-// ── JsonNode: adapter that matches web-tree-sitter's Node API ──
+// JsonNode mirrors web-tree-sitter's Node API (namedChildren, childForFieldName, …).
 
 interface RawNode {
   type: string;
@@ -156,7 +144,6 @@ function state(): TsState {
 const captureCache = new Map<string, Highlight[]>();
 const CAPTURE_CACHE_MAX = 64;
 
-/** Inject the wasm path resolver. Called by the owner (shell/tools.ts) at load. */
 export function initTreeSitterWasm(pathResolver: () => string | null): void {
   state().resolver = pathResolver;
 }
@@ -215,7 +202,7 @@ async function instantiate(): Promise<Parser | null> {
   }
 }
 
-/** Eagerly instantiate so highlightCommandSync works on first render. Best-effort. */
+// Eagerly instantiate so highlightCommandSync works on first render.
 export async function ensureTreeSitterReady(): Promise<boolean> {
   return (await instantiate()) !== null;
 }
@@ -249,7 +236,6 @@ export async function parseCommand(command: string): Promise<ParseResult> {
   }
 }
 
-/** Synchronous highlight — returns null if the wasm is not yet instantiated. */
 export function highlightCommandSync(command: string): Highlight[] | null {
   const parser = parserSync();
   if (!parser) return null;
@@ -279,9 +265,7 @@ export function highlightCommandSync(command: string): Highlight[] | null {
   }
 }
 
-/** Synchronous highlight of `source` as `lang` (e.g. "python"). Returns null
- *  if the wasm is not instantiated or `lang` is unknown. Capture offsets are
- *  UTF-8 byte ranges, same as highlightCommandSync. */
+// Capture offsets are UTF-8 byte ranges, same as highlightCommandSync.
 export function highlightLangSync(
   lang: string,
   source: string,

@@ -1,18 +1,6 @@
 /**
- * Shared registry for system-prompt transforms.
- *
- * One owner (in `extensions/core.ts`) listens to
- * `before_agent_start` and applies every registered transform to the incoming
- * system prompt, in ascending `order`. Other extensions (e.g. skill)
- * register transforms at factory load instead of each mutating
- * `before_agent_start` themselves — keeping a single listener that owns the
- * final systemPrompt return value, applied in a declared, stable order.
- *
- * Sharing: pi loads each extension via jiti with `moduleCache: false`, so each
- * extension gets its own module graph — module-level state here would NOT be
- * shared between importers. The registry is therefore backed by a single
- * `globalThis` slot, process-wide and identical across jiti loads (same pattern
- * as lib/footer.ts and lib/transcript-registry.ts).
+ * This registry survives jiti reloads via globalThis; throwing transforms
+ * are skipped and logged.
  */
 
 interface TransformEntry {
@@ -46,11 +34,6 @@ function registry(): Registry {
   return fresh;
 }
 
-/**
- * Register (or replace) a system-prompt transform by id. Idempotent by id:
- * re-registering with the same id replaces the prior entry (last wins), so
- * reloading an extension cleanly swaps its transform instead of stacking.
- */
 export function registerSystemPromptTransform(
   id: string,
   apply: (systemPrompt: string, ctx: any, options: any) => string,
@@ -65,16 +48,6 @@ export function registerSystemPromptTransform(
   registry().transforms.set(id, { apply, order });
 }
 
-/**
- * Remove a previously-registered system-prompt transform by id. No-op if the
- * id was never registered (or already removed). Returns `true` when an entry
- * was present and has been deleted, `false` otherwise.
- *
- * This is needed because an old transform's closure survives in the
- * `globalThis` registry across a jiti reload — so an extension that drops a
- * transform must explicitly retire it, or the stale closure lingers (and may
- * throw if the data it reads no longer exists).
- */
 export function unregisterSystemPromptTransform(id: string): boolean {
   assert(
     typeof id === "string" && id.length > 0,
@@ -83,12 +56,6 @@ export function unregisterSystemPromptTransform(id: string): boolean {
   return registry().transforms.delete(id);
 }
 
-/**
- * Apply every registered transform to `systemPrompt`, in ascending `order`.
- * Ties keep insertion order (Array.prototype.sort is stable). Never throws:
- * a transform that throws is skipped and logged to stderr, so one faulty
- * extension cannot blank the system prompt for the whole process.
- */
 export function applySystemPromptTransforms(
   systemPrompt: string,
   ctx: any,

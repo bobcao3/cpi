@@ -1,5 +1,3 @@
-/** Shell-family transcript rendering: show the actual command in a ```shell block with a terse meta suffix instead of the default XML argument dump; null defers to the default. */
-
 import {
   parseArgs,
   registerToolCallRenderer,
@@ -28,7 +26,6 @@ function renderShellTranscriptCall(block: ToolCallBlock): string[] | null {
   return [head + suffix, "```shell", args.command, "```", ""];
 }
 
-/** Register shell-family transcript renderers. Call once at extension load. */
 export function registerShellTranscriptRenderers(): void {
   registerToolCallRenderer("sh", renderShellTranscriptCall);
   registerToolCallRenderer("sh_repeat_until", renderShellTranscriptCall);

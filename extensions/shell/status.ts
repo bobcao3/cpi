@@ -1,5 +1,3 @@
-/** Footer line-1 `bg:N` / `mon:M` segment; polls and re-renders on change (shells complete asynchronously, so a fixed tick alone is too coarse). */
-
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import {
   clearRightSegment,
@@ -29,7 +27,6 @@ function shellStatusValue(): string | undefined {
 export function createShellStatusRefresher(
   ctx: ExtensionContext,
 ): ShellStatusRefresher {
-  // Idempotent: re-registering on session_start/tree is a no-op after the first.
   registerRightSegment(SEGMENT_NAME, shellStatusValue);
 
   let lastValue: string | undefined;

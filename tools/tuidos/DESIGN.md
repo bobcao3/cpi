@@ -2,9 +2,13 @@
 
 Tuidos uses three state tiers.
 
-1. **Global state.** Stored in `~/.local/state/tuidos/global.sqlite`. This holds the project registry; projects are named entries, not tied to folders.
-2. **Per-project state.** Each project has its own SQLite at `~/.local/state/tuidos/projects/<project-id>/state.sqlite`. Tasks, kanban columns, and metadata live here.
-3. **Client state.** Selections, filters, and UI focus live only in memory while a client runs.
+1. **Global state.** Stored in `~/.local/state/tuidos/global.sqlite`. This holds
+   the project registry; projects are named entries, not tied to folders.
+2. **Per-project state.** Each project has its own SQLite at
+   `~/.local/state/tuidos/projects/<project-id>/state.sqlite`. Tasks, kanban
+   columns, and metadata live here.
+3. **Client state.** Selections, filters, and UI focus live only in memory while
+   a client runs.
 
 Two clients access the same data:
 
@@ -34,15 +38,20 @@ designed yet. The presentation tables (`*_display`) keep display preferences
 
 ## SQLite vs LibSQL
 
-Use SQLite via `bun:sqlite`. It is built into Bun, needs no extra dependency, supports WAL mode, and handles concurrent readers and one writer safely. LibSQL's remote sync routes every write through a `sqld` *primary* — a write-time coordination authority — plus a native client dependency. We sync P2P-style instead: local clones plus a mesh of peers bootstrapped by always-on discovery/relay nodes that never serialize writes (see *Sync model* below).
+Use SQLite via `bun:sqlite`. It is built into Bun, needs no extra dependency,
+supports WAL mode, and handles concurrent readers and one writer safely.
+LibSQL's remote sync routes every write through a `sqld` _primary_ — a
+write-time coordination authority — plus a native client dependency. We sync
+P2P-style instead: local clones plus a mesh of peers bootstrapped by always-on
+discovery/relay nodes that never serialize writes (see _Sync model_ below).
 
 ## Sync model (local-first, P2P)
 
 State is **local-first**: each node holds a full copy (a "clone"), works
 offline, and merges others' changes deterministically — Strong Eventual
 Consistency, no write-time authority
-(`docs/research/sync_model/Merge_Model_No_Coordination.md`). The transport is a **P2P
-mesh**: every node can serve every other, bootstrapped by a few always-on
+(`docs/research/sync_model/Merge_Model_No_Coordination.md`). The transport is a
+**P2P mesh**: every node can serve every other, bootstrapped by a few always-on
 **discovery/relay** nodes — the Syncthing/libp2p/Tailscale pattern
 (`docs/research/sync_model/P2P_Sync_Design.md`).
 
@@ -53,8 +62,8 @@ mesh**: every node can serve every other, bootstrapped by a few always-on
   well-known nodes act as a directory (peer id → addresses) and, when two peers
   can't connect directly (NAT/firewall), relay their already-encrypted traffic.
   Like Tailscale's coordination server this carries **keys and routing, not
-  data** — an outage only delays rendezvous; it cannot corrupt or lose state.
-  In HPC the login node naturally fills this role.
+  data** — an outage only delays rendezvous; it cannot corrupt or lose state. In
+  HPC the login node naturally fills this role.
 - **Data plane — P2P mesh.** Any node serves the append-only log to any other;
   there is no data authority (the merge is symmetric). Each writer appends
   id+timestamp-tagged events to its own log (the `audit_log`); sync = exchange
@@ -66,14 +75,15 @@ mesh**: every node can serve every other, bootstrapped by a few always-on
 - **Live DB stays local.** Writes go to a node-local SQLite in WAL mode
   (`busy_timeout` + `BEGIN IMMEDIATE` for intra-node multi-writer, e.g. one
   tmux). The shared network `$HOME` is **not** the live DB (SQLite locks and WAL
-  shared-memory are unsafe there — `docs/research/sync_model/SQLite_Over_HPC_Filesystems.md`);
-  it may serve only as a dumb fallback store.
+  shared-memory are unsafe there —
+  `docs/research/sync_model/SQLite_Over_HPC_Filesystems.md`); it may serve only
+  as a dumb fallback store.
 - **Degenerate case.** A single always-on node that is discovery + relay + the
   only store is the git-style "hub" — a valid minimal deployment. P2P separates
   these roles so any peer serves data, removing the single data SPOF.
 - **Trade-off.** No-coordination means last-write-wins can discard a concurrent
   conflicting write to the same field, and reads are stale until the next sync.
-  P2P changes *who serves whom*, not the merge semantics. Accepted for a
+  P2P changes _who serves whom_, not the merge semantics. Accepted for a
   personal/small-team task tool.
 
 ## Schema
