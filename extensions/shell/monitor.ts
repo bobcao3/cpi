@@ -1,33 +1,14 @@
 /**
- * Extension-side sh-monitor client + launcher. Runs in the pi process (bun/node/deno).
- *
- * `launchMonitor` spawns `<runtime> sh-monitor.ts spawn …` (whatever drives pi,
- * via runtimeSpawn — never a hard-coded `bun`) detached and unref'd so the
- * supervisor (and its grandchild) outlive pi. pi talks to it over the spawned
- * stdin/stdout pipes — NO filesystem socket, NO bind race, NO /tmp dependency
- * (the original cluster failure). The typebox-defined framing from
- * `tools/sh-monitor/protocol.ts` rides raw on the pipes: control requests on
- * stdin, responses + zero-copy DATA frames on stdout.
- *
- * sh-monitor owns the grandchild's stdout/stderr pipe and drains it to a log
- * file, so pi can come and go without ever signalling the grandchild (no
- * SIGPIPE). If pi closes the pipe (detach / done), sh-monitor treats the
- * subscriber as gone, keeps draining to the log, and exits after the
- * grandchild — nohup-style. Readiness is the first `stat()` round-trip; if
- * sh-monitor crashed at spawn, `stat` rejects with the captured stderr + exit
- * info, so failures are diagnosable instead of a bare ENOENT.
- *
- * Resume (Phase 2): when a shell is backgrounded, pi asks sh-monitor to bind a
- * best-effort resume socket (`bindResume`) so a restarted pi can re-attach via
- * `ResumeClient`. The `{pid, sockPath, cmd}` record lives scoped by conversation
- * at `<sessionDir>/sh-mon/<sessionId>/<pid>.json` so a resumed pi re-attaches
- * only its own background shells and concurrent agents in the same cwd never
- * cross-read each other's records; if the socket is gone the record is stale
- * and is removed silently (no notification).
- *
- * We deliberately do NOT import `sh-monitor.ts` here (its top-level `main()`
- * is a CLI side effect); we reuse only the pure `protocol.ts` (schema +
- * framing).
+ * Spawns sh-monitor via runtimeSpawn (never a hard-coded `bun`), detached and
+ * unref'd so the supervisor (and its grandchild) outlive pi. Protocol rides
+ * raw on the spawned stdin/stdout pipes — no filesystem socket, no bind race.
+ * sh-monitor owns the grandchild's output pipe and drains it to a log, so pi
+ * can come and go without signalling the child (no SIGPIPE); when pi closes
+ * the pipe it keeps draining and exits after the grandchild. Readiness is the
+ * first `stat()` round-trip; on spawn crash `stat` rejects with captured
+ * stderr instead of a bare ENOENT. Backgrounded shells bind a resume socket,
+ * scoped by conversation (`<sessionDir>/sh-mon/<sessionId>/<pid>.json`); we
+ * never import `sh-monitor.ts` (its top-level `main()` is a CLI side effect).
  */
 import { spawn, type ChildProcess } from "node:child_process";
 import type { Readable } from "node:stream";
@@ -76,7 +57,6 @@ interface ExitInfo {
   spawnError?: Error;
 }
 
-/** Synchronous client over the spawned stdin/stdout pipes. Never imports the CLI module. */
 export class MonitorClient {
   private readonly stdin: NodeJS.WritableStream;
   private readonly child: ChildProcess;
@@ -84,7 +64,10 @@ export class MonitorClient {
   private readonly stderr: Readable | null;
   private readonly reader: FrameReader;
   private subs = new Set<(ev: MonitorEvent) => void>();
-  private pending: { resolve: (m: Message) => void; reject: (e: Error) => void }[] = [];
+  private pending: {
+    resolve: (m: Message) => void;
+    reject: (e: Error) => void;
+  }[] = [];
   private closeCbs = new Set<() => void>();
   private stderrBuf = "";
   private exitInfo: ExitInfo | null = null;
@@ -101,7 +84,11 @@ export class MonitorClient {
     this.reader = new FrameReader({
       onControl: (m) => {
         if (m.kind === "exit") {
-          const ev: MonitorEvent = { kind: "exit", exitCode: m.exitCode, bytes: m.bytes };
+          const ev: MonitorEvent = {
+            kind: "exit",
+            exitCode: m.exitCode,
+            bytes: m.bytes,
+          };
           for (const cb of this.subs) cb(ev);
         } else {
           this.pending.shift()?.resolve(m);
@@ -111,14 +98,16 @@ export class MonitorClient {
         const ev: MonitorEvent = { kind: "data", off, buf };
         for (const cb of this.subs) cb(ev);
       },
-      onFrameError: (reason) => this.fail(new Error(`sh-monitor protocol: ${reason}`)),
+      onFrameError: (reason) =>
+        this.fail(new Error(`sh-monitor protocol: ${reason}`)),
     });
     child.stdout!.on("data", (c: Buffer) => this.reader.feed(c));
     child.stdout!.on("close", () => this.fail(this.describeFailure()));
     child.stdout!.on("error", () => this.fail(this.describeFailure()));
     child.stdin!.on("error", () => this.fail(this.describeFailure()));
     child.stderr?.on("data", (c: Buffer) => {
-      if (this.stderrBuf.length < STDERR_CAP) this.stderrBuf += c.toString("utf8");
+      if (this.stderrBuf.length < STDERR_CAP)
+        this.stderrBuf += c.toString("utf8");
     });
     child.on("exit", (code, signal) => {
       this.exitInfo = { code, signal };
@@ -129,7 +118,6 @@ export class MonitorClient {
     });
   }
 
-  /** Fires once when the pipe closes (sh-monitor exited / crashed). */
   onClose(cb: () => void): void {
     this.closeCbs.add(cb);
   }
@@ -138,16 +126,22 @@ export class MonitorClient {
     const err = this.stderrBuf.trim();
     if (this.exitInfo?.spawnError) {
       const m = this.exitInfo.spawnError.message;
-      return new Error(`sh-monitor spawn failed: ${m}${/ENOENT/i.test(m) ? ` (runtime binary: ${this.bin})` : ""}`);
+      return new Error(
+        `sh-monitor spawn failed: ${m}${/ENOENT/i.test(m) ? ` (runtime binary: ${this.bin})` : ""}`,
+      );
     }
     if (this.exitInfo) {
       const where =
         this.exitInfo.code !== null
           ? `exited (code ${this.exitInfo.code})`
           : `killed (signal ${this.exitInfo.signal})`;
-      return new Error(`sh-monitor ${where}${err ? `: ${err.slice(0, 500)}` : ""}`);
+      return new Error(
+        `sh-monitor ${where}${err ? `: ${err.slice(0, 500)}` : ""}`,
+      );
     }
-    return new Error(`sh-monitor pipe closed${err ? `: ${err.slice(0, 500)}` : ""}`);
+    return new Error(
+      `sh-monitor pipe closed${err ? `: ${err.slice(0, 500)}` : ""}`,
+    );
   }
 
   private fail(err: Error): void {
@@ -215,30 +209,32 @@ export class MonitorClient {
     } catch {}
   }
   /**
-   * True orphan: destroy every pipe handle pi holds to the supervisor so pi's
-   * libuv event loop can idle (letting `pi --print` exit). `close()` only ends
-   * stdin — enough once the grandchild is done (the supervisor then exits and
-   * the pipe closes), but for a still-running grandchild (e.g. a deliverable
-   * daemon) the supervisor never exits, so the open stdout pipe keeps pi's
-   * loop alive forever (B3: pi --print never exits). sh-monitor survives: it
-   * keeps draining the grandchild to its log (its stdout EPIPE is handled) and
-   * exits only after the grandchild does.
+   * Destroy every pipe handle pi holds so its libuv loop can idle (`pi --print`
+   * exits): with a still-running grandchild the supervisor never exits, and an
+   * open stdout pipe would keep the loop alive forever.
    */
   orphan(): void {
-    try { this.child.unref(); } catch {}
-    try { this.child.stdin?.end(); } catch {}
-    try { this.child.stdin?.destroy(); } catch {}
-    try { this.stdout?.destroy(); } catch {}
-    try { this.stderr?.destroy(); } catch {}
+    try {
+      this.child.unref();
+    } catch {}
+    try {
+      this.child.stdin?.end();
+    } catch {}
+    try {
+      this.child.stdin?.destroy();
+    } catch {}
+    try {
+      this.stdout?.destroy();
+    } catch {}
+    try {
+      this.stderr?.destroy();
+    } catch {}
   }
 }
 
 /**
- * Socket-based client for re-attaching to a still-living sh-monitor after a pi
- * restart (resume). Connects to the resume socket sh-monitor bound via
- * `bindResume`. `whenReady` rejects (ENOENT/ECONNREFUSED) if the supervisor is
- * gone — the caller treats the rejected record as stale and removes it silently
- * (no notification).
+ * Re-attach to a still-living sh-monitor after a pi restart. `whenReady`
+ * rejects if the supervisor is gone — caller treats the record as stale.
  */
 export class ResumeClient {
   readonly sock: Socket;
@@ -252,7 +248,11 @@ export class ResumeClient {
     this.reader = new FrameReader({
       onControl: (m) => {
         if (m.kind === "exit") {
-          const ev: MonitorEvent = { kind: "exit", exitCode: m.exitCode, bytes: m.bytes };
+          const ev: MonitorEvent = {
+            kind: "exit",
+            exitCode: m.exitCode,
+            bytes: m.bytes,
+          };
           for (const cb of this.subs) cb(ev);
         }
       },
@@ -274,7 +274,6 @@ export class ResumeClient {
     });
   }
 
-  /** Fires once when the resume socket closes (sh-monitor exited / crashed). */
   onClose(cb: () => void): void {
     this.closeCbs.add(cb);
   }
@@ -286,7 +285,6 @@ export class ResumeClient {
     } catch {}
   }
 
-  /** Fire-and-forget signal without awaiting a reply. */
   sendSignal(sig: string): void {
     try {
       writeControl(this.sock, { kind: "signal", sig });
@@ -306,10 +304,13 @@ export class ResumeClient {
       this.sock.end();
     } catch {}
   }
-  /** True orphan (resume-socket path): unref + destroy the socket so pi's libuv loop can idle (mirror of MonitorClient.orphan for re-attached shells). */
   orphan(): void {
-    try { this.sock.unref(); } catch {}
-    try { this.sock.destroy(); } catch {}
+    try {
+      this.sock.unref();
+    } catch {}
+    try {
+      this.sock.destroy();
+    } catch {}
   }
 }
 
@@ -337,11 +338,17 @@ export async function writeResumeRecord(
   try {
     const dir = resumeRecordDir(sessionDir, scope);
     await mkdir(dir, { recursive: true });
-    await writeFile(join(dir, `${pid}.json`), JSON.stringify({ pid, sockPath, cmd, logPath, describe }) + "\n");
+    await writeFile(
+      join(dir, `${pid}.json`),
+      JSON.stringify({ pid, sockPath, cmd, logPath, describe }) + "\n",
+    );
   } catch {}
 }
 
-export async function readResumeRecords(sessionDir: string, scope: string): Promise<ResumeRecord[]> {
+export async function readResumeRecords(
+  sessionDir: string,
+  scope: string,
+): Promise<ResumeRecord[]> {
   const dir = resumeRecordDir(sessionDir, scope);
   try {
     const files = await readdir(dir);
@@ -349,7 +356,9 @@ export async function readResumeRecords(sessionDir: string, scope: string): Prom
     for (const f of files) {
       if (!f.endsWith(".json")) continue;
       try {
-        const rec = JSON.parse(await readFile(join(dir, f), "utf8")) as ResumeRecord;
+        const rec = JSON.parse(
+          await readFile(join(dir, f), "utf8"),
+        ) as ResumeRecord;
         if (rec && rec.pid && rec.sockPath) out.push(rec);
       } catch {}
     }
@@ -359,42 +368,16 @@ export async function readResumeRecords(sessionDir: string, scope: string): Prom
   }
 }
 
-export async function readAllResumeRecords(
+export async function removeResumeRecord(
   sessionDir: string,
-): Promise<(ResumeRecord & { sessionId: string })[]> {
-  const base = join(sessionDir, RESUME_SUBDIR);
-  let scopes: string[];
-  try {
-    scopes = await readdir(base);
-  } catch {
-    return [];
-  }
-  const out: (ResumeRecord & { sessionId: string })[] = [];
-  for (const scope of scopes) {
-    let files: string[];
-    try {
-      files = await readdir(join(base, scope));
-    } catch {
-      continue; // not a scope subdir (e.g. legacy flat file)
-    }
-    for (const f of files) {
-      if (!f.endsWith(".json")) continue;
-      try {
-        const rec = JSON.parse(await readFile(join(base, scope, f), "utf8")) as ResumeRecord;
-        if (rec && rec.pid && rec.sockPath) out.push({ ...rec, sessionId: scope });
-      } catch {}
-    }
-  }
-  return out;
-}
-
-export async function removeResumeRecord(sessionDir: string, scope: string, pid: string): Promise<void> {
+  scope: string,
+  pid: string,
+): Promise<void> {
   try {
     await unlink(join(resumeRecordDir(sessionDir, scope), `${pid}.json`));
   } catch {}
 }
 
-/** A background shell that completed while its owning session was away. */
 export interface CompletedRecord {
   pid: string;
   command: string;
@@ -432,7 +415,9 @@ export async function readCompletedRecords(
     for (const f of files) {
       if (!f.endsWith(".json")) continue;
       try {
-        const rec = JSON.parse(await readFile(join(dir, f), "utf8")) as CompletedRecord;
+        const rec = JSON.parse(
+          await readFile(join(dir, f), "utf8"),
+        ) as CompletedRecord;
         if (rec && rec.pid) out.push(rec);
       } catch {}
     }
@@ -452,7 +437,6 @@ export async function removeCompletedRecord(
   } catch {}
 }
 
-/** Spawn the detached supervisor and return a client over its stdin/stdout pipes. */
 export async function launchMonitor(
   command: string,
   env: NodeJS.ProcessEnv,
@@ -463,7 +447,17 @@ export async function launchMonitor(
   const { bin, pre } = runtimeSpawn();
   const child = spawn(
     bin,
-    [...pre, SH_MONITOR_TS, "spawn", logPath, "--", shell.executable, ...shell.argvPrefix, "-c", command],
+    [
+      ...pre,
+      SH_MONITOR_TS,
+      "spawn",
+      logPath,
+      "--",
+      shell.executable,
+      ...shell.argvPrefix,
+      "-c",
+      command,
+    ],
     { detached: true, stdio: ["pipe", "pipe", "pipe"], env },
   );
   child.unref();

@@ -1,31 +1,9 @@
 /**
- * Shared cpi footer.
- *
- * Owns the footer for all cpi extensions, renders line 1 itself (so
- * extensions can add information there), and delegates lines 2/3 to the
- * built-in `FooterComponent` (token stats, context %, thinking level,
- * `(auto)`, extension statuses from `setStatus`). Line 1 is the only line
- * with no built-in per-line render API, so it is the seam we own; the rest
- * is spliced from the built-in render to avoid reimplementing it.
- *
- * Why own at all: pi has no `registerVcsProvider` hook and `setFooter`
- * replaces (does not stack). To put jj (or any non-git VCS / extra info)
- * on line 1, one extension must own the footer. Centralizing that here
- * keeps a single owner and lets extensions contribute line-1 segments
- * without each calling `setFooter`.
- *
- * Sharing: pi loads each extension via jiti with `moduleCache: false`, so
- * each extension gets its own module graph — module-level state here would
- * NOT be shared between importers. State is therefore backed by a single
- * `globalThis` slot, which is process-wide and identical across jiti loads.
- *
- * Line-1 composition (left → right):
- *   ~/{cwd} ({branch} | {seg1} | {seg2}) • {session-name}      {right-segs}
- * branch defaults to the built-in git branch; `setBranchResolver` overrides
- * it (e.g. jj change id, falling back to git). Extra parenthetical groups via
- * `registerLineSegment`. Flush-right indicators (e.g. caveman icon, shell bg
- * count) via `registerRightSegment`; they are right-aligned to the terminal
- * edge so they stay visible regardless of cwd length. Empty parts are dropped.
+ * Shared cpi footer. Line 1 is the seam we own — pi has no per-line render
+ * API and `setFooter` replaces (does not stack) — so one extension must own
+ * it; lines 2/3 are spliced from the built-in FooterComponent render. State
+ * is globalThis-backed: jiti loads each extension with moduleCache:false,
+ * so module-level state would not be shared between importers.
  */
 
 import { FooterComponent } from "@earendil-works/pi-coding-agent";
@@ -40,14 +18,10 @@ import type { TUI } from "@earendil-works/pi-tui";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { resolve, relative, sep, isAbsolute } from "node:path";
 
-// ── Constants ───────────────────────────────────────────────────────────────
-
 const REFRESH_MS = 2000;
 const SEGMENT_SEP = " | ";
 const RIGHT_SEP = " ";
 const GLOBAL_KEY = "__cpiFooter";
-
-// ── Types ──────────────────────────────────────────────────────────────────
 
 type Maybe<T> = T | null | undefined;
 type Producer = () => Maybe<string>;
@@ -58,7 +32,9 @@ interface Contributor {
   refresh?: () => void;
 }
 
-type FooterData = Parameters<Parameters<ExtensionContext["ui"]["setFooter"]>[0]>[2];
+type FooterData = Parameters<
+  Parameters<ExtensionContext["ui"]["setFooter"]>[0]
+>[2];
 
 interface FooterState {
   branchResolver: Contributor | null;
@@ -67,8 +43,6 @@ interface FooterState {
   activeTui: TUI | undefined;
   timer: ReturnType<typeof setInterval> | null;
 }
-
-// ── Process-wide shared state (globalThis, see header) ───────────────────────
 
 function state(): FooterState {
   const g = globalThis as Record<string, unknown>;
@@ -84,11 +58,7 @@ function state(): FooterState {
   return g[GLOBAL_KEY] as FooterState;
 }
 
-// ── Refresh timer ───────────────────────────────────────────────────────────
-// Started only when a contributor needs polling (e.g. jj, which emits no pi
-// event). The built-in git watcher drives re-renders via
-// footerData.onBranchChange -> ui.requestRender, so pure-git repos with no
-// contributors incur no polling.
+// Poll only when a contributor needs it; the built-in git watcher covers pure-git repos.
 
 function tick(): void {
   const s = state();
@@ -112,16 +82,15 @@ function stopTimer(): void {
   }
 }
 
-/** Request a footer re-render from any extension (e.g. when a right-segment's
- *  value changes asynchronously). No-op until the footer is set up. */
 export function requestFooterRender(): void {
   state().activeTui?.requestRender();
 }
 
-// ── Public registration API ─────────────────────────────────────────────────
-
 /** Override the branch source. Return null/undefined to fall back to git. */
-export function setBranchResolver(produce: Producer, refresh?: () => void): void {
+export function setBranchResolver(
+  produce: Producer,
+  refresh?: () => void,
+): void {
   state().branchResolver = { produce, refresh };
   ensureTimer();
 }
@@ -130,8 +99,12 @@ export function clearBranchResolver(): void {
   state().branchResolver = null;
 }
 
-/** Add an extra parenthetical group on line 1. Idempotent by name. */
-export function registerLineSegment(name: string, produce: Producer, refresh?: () => void): void {
+/** Add an extra parenthetical group on line 1; idempotent by name. */
+export function registerLineSegment(
+  name: string,
+  produce: Producer,
+  refresh?: () => void,
+): void {
   const s = state();
   if (!s.segments.some((seg) => seg.name === name)) {
     s.segments.push({ name, produce, refresh });
@@ -139,16 +112,18 @@ export function registerLineSegment(name: string, produce: Producer, refresh?: (
   }
 }
 
-/** Remove a previously registered line-1 segment by name. */
 export function clearLineSegment(name: string): void {
   const s = state();
   const i = s.segments.findIndex((seg) => seg.name === name);
   if (i >= 0) s.segments.splice(i, 1);
 }
 
-/** Add a flush-right indicator on line 1. Idempotent by name. Return
- *  null/undefined from `produce` to hide the indicator. */
-export function registerRightSegment(name: string, produce: Producer, refresh?: () => void): void {
+/** Add a flush-right indicator on line 1; idempotent by name. */
+export function registerRightSegment(
+  name: string,
+  produce: Producer,
+  refresh?: () => void,
+): void {
   const s = state();
   if (!s.rightSegments.some((seg) => seg.name === name)) {
     s.rightSegments.push({ name, produce, refresh });
@@ -156,14 +131,11 @@ export function registerRightSegment(name: string, produce: Producer, refresh?: 
   }
 }
 
-/** Remove a previously registered right-segment by name. */
 export function clearRightSegment(name: string): void {
   const s = state();
   const i = s.rightSegments.findIndex((seg) => seg.name === name);
   if (i >= 0) s.rightSegments.splice(i, 1);
 }
-
-// ── Line-1 rendering ────────────────────────────────────────────────────────
 
 /** Replicates built-in formatCwdForFooter (not package-exported). */
 function formatCwd(cwd: string, home: string | undefined): string {
@@ -171,18 +143,13 @@ function formatCwd(cwd: string, home: string | undefined): string {
   const rcwd = resolve(cwd);
   const rhome = resolve(home);
   const rel = relative(rhome, rcwd);
-  const inside = rel === "" || (rel !== ".." && !rel.startsWith(`..${sep}`) && !isAbsolute(rel));
+  const inside =
+    rel === "" ||
+    (rel !== ".." && !rel.startsWith(`..${sep}`) && !isAbsolute(rel));
   if (!inside) return cwd;
   return rel === "" ? "~" : `~${sep}${rel}`;
 }
 
-/**
- * Compose one footer line: `left` left-aligned, `right` flush-right, padded
- * to `width`. `style` wraps a string in ANSI (e.g. theme.fg("dim", …));
- * `ellipsis` is the styled truncation marker. If `right` is empty, only `left`
- * is rendered (truncated to width). When both sides overflow, the left side is
- * truncated so the right indicators stay pinned to the edge.
- */
 export function composeLine1(
   left: string,
   right: string,
@@ -228,10 +195,7 @@ function renderLine1(
   return composeLine1(left, right, width, dim, dim("…"));
 }
 
-// ── Footer ownership ────────────────────────────────────────────────────────
-
-// Suppresses repeated stderr noise if a future pi FooterComponent.render reads
-// an AgentSession field the shim omits and throws per-render.
+// Suppresses repeated stderr noise if a future FooterComponent.render throws on a shim-omitted field.
 let renderErrorLogged = false;
 
 export function setupCpiFooter(pi: ExtensionAPI, ctx: ExtensionContext): void {
@@ -249,12 +213,8 @@ export function setupCpiFooter(pi: ExtensionAPI, ctx: ExtensionContext): void {
       modelRegistry: ctx.modelRegistry,
       getContextUsage: () => ctx.getContextUsage(),
       modelRuntime: {
-        // pi 0.80.8+ FooterComponent.render calls
-        // this.session.modelRuntime.isUsingOAuth(state.model.provider) to label
-        // OAuth-subscription cost with "(sub)". ExtensionContext exposes no
-        // ModelRuntime, so proxy through the synchronous modelRegistry facade.
-        // The builtin only ever passes the current model's provider, so we
-        // resolve back to ctx.model. Do not fake other ModelRuntime methods.
+        // pi 0.80.8+ renders call session.modelRuntime.isUsingOAuth(provider);
+        // ExtensionContext exposes no ModelRuntime — proxy via modelRegistry.
         isUsingOAuth: (providerId: string): boolean => {
           if (!ctx.model) return false;
           if (ctx.model.provider !== providerId) return false;
@@ -262,25 +222,21 @@ export function setupCpiFooter(pi: ExtensionAPI, ctx: ExtensionContext): void {
         },
       },
     };
-    // The shim omits setAutoCompactEnabled, so FooterComponent keeps its
-    // default (autoCompactEnabled = true). Spliced lines 2/3 therefore always
-    // show "(auto)" even when real auto-compact is disabled; there is no
-    // public ExtensionContext API to read the real setting. Do not fake it.
-    // The shim also proxies modelRuntime.isUsingOAuth via modelRegistry
-    // (see above) because pi 0.80.8 added that read.
-    const builtin = new FooterComponent(sessionLike as unknown as AgentSession, real);
-    // Re-render on pure-git branch changes (no contributor polling needed).
+    // The shim omits setAutoCompactEnabled, so spliced lines always show
+    // "(auto)" even when auto-compact is disabled; no public API to read it.
+    const builtin = new FooterComponent(
+      sessionLike as unknown as AgentSession,
+      real,
+    );
     const unsubBranch = real.onBranchChange(() => tui.requestRender());
     return {
       render(width: number): string[] {
         try {
           const lines = builtin.render(width);
           if (lines.length === 0) return [renderLine1(ctx, theme, width, real)];
-          // Splice: keep built-in lines 2/3 (stats + statuses), replace line 1.
           lines[0] = renderLine1(ctx, theme, width, real);
           return lines;
         } catch (err) {
-          // Future pi may read an AgentSession field the shim omits.
           if (!renderErrorLogged) {
             renderErrorLogged = true;
             process.stderr.write(`cpi footer render failed: ${err}\n`);
@@ -294,7 +250,6 @@ export function setupCpiFooter(pi: ExtensionAPI, ctx: ExtensionContext): void {
       dispose(): void {
         unsubBranch();
         builtin.dispose();
-        // Timer is shared; cleared on session shutdown.
       },
     };
   });

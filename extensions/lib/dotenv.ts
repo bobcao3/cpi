@@ -1,16 +1,5 @@
-/**
- * Bounded dotenv parser (deterministic, no `${}` interpolation).
- *
-* Shared read side for `sh env=` / `sh_repeat_until env=` / `lsp env=` and the
-* server spawn env. `bin/env-capture` writes plain `KEY=VALUE` lines this parser
-* reads back losslessly for the common (unquoted, unexported) case.
- *
- * Explicit limits (TigerStyle): 256 KiB file, 4096 keys, 32 KiB value.
- * Semantics: skip blank + `#`-comment lines; strip a leading `export `; strip a
- * single matching surrounding `"` / `'`; split on the first `=`. Keys not
- * matching `[A-Za-z_][A-Za-z0-9_]*` are skipped (negative space). Pure node —
- * no pi/ExtensionAPI import.
- */
+/** Bounded dotenv parser, deterministic (no `${}` interpolation): 256 KiB
+ * file / 4096 keys / 32 KiB value caps; non-matching keys skipped. */
 
 import { readFileSync, statSync } from "node:fs";
 
@@ -38,11 +27,6 @@ function truncateBytes(v: string, maxBytes: number): string {
   return Buffer.from(v, "utf8").subarray(0, maxBytes).toString("utf8");
 }
 
-/**
- * Parse a dotenv file into a string map. Throws on missing file or over-limit
- * (file > 256 KiB, keys > 4096) so callers surface a clean error rather than
- * silently truncating state.
- */
 export function parseDotEnv(filePath: string): Record<string, string> {
   assert(
     typeof filePath === "string" && filePath.length > 0,
@@ -53,9 +37,14 @@ export function parseDotEnv(filePath: string): Record<string, string> {
   try {
     size = statSync(filePath).size;
   } catch (err) {
-    throw new Error(`parseDotEnv: cannot stat ${filePath}: ${(err as Error).message}`);
+    throw new Error(
+      `parseDotEnv: cannot stat ${filePath}: ${(err as Error).message}`,
+    );
   }
-  assert(Number.isFinite(size) && size >= 0, `parseDotEnv: bad file size ${size}`);
+  assert(
+    Number.isFinite(size) && size >= 0,
+    `parseDotEnv: bad file size ${size}`,
+  );
   if (size > DOTENV_MAX_FILE_BYTES) {
     throw new Error(
       `parseDotEnv: file too large (${size} > ${DOTENV_MAX_FILE_BYTES} bytes): ${filePath}`,
@@ -69,16 +58,25 @@ export function parseDotEnv(filePath: string): Record<string, string> {
     const trimmed = line.trimStart();
     if (trimmed === "" || trimmed.startsWith("#")) continue;
     let rest = trimmed;
-    if (rest.startsWith("export ")) rest = rest.slice("export ".length).trimStart();
+    if (rest.startsWith("export "))
+      rest = rest.slice("export ".length).trimStart();
     const eq = rest.indexOf("=");
     if (eq <= 0) continue;
     const key = rest.slice(0, eq).trim();
     if (!KEY_RE.test(key)) continue;
-    out[key] = truncateBytes(stripQuotes(rest.slice(eq + 1)), DOTENV_MAX_VALUE_BYTES);
+    out[key] = truncateBytes(
+      stripQuotes(rest.slice(eq + 1)),
+      DOTENV_MAX_VALUE_BYTES,
+    );
     if (Object.keys(out).length > DOTENV_MAX_KEYS) {
-      throw new Error(`parseDotEnv: too many keys (>${DOTENV_MAX_KEYS}): ${filePath}`);
+      throw new Error(
+        `parseDotEnv: too many keys (>${DOTENV_MAX_KEYS}): ${filePath}`,
+      );
     }
   }
-  assert(Object.keys(out).length <= DOTENV_MAX_KEYS, "parseDotEnv: key-count invariant breached");
+  assert(
+    Object.keys(out).length <= DOTENV_MAX_KEYS,
+    "parseDotEnv: key-count invariant breached",
+  );
   return out;
 }

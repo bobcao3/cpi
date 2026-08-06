@@ -1,27 +1,20 @@
 /**
- * Shared provider-fallback config + helpers.
- *
- * Two extensions consume this:
- *   - provider.ts (startup)  : register providers, strip unusable
- *                            (configurable provider:auth rules), pick first
- *                            fallback if the active model is unusable.
- *   - provider.ts (runtime)  : count provider failures and switch to
- *                            the next fallback candidate (if context allows).
- *
- * Config files (JSON, merged — project overrides user):
- *   1. ~/.pi/agent/fallback-providers.json   (user-scoped)
- *   2. <cwd>/.pi/fallback-providers.json      (project-scoped)
- *
- * Shared mutable state lives on globalThis (`__cpiProvider`) because jiti runs
- * with moduleCache disabled — module-level `let` would not survive across the
- * reload boundary and would let two extension instances double-register.
+ * Shared provider-fallback config + helpers (register providers, strip
+ * unusable ones, pick/switch fallback candidates). Config is JSON, merged
+ * project-over-user: ~/.pi/agent/fallback-providers.json then
+ * <cwd>/.pi/fallback-providers.json. State lives on a globalThis slot
+ * because jiti runs with moduleCache disabled — module-level `let` would not
+ * survive reloads and two instances would double-register.
  */
 
 import { readFileSync, existsSync, appendFileSync } from "node:fs";
 import { join } from "node:path";
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-
-// ── debug ────────────────────────────────────────────────────────────────────
+import type {
+  ExtensionAPI,
+  ExtensionContext,
+} from "@earendil-works/pi-coding-agent";
+import { isModelStripped } from "./model-strip.ts";
+import type { ModelStripRule } from "./model-strip.ts";
 
 const debug = (msg: string): void => {
   if (!process.env.PF_DEBUG) return;
@@ -32,7 +25,6 @@ const debug = (msg: string): void => {
   }
 };
 
-// ── types ────────────────────────────────────────────────────────────────────
 
 interface CompatConfig {
   supportsStore?: boolean;
@@ -70,7 +62,6 @@ interface FallbackCandidate {
   model: string;
 }
 
-/** A startup strip rule: unregister `provider` when its auth-match fires. */
 export interface StripRule {
   provider: string;
   /** Env vars whose presence signals ambient (shadowing) auth. */
@@ -80,7 +71,6 @@ export interface StripRule {
 }
 
 export interface FailoverConfig {
-  /** Consecutive failures before switching models. Default 3. */
   failureThreshold?: number;
   /** Status codes counted as failures. null/omit = any status >= 400. */
   statusCodes?: number[] | null;
@@ -90,10 +80,10 @@ export interface FallbackConfig {
   providers?: Record<string, ProviderConfig>;
   fallbacks?: FallbackCandidate[];
   strip?: StripRule[];
+  stripModels?: ModelStripRule[];
   failover?: FailoverConfig;
 }
 
-// ── shared state (globalThis) ────────────────────────────────────────────────
 
 interface ProviderState {
   registered: Set<string>;
@@ -125,26 +115,27 @@ export function getConfig(): FallbackConfig | null {
   return getState().config;
 }
 
-// ── cost normalization ───────────────────────────────────────────────────────
 
 const ZERO_COST = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
 
-/** Default every model's `cost` (dynamic registerProvider does not). Mutates. */
+/** Defaults every model's cost; dynamic registerProvider does not. */
 function withDefaultCosts(pcfg: ProviderConfig): void {
   for (const model of pcfg.models ?? []) {
     model.cost = { ...ZERO_COST, ...(model.cost ?? {}) };
   }
 }
 
-// ── compat normalization ─────────────────────────────────────────────────────
 
 const DEFAULT_COMPAT: CompatConfig = {
   supportsDeveloperRole: false,
   maxTokensField: "max_tokens",
 };
 
-/** Relocate provider-level compat onto each model; return warnings. Mutates. */
-function validateAndNormalizeCompat(key: string, pcfg: ProviderConfig): string[] {
+/** Relocate provider-level compat onto each model; returns warnings. Mutates. */
+function validateAndNormalizeCompat(
+  key: string,
+  pcfg: ProviderConfig,
+): string[] {
   const warnings: string[] = [];
   if (!pcfg.baseUrl) warnings.push(`provider "${key}": missing baseUrl`);
   if (!pcfg.api) warnings.push(`provider "${key}": missing api`);
@@ -173,13 +164,18 @@ function loadConfigFile(path: string): FallbackConfig | null {
   try {
     return JSON.parse(readFileSync(path, "utf-8")) as FallbackConfig;
   } catch (err) {
-    process.stderr.write(`[provider-fallback] failed to parse ${path}: ${err}\n`);
+    process.stderr.write(
+      `[provider-fallback] failed to parse ${path}: ${err}\n`,
+    );
     return null;
   }
 }
 
 /** Deep merge: project providers override user by key; project lists replace. */
-function mergeConfigs(user: FallbackConfig | null, project: FallbackConfig | null): FallbackConfig {
+function mergeConfigs(
+  user: FallbackConfig | null,
+  project: FallbackConfig | null,
+): FallbackConfig {
   const merged: FallbackConfig = {};
   const allKeys = new Set([
     ...Object.keys(user?.providers ?? {}),
@@ -188,11 +184,13 @@ function mergeConfigs(user: FallbackConfig | null, project: FallbackConfig | nul
   if (allKeys.size > 0) {
     merged.providers = {};
     for (const key of allKeys) {
-      merged.providers[key] = project?.providers?.[key] ?? user?.providers?.[key];
+      merged.providers[key] =
+        project?.providers?.[key] ?? user?.providers?.[key];
     }
   }
   merged.fallbacks = project?.fallbacks ?? user?.fallbacks ?? [];
   merged.strip = project?.strip ?? user?.strip ?? undefined;
+  merged.stripModels = project?.stripModels ?? user?.stripModels ?? undefined;
   merged.failover = project?.failover ?? user?.failover ?? undefined;
   return merged;
 }
@@ -211,7 +209,11 @@ export function loadMergedConfig(cwd: string): FallbackConfig {
 // ── provider registration ────────────────────────────────────────────────────
 
 /** Register one provider idempotently (shared `registered` set guards dupes). */
-export function registerProviderConfig(pi: ExtensionAPI, key: string, pcfg: ProviderConfig): void {
+export function registerProviderConfig(
+  pi: ExtensionAPI,
+  key: string,
+  pcfg: ProviderConfig,
+): void {
   const registered = getState().registered;
   if (registered.has(key)) {
     debug(`provider already registered: ${key}`);
@@ -222,7 +224,10 @@ export function registerProviderConfig(pi: ExtensionAPI, key: string, pcfg: Prov
     for (const w of validateAndNormalizeCompat(key, pcfg)) {
       process.stderr.write(`[provider-fallback] ${w}\n`);
     }
-    pi.registerProvider(key, pcfg as Parameters<typeof pi.registerProvider>[1]);
+    pi.registerProvider(
+      key,
+      pcfg as unknown as Parameters<typeof pi.registerProvider>[1],
+    );
     debug(`registered provider: ${key}`);
     registered.add(key);
   } catch (err) {
@@ -262,7 +267,10 @@ export function stripMatches(rule: StripRule): boolean {
 
 export const DEFAULT_FAILURE_THRESHOLD = 3;
 
-export function isFailureStatus(status: number, cfg: FailoverConfig | undefined): boolean {
+export function isFailureStatus(
+  status: number,
+  cfg: FailoverConfig | undefined,
+): boolean {
   const codes = cfg?.statusCodes ?? null;
   return codes ? codes.includes(status) : status >= 400;
 }
@@ -287,13 +295,21 @@ export function selectFallback(
 ): FallbackPick | null {
   if (!fallbacks || fallbacks.length === 0) return null;
   const tokens = ctx.getContextUsage()?.tokens ?? 0;
-  const startIdx = afterProvider ? fallbacks.findIndex((c) => c.provider === afterProvider) : -1;
+  const startIdx = afterProvider
+    ? fallbacks.findIndex((c) => c.provider === afterProvider)
+    : -1;
   const begin = startIdx < 0 ? 0 : startIdx + 1;
   for (let i = begin; i < fallbacks.length; i++) {
     const candidate = fallbacks[i];
     const model = ctx.modelRegistry.find(candidate.provider, candidate.model);
     if (!model) {
-      debug(`fallback ${candidate.provider}/${candidate.model} not in registry`);
+      debug(
+        `fallback ${candidate.provider}/${candidate.model} not in registry`,
+      );
+      continue;
+    }
+    if (isModelStripped(candidate.provider, candidate.model)) {
+      debug(`fallback ${candidate.provider}/${candidate.model} is stripped`);
       continue;
     }
     if (model.contextWindow && model.contextWindow < tokens) {

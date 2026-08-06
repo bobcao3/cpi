@@ -1,9 +1,19 @@
 import { Type } from "typebox";
-import type { AgentToolResult, ExtensionAPI, Skill } from "@earendil-works/pi-coding-agent";
+import type {
+  AgentToolResult,
+  ExtensionAPI,
+  Skill,
+} from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { resolve, sep } from "node:path";
-import { loadText, render, renderLines, textPath, type ToolText } from "./lib/text.ts";
+import {
+  loadText,
+  render,
+  renderLines,
+  textPath,
+  type ToolText,
+} from "./lib/text.ts";
 
 import { registerSystemPromptTransform } from "./lib/system-prompt.ts";
 
@@ -41,7 +51,10 @@ function visibleSkillsSignature(list: Skill[]): string {
 
 function buildSkillToolDescription(list: Skill[] | undefined): string {
   const visible = (list ?? []).filter((s) => !s.disableModelInvocation);
-  const skills = visible.map((s) => ({ name: s.name, description: s.description }));
+  const skills = visible.map((s) => ({
+    name: s.name,
+    description: s.description,
+  }));
   return render(SKILL_TEXT.tool.description, { skills }).trimEnd();
 }
 
@@ -74,7 +87,11 @@ function listSubdocs(baseDir: string, excludeAbs: string): string[] {
   return out.sort();
 }
 
-function skillBlurb(name: string, subdoc: string | undefined, theme: any): string {
+function skillBlurb(
+  name: string,
+  subdoc: string | undefined,
+  theme: any,
+): string {
   let text = theme.fg("toolTitle", "Using skill: ");
   text += theme.fg("accent", name);
   if (subdoc) {
@@ -85,11 +102,15 @@ function skillBlurb(name: string, subdoc: string | undefined, theme: any): strin
 
 export default function (pi: ExtensionAPI) {
   // Strip pi's auto-injected "Available skills" block from the system prompt.
-  // Applied by the single system-prompt owner extension; order 100 runs before
-  // caveman-append (200) so the appended caveman block is never stripped.
+  // Applied by the single system-prompt owner extension; order 100 runs first
+  // so the skills block is stripped before later transforms append their content.
   registerSystemPromptTransform(
     "strip-skills",
-    (sp) => sp.replace(/\n\nThe following skills provide[\s\S]*?<\/available_skills>/, ""),
+    (sp) =>
+      sp.replace(
+        /\n\nThe following skills provide[\s\S]*?<\/available_skills>/,
+        "",
+      ),
     100,
   );
 
@@ -110,17 +131,28 @@ export default function (pi: ExtensionAPI) {
       renderCall(args, theme, _context) {
         return new Text(skillBlurb(args.name, args.subdoc, theme), 0, 0);
       },
-      renderResult(result: AgentToolResult<unknown>, _options, theme, context: any) {
+      renderResult(
+        result: AgentToolResult<unknown>,
+        _options,
+        theme,
+        context: any,
+      ) {
         if (result.isError) {
           return undefined;
         }
-        const details = result.details as { available?: string[]; kind?: "skill" | "subdoc" } | undefined;
+        const details = result.details as
+          | { available?: string[]; kind?: "skill" | "subdoc" }
+          | undefined;
         if (details?.available) {
           const what =
             details.kind === "subdoc"
               ? `subdoc ${context.args.name}/${context.args.subdoc}`
               : `skill ${context.args.name}`;
-          return new Text(theme.fg("warning", `Tried to invoke unknown ${what}`), 0, 0);
+          return new Text(
+            theme.fg("warning", `Tried to invoke unknown ${what}`),
+            0,
+            0,
+          );
         }
         return new Text(theme.fg("dim", "\u200b"), 0, 0);
       },

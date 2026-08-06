@@ -1,66 +1,43 @@
 /**
  * Goal — persistent user-set objective with a fork-probe evaluator.
  *
- * A consumer of lib/fork-probe.ts for /goal (mirrors lib/anti-stuck.ts): the
- * active objective is a durable, session-scoped completion contract. Two
- * evaluation points (owned by core.ts and anti-stuck.ts):
- *   1. Agent completion (core.ts agent_end, NO pending backgrounds): fork-probe
- *      asks "is the goal met?"; YES -> clear+notify; NO -> continue (queue a
- *      goal-message that the agent loop drains into the next turn); failed ->
- *      budget-pause. Continuation is FLAT: at agent_end `isStreaming` is true so
- *      sendMessage(steer) enqueues and pi's core while-loop continues.
- *   2. Stuck-check merge (anti-stuck maybeAntiStuckProbe): when the eventless
- *      wait is due AND a goal is active, skip the WAIT/ABORT fork and resume the
- *      agent to check stuck backgrounds + remind it of the goal. sendMessage is
- *      fire-and-forget (typed void), so the turn runs concurrently — same shape
- *      as anti-stuck's ABORT, no hold stacking.
- *
- * State is process-wide on a globalThis slot (shared state, per AGENTS.md) and
- * mirrored to the session transcript ("goal-state" CustomEntry, excluded from
- * LLM context) so it survives --resume / session switch. The active objective is
- * carried by the conversation — the first turn's user message (the objective)
- * and each continuation/stuck goal-message — so it survives compaction (the most
- * recent goal-message is never compacted). The evaluator fork is a pure fork +
- * user instruction: same system prompt and tools as the parent (cache-prefix
- * match), no mutations.
- *
- * Recursion: the evaluator fork child inherits this extension, but fork-probe
- * sets CPI_FORK_PROBE=1 on every child. isGoalActive() returns false under that
- * marker, so an evaluator (or anti-stuck) fork never continues/evaluates/stuck-
- * resumes — it cannot re-fork. Safe by construction.
- *
- * Model-facing text lives in extensions/text/goal.toml (per AGENTS.md rule 4).
+ * State is process-wide on a globalThis slot and mirrored to the session
+ * transcript ("goal-state", excluded from LLM context) so it survives
+ * --resume. Recursion: fork-probe sets CPI_FORK_PROBE=1 on every child, which
+ * disables all goal logic — an evaluator/stuck fork never re-forks.
  */
 
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type {
+  ExtensionAPI,
+  ExtensionContext,
+} from "@earendil-works/pi-coding-agent";
 import { runForkProbe } from "./fork-probe.ts";
 import { loadText, render, textPath } from "./text.ts";
-
-// ── Constants (explicit limits, env-configurable) ──────────────────────────
 
 function envInt(key: string, fallback: number): number {
   const n = Number(process.env[key]);
   return Number.isFinite(n) && n >= 0 ? n : fallback;
 }
-/** Max continuation turns before the goal budget-pauses (loop bound). */
 const MAX_TURNS = envInt("CPI_GOAL_MAX_TURNS", 40);
-/** Max wall-clock before the goal budget-pauses (loop bound). */
-const MAX_DURATION_MS = envInt("CPI_GOAL_MAX_DURATION_MS", 2 * 60 * 60 * 1000); // 2h
+const MAX_DURATION_MS = envInt("CPI_GOAL_MAX_DURATION_MS", 2 * 60 * 60 * 1000);
 /** Wall-clock bound for the evaluator fork child. */
-const PROBE_TIMEOUT_MS = envInt("CPI_GOAL_PROBE_TIMEOUT_MS", 3 * 60 * 1000); // 3 min
+const PROBE_TIMEOUT_MS = envInt("CPI_GOAL_PROBE_TIMEOUT_MS", 3 * 60 * 1000);
 export const GOAL_STATE_ENTRY = "goal-state";
 export const GOAL_MSG_TYPE = "goal-message"; // custom message in LLM context
 const AUDIT_TYPE = "goal-eval"; // transcript-only audit (excluded from LLM context)
 const FORK_ENV = "CPI_FORK_PROBE";
 
 interface GoalText {
-  command: { description: string; status: string; achieved: string; budget: string };
+  command: {
+    description: string;
+    status: string;
+    achieved: string;
+    budget: string;
+  };
   evaluate: { prompt: string };
   continue: { message: string };
   stuck: { message: string };
 }
-
-// ── State (globalThis, see header) ──────────────────────────────────────────
 
 const GLOBAL_KEY = "__cpiGoal";
 
@@ -75,7 +52,13 @@ interface GoalState {
 function state(): GoalState {
   const g = globalThis as Record<string, unknown>;
   if (!g[GLOBAL_KEY]) {
-    g[GLOBAL_KEY] = { objective: null, active: false, paused: false, turnCount: 0, startedAtMs: null } satisfies GoalState;
+    g[GLOBAL_KEY] = {
+      objective: null,
+      active: false,
+      paused: false,
+      turnCount: 0,
+      startedAtMs: null,
+    } satisfies GoalState;
   }
   return g[GLOBAL_KEY] as GoalState;
 }
@@ -85,7 +68,6 @@ function inForkChild(): boolean {
   return process.env[FORK_ENV] === "1";
 }
 
-/** The goal is active and unpaused — and never inside a fork-probe child. */
 export function isGoalActive(): boolean {
   if (inForkChild()) return false;
   const s = state();
@@ -100,8 +82,6 @@ export function getObjective(): string | null {
   return state().objective;
 }
 
-// ── Persistence + reconstruction ───────────────────────────────────────────
-
 function persistGoal(pi: ExtensionAPI): void {
   const s = state();
   try {
@@ -112,11 +92,12 @@ function persistGoal(pi: ExtensionAPI): void {
       turnCount: s.turnCount,
       startedAtMs: s.startedAtMs,
     });
-  } catch { /* best-effort */ }
+  } catch {
+    /* best-effort */
+  }
 }
 
-/** Reconstruct goal state from the latest "goal-state" entry on the branch
- *  (called on session_start / session_tree by the goal extension). */
+/** Reconstruct goal state from the latest "goal-state" entry on the branch. */
 export function reconstructGoal(ctx: ExtensionContext): void {
   let found: GoalState | undefined;
   for (const entry of ctx.sessionManager.getBranch()) {
@@ -137,11 +118,15 @@ export function reconstructGoal(ctx: ExtensionContext): void {
   if (found) {
     Object.assign(s, found);
   } else {
-    Object.assign(s, { objective: null, active: false, paused: false, turnCount: 0, startedAtMs: null });
+    Object.assign(s, {
+      objective: null,
+      active: false,
+      paused: false,
+      turnCount: 0,
+      startedAtMs: null,
+    });
   }
 }
-
-// ── Mutators (called by the /goal command in extensions/goal.ts) ────────────
 
 export function setGoal(pi: ExtensionAPI, objective: string): void {
   const s = state();
@@ -154,7 +139,13 @@ export function setGoal(pi: ExtensionAPI, objective: string): void {
 }
 
 export function clearGoal(pi: ExtensionAPI): void {
-  Object.assign(state(), { objective: null, active: false, paused: false, turnCount: 0, startedAtMs: null });
+  Object.assign(state(), {
+    objective: null,
+    active: false,
+    paused: false,
+    turnCount: 0,
+    startedAtMs: null,
+  });
   persistGoal(pi);
 }
 
@@ -174,13 +165,14 @@ export function resumeGoal(pi: ExtensionAPI): void {
   persistGoal(pi);
 }
 
-// ── Status (for /goal with no arg) ──────────────────────────────────────────
-
 export function renderGoalStatus(): string {
   const s = state();
   const T = loadText<GoalText>("goal", textPath("goal"));
-  if (!s.active || !s.objective) return "No active goal. Set one with: /goal <objective>";
-  const elapsed = s.startedAtMs ? Math.round((Date.now() - s.startedAtMs) / 60000) : 0;
+  if (!s.active || !s.objective)
+    return "No active goal. Set one with: /goal <objective>";
+  const elapsed = s.startedAtMs
+    ? Math.round((Date.now() - s.startedAtMs) / 60000)
+    : 0;
   return render(T.command.status, {
     objective: s.objective,
     state: s.paused ? "paused" : "active",
@@ -189,24 +181,42 @@ export function renderGoalStatus(): string {
   });
 }
 
-// ── Goal-message helper ─────────────────────────────────────────────────────
-
-function sendGoalMessage(pi: ExtensionAPI, kind: string, content: string, details: Record<string, unknown>): void {
+function sendGoalMessage(
+  pi: ExtensionAPI,
+  kind: string,
+  content: string,
+  details: Record<string, unknown>,
+): void {
   try {
     pi.sendMessage(
-      { customType: GOAL_MSG_TYPE, content, display: true, details: { kind, ...details } },
+      {
+        customType: GOAL_MSG_TYPE,
+        content,
+        display: true,
+        details: { kind, ...details },
+      },
       { triggerTurn: true, deliverAs: "steer" },
     );
-  } catch { /* best-effort */ }
+  } catch {
+    /* best-effort */
+  }
 }
 
-function audit(pi: ExtensionAPI, verdict: string, extra: Record<string, unknown>): void {
+function audit(
+  pi: ExtensionAPI,
+  verdict: string,
+  extra: Record<string, unknown>,
+): void {
   try {
-    pi.appendEntry(AUDIT_TYPE, { verdict, ...extra, at: new Date().toISOString() });
-  } catch { /* best-effort */ }
+    pi.appendEntry(AUDIT_TYPE, {
+      verdict,
+      ...extra,
+      at: new Date().toISOString(),
+    });
+  } catch {
+    /* best-effort */
+  }
 }
-
-// ── Case 1: evaluator at agent completion ───────────────────────────────────
 
 export type GoalEvalStatus = "met" | "continue" | "failed";
 export interface GoalEvalResult {
@@ -226,16 +236,24 @@ function parseVerdict(answer: string): "YES" | "NO" | null {
   return null;
 }
 
-/** The one-sentence reason after the verdict line (best-effort). */
 function extractReason(answer: string): string {
-  const lines = answer.split("\n").map((l) => l.trim()).filter(Boolean);
+  const lines = answer
+    .split("\n")
+    .map((l) => l.trim())
+    .filter(Boolean);
   if (lines.length <= 1) return "";
-  return lines.slice(1).join(" ").replace(/^\s*(YES|NO)\s*[:,-]?\s*/i, "").trim();
+  return lines
+    .slice(1)
+    .join(" ")
+    .replace(/^\s*(YES|NO)\s*[:,-]?\s*/i, "")
+    .trim();
 }
 
-/** Fork-probe the session: ask an independent verifier whether the goal is met.
- *  Never rejects; a failed/ambiguous probe yields a `failed`/`continue` status. */
-export async function evaluateGoal(pi: ExtensionAPI, ctx: ExtensionContext): Promise<GoalEvalResult> {
+/** Fork-probe an independent verifier; never rejects — failed/ambiguous probe → failed/continue. */
+export async function evaluateGoal(
+  pi: ExtensionAPI,
+  ctx: ExtensionContext,
+): Promise<GoalEvalResult> {
   const s = state();
   if (inForkChild() || !s.active || s.paused || !s.objective) {
     return { status: "failed", reason: "no active goal" };
@@ -254,8 +272,14 @@ export async function evaluateGoal(pi: ExtensionAPI, ctx: ExtensionContext): Pro
     render(T.evaluate.prompt, { objective: s.objective }),
   );
   if (!result.ok) {
-    audit(pi, "failed", { reason: result.errorMessage ?? "probe failed", turns: s.turnCount });
-    return { status: "failed", reason: result.errorMessage ?? "evaluator probe failed" };
+    audit(pi, "failed", {
+      reason: result.errorMessage ?? "probe failed",
+      turns: s.turnCount,
+    });
+    return {
+      status: "failed",
+      reason: result.errorMessage ?? "evaluator probe failed",
+    };
   }
   const verdict = parseVerdict(result.answer);
   const reason = extractReason(result.answer);
@@ -263,13 +287,22 @@ export async function evaluateGoal(pi: ExtensionAPI, ctx: ExtensionContext): Pro
     audit(pi, "met", { reason, turns: s.turnCount });
     return { status: "met", reason };
   }
-  audit(pi, verdict === "NO" ? "no" : "ambiguous", { reason, turns: s.turnCount });
-  return { status: "continue", reason: reason || "evaluator response was ambiguous" };
+  audit(pi, verdict === "NO" ? "no" : "ambiguous", {
+    reason,
+    turns: s.turnCount,
+  });
+  return {
+    status: "continue",
+    reason: reason || "evaluator response was ambiguous",
+  };
 }
 
-/** Continue toward the goal: queue a goal-message that starts the next turn.
- *  Bounded by MAX_TURNS + MAX_DURATION_MS; on breach, budget-pauses instead. */
-export function continueGoal(pi: ExtensionAPI, ctx: ExtensionContext, reason: string): void {
+/** Continue toward the goal; budget-pauses on MAX_TURNS/MAX_DURATION_MS breach. */
+export function continueGoal(
+  pi: ExtensionAPI,
+  ctx: ExtensionContext,
+  reason: string,
+): void {
   const s = state();
   if (inForkChild() || !s.active || s.paused || !s.objective) return;
   s.turnCount += 1;
@@ -287,7 +320,11 @@ export function continueGoal(pi: ExtensionAPI, ctx: ExtensionContext, reason: st
   sendGoalMessage(
     pi,
     "continue",
-    render(T.continue.message, { objective: s.objective, reason, turns: s.turnCount }),
+    render(T.continue.message, {
+      objective: s.objective,
+      reason,
+      turns: s.turnCount,
+    }),
     { objective: s.objective, reason, turns: s.turnCount },
   );
   persistGoal(pi);
@@ -302,29 +339,43 @@ export function achieveGoal(pi: ExtensionAPI, ctx: ExtensionContext): void {
   const T = loadText<GoalText>("goal", textPath("goal"));
   try {
     ctx.ui.notify(render(T.command.achieved, { objective, turns }), "info");
-  } catch { /* best-effort */ }
+  } catch {
+    /* best-effort */
+  }
   audit(pi, "achieved", { objective, turns });
 }
 
 /** Pause the goal with a budget/limit reason — no new turn. */
-export function budgetPauseGoal(pi: ExtensionAPI, ctx: ExtensionContext, reason: string): void {
+export function budgetPauseGoal(
+  pi: ExtensionAPI,
+  ctx: ExtensionContext,
+  reason: string,
+): void {
   const s = state();
   s.paused = true;
   persistGoal(pi);
   const T = loadText<GoalText>("goal", textPath("goal"));
   try {
-    ctx.ui.notify(render(T.command.budget, { objective: s.objective ?? "", reason, turns: s.turnCount }), "warning");
-  } catch { /* best-effort */ }
+    ctx.ui.notify(
+      render(T.command.budget, {
+        objective: s.objective ?? "",
+        reason,
+        turns: s.turnCount,
+      }),
+      "warning",
+    );
+  } catch {
+    /* best-effort */
+  }
   audit(pi, "budget", { reason, turns: s.turnCount });
 }
 
-// ── Case 2: stuck-check merge (called by anti-stuck) ────────────────────────
-
-/** When the stuck-check is due AND a goal is active, resume the agent to check
- *  stuck backgrounds + remind it of the goal. Fire-and-forget (sendMessage is
- *  void): the turn runs concurrently, mirroring anti-stuck's ABORT. No-op
- *  outside an active (unpaused) goal — and never inside a fork-probe child. */
-export function goalStuckResume(pi: ExtensionAPI, elapsedMin: number, pendingText: string): void {
+/** When the stuck-check is due and a goal is active, resume the agent to check stuck backgrounds and remind it of the goal (fire-and-forget, mirroring anti-stuck's ABORT). */
+export function goalStuckResume(
+  pi: ExtensionAPI,
+  elapsedMin: number,
+  pendingText: string,
+): void {
   const s = state();
   if (inForkChild() || !s.active || s.paused || !s.objective) return;
   s.turnCount += 1;
@@ -344,10 +395,17 @@ export function goalStuckResume(pi: ExtensionAPI, elapsedMin: number, pendingTex
   sendGoalMessage(
     pi,
     "stuck",
-    render(T.stuck.message, { objective: s.objective, elapsed_min: elapsedMin, pending: pendingText }),
+    render(T.stuck.message, {
+      objective: s.objective,
+      elapsed_min: elapsedMin,
+      pending: pendingText,
+    }),
     { objective: s.objective, elapsed_min: elapsedMin, pending: pendingText },
   );
-  audit(pi, "stuck-resume", { elapsed_min: elapsedMin, pending: pendingText, turns: s.turnCount });
+  audit(pi, "stuck-resume", {
+    elapsed_min: elapsedMin,
+    pending: pendingText,
+    turns: s.turnCount,
+  });
   persistGoal(pi);
 }
-

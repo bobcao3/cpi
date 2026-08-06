@@ -1,38 +1,23 @@
 /**
- * Print-mode transcript + run-summary streamer.
- *
- * Active only in print mode (`pi -p`, i.e. subagent runs): streams the live
- * markdown transcript (one block per message, tool calls rendered via
- * lib/transcript-registry.ts) to stderr — the subagent's logs — instead of a
- * separate transcript file. The orchestrating agent tails the sh background log
- * (stderr) for the live transcript and the jsonl path; pi's stdout stays the
- * clean final answer.
- *
- *   session_start      -> stderr: `jsonl: <session jsonl path>`   (beginning)
- *   message_update     -> stderr: assistant text/thinking deltas   (live, token-by-token;
- *                         header `## Assistant _(provider/model)_` emitted on first delta)
- *   message_end (each) -> stderr: formatted block for user/toolResult, or for an
- *                         assistant message that streamed no deltas (non-streaming
- *                         provider); a streamed assistant skips the block (already
- *                         produced it) and emits a trailing newline so the
- *                         conclusion summary stays on its own filtered lines.
- *   session_shutdown   -> conclusion summary (jsonl path + time/turns/tokens),
- *                         written to $PI_SUBAGENT_SUMMARY (a temp file the
- *                         subagent wrapper cats after the answer) so it lands
- *                         at the very end, deterministically after the answer.
- *
- * Inactive (no-op) in tui/rpc/json modes.
+ * Print-mode transcript + run-summary streamer (active only in `pi -p`
+ * subagent runs; no-op otherwise). Streams the live markdown transcript to
+ * stderr — the subagent's log, which the orchestrator tails — so pi's stdout
+ * stays the clean final answer. The summary goes to $PI_SUBAGENT_SUMMARY
+ * (wrappers cat it after the answer), else to stderr.
  */
 
 import { writeFileSync } from "node:fs";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { renderToolCallMarkdown, shortToolCallId, type ToolCallBlock } from "../lib/transcript-registry.ts";
+import {
+  renderToolCallMarkdown,
+  shortToolCallId,
+  type ToolCallBlock,
+} from "../lib/transcript-registry.ts";
 import { getSubagentUsage, formatCost } from "../lib/cost-ledger.ts";
 
 const SUMMARY_PATH = process.env.PI_SUBAGENT_SUMMARY;
 
-// Per-run state. Print mode is single-shot (one session per process), so a
-// plain module-level slot is sufficient (no cross-extension sharing needed).
+// Print mode is single-shot, so plain module-level state suffices.
 let active = false;
 let sessionFile = "(unknown)";
 let startTimeMs = 0;
@@ -61,7 +46,6 @@ function textOf(content: unknown): string {
     .join("\n");
 }
 
-// Render one AgentMessage (same shape as the persisted jsonl record) to markdown.
 function renderMessage(m: any): string {
   const out: string[] = [];
   const role = m?.role;
@@ -93,8 +77,6 @@ function renderMessage(m: any): string {
   return out.length ? out.join("\n") + "\n" : "";
 }
 
-// Accumulate token usage from an assistant message (canonical: sum across turns,
-// matching pi's own export-html stats).
 function tallyUsage(m: any): void {
   const u = m?.usage;
   if (!u) return;
@@ -145,9 +127,18 @@ export default async function (pi: ExtensionAPI) {
     const ev = (event as { assistantMessageEvent: any }).assistantMessageEvent;
     if (!ev) return;
     const t = typeof ev.type === "string" ? ev.type : "";
-    if (t !== "text_delta" && t !== "thinking_delta" && t !== "toolcall_delta") return;
-    if (!streamed) { stderr(`## Assistant${asstTag}\n\n`); streamed = true; }
-    const kind = t === "thinking_delta" ? "thinking" : t === "text_delta" ? "text" : "toolcall";
+    if (t !== "text_delta" && t !== "thinking_delta" && t !== "toolcall_delta")
+      return;
+    if (!streamed) {
+      stderr(`## Assistant${asstTag}\n\n`);
+      streamed = true;
+    }
+    const kind =
+      t === "thinking_delta"
+        ? "thinking"
+        : t === "text_delta"
+          ? "text"
+          : "toolcall";
     if (kind !== lastKind) {
       if (kind === "thinking") stderr("## Thinking\n\n");
       else if (lastKind === "thinking") stderr("\n\n");
@@ -161,15 +152,11 @@ export default async function (pi: ExtensionAPI) {
     if (!active) return;
     const m = (event as { message: any }).message;
     if (m?.role === "assistant") tallyUsage(m);
-    // A streamed assistant already emitted its header + text/thinking deltas
-    // live; emit a single trailing newline (so the conclusion summary stays on
-    // its own line for the renderer's `^(jsonl:|summary:)` filter) and skip
-    // re-rendering the block to avoid duplicating the content.
+    // Streamed assistants already emitted their content live; emit a trailing newline so the summary stays on its own filtered line.
     if (m?.role === "assistant" && streamed) {
       stderr("\n");
       return;
     }
-    // Best effort: a render error must never skip the line or break the session.
     let md = "";
     try {
       md = renderMessage(m);
@@ -182,8 +169,7 @@ export default async function (pi: ExtensionAPI) {
   pi.on("session_shutdown", async () => {
     if (!active) return;
     const summary = conclusionSummary();
-    // Write to the wrapper's temp file so it lands after the answer; fall back to
-    // stderr when no wrapper is involved (e.g. a direct `pi -p` run).
+    // Land after the answer via the wrapper's temp file; fall back to stderr without one.
     if (SUMMARY_PATH) {
       try {
         writeFileSync(SUMMARY_PATH, summary);
@@ -194,5 +180,4 @@ export default async function (pi: ExtensionAPI) {
     }
     stderr(summary);
   });
-
 }

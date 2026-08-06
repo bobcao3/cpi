@@ -41,5 +41,5 @@ between importers.
 ## Permanent fix
 
 An upstream pi `registerVcsProvider` hook + a jj provider in pi core would let
-the built-in footer own rendering and remove the need for this override. This
-is the cpi-level solution until that lands.
+the built-in footer own rendering and remove the need for this override. This is
+the cpi-level solution until that lands.

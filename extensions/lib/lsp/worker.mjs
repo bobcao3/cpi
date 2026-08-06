@@ -57,7 +57,11 @@ function openLog() {
 function log(tag, msg) {
   if (!logPath) return;
   try {
-    appendFileSync(logPath, `${new Date().toISOString()} [${source}] ${tag}: ${msg}\n`, "utf8");
+    appendFileSync(
+      logPath,
+      `${new Date().toISOString()} [${source}] ${tag}: ${msg}\n`,
+      "utf8",
+    );
   } catch {}
 }
 
@@ -228,7 +232,12 @@ async function start() {
             synchronization: { didOpen: true, didChange: true, didClose: true },
             publishDiagnostics: {},
             ...(diagnosticMode === "pull"
-              ? { diagnostic: { interFileDependencies: false, workspaceDiagnostics: false } }
+              ? {
+                  diagnostic: {
+                    interFileDependencies: false,
+                    workspaceDiagnostics: false,
+                  },
+                }
               : {}),
           },
         },
@@ -239,7 +248,11 @@ async function start() {
     initialized = true;
     post({ type: "ready", ok: true });
   } catch (err) {
-    post({ type: "ready", ok: false, error: String((err && err.message) || err) });
+    post({
+      type: "ready",
+      ok: false,
+      error: String((err && err.message) || err),
+    });
     try {
       proc.kill();
     } catch {}
@@ -274,7 +287,12 @@ parentPort.on("message", (msg) => {
       };
       const t = setTimeout(() => finish([]), lintTimeoutMs);
       sendNotif("textDocument/didOpen", {
-        textDocument: { uri, languageId: msg.languageId, version: 1, text: msg.text },
+        textDocument: {
+          uri,
+          languageId: msg.languageId,
+          version: 1,
+          text: msg.text,
+        },
       });
       if (diagnosticMode === "pull") {
         sendReq("textDocument/diagnostic", { textDocument: { uri } }).then(

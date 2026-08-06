@@ -31,7 +31,12 @@
  */
 import { spawn, type ChildProcess } from "node:child_process";
 import { createServer, type Socket, type Server } from "node:net";
-import { createWriteStream, existsSync, unlinkSync, type WriteStream } from "node:fs";
+import {
+  createWriteStream,
+  existsSync,
+  unlinkSync,
+  type WriteStream,
+} from "node:fs";
 import { join } from "node:path";
 import {
   writeControl,
@@ -48,14 +53,22 @@ const MAX_SUBS = 8; // max simultaneous resume-socket subscribers
 
 function signum(sig: string): number {
   switch (sig) {
-    case "SIGHUP": return 1;
-    case "SIGINT": return 2;
-    case "SIGQUIT": return 3;
-    case "SIGABRT": return 6;
-    case "SIGKILL": return 9;
-    case "SIGPIPE": return 13;
-    case "SIGTERM": return 15;
-    default: return 0;
+    case "SIGHUP":
+      return 1;
+    case "SIGINT":
+      return 2;
+    case "SIGQUIT":
+      return 3;
+    case "SIGABRT":
+      return 6;
+    case "SIGKILL":
+      return 9;
+    case "SIGPIPE":
+      return 13;
+    case "SIGTERM":
+      return 15;
+    default:
+      return 0;
   }
 }
 
@@ -119,7 +132,8 @@ function runMonitor(logPath: string, cmd: string[]): void {
     if (!log.write(buf)) logBlocked = true;
     st.bytes += buf.length;
     for (let i = 0; i < buf.length; i++) if (buf[i] === 0x0a) st.lines++;
-    if (pipeSubscribed && !writeData(process.stdout, off, buf)) stdoutBlocked = true;
+    if (pipeSubscribed && !writeData(process.stdout, off, buf))
+      stdoutBlocked = true;
     for (const s of sockSubs) {
       if (s.writable && !s.destroyed) writeData(s, off, buf); // zero-copy to resume subs
     }
@@ -138,7 +152,11 @@ function runMonitor(logPath: string, cmd: string[]): void {
   child.stdout?.on("data", onChunk);
   child.stderr?.on("data", onChunk);
 
-  const exitMsg = (): Message => ({ kind: "exit", exitCode: st.exitCode ?? -1, bytes: st.bytes });
+  const exitMsg = (): Message => ({
+    kind: "exit",
+    exitCode: st.exitCode ?? -1,
+    bytes: st.bytes,
+  });
   const sendExitToSubs = (): void => {
     if (pipeSubscribed) writeControl(process.stdout, exitMsg());
     for (const s of sockSubs) {
@@ -164,7 +182,9 @@ function runMonitor(logPath: string, cmd: string[]): void {
       setTimeout(maybeExit, DRAIN_MS);
     });
   };
-  child.on("exit", (code, signal) => finish(code ?? (signal ? 128 + signum(signal) : -1)));
+  child.on("exit", (code, signal) =>
+    finish(code ?? (signal ? 128 + signum(signal) : -1)),
+  );
   child.on("error", () => finish(-1));
   if (pid <= 0) finish(-1);
 
@@ -219,7 +239,12 @@ function runMonitor(logPath: string, cmd: string[]): void {
             });
             break;
           case "signal":
-            writeControl(sock, forward(msg.sig) ? { kind: "ok" } : { kind: "err", message: "signal failed" });
+            writeControl(
+              sock,
+              forward(msg.sig)
+                ? { kind: "ok" }
+                : { kind: "err", message: "signal failed" },
+            );
             break;
           case "subscribe":
             writeControl(sock, { kind: "subscribed", offset: st.bytes });
@@ -230,7 +255,10 @@ function runMonitor(logPath: string, cmd: string[]): void {
             writeControl(sock, { kind: "ok" });
             break;
           default:
-            writeControl(sock, { kind: "err", message: `unexpected kind: ${msg.kind}` });
+            writeControl(sock, {
+              kind: "err",
+              message: `unexpected kind: ${msg.kind}`,
+            });
         }
       },
       onData() {
@@ -246,12 +274,18 @@ function runMonitor(logPath: string, cmd: string[]): void {
   // Best-effort: bind the resume socket in the per-user runtime dir. Non-fatal.
   function bindResume(): void {
     if (resumeSockPath) {
-      writeControl(process.stdout, { kind: "resumeReady", sockPath: resumeSockPath });
+      writeControl(process.stdout, {
+        kind: "resumeReady",
+        sockPath: resumeSockPath,
+      });
       return;
     }
     const dir = resolveRuntimeDir(process.env);
     if (!dir) {
-      writeControl(process.stdout, { kind: "err", message: "no runtime dir for resume socket" });
+      writeControl(process.stdout, {
+        kind: "err",
+        message: "no runtime dir for resume socket",
+      });
       return;
     }
     const sp = join(dir, `pi-sh-mon-${pid}.sock`);
@@ -290,13 +324,21 @@ function runMonitor(logPath: string, cmd: string[]): void {
           });
           break;
         case "signal":
-          writeControl(process.stdout, forward(msg.sig) ? { kind: "ok" } : { kind: "err", message: "signal failed" });
+          writeControl(
+            process.stdout,
+            forward(msg.sig)
+              ? { kind: "ok" }
+              : { kind: "err", message: "signal failed" },
+          );
           break;
         case "subscribe":
           // live DATA frames carry off >= this offset; client reads [cursor, offset) backlog from file
           pipeSubscribed = true;
           everSubscribed = true;
-          writeControl(process.stdout, { kind: "subscribed", offset: st.bytes });
+          writeControl(process.stdout, {
+            kind: "subscribed",
+            offset: st.bytes,
+          });
           if (childDone) sendExitToSubs();
           break;
         case "bindResume":
@@ -307,7 +349,10 @@ function runMonitor(logPath: string, cmd: string[]): void {
           writeControl(process.stdout, { kind: "ok" });
           break;
         default:
-          writeControl(process.stdout, { kind: "err", message: `unexpected kind: ${msg.kind}` });
+          writeControl(process.stdout, {
+            kind: "err",
+            message: `unexpected kind: ${msg.kind}`,
+          });
       }
     },
     onData() {
@@ -329,7 +374,9 @@ function runMonitor(logPath: string, cmd: string[]): void {
   });
 }
 
-function splitCmd(argv: string[]): { before: string[]; after: string[] } | null {
+function splitCmd(
+  argv: string[],
+): { before: string[]; after: string[] } | null {
   const i = argv.indexOf("--");
   if (i === -1) return null;
   return { before: argv.slice(0, i), after: argv.slice(i + 1) };

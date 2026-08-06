@@ -51,7 +51,10 @@ const NO_ESCAPE = (text: string): string => text;
  * are plain text); unknown names interpolate to "" and never throw. Full syntax:
  * https://mustache.github.io/mustache.5.html
  */
-export function render(tpl: string, ctx: Record<string, unknown> | undefined): string {
+export function render(
+  tpl: string,
+  ctx: Record<string, unknown> | undefined,
+): string {
   if (!tpl) return "";
   return Mustache.render(tpl, ctx ?? {}, undefined, { escape: NO_ESCAPE });
 }
@@ -86,7 +89,9 @@ function readToml(path: string): Record<string, unknown> | null {
   if (!path || !existsSync(path)) return null;
   try {
     const obj = parseToml(readFileSync(path, "utf-8")) as unknown;
-    return obj && typeof obj === "object" ? (obj as Record<string, unknown>) : null;
+    return obj && typeof obj === "object"
+      ? (obj as Record<string, unknown>)
+      : null;
   } catch (err) {
     process.stderr.write(`[cpi-text] failed to parse ${path}: ${err}\n`);
     return null;
@@ -132,7 +137,8 @@ export function loadText<T = Record<string, unknown>>(
   if (hit && hit.signature === sig) return hit.data as T;
 
   const defaults = readToml(defaultPath);
-  if (!defaults) throw new Error(`[cpi-text] default text missing at ${defaultPath}`);
+  if (!defaults)
+    throw new Error(`[cpi-text] default text missing at ${defaultPath}`);
   const merged = deepMerge(
     deepMerge(defaults, readToml(userPath) ?? {}),
     readToml(projectPath) ?? {},

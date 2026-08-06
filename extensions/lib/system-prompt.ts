@@ -3,7 +3,7 @@
  *
  * One owner (in `extensions/core.ts`) listens to
  * `before_agent_start` and applies every registered transform to the incoming
- * system prompt, in ascending `order`. Other extensions (caveman, skill)
+ * system prompt, in ascending `order`. Other extensions (e.g. skill)
  * register transforms at factory load instead of each mutating
  * `before_agent_start` themselves — keeping a single listener that owns the
  * final systemPrompt return value, applied in a declared, stable order.
@@ -16,7 +16,7 @@
  */
 
 interface TransformEntry {
-  apply: (systemPrompt: string, ctx: any) => string;
+  apply: (systemPrompt: string, ctx: any, options: any) => string;
   order: number;
 }
 
@@ -34,7 +34,11 @@ function assert(cond: unknown, msg: string): asserts cond {
 function registry(): Registry {
   const g = globalThis as Record<string, unknown>;
   const existing = g[GLOBAL_KEY] as Registry | undefined;
-  if (existing && typeof existing === "object" && existing.transforms instanceof Map) {
+  if (
+    existing &&
+    typeof existing === "object" &&
+    existing.transforms instanceof Map
+  ) {
     return existing;
   }
   const fresh: Registry = { transforms: new Map() };
@@ -52,7 +56,10 @@ export function registerSystemPromptTransform(
   apply: (systemPrompt: string, ctx: any, options: any) => string,
   order: number = DEFAULT_ORDER,
 ): void {
-  assert(typeof id === "string" && id.length > 0, "id must be a non-empty string");
+  assert(
+    typeof id === "string" && id.length > 0,
+    "id must be a non-empty string",
+  );
   assert(typeof apply === "function", "apply must be a function");
   assert(Number.isFinite(order), "order must be a finite number");
   registry().transforms.set(id, { apply, order });
@@ -69,7 +76,10 @@ export function registerSystemPromptTransform(
  * throw if the data it reads no longer exists).
  */
 export function unregisterSystemPromptTransform(id: string): boolean {
-  assert(typeof id === "string" && id.length > 0, "id must be a non-empty string");
+  assert(
+    typeof id === "string" && id.length > 0,
+    "id must be a non-empty string",
+  );
   return registry().transforms.delete(id);
 }
 
@@ -79,7 +89,11 @@ export function unregisterSystemPromptTransform(id: string): boolean {
  * a transform that throws is skipped and logged to stderr, so one faulty
  * extension cannot blank the system prompt for the whole process.
  */
-export function applySystemPromptTransforms(systemPrompt: string, ctx: any, options: any): string {
+export function applySystemPromptTransforms(
+  systemPrompt: string,
+  ctx: any,
+  options: any,
+): string {
   const entries = Array.from(registry().transforms.values());
   entries.sort((a, b) => a.order - b.order);
   let out = systemPrompt;
@@ -87,7 +101,9 @@ export function applySystemPromptTransforms(systemPrompt: string, ctx: any, opti
     try {
       out = entry.apply(out, ctx, options);
     } catch (err) {
-      process.stderr.write(`[system-prompt] transform "${entry.order}" threw: ${err}\n`);
+      process.stderr.write(
+        `[system-prompt] transform "${entry.order}" threw: ${err}\n`,
+      );
     }
   }
   return out;

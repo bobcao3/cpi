@@ -1,24 +1,17 @@
 /**
- * TUI rendering for the `view` / `edit` / `create` tools — three stages under a
- * persistent `{command} : {file}` header (mirrors shell.ts w/ Ctrl+O expansion):
- *   1. preparation (args streaming, not yet executing): instruction/query/
- *      file_text tail (3 lines).
- *   2. subagent running: live transcript tail (5 lines, gray) + ⏳ running.
- *   3. done: rendered result — edit uses pi's `renderDiff` (colored, max 16),
- *      view/tree/content in toolOutput, image via pi's image pipeline (or a
- *      terminal-cap fallback), create/error as status.
- * Each body is followed by a gray "Ctrl+O to expand/collapse" hint. Once
- * executing, renderCall shows the header only (body owned by renderResult).
- *
- * Every line is horizontally truncated to the render width (via pi-tui's
- * ANSI-aware `truncateToWidth`) — never wrapped/folded. pi-tui `Text` wraps,
- * so we return a truncating Component (`truncView`) from all paths instead.
- *
- * The live transcript is the subagent's stderr (the subagent-transcript ext,
- * loaded via `-e`), relayed through `onUpdate` partial results.
+ * TUI rendering for `view`/`edit`/`create` under a persistent `{cmd} : {file}`
+ * header — args tail while preparing, live transcript tail while running (the
+ * subagent's stderr relayed via onUpdate), then the result: edit diffs as
+ * old/new line-number columns, others capped at 16 lines (Ctrl+O expands).
+ * Every line is ANSI-aware truncated to the render width, never wrapped.
  */
 
-import { truncateToWidth, getCapabilities, getImageDimensions, imageFallback } from "@earendil-works/pi-tui";
+import {
+  truncateToWidth,
+  getCapabilities,
+  getImageDimensions,
+  imageFallback,
+} from "@earendil-works/pi-tui";
 import type { DiffOp } from "./diff.ts";
 
 const CALL_TAIL = 3;
@@ -28,14 +21,16 @@ const RESULT_MAX = 16;
 export const STREAM_UPDATE_MS = 200;
 
 const truncateLine = (line: string, width: number) =>
-  truncateToWidth(line.replace(/\t/g, "   "), width, "…").replace("\x1b[0m…", "…");
+  truncateToWidth(line.replace(/\t/g, "   "), width, "…").replace(
+    "\x1b[0m…",
+    "…",
+  );
 
 interface TruncView {
   invalidate(): void;
   render(width: number): string[];
 }
 
-/** View that truncates each line to the render width (no wrapping). */
 function truncView(lines: string[]): TruncView {
   return {
     invalidate() {},
@@ -47,7 +42,15 @@ function truncView(lines: string[]): TruncView {
 
 interface EditorDetails {
   id?: string;
-  kind?: "edit" | "view" | "create" | "tree" | "content" | "image" | "video" | "error";
+  kind?:
+    | "edit"
+    | "view"
+    | "create"
+    | "tree"
+    | "content"
+    | "image"
+    | "video"
+    | "error";
   diff?: string;
   diffOps?: DiffOp[];
   text?: string;
@@ -78,6 +81,20 @@ function hint(theme: any, expanded: boolean): string {
 }
 
 function renderDiffOps(ops: DiffOp[], theme: any): string {
+  const numbers = ops
+    .filter((op) => op.type !== "skip")
+    .flatMap((op) =>
+      op.type === "add"
+        ? [op.new]
+        : op.type === "remove"
+          ? [op.old]
+          : [op.old, op.new],
+    )
+    .filter((n): n is number => n != null);
+  const width = Math.max(1, ...numbers.map((n) => String(n).length));
+  const pad = (n: number | null) =>
+    n == null ? " ".repeat(width) : String(n).padStart(width);
+  const sep = "  ";
   return ops
     .map((op) => {
       switch (op.type) {
@@ -86,27 +103,25 @@ function renderDiffOps(ops: DiffOp[], theme: any): string {
         case "add":
           return (
             theme.fg("toolDiffAdded", "+") +
-            gray(theme, op.lineNum) +
-            theme.fg("toolDiffAdded", " " + op.text)
+            gray(theme, pad(null) + sep + pad(op.new) + sep) +
+            theme.fg("toolDiffAdded", op.text)
           );
         case "remove":
           return (
             theme.fg("toolDiffRemoved", "-") +
-            gray(theme, op.lineNum) +
-            theme.fg("toolDiffRemoved", " " + op.text)
+            gray(theme, pad(op.old) + sep + pad(null) + sep) +
+            theme.fg("toolDiffRemoved", op.text)
           );
         case "context":
-          return gray(theme, " " + op.lineNum) + theme.fg("text", " " + op.text);
+          return (
+            gray(theme, " " + pad(op.old) + sep + pad(op.new) + sep) +
+            theme.fg("text", op.text)
+          );
       }
     })
     .join("\n");
 }
 
-/**
- * Image result: the text note always; when the terminal can't (or the user
- * chose not to) render inline images, append a per-image fallback marker.
- * Mirrors read-media's renderMediaResult (now merged here). Returns lines.
- */
 function renderImageLines(result: any, showImages: boolean): string[] {
   const content = result?.content ?? [];
   const textBlocks = content.filter((c: any) => c.type === "text");
@@ -116,7 +131,10 @@ function renderImageLines(result: any, showImages: boolean): string[] {
   if (imageBlocks.length > 0 && (!caps.images || !showImages)) {
     const indicators = imageBlocks
       .map((img: any) => {
-        const dims = img.data && img.mimeType ? (getImageDimensions(img.data, img.mimeType) ?? undefined) : undefined;
+        const dims =
+          img.data && img.mimeType
+            ? (getImageDimensions(img.data, img.mimeType) ?? undefined)
+            : undefined;
         return imageFallback(img.mimeType ?? "image/unknown", dims);
       })
       .join("\n");
@@ -125,7 +143,12 @@ function renderImageLines(result: any, showImages: boolean): string[] {
   return output ? output.split("\n") : [];
 }
 
-export function renderEditorCall(command: string, args: any, theme: any, context: any): TruncView {
+export function renderEditorCall(
+  command: string,
+  args: any,
+  theme: any,
+  context: any,
+): TruncView {
   const head = headerLine(command, args, theme);
   // Executing: body (transcript/diff) is owned by renderResult — header only.
   if (context.executionStarted) return truncView([head]);
@@ -140,7 +163,10 @@ export function renderEditorCall(command: string, args: any, theme: any, context
     ]);
   }
   const tail = lines.slice(-CALL_TAIL);
-  const more = lines.length > CALL_TAIL ? [gray(theme, `… ${lines.length - CALL_TAIL} more`)] : [];
+  const more =
+    lines.length > CALL_TAIL
+      ? [gray(theme, `… ${lines.length - CALL_TAIL} more`)]
+      : [];
   return truncView([
     head,
     ...more,
@@ -159,7 +185,7 @@ export function renderEditorResult(
   const content = result.content?.[0];
   const fullText = content?.type === "text" ? content.text : "";
 
-  // Stage 2: subagent running — live transcript tail (gray).
+  // Running: live subagent transcript tail (gray).
   if (opts.isPartial) {
     const lines = fullText
       .trimEnd()
@@ -178,7 +204,7 @@ export function renderEditorResult(
     return truncView([...shown.map((l: string) => gray(theme, l)), status]);
   }
 
-  // Stage 3: done — rendered result (edit → renderDiff colored).
+  // Done: render the result (edit → colored diff).
   const d = (result.details ?? {}) as EditorDetails;
   const isError = result.isError || d.kind === "error";
   let status = isError ? theme.fg("error", "✗") : theme.fg("success", "✓");
@@ -188,7 +214,8 @@ export function renderEditorResult(
         theme,
         ` · applied ${d.hunks} hunk${d.hunks !== 1 ? "s" : ""}${d.rewrite ? ", whole-file rewrite" : ""}`,
       );
-    else if (d.kind === "create") status += gray(theme, ` · created ${d.bytes} bytes`);
+    else if (d.kind === "create")
+      status += gray(theme, ` · created ${d.bytes} bytes`);
     else if (d.kind) status += gray(theme, ` · ${d.kind}`);
   }
 
@@ -202,11 +229,22 @@ export function renderEditorResult(
     const imgLines = renderImageLines(result, context?.showImages ?? false);
     const lines = imgLines.map((l: string) => theme.fg("toolOutput", l));
     if (lines.length === 0) return truncView([status]);
-    if (expanded) return truncView([...lines, status + " " + hint(theme, expanded)]);
+    if (expanded)
+      return truncView([...lines, status + " " + hint(theme, expanded)]);
     const shown = lines.length <= RESULT_MAX ? lines : lines.slice(-RESULT_MAX);
-    const range = lines.length > RESULT_MAX ? gray(theme, ` · L${lines.length - RESULT_MAX + 1}-${lines.length}`) + " " : "";
+    const range =
+      lines.length > RESULT_MAX
+        ? gray(theme, ` · L${lines.length - RESULT_MAX + 1}-${lines.length}`) +
+          " "
+        : "";
     return truncView([...shown, status + range + hint(theme, expanded)]);
-  } else if ((d.kind === "view" || d.kind === "tree" || d.kind === "content" || d.kind === "video") && (d.text ?? d.note) != null) {
+  } else if (
+    (d.kind === "view" ||
+      d.kind === "tree" ||
+      d.kind === "content" ||
+      d.kind === "video") &&
+    (d.text ?? d.note) != null
+  ) {
     body = (d.text ?? d.note ?? "").trimEnd();
   }
 
@@ -216,10 +254,18 @@ export function renderEditorResult(
 
   if (total === 0) return truncView([status]);
   if (expanded) {
-    return truncView([...lines.map(colorLine), status + " " + hint(theme, expanded)]);
+    return truncView([
+      ...lines.map(colorLine),
+      status + " " + hint(theme, expanded),
+    ]);
   }
   const shown = total <= RESULT_MAX ? lines : lines.slice(-RESULT_MAX);
   const range =
-    total > RESULT_MAX ? gray(theme, ` · L${total - RESULT_MAX + 1}-${total}`) + " " : "";
-  return truncView([...shown.map(colorLine), status + range + hint(theme, expanded)]);
+    total > RESULT_MAX
+      ? gray(theme, ` · L${total - RESULT_MAX + 1}-${total}`) + " "
+      : "";
+  return truncView([
+    ...shown.map(colorLine),
+    status + range + hint(theme, expanded),
+  ]);
 }

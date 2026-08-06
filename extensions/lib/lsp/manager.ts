@@ -17,7 +17,11 @@
 
 import { readFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
-import { type Language, discoverProjectRoot, languageByPath } from "./discover.ts";
+import {
+  type Language,
+  discoverProjectRoot,
+  languageByPath,
+} from "./discover.ts";
 import { type Diagnostic } from "./diagnostics.ts";
 import { getLspServerSpec } from "./registry.ts";
 import { resolveBin } from "./provision.ts";
@@ -54,7 +58,8 @@ export interface LintTextOptions {
 
 function getState(): LspState {
   const g = globalThis as unknown as { __cpiLsp?: LspState };
-  if (!g.__cpiLsp) g.__cpiLsp = { sessions: new Map(), inflight: new Map(), draining: false };
+  if (!g.__cpiLsp)
+    g.__cpiLsp = { sessions: new Map(), inflight: new Map(), draining: false };
   return g.__cpiLsp;
 }
 
@@ -80,13 +85,19 @@ export async function ensureSession(
   for (;;) {
     const existing = st.sessions.get(id);
     // Only an EXPLICITLY-provided differing envPath restarts (the §5 dot_env reload path). An undefined opts.envPath means "no override" — keep the existing session's env, so `lsp check`/`checkFile` (which pass no envPath) don't restart (and break) an env-provided session (e.g. ruby-lsp under a Mise dotenv, or pyrefly in a venv).
-    const envChanged = existing && opts.envPath !== undefined ? existing.envPath !== opts.envPath : false;
-    if (existing && !opts.force && !envChanged && existing.state !== "dead") return existing;
+    const envChanged =
+      existing && opts.envPath !== undefined
+        ? existing.envPath !== opts.envPath
+        : false;
+    if (existing && !opts.force && !envChanged && existing.state !== "dead")
+      return existing;
     const pending = st.inflight.get(id);
     if (!pending) break;
     await pending.catch(() => {});
   }
-  const p = provisionSession(st, id, language, root, opts).finally(() => st.inflight.delete(id));
+  const p = provisionSession(st, id, language, root, opts).finally(() =>
+    st.inflight.delete(id),
+  );
   st.inflight.set(id, p);
   return p;
 }
@@ -156,7 +167,8 @@ export async function checkFile(absPath: string): Promise<Diagnostic[]> {
   const root = discoverProjectRoot(absPath, language);
   const cfg = loadLspConfig();
   const session = await ensureSession(language, root);
-  if (session.state !== "ready") await awaitReady(session, cfg.startupTimeoutMs);
+  if (session.state !== "ready")
+    await awaitReady(session, cfg.startupTimeoutMs);
   if (session.state !== "ready") return [];
   const spec = getLspServerSpec(language);
   let text: string;
@@ -185,13 +197,25 @@ export async function lintText(
   // root="" -> rootUri=null inline session (shuck inline path, design §6.3)
   const session = await ensureSession(language, "");
   const cfg = loadLspConfig();
-  if (session.state !== "ready") await awaitReady(session, cfg.startupTimeoutMs);
+  if (session.state !== "ready")
+    await awaitReady(session, cfg.startupTimeoutMs);
   if (session.state !== "ready") return [];
   const spec = getLspServerSpec(language);
   const seq = session.nextSeq++;
-  const extension = (opts.extension ?? extForLanguage(language)).replace(/^\./, "");
+  const extension = (opts.extension ?? extForLanguage(language)).replace(
+    /^\./,
+    "",
+  );
   const uri = `file:///tmp/cpi-lsp-${seq}.${extension}`;
-  return sessionLint(session, uri, spec.languageId(uri), text, "", seq, cfg.lintTimeoutMs);
+  return sessionLint(
+    session,
+    uri,
+    spec.languageId(uri),
+    text,
+    "",
+    seq,
+    cfg.lintTimeoutMs,
+  );
 }
 
 export async function stop(target: string): Promise<void> {
@@ -218,7 +242,10 @@ export async function stop(target: string): Promise<void> {
   stopSession(session);
 }
 
-export function findSession(language: Language, root: string): SessionInfo | undefined {
+export function findSession(
+  language: Language,
+  root: string,
+): SessionInfo | undefined {
   const s = getState().sessions.get(sessionId(language, root));
   return s ? toInfo(s) : undefined;
 }
@@ -244,9 +271,17 @@ export async function disposeAll(): Promise<void> {
 }
 
 export interface LspManager {
-  ensureSession(language: Language, root: string, opts?: EnsureOptions): Promise<LspSession>;
+  ensureSession(
+    language: Language,
+    root: string,
+    opts?: EnsureOptions,
+  ): Promise<LspSession>;
   checkFile(absPath: string): Promise<Diagnostic[]>;
-  lintText(language: Language, text: string, opts?: LintTextOptions): Promise<Diagnostic[]>;
+  lintText(
+    language: Language,
+    text: string,
+    opts?: LintTextOptions,
+  ): Promise<Diagnostic[]>;
   stop(target: string): Promise<void>;
   findSession(language: Language, root: string): SessionInfo | undefined;
   list(): SessionInfo[];

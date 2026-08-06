@@ -1,16 +1,6 @@
 /**
- * Post-run LSP check for files written by a shell command (design §8.4).
- *
- * Pure leaf mirroring `shell/cd-targets.ts` (detect→surface split): given the
- * `EditTarget[]` from `shell/edit-detect.ts`, for each edit whose language has a
- * READY LSP session, append formatted diagnostics; for the first edit whose
- * project has no session, emit a one-time "run `lsp start`" note. Diagnostics are
- * advisory — the command already ran, so this reports, never blocks.
- *
- * `shell.ts` invokes this only for COMPLETED, non-backgrounded runs.
- *
- * `globalThis.__cpiLspWarned` holds the shared mutable warned-roots Set (re-read
- * each call — pure data, NOT a boolean dedup flag, per the core-owner rules).
+ * Advisory only — the command already ran, so this reports, never blocks.
+ * `__cpiLspWarned` is shared mutable data (not a dedup flag), re-read per call.
  */
 
 import { detectEdits, type EditTarget } from "./edit-detect.ts";
@@ -20,27 +10,19 @@ import { discoverProjectRoot, languageByPath } from "../lib/lsp/discover.ts";
 import { renderDiagnostics } from "../lib/lsp/diagnostics-overflow.ts";
 
 export interface LspHookResult {
-  /** Aggregated formatted diagnostics across edits with a ready session. */
   appendedText?: string;
-  /** One-time note for the first edit whose project has no LSP session. */
   warning?: string;
 }
 
-/** Shared mutable set of `${lang}:${root}` keys already warned about. */
 function warnedSet(): Set<string> {
   const g = globalThis as unknown as { __cpiLspWarned?: Set<string> };
   if (!g.__cpiLspWarned) g.__cpiLspWarned = new Set<string>();
   return g.__cpiLspWarned;
 }
 
-/**
- * For each edit: if a READY LSP session covers its project, append formatted
- * diagnostics; otherwise note the missing session once (deduped per
- * `${lang}:${root}`). `appendedText` aggregates diagnostics across edits;
- * `warning` is the first un-warned no-session note. Never throws — a failing
- * edit is skipped, not the whole hook.
- */
-export async function postRunLspCheck(edits: EditTarget[]): Promise<LspHookResult> {
+export async function postRunLspCheck(
+  edits: EditTarget[],
+): Promise<LspHookResult> {
   let appendedText: string | undefined;
   let warning: string | undefined;
   const warned = warnedSet();
@@ -55,7 +37,8 @@ export async function postRunLspCheck(edits: EditTarget[]): Promise<LspHookResul
         if (diags.length > 0) {
           const rendered = await renderDiagnostics(diags);
           const block = `${t.path}\n${rendered.text}`;
-          appendedText = appendedText === undefined ? block : `${appendedText}\n${block}`;
+          appendedText =
+            appendedText === undefined ? block : `${appendedText}\n${block}`;
         }
       } else {
         const key = `${lang}:${root}`;
@@ -66,9 +49,7 @@ export async function postRunLspCheck(edits: EditTarget[]): Promise<LspHookResul
           }
         }
       }
-    } catch {
-      // skip this edit — never fail the whole hook
-    }
+    } catch {}
   }
   const result: LspHookResult = {};
   if (appendedText !== undefined) result.appendedText = appendedText;
@@ -76,13 +57,6 @@ export async function postRunLspCheck(edits: EditTarget[]): Promise<LspHookResul
   return result;
 }
 
-/**
- * Orchestration entry for shell.ts: detect edits in `root`, run the post-run
- * LSP check, and return a single ready-to-append suffix — "" when there is
- * nothing to report, else "\n" + diagnostics (+ optional one-time no-session
- * note). Never throws. shell.ts calls this once after a completed (non-
- * backgrounded) run.
- */
 export async function runLspHook(root: Node | null): Promise<string> {
   const hook = await postRunLspCheck(detectEdits(root));
   const parts: string[] = [];

@@ -1,12 +1,11 @@
 #!/usr/bin/env bun
 /**
- * Clean-fork semantics + orphaned/forked shell discovery + completion suppression.
+ * Clean-fork semantics + exact-owner shell discovery + completion suppression.
  *  - in-memory live tracking is scoped by conversation session id (a fork does
  *    not see or manage the parent's background shells);
  *  - a fork inherits nothing: completion notices for the parent's shells are
  *    suppressed while the fork is active; only the owning session gets them;
- *  - discoverOrphanedShells lists alive shells owned by other sessions;
- *  - discoverShellsForScope lists one session's alive shells (fork-notice core).
+ *  - discoverShellsForScope lists exactly one owner's alive shells.
  */
 import {
   runShell,
@@ -16,8 +15,16 @@ import {
   killAll,
   getShellBackgrounds,
 } from "../../extensions/shell/exec.ts";
-import { discoverOrphanedShells, discoverShellsForScope, formatCompletedSummary, surfaceCompletedShells } from "../../extensions/shell/orphan.ts";
-import { readCompletedRecords, readResumeRecords, writeResumeRecord } from "../../extensions/shell/monitor.ts";
+import {
+  discoverShellsForScope,
+  formatCompletedSummary,
+  surfaceCompletedShells,
+} from "../../extensions/shell/orphan.ts";
+import {
+  readCompletedRecords,
+  readResumeRecords,
+  writeResumeRecord,
+} from "../../extensions/shell/monitor.ts";
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -66,10 +73,20 @@ try {
   // 1. background a long shell owned by A
   setCurrentScope(A);
   const r = await runShell(
-    'sleep 30',
-    0.4, env(A), undefined, undefined, "orphan-bg", 30, truncation, tunables,
+    "sleep 30",
+    0.4,
+    env(A),
+    undefined,
+    undefined,
+    "orphan-bg",
+    30,
+    truncation,
+    tunables,
   );
-  ok(r.status === "running" && !!r.id, "backgrounded in session A (status=" + r.status + ")");
+  ok(
+    r.status === "running" && !!r.id,
+    "backgrounded in session A (status=" + r.status + ")",
+  );
   const id = r.id!;
   const dl = Date.now() + 5000;
   while (Date.now() < dl) {
@@ -78,65 +95,115 @@ try {
   }
 
   // 2. clean fork: A sees its shell; B does not; B cannot signal it
-  ok(getShellBackgrounds().some((e: { id: string }) => e.id === id), "A sees its own background shell");
-  setCurrentScope(B);
-  ok(getShellBackgrounds().length === 0, "forked session B sees none of A's shells (clean fork)");
-  ok(signalChild(id, "SIGINT") === false, "forked session B cannot signal A's shell");
-
-  // 3. orphaned discovery: B finds A's alive shell; A does not list its own
-  const fromB = await discoverOrphanedShells(sessDir, B);
   ok(
-    fromB.some((o: { pid: string; sessionId: string }) => o.pid === id && o.sessionId === A),
-    "B discovers A's alive shell as orphaned",
+    getShellBackgrounds().some((e: { id: string }) => e.id === id),
+    "A sees its own background shell",
   );
-  const fromA = await discoverOrphanedShells(sessDir, A);
-  ok(!fromA.some((o: { pid: string }) => o.pid === id), "A does not list its own shell as orphaned");
+  setCurrentScope(B);
+  ok(
+    getShellBackgrounds().length === 0,
+    "forked session B sees none of A's shells (clean fork)",
+  );
+  ok(
+    signalChild(id, "SIGINT") === false,
+    "forked session B cannot signal A's shell",
+  );
 
-  // 4. discoverShellsForScope (fork-notice core): A's shells, not B's
+  // 3. exact-owner discovery: A's shells, not B's
+  const bShells = await discoverShellsForScope(sessDir, B);
+  ok(bShells.length === 0, "discoverShellsForScope(B) returns none");
   const aShells = await discoverShellsForScope(sessDir, A);
-  ok(aShells.some((o: { pid: string }) => o.pid === id), "discoverShellsForScope(A) returns A's alive shell");
-  ok((await discoverShellsForScope(sessDir, B)).length === 0, "discoverShellsForScope(B) returns none");
+  ok(
+    aShells.some((o: { pid: string }) => o.pid === id),
+    "discoverShellsForScope(A) returns A's alive shell",
+  );
 
-  // 5. stale record from a dead session is cleaned, not listed
-  await writeResumeRecord(sessDir, "sess-c", "999999", "/tmp/pi-bogus-orphan-" + Date.now() + ".sock", "bogus");
-  ok((await readResumeRecords(sessDir, "sess-c")).length === 1, "stale record present under sess-c");
-  const orphansWithStale = await discoverOrphanedShells(sessDir, A);
-  ok(!orphansWithStale.some((o: { pid: string }) => o.pid === "999999"), "stale (dead) shell not listed");
-  ok((await readResumeRecords(sessDir, "sess-c")).length === 0, "stale record from dead session removed silently");
+  // 4. stale record from a dead session is cleaned, not listed
+  await writeResumeRecord(
+    sessDir,
+    "sess-c",
+    "999999",
+    "/tmp/pi-bogus-orphan-" + Date.now() + ".sock",
+    "bogus",
+  );
+  ok(
+    (await readResumeRecords(sessDir, "sess-c")).length === 1,
+    "stale record present under sess-c",
+  );
+  const staleShells = await discoverShellsForScope(sessDir, "sess-c");
+  ok(
+    !staleShells.some((o: { pid: string }) => o.pid === "999999"),
+    "stale (dead) shell not listed",
+  );
+  ok(
+    (await readResumeRecords(sessDir, "sess-c")).length === 0,
+    "stale record from dead session removed silently",
+  );
 
-  // 6. completion suppression: fork inherits nothing; only the owner gets notices
-  // 6a. shell owned by A completes while B (fork) is active -> suppressed
+  // 5. completion suppression: fork inherits nothing; only the owner gets notices
+  // 5a. shell owned by A completes while B (fork) is active -> suppressed
   setCurrentScope(B);
   const m2 = marker("b");
   const r2 = await runShell(
-    `sleep 0.5; echo done > ${m2}`, 0.2, env(A), undefined, undefined, "supp-b", 30, truncation, tunables,
+    `sleep 0.5; echo done > ${m2}`,
+    0.2,
+    env(A),
+    undefined,
+    undefined,
+    "supp-b",
+    30,
+    truncation,
+    tunables,
   );
-  ok(r2.status === "running" && !!r2.id, "backgrounded A-owned shell while B active (status=" + r2.status + ")");
+  ok(
+    r2.status === "running" && !!r2.id,
+    "backgrounded A-owned shell while B active (status=" + r2.status + ")",
+  );
   const id2 = r2.id!;
   ok(await waitMarker(m2), "A-owned shell completed while B active");
   await new Promise((res) => setTimeout(res, 150));
-  ok(!calls.some((c) => c.id === id2), "completion suppressed for fork (B inherits nothing)");
+  ok(
+    !calls.some((c) => c.id === id2),
+    "completion suppressed for fork (B inherits nothing)",
+  );
 
-  // 6b. shell owned by A completes while A is active -> owner gets the notice
+  // 5b. shell owned by A completes while A is active -> owner gets the notice
   setCurrentScope(A);
   const m3 = marker("a");
   const r3 = await runShell(
-    `sleep 0.5; echo done > ${m3}`, 0.2, env(A), undefined, undefined, "supp-a", 30, truncation, tunables,
+    `sleep 0.5; echo done > ${m3}`,
+    0.2,
+    env(A),
+    undefined,
+    undefined,
+    "supp-a",
+    30,
+    truncation,
+    tunables,
   );
-  ok(r3.status === "running" && !!r3.id, "backgrounded A-owned shell while A active (status=" + r3.status + ")");
+  ok(
+    r3.status === "running" && !!r3.id,
+    "backgrounded A-owned shell while A active (status=" + r3.status + ")",
+  );
   const id3 = r3.id!;
   ok(await waitMarker(m3), "A-owned shell completed while A active");
   await new Promise((res) => setTimeout(res, 150));
-  ok(calls.some((c) => c.id === id3), "owner (A) gets the completion notice when active");
+  ok(
+    calls.some((c) => c.id === id3),
+    "owner (A) gets the completion notice when active",
+  );
 
-  // 7. completed-shell markers: off-screen completions persist + surface on resume.
-  //    6a wrote a marker for id2 (suppressed); 6b wrote none for id3 (owner active).
+  // 6. completed-shell markers: off-screen completions persist + surface on resume.
+  //    5a wrote a marker for id2 (suppressed); 5b wrote none for id3 (owner active).
   const doneA = await readCompletedRecords(sessDir, A);
   ok(
     doneA.some((r) => r.pid === id2 && r.exitCode === 0),
     "suppressed completion persisted a marker (id2, exit 0)",
   );
-  ok(!doneA.some((r) => r.pid === id3), "owner-active completion wrote no marker (id3)");
+  ok(
+    !doneA.some((r) => r.pid === id3),
+    "owner-active completion wrote no marker (id3)",
+  );
   const summary = formatCompletedSummary(doneA);
   ok(
     /completed while you were away/.test(summary) && summary.includes(id2),
@@ -152,7 +219,9 @@ try {
   setCurrentScope(A);
   killAll();
 
-  console.log(`\n${fail === 0 ? "ALL PASS" : "FAILURES: " + fail} (${pass} ok)`);
+  console.log(
+    `\n${fail === 0 ? "ALL PASS" : "FAILURES: " + fail} (${pass} ok)`,
+  );
 } finally {
   rmSync(sessDir, { recursive: true, force: true });
   rmSync(xdgDir, { recursive: true, force: true });

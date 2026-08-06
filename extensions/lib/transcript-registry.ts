@@ -24,7 +24,9 @@ export interface ToolCallBlock {
 }
 
 // Markdown lines for the block, or null to defer to the default XML renderer.
-export type ToolCallMarkdownRenderer = (block: ToolCallBlock) => string[] | null;
+export type ToolCallMarkdownRenderer = (
+  block: ToolCallBlock,
+) => string[] | null;
 
 // Bound recursion: tool-call args are JSON-deserialized (no cycles possible),
 // but a pathological nesting depth must not overflow the stack. Truncate beyond.
@@ -88,7 +90,7 @@ function idState(): IdState {
   if (
     existing &&
     typeof existing === "object" &&
- (existing as IdState).map instanceof Map
+    (existing as IdState).map instanceof Map
   ) {
     return existing as IdState;
   }
@@ -100,7 +102,8 @@ function idState(): IdState {
 /** First 2 alphanumeric chars of toolName lowercased, fallback `"tc"`. */
 function prefixFor(toolName: string): string {
   const match = String(toolName).match(/[A-Za-z0-9]/g);
-  if (match && match.length >= 2) return match.slice(0, 2).join("").toLowerCase();
+  if (match && match.length >= 2)
+    return match.slice(0, 2).join("").toLowerCase();
   if (match && match.length === 1) return match[0].toLowerCase();
   return "tc";
 }
@@ -110,7 +113,10 @@ function prefixFor(toolName: string): string {
  * correlation across the transcript. Returns `""` for a falsy realId
  * (preserves current empty-id behavior). Display-only.
  */
-export function shortToolCallId(realId: string | undefined, toolName: string): string {
+export function shortToolCallId(
+  realId: string | undefined,
+  toolName: string,
+): string {
   if (!realId) return "";
   const st = idState();
   const existing = st.map.get(realId);
@@ -148,10 +154,17 @@ function sanitizeTag(name: string): string {
 }
 
 function isScalar(v: unknown): v is string | number | boolean {
-  return typeof v === "string" || typeof v === "number" || typeof v === "boolean";
+  return (
+    typeof v === "string" || typeof v === "number" || typeof v === "boolean"
+  );
 }
 
-function pushXml(tag: string, value: unknown, depth: number, out: string[]): void {
+function pushXml(
+  tag: string,
+  value: unknown,
+  depth: number,
+  out: string[],
+): void {
   const pad = "  ".repeat(depth);
   if (value === null || value === undefined) {
     out.push(`${pad}<${tag}/>`);

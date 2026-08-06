@@ -1,23 +1,4 @@
-/**
- * cpi system-prompt builder — fully replaces pi-core's buildSystemPrompt.
- *
- * Why cpi owns this instead of relying on pi-core + a transform:
- *   1. Drops the redundant "Available tools" prose list. The model already
- *      receives full tool schemas (name + description + parameters) via the
- *      provider's `tools` parameter (Anthropic inlines them into the prompt
- *      prefix; OpenAI-compat chat templates inject them too), so a one-line
- *      duplicate listing is pure token waste.
- *   2. Drops the `<available_skills>` block. The skill tool's own `description`
- *      already enumerates available skills dynamically, so the block is also
- *      redundant. (The skill extension's `strip-skills` transform is now a
- *      harmless no-op, left in place.)
- *   3. Uses the LIVE cwd from lib/cwd.ts (follows `set_cwd`) instead of pi's
- *      startup snapshot, so "Current working directory" stays correct after
- *      the agent moves between projects/trees.
- *
- * Invoked once per turn from the core extension's `before_agent_start`, then
- * the registered transforms (cpi-rules, caveman, llm-editor) apply on top.
- */
+/** Replaces pi-core's buildSystemPrompt: drops the redundant "Available tools" / <available_skills> prose (tool schemas and the skill tool's description already carry both) and uses the live cwd (lib/cwd.ts) so the working-directory line follows set_cwd. */
 import {
   getDocsPath,
   getExamplesPath,
@@ -36,7 +17,8 @@ function dateStr(): string {
 
 function contextBlock(files: { path: string; content: string }[]): string {
   if (files.length === 0) return "";
-  let out = "\n\n<project_context>\n\nProject-specific instructions and guidelines:\n\n";
+  let out =
+    "\n\n<project_context>\n\nProject-specific instructions and guidelines:\n\n";
   for (const { path, content } of files) {
     out += `<file path="${path}">\n${content}\n</file>\n\n`;
   }
@@ -45,7 +27,10 @@ function contextBlock(files: { path: string; content: string }[]): string {
 }
 
 function defaultPrompt(guidelines: string[]): string {
-  const g = guidelines.length > 0 ? guidelines.map((x) => `- ${x}`).join("\n") : "(none)";
+  const g =
+    guidelines.length > 0
+      ? guidelines.map((x) => `- ${x}`).join("\n")
+      : "(none)";
   return `You are an expert coding assistant operating inside pi, a coding agent harness. You help users by reading files, executing commands, editing code, and writing new files.
 
 Guidelines:
@@ -61,13 +46,17 @@ Pi documentation (read only when the user asks about pi itself, its SDK, extensi
 - Always read pi .md files completely and follow links to related docs (e.g., tui.md for TUI API details)`;
 }
 
-/** Build cpi's system prompt from `systemPromptOptions`. Replaces pi-core's. */
-export function buildCpiSystemPrompt(options: BuildSystemPromptOptions, renderCtx?: Record<string, unknown>): string {
-  const { customPrompt, promptGuidelines, appendSystemPrompt, contextFiles = [] } = options;
+export function buildCpiSystemPrompt(
+  options: BuildSystemPromptOptions,
+  renderCtx?: Record<string, unknown>,
+): string {
+  const {
+    customPrompt,
+    promptGuidelines,
+    appendSystemPrompt,
+    contextFiles = [],
+  } = options;
 
-  // Per-tool guidelines: rendered as mustache templates against the per-turn
-  // renderCtx (e.g. {{#vision}}...{{/vision}}), then pruned of empties so a
-  // falsy section (renders to "") is dropped. Plus the always-on baselines.
   const guidelines = (promptGuidelines ?? [])
     .map((g) => render(g, renderCtx).trim())
     .filter((g) => g.length > 0);

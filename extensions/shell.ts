@@ -7,7 +7,10 @@
 
 import { Type } from "typebox";
 import { renderShCall, renderShResult } from "./shell/render.ts";
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type {
+  ExtensionAPI,
+  ExtensionContext,
+} from "@earendil-works/pi-coding-agent";
 import { loadShellConfig } from "./lib/config.ts";
 import { checkShellPoll } from "./lib/poll-guard.ts";
 import { sendNotification, type NotificationKind } from "./lib/notification.ts";
@@ -36,13 +39,19 @@ import {
 import { createRepeatTool, getActiveRepeats } from "./shell/repeat.ts";
 import { resolveShell, type ShellProfile } from "./shell/profile.ts";
 import { registerShellTranscriptRenderers } from "./shell/transcript.ts";
-import { createShellStatusRefresher, type ShellStatusRefresher } from "./shell/status.ts";
+import {
+  createShellStatusRefresher,
+  type ShellStatusRefresher,
+} from "./shell/status.ts";
 import { analyzeCommand, unsupportedDialectMessage } from "./shell/analyze.ts";
 import { surfaceCdAgents } from "./shell/cd-targets.ts";
 import { runLspHook } from "./shell/lsp-hook.ts";
 import { formatAgentsBlock } from "./lib/agents.ts";
 import { loadText, render, renderLines, textPath } from "./lib/text.ts";
-import { notifyForkedShells, notifyOrphanedShells, surfaceCompletedShells } from "./shell/orphan.ts";
+import {
+  notifyOrphanedShells,
+  surfaceCompletedShells,
+} from "./shell/orphan.ts";
 const SH_TOOL = "sh",
   SH_SIGNAL_TOOL = "sh_signal",
   SH_DETACH_TOOL = "sh_detach",
@@ -53,8 +62,17 @@ interface ShellText {
   sh_signal: { description: string; prompt_snippet: string };
   sh_detach: { description: string; prompt_snippet: string };
   sh_background_ps: { description: string; prompt_snippet: string };
-  guidelines: { sh: string[]; sh_signal: string[]; sh_detach: string[]; sh_background_ps: string[] };
-  schema: { sh: Record<string, string>; sh_signal: Record<string, string>; sh_detach: Record<string, string> };
+  guidelines: {
+    sh: string[];
+    sh_signal: string[];
+    sh_detach: string[];
+    sh_background_ps: string[];
+  };
+  schema: {
+    sh: Record<string, string>;
+    sh_signal: Record<string, string>;
+    sh_detach: Record<string, string>;
+  };
 }
 const SLEEP_UNITS: Record<string, number> = { s: 1, m: 60, h: 3600, d: 86400 };
 let shellStatus: ShellStatusRefresher | null = null;
@@ -63,14 +81,15 @@ function disableBuiltinBash(pi: ExtensionAPI): void {
   const active = pi.getActiveTools();
   const all = pi.getAllTools();
   const withoutBash = active.filter((name) => {
-    const tool = all.find((t) => t.name === name && t.sourceInfo?.source === "builtin");
+    const tool = all.find(
+      (t) => t.name === name && t.sourceInfo?.source === "builtin",
+    );
     return tool?.name !== "bash";
   });
   if (withoutBash.length !== active.length) {
     pi.setActiveTools(withoutBash);
   }
 }
-
 
 export default async function (pi: ExtensionAPI) {
   const cfg = loadShellConfig();
@@ -91,7 +110,13 @@ export default async function (pi: ExtensionAPI) {
   };
 
   const availability = await ensureShellTools().catch(
-    () => ({ fd: false, rg: false, shuck: false, treeSitter: false }) as ToolAvailability,
+    () =>
+      ({
+        fd: false,
+        rg: false,
+        shuck: false,
+        treeSitter: false,
+      }) as ToolAvailability,
   );
   setCompletionHook((id, cmd, code, reason, log) => {
     signalHoldEvent();
@@ -110,7 +135,8 @@ export default async function (pi: ExtensionAPI) {
       : code === 0
         ? `Shell ${id} completed on exit ${code}`
         : `Shell ${id} command failed on exit ${code ?? "unknown"}`;
-    const hasRange = log && log.startLine !== undefined && log.endLine !== undefined;
+    const hasRange =
+      log && log.startLine !== undefined && log.endLine !== undefined;
     const summary = log
       ? `${base}; log ${log.path}${hasRange ? ` lines ${log.startLine}..${log.endLine}` : ""}`
       : base;
@@ -153,7 +179,10 @@ export default async function (pi: ExtensionAPI) {
     parameters: shSchema,
     async execute(_toolCallId, params, signal, onUpdate, ctx) {
       if (signal?.aborted)
-        return { content: [{ type: "text", text: "Aborted before start." }], isError: true };
+        return {
+          content: [{ type: "text", text: "Aborted before start." }],
+          isError: true,
+        };
       if (params.waitfor !== undefined && params.waitfor > MAX_WAITFOR)
         return {
           content: [
@@ -168,7 +197,9 @@ export default async function (pi: ExtensionAPI) {
       const effectiveWaitfor = params.waitfor ?? DEFAULT_WAITFOR;
       // Inline sleep guard
       const sleepMatch = [
-        ...params.command.matchAll(/(?:^|\s)sleep\s+(\d+(?:\.\d+)?)\s*([smhd])?\s*&&/g),
+        ...params.command.matchAll(
+          /(?:^|\s)sleep\s+(\d+(?:\.\d+)?)\s*([smhd])?\s*&&/g,
+        ),
       ]
         .map((m) => parseFloat(m[1]) * (m[2] ? SLEEP_UNITS[m[2]] : 1))
         .find((sec) => sec > effectiveWaitfor);
@@ -193,24 +224,40 @@ export default async function (pi: ExtensionAPI) {
       });
       if (analysis.status === "unsupported-dialect") {
         return {
-          content: [{ type: "text", text: unsupportedDialectMessage(analysis.unsupported!) }],
+          content: [
+            {
+              type: "text",
+              text: unsupportedDialectMessage(analysis.unsupported!),
+            },
+          ],
           isError: true,
         };
       }
       const { parse } = analysis;
       if (analysis.errorText) {
-        const { text, fullOutputPath } = await buildOutputText(analysis.errorText, {
-          persistIfTruncated: true,
-          emptyText: "(no detail)",
-          truncation,
-          tunables,
-        });
+        const { text, fullOutputPath } = await buildOutputText(
+          analysis.errorText,
+          {
+            persistIfTruncated: true,
+            emptyText: "(no detail)",
+            truncation,
+            tunables,
+          },
+        );
         const count = analysis.errorCount;
         return {
           content: [
-            { type: "text", text: `${text}\n---\nblocked (${count} error${count !== 1 ? "s" : ""})` },
+            {
+              type: "text",
+              text: `${text}\n---\nblocked (${count} error${count !== 1 ? "s" : ""})`,
+            },
           ],
-          details: { fullOutputPath, describe, shuckBlocked: true, tsAst: parse.ast },
+          details: {
+            fullOutputPath,
+            describe,
+            shuckBlocked: true,
+            tsAst: parse.ast,
+          },
           isError: true,
         };
       }
@@ -225,7 +272,11 @@ export default async function (pi: ExtensionAPI) {
         effectiveWaitfor,
         buildShellEnvWithDotenv(ctx?.sessionManager, params.env),
         signal,
-        (t) => onUpdate?.({ content: [{ type: "text", text: t }], details: undefined }),
+        (t) =>
+          onUpdate?.({
+            content: [{ type: "text", text: t }],
+            details: undefined,
+          }),
         describe,
         MAX_WAITFOR,
         truncation,
@@ -239,7 +290,8 @@ export default async function (pi: ExtensionAPI) {
           ? `running PID=${res.id}${tag}${res.cursor ? ` | ${res.cursor.bytes}B at L${res.cursor.line}:${res.cursor.column} -> ${res.fullOutputPath}` : ""}`
           : `exit ${res.exitCode ?? "unknown"}${tag}`;
       let text = res.text ? `${res.text}\n---\n${status}` : status;
-      if (shuckWarnings) text = `linter warnings:\n${shuckWarnings}\n---\n${text}`;
+      if (shuckWarnings)
+        text = `linter warnings:\n${shuckWarnings}\n---\n${text}`;
       if (slowDown) text = `${slowDown}\n---\n${text}`;
       text += formatAgentsBlock(cdAgents);
       text += await runLspHook(availability.treeSitter ? parse.node : null);
@@ -257,7 +309,10 @@ export default async function (pi: ExtensionAPI) {
           tsAst: parse.ast,
           cdAgentsFiles: cdAgents.map((f) => f.path),
         },
-        isError: res.status === "completed" && res.exitCode !== 0 && res.exitCode !== null,
+        isError:
+          res.status === "completed" &&
+          res.exitCode !== 0 &&
+          res.exitCode !== null,
       };
     },
     renderCall(args, theme, context) {
@@ -284,7 +339,9 @@ export default async function (pi: ExtensionAPI) {
       const signal = params.signal ?? "SIGINT";
       if (!signalChild(params.id, signal))
         return {
-          content: [{ type: "text", text: `Background ${params.id} not active.` }],
+          content: [
+            { type: "text", text: `Background ${params.id} not active.` },
+          ],
           isError: true,
         };
       // Only SIGKILL terminates the process group (guaranteed exit) so only
@@ -300,7 +357,11 @@ export default async function (pi: ExtensionAPI) {
           : `Sent ${signal} to ${params.id}.`;
       return {
         content: [{ type: "text", text }],
-        details: { id: params.id, signal, completionNoticeSuppressed: isShell && isKill },
+        details: {
+          id: params.id,
+          signal,
+          completionNoticeSuppressed: isShell && isKill,
+        },
       };
     },
   });
@@ -318,7 +379,9 @@ export default async function (pi: ExtensionAPI) {
       const logPath = detachChild(params.id);
       if (!logPath)
         return {
-          content: [{ type: "text", text: `Background ${params.id} not active.` }],
+          content: [
+            { type: "text", text: `Background ${params.id} not active.` },
+          ],
           isError: true,
         };
       return {
@@ -334,7 +397,15 @@ export default async function (pi: ExtensionAPI) {
   });
 
   pi.registerTool(
-    createRepeatTool(pi, DEFAULT_WAITFOR, MAX_WAITFOR, TAIL_LINES, DESCRIBE_MAX, availability, shell),
+    createRepeatTool(
+      pi,
+      DEFAULT_WAITFOR,
+      MAX_WAITFOR,
+      TAIL_LINES,
+      DESCRIBE_MAX,
+      availability,
+      shell,
+    ),
   );
   registerShellTranscriptRenderers();
 
@@ -351,15 +422,22 @@ export default async function (pi: ExtensionAPI) {
       const total = bgs.length + rpts.length;
       if (total === 0) {
         return {
-          content: [{ type: "text", text: "no active background shells or monitors" }],
+          content: [
+            { type: "text", text: "no active background shells or monitors" },
+          ],
           isError: false,
         };
       }
       const parts: string[] = [];
-      if (bgs.length) parts.push(`${bgs.length} bg shell${bgs.length !== 1 ? "s" : ""}`);
-      if (rpts.length) parts.push(`${rpts.length} monitor${rpts.length !== 1 ? "s" : ""}`);
+      if (bgs.length)
+        parts.push(`${bgs.length} bg shell${bgs.length !== 1 ? "s" : ""}`);
+      if (rpts.length)
+        parts.push(`${rpts.length} monitor${rpts.length !== 1 ? "s" : ""}`);
       const entries = [...bgs, ...rpts]
-        .map((e) => `[${e.id}${e.describe ? " " + truncateDescribe(e.describe) : ""}]`)
+        .map(
+          (e) =>
+            `[${e.id}${e.describe ? " " + truncateDescribe(e.describe) : ""}]`,
+        )
         .join(" ");
       return {
         content: [{ type: "text", text: `${parts.join(", ")}: ${entries}` }],
@@ -375,10 +453,11 @@ export default async function (pi: ExtensionAPI) {
     const dir = ctx.sessionManager?.getSessionDir();
     const scope = ctx.sessionManager?.getSessionId();
     setCurrentScope(scope);
-    if (event.reason !== "fork" && event.reason !== "reload") await surfaceCompletedShells(dir, scope);
+    if (event.reason !== "fork" && event.reason !== "reload")
+      await surfaceCompletedShells(dir, scope);
     void resumeBackgroundShells(dir, scope);
-    if (event.reason === "fork") void notifyForkedShells(dir, event.previousSessionFile);
-    else if (event.reason !== "reload") void notifyOrphanedShells(dir, scope);
+    if (event.reason !== "fork" && event.reason !== "reload")
+      void notifyOrphanedShells(dir, scope);
     pi.setActiveTools(
       Array.from(
         new Set([
@@ -399,7 +478,10 @@ export default async function (pi: ExtensionAPI) {
     hasPending: () => hasActiveBackground(),
     noticeText: () =>
       `active background shells: ${getActiveBackgrounds()
-        .map((b) => `[${b.id}${b.describe ? " " + truncateDescribe(b.describe) : ""}]`)
+        .map(
+          (b) =>
+            `[${b.id}${b.describe ? " " + truncateDescribe(b.describe) : ""}]`,
+        )
         .join(", ")}`,
     deadlineMs: 5 * 60 * 1000,
     onAbort: killAll,

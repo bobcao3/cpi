@@ -1,8 +1,4 @@
-/**
- * AST-based shell command rule engine.
- * "reject" blocks execution; "warn" surfaces to agent only.
- * To add a rule: append an AstRule to `defaultRules`.
- */
+/** Shell command rule engine; append an AstRule to defaultRules to add a rule. */
 
 import type { JsonNode as Node } from "../lib/tree-sitter.ts";
 
@@ -29,9 +25,12 @@ export interface RuleCheckResult {
   warnings: RuleMatch[];
 }
 
-// ── Helpers ──
-
-const match = (n: Node, rule: string, action: RuleAction, msg: string): RuleMatch => ({
+const match = (
+  n: Node,
+  rule: string,
+  action: RuleAction,
+  msg: string,
+): RuleMatch => ({
   rule,
   action,
   message: msg,
@@ -42,24 +41,22 @@ const commands = (r: Node): Node[] => r.descendantsOfType("command");
 const cmdName = (c: Node): string => resolveEffectiveCommand(c).name;
 const cmdArgs = (c: Node): string[] => resolveEffectiveCommand(c).args;
 
-// ── Wrapper resolution (command policy) ──
-//
 // tree-sitter-bash parses `noglob rm -rf /` as command name `noglob` with `rm`
-// as the first argument, so raw name inspection misses the effective command.
-// We peel shell precommand/wrapper modifiers to the effective executable before
-// the direct-command rules run. This is defense-in-depth command-policy
-// extraction on top of Shuck's dialect-specific lint path; the bundled grammar
-// is not claimed to be a native zsh/mksh parser.
+// as first arg, so raw name inspection misses the effective executable. Peel
+// precommand wrappers to the effective command; unknown options/limits → breach (refuse, never guess).
 
 const MAX_WRAPPER_DEPTH = 4;
 const MAX_WRAPPER_ARG_SCAN = 64;
-/** Shell precommand/wrapper modifiers recognized by basename (so `/usr/bin/env` peels). */
-const WRAPPER_MODIFIERS = new Set(["noglob", "nocorrect", "command", "builtin", "exec", "env"]);
+const WRAPPER_MODIFIERS = new Set([
+  "noglob",
+  "nocorrect",
+  "command",
+  "builtin",
+  "exec",
+  "env",
+]);
 
-/** Per-wrapper option classification. Each option token is exactly one of:
- * flag (boolean), value (consumes the next arg, or inline `--name=value`), info
- * (non-executing → stop, resolved), or split (split-string → breach). Any token
- * not in these known sets (and not `--`) is unsupported → breach, never guessed. */
+/** Option kinds: flag (bool), value (next arg or --name=value), info (non-executing → resolved), split (split-string → breach); unknown → breach. */
 interface WrapperSpec {
   flag: Set<string>;
   value: Set<string>;
@@ -74,23 +71,46 @@ interface WrapperSpec {
 const setOfChars = (s: string): Set<string> => new Set(s ? s.split("") : []);
 const setOfNames = (s: string): Set<string> => new Set(s ? s.split(",") : []);
 const NO_OPTS: WrapperSpec = {
-  flag: new Set(), value: new Set(), info: new Set(), split: new Set(),
-  flagLong: new Set(), valueLong: new Set(), infoLong: new Set(), splitLong: new Set(),
+  flag: new Set(),
+  value: new Set(),
+  info: new Set(),
+  split: new Set(),
+  flagLong: new Set(),
+  valueLong: new Set(),
+  infoLong: new Set(),
+  splitLong: new Set(),
 };
 
 const WRAPPER_SPECS: Record<string, WrapperSpec> = {
   env: {
-    flag: setOfChars("i"), value: setOfChars("uC"), info: setOfChars(""), split: setOfChars("S"),
-    flagLong: setOfNames("ignore-environment,debug"), valueLong: setOfNames("unset,chdir"),
-    infoLong: setOfNames(""), splitLong: setOfNames("split-string"),
+    flag: setOfChars("i"),
+    value: setOfChars("uC"),
+    info: setOfChars(""),
+    split: setOfChars("S"),
+    flagLong: setOfNames("ignore-environment,debug"),
+    valueLong: setOfNames("unset,chdir"),
+    infoLong: setOfNames(""),
+    splitLong: setOfNames("split-string"),
   },
   command: {
-    flag: setOfChars("p"), value: setOfChars(""), info: setOfChars("vV"), split: setOfChars(""),
-    flagLong: setOfNames(""), valueLong: setOfNames(""), infoLong: setOfNames(""), splitLong: setOfNames(""),
+    flag: setOfChars("p"),
+    value: setOfChars(""),
+    info: setOfChars("vV"),
+    split: setOfChars(""),
+    flagLong: setOfNames(""),
+    valueLong: setOfNames(""),
+    infoLong: setOfNames(""),
+    splitLong: setOfNames(""),
   },
   exec: {
-    flag: setOfChars("lc"), value: setOfChars("a"), info: setOfChars(""), split: setOfChars(""),
-    flagLong: setOfNames(""), valueLong: setOfNames(""), infoLong: setOfNames(""), splitLong: setOfNames(""),
+    flag: setOfChars("lc"),
+    value: setOfChars("a"),
+    info: setOfChars(""),
+    split: setOfChars(""),
+    flagLong: setOfNames(""),
+    valueLong: setOfNames(""),
+    infoLong: setOfNames(""),
+    splitLong: setOfNames(""),
   },
   builtin: NO_OPTS,
   noglob: NO_OPTS,
@@ -100,20 +120,15 @@ const WRAPPER_SPECS: Record<string, WrapperSpec> = {
 interface EffectiveCommand {
   name: string;
   args: string[];
-  /** "resolved" = name is a real command (or an intentionally non-executing
-   * wrapper such as `command -v`); "breach" = a safety limit was hit before the
-   * effective command could be resolved, so it is unknown. */
   resolution: "resolved" | "breach";
-  /** Present iff resolution === "breach"; empty otherwise. */
   breachReason: string;
 }
 
-/** One layer of wrapper peeling. */
 type PeelResult =
   | { kind: "word"; name: string; args: string[] }
   | { kind: "info" } // non-executing (e.g. `command -v`): stop, resolved — not a breach
-  | { kind: "no-command" } // no plain word and no args remain — benign
-  | { kind: "breach"; reason: string }; // split-string, unsupported option, or scan limit
+  | { kind: "no-command" }
+  | { kind: "breach"; reason: string };
 
 const effectiveCache = new WeakMap<Node, EffectiveCommand>();
 
@@ -121,7 +136,6 @@ function isVarAssignment(token: string): boolean {
   return /^[A-Za-z_][A-Za-z0-9_]*=/.test(token);
 }
 
-/** Basename of a (possibly path-qualified) command name, preserving no directory. */
 function wrapperBasename(name: string): string {
   const slash = Math.max(name.lastIndexOf("/"), name.lastIndexOf("\\"));
   return slash >= 0 ? name.slice(slash + 1) : name;
@@ -149,27 +163,19 @@ function classifyLong(spec: WrapperSpec, nm: string): OptKind {
   return "unknown";
 }
 
-/** Raw name + args of a command node, excluding leading env assignments from args. */
 function rawCommand(cmd: Node): EffectiveCommand {
   return {
     name: cmd.childForFieldName("name")?.text ?? "",
     args: cmd.namedChildren
-      .filter((ch) => ch.type !== "command_name" && ch.type !== "variable_assignment")
+      .filter(
+        (ch) => ch.type !== "command_name" && ch.type !== "variable_assignment",
+      )
       .map((ch) => ch.text),
     resolution: "resolved",
     breachReason: "",
   };
 }
 
-/**
- * Peel one wrapper modifier layer with explicit, bounded option sets. Only
- * known flag/value/info/split options and `--` are recognized; everything else
- * is an unsupported option → breach. `env -S`/`--split-string` (any form) →
- * breach (split-string executes an encoded command; not parsed). `command -v`/
- * `-V` and other info options → stop, resolved (non-executing). No plain word
- * and no args remain → no-command. Scan limit reached with args remaining →
- * breach.
- */
 function peelWrapper(name: string, args: string[]): PeelResult {
   const spec = specFor(name);
   const isEnv = wrapperBasename(name) === "env";
@@ -177,46 +183,70 @@ function peelWrapper(name: string, args: string[]): PeelResult {
   let i = 0;
   while (i < limit) {
     const a = args[i];
-    // "--" ends options; the next token is the command (even if option-like).
     if (a === "--") {
       i++;
-      return i < args.length ? { kind: "word", name: args[i], args: args.slice(i + 1) } : { kind: "no-command" };
+      return i < args.length
+        ? { kind: "word", name: args[i], args: args.slice(i + 1) }
+        : { kind: "no-command" };
     }
-    // Long option: --name or --name=value
     if (a.startsWith("--")) {
       const eq = a.indexOf("=");
       const nm = eq >= 0 ? a.slice(2, eq) : a.slice(2);
       const kind = classifyLong(spec, nm);
-      if (kind === "split") return { kind: "breach", reason: `split-string option ${a}` };
+      if (kind === "split")
+        return { kind: "breach", reason: `split-string option ${a}` };
       if (kind === "info") return { kind: "info" };
-      if (kind === "flag" || (kind === "value" && eq >= 0)) { i++; continue; }
-      if (kind === "value") { if (i + 1 < limit) { i += 2; continue; } break; }
+      if (kind === "flag" || (kind === "value" && eq >= 0)) {
+        i++;
+        continue;
+      }
+      if (kind === "value") {
+        if (i + 1 < limit) {
+          i += 2;
+          continue;
+        }
+        break;
+      }
       return { kind: "breach", reason: `unsupported option ${a}` };
     }
-    // Short option(s): only exact single-char `-x` is recognized; attached
-    // (`-Sstring`) or combined (`-ix`) forms are ambiguous → breach (split recognized).
+    // Only exact single-char short options are recognized; attached/combined forms are ambiguous → breach.
     if (a.startsWith("-") && a.length > 1) {
       if (a.length !== 2) {
-        if (spec.split.has(a[1])) return { kind: "breach", reason: `split-string option ${a}` };
+        if (spec.split.has(a[1]))
+          return { kind: "breach", reason: `split-string option ${a}` };
         return { kind: "breach", reason: `unsupported option ${a}` };
       }
       const kind = classifyShort(spec, a[1]);
-      if (kind === "split") return { kind: "breach", reason: `split-string option ${a}` };
+      if (kind === "split")
+        return { kind: "breach", reason: `split-string option ${a}` };
       if (kind === "info") return { kind: "info" };
-      if (kind === "flag") { i++; continue; }
-      if (kind === "value") { if (i + 1 < limit) { i += 2; continue; } break; }
+      if (kind === "flag") {
+        i++;
+        continue;
+      }
+      if (kind === "value") {
+        if (i + 1 < limit) {
+          i += 2;
+          continue;
+        }
+        break;
+      }
       return { kind: "breach", reason: `unsupported option ${a}` };
     }
-    // Not an option (or bare "-"): env skips VAR=value assignments here.
-    if (isEnv && isVarAssignment(a)) { i++; continue; }
+    if (isEnv && isVarAssignment(a)) {
+      i++;
+      continue;
+    }
     return { kind: "word", name: a, args: args.slice(i + 1) };
   }
   if (args.length > MAX_WRAPPER_ARG_SCAN)
-    return { kind: "breach", reason: `argument scan exceeded ${MAX_WRAPPER_ARG_SCAN} tokens` };
+    return {
+      kind: "breach",
+      reason: `argument scan exceeded ${MAX_WRAPPER_ARG_SCAN} tokens`,
+    };
   return { kind: "no-command" };
 }
 
-/** Resolve a command node to its effective executable + args after peeling wrappers. */
 export function resolveEffectiveCommand(cmd: Node): EffectiveCommand {
   const cached = effectiveCache.get(cmd);
   if (cached) return cached;
@@ -229,13 +259,20 @@ export function resolveEffectiveCommand(cmd: Node): EffectiveCommand {
       cur = { ...cur, name: peeled.name, args: peeled.args };
       continue;
     }
-    if (peeled.kind === "breach") cur = { ...cur, resolution: "breach", breachReason: peeled.reason };
+    if (peeled.kind === "breach")
+      cur = { ...cur, resolution: "breach", breachReason: peeled.reason };
     break;
   }
-  // Loop exhausted all MAX_WRAPPER_DEPTH iterations without breaking on a real
-  // command and the name is still a wrapper → depth breach.
-  if (cur.resolution !== "breach" && depth === MAX_WRAPPER_DEPTH && isWrapperName(cur.name))
-    cur = { ...cur, resolution: "breach", breachReason: `wrapper nesting exceeded depth ${MAX_WRAPPER_DEPTH}` };
+  if (
+    cur.resolution !== "breach" &&
+    depth === MAX_WRAPPER_DEPTH &&
+    isWrapperName(cur.name)
+  )
+    cur = {
+      ...cur,
+      resolution: "breach",
+      breachReason: `wrapper nesting exceeded depth ${MAX_WRAPPER_DEPTH}`,
+    };
   effectiveCache.set(cmd, cur);
   return cur;
 }
@@ -248,7 +285,8 @@ function hasStdinSource(cmd: Node): boolean {
     if (p.type === "pipeline" && n.previousNamedSibling) return true;
     if (p.type === "redirected_statement") {
       const r = p.childForFieldName("redirect");
-      if (r?.type === "heredoc_redirect" || r?.type === "herestring_redirect") return true;
+      if (r?.type === "heredoc_redirect" || r?.type === "herestring_redirect")
+        return true;
       if (r?.type === "file_redirect" && r.child(0)?.text === "<") return true;
     }
     if (p.type === "program") break;
@@ -257,7 +295,6 @@ function hasStdinSource(cmd: Node): boolean {
   return false;
 }
 
-/** Rule that checks each command against a predicate. */
 function cmdRule(
   name: string,
   action: RuleAction,
@@ -276,8 +313,6 @@ function cmdRule(
   };
 }
 
-// ── Rules ──
-
 const defaultRules: AstRule[] = [
   cmdRule("no-rm-rf-root", "reject", "rm -rf on root filesystem", (cmd) => {
     const name = cmdName(cmd);
@@ -290,15 +325,21 @@ const defaultRules: AstRule[] = [
     return (
       (flags.includes("r") || args.includes("--recursive")) &&
       (flags.includes("f") || args.includes("--force")) &&
-      args.filter((a) => !a.startsWith("-")).some((t) => ["/", "/*", "/.", "/.."].includes(t))
+      args
+        .filter((a) => !a.startsWith("-"))
+        .some((t) => ["/", "/*", "/.", "/.."].includes(t))
     );
   }),
-  cmdRule("no-mkfs", "reject", "filesystem formatting", (cmd) => cmdName(cmd).startsWith("mkfs")),
+  cmdRule("no-mkfs", "reject", "filesystem formatting", (cmd) =>
+    cmdName(cmd).startsWith("mkfs"),
+  ),
   cmdRule(
     "warn-chmod-777",
     "warn",
     "chmod 777 grants world read/write/execute",
-    (cmd) => cmdName(cmd) === "chmod" && cmdArgs(cmd).some((a) => a === "777" || a === "a+rwx"),
+    (cmd) =>
+      cmdName(cmd) === "chmod" &&
+      cmdArgs(cmd).some((a) => a === "777" || a === "a+rwx"),
   ),
   cmdRule(
     "warn-eval",
@@ -320,7 +361,9 @@ const defaultRules: AstRule[] = [
     (cmd) => {
       const n = cmdName(cmd);
       return (
-        ["grep", "egrep", "fgrep"].includes(n) && n !== "/usr/bin/grep" && !hasStdinSource(cmd)
+        ["grep", "egrep", "fgrep"].includes(n) &&
+        n !== "/usr/bin/grep" &&
+        !hasStdinSource(cmd)
       );
     },
     (ctx) => ctx.rgAvailable,
@@ -334,11 +377,21 @@ const defaultRules: AstRule[] = [
       return root
         .descendantsOfType("pipeline")
         .filter((p) => {
-          const names = p.namedChildren.filter((c) => c.type === "command").map(cmdName);
-          return names.some((n) => dl.includes(n)) && names.some((n) => sh.includes(n));
+          const names = p.namedChildren
+            .filter((c) => c.type === "command")
+            .map(cmdName);
+          return (
+            names.some((n) => dl.includes(n)) &&
+            names.some((n) => sh.includes(n))
+          );
         })
         .map((p) =>
-          match(p, "no-curl-pipe-shell", "reject", "piping remote content to shell (RCE)"),
+          match(
+            p,
+            "no-curl-pipe-shell",
+            "reject",
+            "piping remote content to shell (RCE)",
+          ),
         );
     },
   },
@@ -352,7 +405,12 @@ const defaultRules: AstRule[] = [
           cmdArgs(c).some(
             (a) =>
               a.startsWith("of=/dev/") &&
-              !["of=/dev/null", "of=/dev/zero", "of=/dev/random", "of=/dev/urandom"].includes(a),
+              ![
+                "of=/dev/null",
+                "of=/dev/zero",
+                "of=/dev/random",
+                "of=/dev/urandom",
+              ].includes(a),
           ),
         )
         .map((c) =>
@@ -390,8 +448,6 @@ const defaultRules: AstRule[] = [
     },
   },
 ];
-
-// ── Engine ──
 
 export function checkRules(
   root: Node,

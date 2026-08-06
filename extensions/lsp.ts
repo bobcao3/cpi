@@ -1,11 +1,7 @@
 /**
- * `lsp` — sole owner of the LSP subsystem (design §7, §11, §14).
- *
- * Registers unconditionally at load (no globalThis dedup flag — AGENTS.md):
- *   • the `lsp` tool (list_sessions|list_supported_servers|start|stop|check),
- *   • a `session_shutdown` teardown → manager.disposeAll() (idempotent/reentrant).
-* Producers (shell, the view/edit/create tools) are pure clients of
- * lib/lsp/manager.ts — they never register the tool. Single owner ⇒ the shared
+ * lsp — sole owner of the LSP subsystem: registers the `lsp` tool and a
+ * session_shutdown teardown (disposeAll, idempotent/reentrant). Producers
+ * (shell, view/edit/create) are pure clients of lib/lsp/manager.ts — the
  * plumbing is present iff cpi is present.
  */
 import { existsSync } from "node:fs";
@@ -32,10 +28,21 @@ import {
 } from "./lib/lsp/discover.ts";
 import { loadLspConfig } from "./lib/config.ts";
 import { renderDiagnostics } from "./lib/lsp/diagnostics-overflow.ts";
-import { loadText, render, renderLines, textPath, type ToolText } from "./lib/text.ts";
+import {
+  loadText,
+  render,
+  renderLines,
+  textPath,
+  type ToolText,
+} from "./lib/text.ts";
 
 interface LspParams {
-  command: "list_sessions" | "start" | "stop" | "check" | "list_supported_servers";
+  command:
+    | "list_sessions"
+    | "start"
+    | "stop"
+    | "check"
+    | "list_supported_servers";
   project_dir?: string;
   file?: string;
   env?: string;
@@ -50,11 +57,11 @@ function errResult(text: string) {
 
 class UserErr extends Error {}
 
-/** Languages whose project markers are present in `root` (design §7.2). */
 function languagesForRoot(root: string): Language[] {
   const out: Language[] = [];
   for (const lang of Object.keys(LANGUAGE_MARKERS) as Language[]) {
-    if (LANGUAGE_MARKERS[lang].some((m) => existsSync(join(root, m)))) out.push(lang);
+    if (LANGUAGE_MARKERS[lang].some((m) => existsSync(join(root, m))))
+      out.push(lang);
   }
   return out;
 }
@@ -64,19 +71,25 @@ function resolveTarget(
   file: string | undefined,
   projectDir: string | undefined,
 ): { language: Language; root: string } {
-  if (!file && !projectDir) throw new UserErr("provide `file` or `project_dir`.");
+  if (!file && !projectDir)
+    throw new UserErr("provide `file` or `project_dir`.");
   if (file) {
     const abs = resolveCwdPath(file);
     const language = languageByPath(abs);
     if (!language) throw new UserErr(`unrecognized file extension: ${file}`);
-    const root = projectDir ? resolveCwdPath(projectDir) : discoverProjectRoot(abs, language);
+    const root = projectDir
+      ? resolveCwdPath(projectDir)
+      : discoverProjectRoot(abs, language);
     return { language, root };
   }
   const root = resolveCwdPath(projectDir!);
   const langs = languagesForRoot(root);
-  if (langs.length === 0) throw new UserErr(`no known language markers in ${root}; pass \`file=\`.`);
+  if (langs.length === 0)
+    throw new UserErr(`no known language markers in ${root}; pass \`file=\`.`);
   if (langs.length > 1) {
-    throw new UserErr(`multiple languages in ${root} (${langs.join(", ")}); pass \`file=\` to disambiguate.`);
+    throw new UserErr(
+      `multiple languages in ${root} (${langs.join(", ")}); pass \`file=\` to disambiguate.`,
+    );
   }
   return { language: langs[0], root };
 }
@@ -85,26 +98,25 @@ function doList() {
   const sessions = list();
   if (sessions.length === 0) return textResult("No LSP sessions.");
   const header = "id\tlanguage\troot\tbin\tenv\tstate";
-  const rows = sessions.map((s) =>
-    `${s.id}\t${s.language}\t${s.projectRoot}\t${basename(s.bin)}\t${s.envPath ? "env" : "-"}\t${s.state}`,
+  const rows = sessions.map(
+    (s) =>
+      `${s.id}\t${s.language}\t${s.projectRoot}\t${basename(s.bin)}\t${s.envPath ? "env" : "-"}\t${s.state}`,
   );
   return textResult([header, ...rows].join("\n"));
 }
 
-/** `lsp list_supported_servers`: enumerate every supported language, its
- *  extensions, server binary, and how it is provisioned. Dynamic — reflects the
- *  current LSP_LANGUAGES + config, so it stays correct as servers are added or
- *  provisioned differently across harness upgrades / user config. */
+/** Dynamic: reflects current LSP_LANGUAGES + config, so it stays correct as servers change. */
 function doListSupportedServers() {
   const specs = loadAllLspSpecs();
   const lines = LSP_LANGUAGES.map((lang) => {
     const s = specs[lang];
     const exts = s.extensions.join(", ");
-    const install = s.install.method === "env-only"
-      ? "env-only (never auto-installed)"
-      : s.install.method === "reuse"
-        ? "reused (global)"
-        : `${s.install.method}, auto-installed`;
+    const install =
+      s.install.method === "env-only"
+        ? "env-only (never auto-installed)"
+        : s.install.method === "reuse"
+          ? "reused (global)"
+          : `${s.install.method}, auto-installed`;
     return `${lang} (${exts}): ${s.binName} — ${install}`;
   });
   return textResult(lines.join("\n"));
@@ -114,7 +126,8 @@ async function doStart(p: LspParams) {
   const { language, root } = resolveTarget(p.file, p.project_dir);
   const cfg = loadLspConfig();
   const session = await ensureSession(language, root, { envPath: p.env });
-  if (session.state === "starting") await awaitReady(session, cfg.startupTimeoutMs);
+  if (session.state === "starting")
+    await awaitReady(session, cfg.startupTimeoutMs);
   const envNote = p.env ? `\nenv=${p.env}` : "";
   if (session.state === "install-failed") {
     return errResult(
@@ -148,18 +161,25 @@ async function doStop(p: LspParams) {
       stopped++;
     }
   }
-  return textResult(stopped ? `stopped ${stopped} session(s) for ${root}.` : `no sessions for ${root}.`);
+  return textResult(
+    stopped
+      ? `stopped ${stopped} session(s) for ${root}.`
+      : `no sessions for ${root}.`,
+  );
 }
 
 async function doCheck(p: LspParams) {
-  if (!p.file) return errResult("provide `file` (use `lsp start` to begin a session).");
+  if (!p.file)
+    return errResult("provide `file` (use `lsp start` to begin a session).");
   const abs = resolveCwdPath(p.file);
   const lang = languageByPath(abs);
   if (!lang) return errResult(`unrecognized file: ${p.file}`);
   const root = discoverProjectRoot(abs, lang);
   const session = findSession(lang, root);
   if (!session) {
-    return errResult(`no LSP session for ${lang} @ ${root}; run \`lsp start file=${p.file}\` to begin one.`);
+    return errResult(
+      `no LSP session for ${lang} @ ${root}; run \`lsp start file=${p.file}\` to begin one.`,
+    );
   }
   if (session.state === "install-failed") {
     return errResult(
@@ -167,7 +187,11 @@ async function doCheck(p: LspParams) {
     );
   }
   const diags = await checkFile(abs);
-  return textResult(diags.length ? (await renderDiagnostics(diags)).text : `no diagnostics for ${p.file}`);
+  return textResult(
+    diags.length
+      ? (await renderDiagnostics(diags)).text
+      : `no diagnostics for ${p.file}`,
+  );
 }
 
 export default async function lspExtension(pi: ExtensionAPI): Promise<void> {
@@ -190,9 +214,7 @@ export default async function lspExtension(pi: ExtensionAPI): Promise<void> {
       project_dir: Type.Optional(
         Type.String({ description: T.schema!.project_dir }),
       ),
-      file: Type.Optional(
-        Type.String({ description: T.schema!.file }),
-      ),
+      file: Type.Optional(Type.String({ description: T.schema!.file })),
       env: Type.Optional(
         Type.String({
           description: T.schema!.env,
@@ -214,12 +236,13 @@ export default async function lspExtension(pi: ExtensionAPI): Promise<void> {
             return await doCheck(params);
         }
       } catch (e) {
-        return errResult(`lsp ${params.command}: ${e instanceof Error ? e.message : String(e)}`);
+        return errResult(
+          `lsp ${params.command}: ${e instanceof Error ? e.message : String(e)}`,
+        );
       }
       return errResult(`lsp: unknown command ${params.command}`);
     },
   });
-
 
   pi.on("session_shutdown", async () => {
     try {

@@ -43,7 +43,11 @@ export class JsonNode {
   _parent: JsonNode | null = null;
   _prevNamedSibling: JsonNode | null = null;
 
-  constructor(raw: RawNode, parent: JsonNode | null, prevNamed: JsonNode | null) {
+  constructor(
+    raw: RawNode,
+    parent: JsonNode | null,
+    prevNamed: JsonNode | null,
+  ) {
     this.type = raw.type;
     this.text = raw.text;
     this._isNamed = raw.isNamed;
@@ -61,10 +65,18 @@ export class JsonNode {
     });
   }
 
-  get namedChildren(): JsonNode[] { return this._children.filter((c) => c._isNamed); }
-  get children(): JsonNode[] { return this._children; }
-  get parent(): JsonNode | null { return this._parent; }
-  get previousNamedSibling(): JsonNode | null { return this._prevNamedSibling; }
+  get namedChildren(): JsonNode[] {
+    return this._children.filter((c) => c._isNamed);
+  }
+  get children(): JsonNode[] {
+    return this._children;
+  }
+  get parent(): JsonNode | null {
+    return this._parent;
+  }
+  get previousNamedSibling(): JsonNode | null {
+    return this._prevNamedSibling;
+  }
 
   childForFieldName(name: string): JsonNode | null {
     return this._children.find((c) => c._fieldName === name) ?? null;
@@ -93,13 +105,24 @@ export class JsonNode {
     const field = this._fieldName ? ` ${this._fieldName}:` : "";
     let s = `${pad}${field}${this.type}${named}`;
     if (this._children.length === 0) s += ` "${this.text}"`;
-    else { s += "\n"; for (const c of this._children) s += c._toString(indent + 1); }
+    else {
+      s += "\n";
+      for (const c of this._children) s += c._toString(indent + 1);
+    }
     return s;
   }
 }
 
-export interface ParseResult { ast: string | null; node: JsonNode | null; available: boolean }
-export interface Highlight { start: number; end: number; capture: string }
+export interface ParseResult {
+  ast: string | null;
+  node: JsonNode | null;
+  available: boolean;
+}
+export interface Highlight {
+  start: number;
+  end: number;
+  capture: string;
+}
 
 interface Parser {
   alloc: CallableFunction;
@@ -112,12 +135,21 @@ interface Parser {
   memory: WebAssembly.Memory;
 }
 
-interface TsState { resolver: () => string | null; instance: WebAssembly.Instance | null; inflight: Promise<Parser | null> | null }
+interface TsState {
+  resolver: () => string | null;
+  instance: WebAssembly.Instance | null;
+  inflight: Promise<Parser | null> | null;
+}
 
 const G = globalThis as unknown as { __cpiTreeSitter?: TsState };
 
 function state(): TsState {
-  if (!G.__cpiTreeSitter) G.__cpiTreeSitter = { resolver: () => null, instance: null, inflight: null };
+  if (!G.__cpiTreeSitter)
+    G.__cpiTreeSitter = {
+      resolver: () => null,
+      instance: null,
+      inflight: null,
+    };
   return G.__cpiTreeSitter;
 }
 
@@ -157,9 +189,17 @@ async function instantiate(): Promise<Parser | null> {
     if (!path) return null;
     try {
       const binary = readFileSync(path);
-      const wasi = new WASI({ version: "preview1", args: ["tree-sitter-wasm"], env: {}, preopens: {} });
+      const wasi = new WASI({
+        version: "preview1",
+        args: ["tree-sitter-wasm"],
+        env: {},
+        preopens: {},
+      });
       const mod = await WebAssembly.compile(binary);
-      const instance = await WebAssembly.instantiate(mod, wasi.getImportObject());
+      const instance = await WebAssembly.instantiate(
+        mod,
+        wasi.getImportObject(),
+      );
       st.instance = instance;
       return wrap(instance);
     } catch (err) {
@@ -198,7 +238,11 @@ export async function parseCommand(command: string): Promise<ParseResult> {
     const json = new TextDecoder().decode(resultBytes);
     const raw = JSON.parse(json) as RawNode;
 
-    return { ast: new JsonNode(raw, null, null).toString(), node: new JsonNode(raw, null, null), available: true };
+    return {
+      ast: new JsonNode(raw, null, null).toString(),
+      node: new JsonNode(raw, null, null),
+      available: true,
+    };
   } catch (err) {
     console.warn("[tree-sitter] Parse failed:", err);
     return { ast: null, node: null, available: false };
@@ -225,7 +269,8 @@ export function highlightCommandSync(command: string): Highlight[] | null {
     const json = new TextDecoder().decode(resultBytes);
     const raw = JSON.parse(json) as { s: number; e: number; c: string }[];
     const result = raw.map((r) => ({ start: r.s, end: r.e, capture: r.c }));
-    if (captureCache.size >= CAPTURE_CACHE_MAX) captureCache.delete(captureCache.keys().next().value!);
+    if (captureCache.size >= CAPTURE_CACHE_MAX)
+      captureCache.delete(captureCache.keys().next().value!);
     captureCache.set(command, result);
     return result;
   } catch (err) {
@@ -237,7 +282,10 @@ export function highlightCommandSync(command: string): Highlight[] | null {
 /** Synchronous highlight of `source` as `lang` (e.g. "python"). Returns null
  *  if the wasm is not instantiated or `lang` is unknown. Capture offsets are
  *  UTF-8 byte ranges, same as highlightCommandSync. */
-export function highlightLangSync(lang: string, source: string): Highlight[] | null {
+export function highlightLangSync(
+  lang: string,
+  source: string,
+): Highlight[] | null {
   const parser = parserSync();
   if (!parser) return null;
   const cacheKey = lang + "\0" + source;
@@ -256,7 +304,11 @@ export function highlightLangSync(lang: string, source: string): Highlight[] | n
     if (!ptr) return null;
     new Uint8Array(parser.memory.buffer, ptr, encoded.length).set(encoded);
 
-    const resultPtr = parser.highlightLang(langId, ptr, encoded.length) as number;
+    const resultPtr = parser.highlightLang(
+      langId,
+      ptr,
+      encoded.length,
+    ) as number;
     if (!resultPtr) return null;
 
     const len = parser.resultLen() as number;
@@ -264,7 +316,8 @@ export function highlightLangSync(lang: string, source: string): Highlight[] | n
     const json = new TextDecoder().decode(resultBytes);
     const raw = JSON.parse(json) as { s: number; e: number; c: string }[];
     const result = raw.map((r) => ({ start: r.s, end: r.e, capture: r.c }));
-    if (captureCache.size >= CAPTURE_CACHE_MAX) captureCache.delete(captureCache.keys().next().value!);
+    if (captureCache.size >= CAPTURE_CACHE_MAX)
+      captureCache.delete(captureCache.keys().next().value!);
     captureCache.set(cacheKey, result);
     return result;
   } catch (err) {

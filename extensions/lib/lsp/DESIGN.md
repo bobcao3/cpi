@@ -1,9 +1,9 @@
 # cpi LSP subsystem — design
 
 Colocated with the implementation in `extensions/lib/lsp/`. A
-neovim-LSP-inspired layer: one persistent LSP server per `(language,
-project_root)`, driven over stdio JSON-RPC by a dedicated Worker thread,
-exposing diagnostics to the `lsp` tool, `llm_editor`, and shell editing
+neovim-LSP-inspired layer: one persistent LSP server per
+`(language, project_root)`, driven over stdio JSON-RPC by a dedicated Worker
+thread, exposing diagnostics to the `lsp` tool, `llm_editor`, and shell editing
 commands. Shuck is hoisted as a first-class server; the shell tool's inline
 shuck lint is preserved (now routed through the same manager).
 
@@ -12,6 +12,7 @@ shuck lint is preserved (now routed through the same manager).
 ## 1. Goals / non-goals
 
 Goals:
+
 - `lsp` tool `list_sessions | start | stop | check` over per-project servers,
   with project auto-discovery from a file/dir upward to root markers.
 - Provision servers **user-scoped** into the agent cache
@@ -19,20 +20,22 @@ Goals:
   static `uv`** (python); reuse a server already resolvable in the merged spawn
   env (incl. `env=` dotenv) instead of installing. Shuck reused from the global
   agent cache.
-- `check` returns per-file diagnostics (`didOpen` → await `publishDiagnostics`
-  → `didClose`), bounded by `lintTimeoutMs`.
+- `check` returns per-file diagnostics (`didOpen` → await `publishDiagnostics` →
+  `didClose`), bounded by `lintTimeoutMs`.
 - Shell spots AST-level **editing commands** (`cat >`, `sed -i`, `tee`, `>`/`>>`
-  redirects, `cp`/`mv`) and LSP-checks the destination when a session is up; else
-  a one-time warning guiding the model to `lsp start`.
+  redirects, `cp`/`mv`) and LSP-checks the destination when a session is up;
+  else a one-time warning guiding the model to `lsp start`.
 - `llm_editor` create/edit always instantiates the matching LSP, reports the
   project root, returns diagnostics in the result; install is bounded and
   degrades non-blocking so an edit never stalls on provisioning.
 - `env=` dotenv on `sh`, `sh_repeat_until`, `lsp` (restart on change).
-- `env-capture`: a chainable script (`bin/`) that snapshots
-  the current shell env into a session-scoped dotenv, reloadable via `env=`.
+- `env-capture`: a chainable script (`bin/`) that snapshots the current shell
+  env into a session-scoped dotenv, reloadable via `env=`.
 
 Non-goals (v1):
-- Hover / go-to-definition / rename / code-action / formatting. Diagnostics only.
+
+- Hover / go-to-definition / rename / code-action / formatting. Diagnostics
+  only.
 - Multi-file workspace sessions beyond one root per language.
 - **Full-package / project-wide CLI checks** (`tsc --noEmit -p <root>`,
   `pyrefly check` over a whole root) — **deprecated**. `lsp check` is per-file
@@ -61,12 +64,12 @@ flowchart TD
     session --> worker["worker.mjs — generic JSON-RPC worker"]
 ```
 
-Data flow: producer calls `checkFile(absPath)` → manager resolves `(language,
-root)` via `discover.ts` → `ensureSession` (resolve-or-install + spawn worker if
-absent) → worker `didOpen` + awaits `publishDiagnostics` → diagnostics returned
-→ producer formats/appends. Engine modules, the dotenv parser, the output
-truncator, and shell helpers are pure node (no pi/tui imports); only the two
-owner extensions import `ExtensionAPI`.
+Data flow: producer calls `checkFile(absPath)` → manager resolves
+`(language, root)` via `discover.ts` → `ensureSession` (resolve-or-install +
+spawn worker if absent) → worker `didOpen` + awaits `publishDiagnostics` →
+diagnostics returned → producer formats/appends. Engine modules, the dotenv
+parser, the output truncator, and shell helpers are pure node (no pi/tui
+imports); only the two owner extensions import `ExtensionAPI`.
 
 ---
 
@@ -97,16 +100,17 @@ list(): SessionInfo[];
 disposeAll(): Promise<void>;                        // idempotent/reentrant (§9)
 ```
 
-- `ensureSession` is the **single spawn point**, idempotent on `(language, root)`.
-  Re-invocation with a new `envPath` (or `force`, or a `dead` session) restarts —
-  the "reload dot_env" path (§5). Resolves even if install failed
-  (`state="install-failed"`); never throws to a producer.
+- `ensureSession` is the **single spawn point**, idempotent on
+  `(language, root)`. Re-invocation with a new `envPath` (or `force`, or a
+  `dead` session) restarts — the "reload dot_env" path (§5). Resolves even if
+  install failed (`state="install-failed"`); never throws to a producer.
 - `checkFile` opens by `file://` URI, awaits `publishDiagnostics` (bounded by
   `lintTimeoutMs`), closes; reads the file fresh under the caller's write lock
   (editor path) — no concurrent-write race.
-- `lintText` keeps the shuck inline path: synthetic `file:///tmp/cpi-lsp-<n>.<ext>`,
-  `root=""` → `rootUri=null`. Callers may choose the synthetic extension so
-  dialect-sensitive servers infer the correct shell.
+- `lintText` keeps the shuck inline path: synthetic
+  `file:///tmp/cpi-lsp-<n>.<ext>`, `root=""` → `rootUri=null`. Callers may
+  choose the synthetic extension so dialect-sensitive servers infer the correct
+  shell.
 - Lifecycle lives in `session.ts`; the worker is spawned via `import.meta.url`.
   `awaitReady` bounds the `initialize` handshake. `markDead` drains pending `[]`
   and fires `onDead`, which removes the session — next `ensureSession` respawns.
@@ -118,11 +122,21 @@ disposeAll(): Promise<void>;                        // idempotent/reentrant (§9
 ```ts
 type Language = "typescript" | "python" | "shell" | "ruby";
 interface LspServerSpec {
-  language: Language; extensions: string[]; markers: string[];
-  languageId: (path: string) => string;   // "typescript"|"typescriptreact"|"python"|"bash"|"sh"|"zsh"|"mksh"|"bats"|"ruby"
-  install: { method: "npm" | "uv" | "reuse" | "env-only"; package?: string; version?: string; tsVersion?: string };
+  language: Language;
+  extensions: string[];
+  markers: string[];
+  languageId: (path: string) => string; // "typescript"|"typescriptreact"|"python"|"bash"|"sh"|"zsh"|"mksh"|"bats"|"ruby"
+  install: {
+    method: "npm" | "uv" | "reuse" | "env-only";
+    package?: string;
+    version?: string;
+    tsVersion?: string;
+  };
   binName: string;
-  serverCommand: (bin: string, root: string) => { cmd: string; args: string[]; cwd?: string };
+  serverCommand: (
+    bin: string,
+    root: string,
+  ) => { cmd: string; args: string[]; cwd?: string };
   initOptions?: unknown;
 }
 ```
@@ -130,25 +144,27 @@ interface LspServerSpec {
 - **typescript**: `npm`; `binName="typescript-language-server"`; `serverCommand`
   → `{ cmd: bin, args: ["--stdio"] }`; `.tsx`→`typescriptreact`;
   `initOptions={ hostInfo:"cpi" }`.
-- **python**: `uv`; `binName="pyrefly"`; `serverCommand` → `{ cmd: bin, args:
-  ["lsp"] }`; `languageId` → `"python"`; `initOptions={ pyrefly:{
-  typeCheckingMode:"default" } }` — set the preset to default (full standard
-  type checking) for implicit projects (no `pyrefly.toml`); the non-deprecated
-  replacement for displayTypeErrors (deprecated in pyrefly v1.0). A project
-  toml's `preset` still overrides. Requires pyrefly >=1.0.
+- **python**: `uv`; `binName="pyrefly"`; `serverCommand` →
+  `{ cmd: bin, args: ["lsp"] }`; `languageId` → `"python"`;
+  `initOptions={ pyrefly:{ typeCheckingMode:"default" } }` — set the preset to
+  default (full standard type checking) for implicit projects (no
+  `pyrefly.toml`); the non-deprecated replacement for displayTypeErrors
+  (deprecated in pyrefly v1.0). A project toml's `preset` still overrides.
+  Requires pyrefly >=1.0.
 - **shell (shuck)**: `reuse`; `binName="shuck"`; resolution reuses
-  `getShuckBinPath()` (+ `ensureShellTools()`); `serverCommand` → `{ cmd: bin,
-  args: ["server","--isolated"] }`; `languageId` follows the file extension (`"sh"`, `"bash"`, `"zsh"`, `"mksh"`, or `"bats"`).
+  `getShuckBinPath()` (+ `ensureShellTools()`); `serverCommand` →
+  `{ cmd: bin, args: ["server","--isolated"] }`; `languageId` follows the file
+  extension (`"sh"`, `"bash"`, `"zsh"`, `"mksh"`, or `"bats"`).
 - **ruby (ruby-lsp)**: `env-only`; `binName="ruby-lsp"`; cpi never installs the
-  gem — resolution is env-PATH-first only (`whichOnPath`), and `serverCommand`
-  → `{ cmd: bin, args: [] }` (ruby-lsp runs over stdio with no flags, reads
-  config from the project's bundle). If absent on the merged PATH →
+  gem — resolution is env-PATH-first only (`whichOnPath`), and `serverCommand` →
+  `{ cmd: bin, args: [] }` (ruby-lsp runs over stdio with no flags, reads config
+  from the project's bundle). If absent on the merged PATH →
   `{ source:"install-failed" }` with guidance to `gem install ruby-lsp` in the
   active Ruby env and pass `env=`. `languageId` → `"ruby"`; markers
   `Gemfile`/`Gemfile.lock`/`.ruby-version`/`Rakefile`.
 
-Version pins live in config (§8); `registry.ts` reads them via `loadLspConfig` so
-a pin bump re-provisions on the next session.
+Version pins live in config (§8); `registry.ts` reads them via `loadLspConfig`
+so a pin bump re-provisions on the next session.
 
 ---
 
@@ -156,8 +172,8 @@ a pin bump re-provisions on the next session.
 
 `start` is **re-invokable**: calling it again with a new `env=` stops the old
 worker and starts a new one with the merged env; same args is a no-op (session
-already `ready`). This loads a new dot_env — e.g. after `env-capture` of a
-venv. The `lsp-behavior` transform and the `llm_editor` result both call it out.
+already `ready`). This loads a new dot_env — e.g. after `env-capture` of a venv.
+The `lsp-behavior` transform and the `llm_editor` result both call it out.
 
 ---
 
@@ -165,40 +181,42 @@ venv. The `lsp-behavior` transform and the `llm_editor` result both call it out.
 
 `resolveBin(spec, env, opts)` — three uniform tiers:
 
-1. **Env-PATH-first reuse.** `whichOnPath(spec.binName)` against the merged spawn
-   env (`getToolEnv()` + `parseDotEnv(envPath)`). Found → reuse, **no install**.
-   A project's own toolchain (a venv with `pyrefly`, a user `PATH` export) wins;
-   shuck's cached binary is picked up via PATH.
+1. **Env-PATH-first reuse.** `whichOnPath(spec.binName)` against the merged
+   spawn env (`getToolEnv()` + `parseDotEnv(envPath)`). Found → reuse, **no
+   install**. A project's own toolchain (a venv with `pyrefly`, a user `PATH`
+   export) wins; shuck's cached binary is picked up via PATH.
 2. **Shell reuse.** For `method="reuse"`: `getShuckBinPath()` (+
    `ensureShellTools()`). No envDir.
 3. **Install user-scoped** into `getAgentDir()/lsp_envs/<lang>` (shared across
-   projects). Idempotent + version-pinned: verify `--version` matches the pin; on
-   mismatch/absence, (re)install. Bounded by `installTimeoutMs`; on
+   projects). Idempotent + version-pinned: verify `--version` matches the pin;
+   on mismatch/absence, (re)install. Bounded by `installTimeoutMs`; on
    timeout/failure → `{ source:"install-failed" }`, `ensureSession` resolves.
 
 Per-language install:
-- **typescript** (`npm`): minimal `package.json` in `envDir`, then
-  `npm install --prefix <envDir> typescript-language-server@<ver>
-  typescript@<tsVer>`. Bin: `<envDir>/node_modules/.bin/typescript-language-server`.
-- **python** (`uv`): download a **static `uv`** (platform musl release from
-  `astral-sh/uv`) into `getAgentDir()/cache/uv/bin/uv`. uv publishes no minisign —
-  verify via **GitHub Artifact Attestation** primary
-  (`gh attestation verify --repo astral-sh/uv`) and **sha256** fallback when `gh`
-  is absent or the attestation is missing. Never minisign for uv. Then
-  `uv venv <envDir>` + `uv pip install --python <envDir>/bin/python
-  pyrefly==<ver>`. Bin: `<envDir>/bin/pyrefly`. **uv is never assumed on PATH.**
 
-Server spawn env: `{ ...getToolEnv(), ...parseDotEnv(envPath) }` with the resolved
-bin's dir prepended to `PATH` so the server spawns its own tooling. The *install*
-is user-scoped (one binary per language, shared); the *server process* is per
-`(language, root)` (separate worker per root, each with its own rootUri).
+- **typescript** (`npm`): minimal `package.json` in `envDir`, then
+  `npm install --prefix <envDir> typescript-language-server@<ver> typescript@<tsVer>`.
+  Bin: `<envDir>/node_modules/.bin/typescript-language-server`.
+- **python** (`uv`): download a **static `uv`** (platform musl release from
+  `astral-sh/uv`) into `getAgentDir()/cache/uv/bin/uv`. uv publishes no minisign
+  — verify via **GitHub Artifact Attestation** primary
+  (`gh attestation verify --repo astral-sh/uv`) and **sha256** fallback when
+  `gh` is absent or the attestation is missing. Never minisign for uv. Then
+  `uv venv <envDir>` +
+  `uv pip install --python <envDir>/bin/python pyrefly==<ver>`. Bin:
+  `<envDir>/bin/pyrefly`. **uv is never assumed on PATH.**
+
+Server spawn env: `{ ...getToolEnv(), ...parseDotEnv(envPath) }` with the
+resolved bin's dir prepended to `PATH` so the server spawns its own tooling. The
+_install_ is user-scoped (one binary per language, shared); the _server process_
+is per `(language, root)` (separate worker per root, each with its own rootUri).
 
 ---
 
 ## 7. Worker (`worker.mjs`)
 
-Generic JSON-RPC stdio worker (parameterized server). One Worker thread owns
-ONE language server child process and all its LSP stdio I/O (Content-Length
+Generic JSON-RPC stdio worker (parameterized server). One Worker thread owns ONE
+language server child process and all its LSP stdio I/O (Content-Length
 framing). Generalizes the former `shell/lsp-worker.mjs`: the spawn directive
 comes from `workerData`, so one worker drives shuck, tsserver, and pyrefly.
 
@@ -211,7 +229,7 @@ Protocol (main→worker): `{ type:"lint", id, uri, languageId, text, file }`,
 self-times-out and always `didClose`s, so a missing diagnostic never leaks an
 open doc. Limits: 16 MiB recv buffer; `for(;;)` read loop breaks on an
 incomplete frame and resets on breach; `Content-Length` parse is asserted; the
-server is `initialize`d before any `lint` is accepted. Server→client *requests*
+server is `initialize`d before any `lint` is accepted. Server→client _requests_
 (e.g. pyrefly's `workspace/configuration` for `section:"python"`) are not
 answered — pyrefly logs `applied: None` and proceeds; the python `initOptions`
 carry what cpi needs, so this is currently harmless (a follow-up could answer
@@ -239,10 +257,10 @@ carry what cpi needs, so this is currently harmless (a follow-up could answer
 ```
 
 `loadLspConfig(cwd)` deep-merges user + project config over the shipped default;
-numeric fields clamped via `intInRange`, string pins fall back to the shipped pin
-when absent. All version pins are exact (no ranges); a pin bump re-provisions the
-next session via the version-match check in §6. `npm` is assumed on PATH so is
-not pinned.
+numeric fields clamped via `intInRange`, string pins fall back to the shipped
+pin when absent. All version pins are exact (no ranges); a pin bump
+re-provisions the next session via the version-match check in §6. `npm` is
+assumed on PATH so is not pinned.
 
 ---
 
@@ -282,10 +300,10 @@ PATH bins ← `PI_SESSION*` ← dotenv wins. `sh_repeat_until` is wired identica
 Pure AST function mirroring `shell/cd-targets.ts`. `detectEdits(root)` returns
 resolved absolute destinations of editing commands. Patterns (conservative —
 destination must have a known source extension; `$`/backtick targets skipped):
-`file_redirect` with `>`/`>>`/`>|`/`&>` on a content producer (`echo`,
-`printf`, `cat`, heredoc/herestring bodies, pipelines); `sed -i`/`--in-place`;
-`tee`/`tee -a`; `cp`/`mv` (destination = last operand). Error-recovery falls back
-to a preceding producer command for stray redirects wrapped in `ERROR`.
+`file_redirect` with `>`/`>>`/`>|`/`&>` on a content producer (`echo`, `printf`,
+`cat`, heredoc/herestring bodies, pipelines); `sed -i`/`--in-place`;
+`tee`/`tee -a`; `cp`/`mv` (destination = last operand). Error-recovery falls
+back to a preceding producer command for stray redirects wrapped in `ERROR`.
 
 ### 11.3 Inline shuck lint
 
@@ -300,13 +318,13 @@ doc). `ShuckDiagnostic`/`formatDiagnostics` shapes are preserved and
 
 `runLspHook(parse.node)` is called once after a non-blocked `sh` run (blocked
 lint-error runs return early). Per `EditTarget`: `languageByPath` →
-`discoverProjectRoot` → `findSession`; if a **ready** session covers the project,
-`checkFile` → formatted diagnostics appended to the sh result; otherwise a
-one-time note `(no LSP for <path>; run \`lsp start file=<path>\` to enable
-auto-lint)`. The warned-roots set lives on `globalThis.__cpiLspWarned` (advisory
-dedup only — never gates `checkFile`). Diagnostics are advisory/non-blocking:
-the command already ran; we report, not reject. (Distinct from the pre-run
-shuck lint which blocks.)
+`discoverProjectRoot` → `findSession`; if a **ready** session covers the
+project, `checkFile` → formatted diagnostics appended to the sh result;
+otherwise a one-time note `(no LSP for <path>; run \`lsp start file=<path>\` to
+enable
+auto-lint)`. The warned-roots set lives on `globalThis.\_\_cpiLspWarned`(advisory dedup only — never gates`checkFile`).
+Diagnostics are advisory/non-blocking: the command already ran; we report, not
+reject. (Distinct from the pre-run shuck lint which blocks.)
 
 ---
 
@@ -314,22 +332,22 @@ shuck lint which blocks.)
 
 After a successful `create` or `edit` write (not `view`), `lspFields(abs)` runs
 under the writer's per-path lock: `languageByPath` → `discoverProjectRoot` →
-`ensureSession` (bounded) → `checkFile`; appends `<lsp project bin state>started
-</lsp>` + `<diagnostics>` + a restart-`env=` hint to the result XML.
-`install-failed` → the edit still succeeds with an `<lsp state="install-failed">`
-hint. Any error degrades to `""` — LSP is advisory and never fails an edit.
-Unsupported extensions (`.md`, `.json`, …) skip silently. "Always instantiate" ⇒
-`ensureSession` is always invoked; it degrades rather than stalling. The
-editor's model-delegation latency hides the server boot; the one-time install is
-bounded + degrades.
+`ensureSession` (bounded) → `checkFile`; appends
+`<lsp project bin state>started </lsp>` + `<diagnostics>` + a restart-`env=`
+hint to the result XML. `install-failed` → the edit still succeeds with an
+`<lsp state="install-failed">` hint. Any error degrades to `""` — LSP is
+advisory and never fails an edit. Unsupported extensions (`.md`, `.json`, …)
+skip silently. "Always instantiate" ⇒ `ensureSession` is always invoked; it
+degrades rather than stalling. The editor's model-delegation latency hides the
+server boot; the one-time install is bounded + degrades.
 
 ---
 
 ## 12. `env-capture` (`bin/`)
 
 A chainable script, not a tool. The agent runs it at the end of a `sh` command
-(`source .venv/bin/activate && env-capture [label]`) so it inherits the
-exact post-command env from the single resolved shell `-c` — no second spawn, no
+(`source .venv/bin/activate && env-capture [label]`) so it inherits the exact
+post-command env from the single resolved shell `-c` — no second spawn, no
 re-execution (a plain `sh` call is stateless, so activation is otherwise lost).
 It reads the inherited env via `env`, writes `KEY=VALUE` lines to
 `<sessionDir>/env-captures/<label-or-env-<ts>-<pid>>.env` (fallback
@@ -346,30 +364,32 @@ side): 4096 keys, 32 KiB per value. The read side (`env=` on `sh` /
 ## 13. Guidelines / system prompt
 
 `extensions/lsp.ts` registers the `lsp-behavior` transform (order 150) using the
-strip-then-append pattern (reload-safe, dedup). It documents supported languages;
-`llm_editor` auto-lint+diagnostics; shell editing triggers an LSP check or
-advises `lsp start`; `start` reloads dot_env; env-provided LSPs are reused; and
-the `env-capture` → `env=` flow.
+strip-then-append pattern (reload-safe, dedup). It documents supported
+languages; `llm_editor` auto-lint+diagnostics; shell editing triggers an LSP
+check or advises `lsp start`; `start` reloads dot_env; env-provided LSPs are
+reused; and the `env-capture` → `env=` flow.
 
 ---
 
 ## 14. Reload-safety / ownership
 
 - `LspManager` state on `globalThis.__cpiLsp` (`sessions` map + `draining`) —
-  survives jiti reload, shared across module copies. Workers stored there survive
-  reload too (real resource state, not a boolean dedup flag — the sound pattern
-  from `AGENTS.md`).
-- `extensions/lsp.ts` is the **sole owner**: registers the `lsp` tool + transform
-  + `session_shutdown` handler unconditionally at load; `pi.registerTool`/`pi.on`
-  are idempotent on the fresh instance, so a hot-reload re-registers atomically.
-  No `globalThis` dedup boolean.
-- Producers (`shell.ts`, `llm-editor/*`) only call `LspManager`
-  methods — never spawn servers or register the tool.
+  survives jiti reload, shared across module copies. Workers stored there
+  survive reload too (real resource state, not a boolean dedup flag — the sound
+  pattern from `AGENTS.md`).
+- `extensions/lsp.ts` is the **sole owner**: registers the `lsp` tool +
+  transform
+  - `session_shutdown` handler unconditionally at load;
+    `pi.registerTool`/`pi.on` are idempotent on the fresh instance, so a
+    hot-reload re-registers atomically. No `globalThis` dedup boolean.
+- Producers (`shell.ts`, `llm-editor/*`) only call `LspManager` methods — never
+  spawn servers or register the tool.
 - The no-session warning uses `globalThis.__cpiLspWarned` (advisory-dedup Set in
   `lsp-hook.ts`); never gates `checkFile` (§10.4 routes by `findSession`).
-  Survives reload; never reset (harmless — once warned, the model has been told).
-- `session_shutdown`: the lsp owner calls `manager.disposeAll()` (idempotent, §9).
-  `shell.ts` no longer calls `disposeLspClient()`. `env-captures/` are
+  Survives reload; never reset (harmless — once warned, the model has been
+  told).
+- `session_shutdown`: the lsp owner calls `manager.disposeAll()` (idempotent,
+  §9). `shell.ts` no longer calls `disposeLspClient()`. `env-captures/` are
   session-scoped and torn down with the session dir.
 - Installs are user-scoped (`getAgentDir()/lsp_envs/<lang>` + `cache/uv`); they
   persist across sessions and are not torn down on `session_shutdown` (only

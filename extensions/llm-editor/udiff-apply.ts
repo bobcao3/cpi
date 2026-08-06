@@ -49,16 +49,13 @@ interface MatchBudget {
 const MAX_MATCH_WORK = 5_000_000;
 
 /**
- * Context-fuzz ladder, patch(1)'s fuzz factor. Tried in order only after the
- * full pattern matches nowhere; each level drops that many outer context rows,
- * never a `+`/`-` row, so the change itself is never inferred — only the proof
- * of its location is weakened, and a unique match is still required.
- *
- * Unlike patch(1) these hunks are model-authored, so a mismatched context row
- * is not stale ground truth but evidence the model mis-modeled the file — and
- * dropping it discards that evidence. Every dropped row is therefore verified
- * against the file line it would have covered (`recognizable`): fuzz tolerates
- * a boundary the model got approximately right, never one it invented.
+ * Context-fuzz ladder, patch(1)'s fuzz factor, tried only after a full
+ * pattern miss: each level drops that many outer context rows, never a
+ * `+`/`-` row — the change itself is never inferred, only its location
+ * weakened, and a unique match is still required. Hunks are model-authored,
+ * so every dropped row is verified against the file line it covered
+ * (`recognizable`): fuzz tolerates a boundary the model got approximately
+ * right, never one it invented.
  */
 const FUZZ_LEVELS: readonly (readonly [number, number])[] = [
   [0, 1],
@@ -70,9 +67,7 @@ const FUZZ_LEVELS: readonly (readonly [number, number])[] = [
 
 function trimmable(row: UdiffRow): boolean {
   return (
-    row.operation === "context" &&
-    !row.sourceNoNewline &&
-    !row.targetNoNewline
+    row.operation === "context" && !row.sourceNoNewline && !row.targetNoNewline
   );
 }
 
@@ -102,13 +97,10 @@ function fuzzHunk(
 }
 
 /**
- * Whether a dropped context row is still recognizable in the file line it
- * covered: both non-blank, sharing a common prefix or suffix, and differing only
- * in a short middle — two characters outright, or a quarter of the line.
- *
- * `  }` against `  },`, or a row where the model silently corrected the prose it
- * was copying (`lookup has` for `lookup have`), is a boundary it got
- * approximately right. A closing fence against a blank line is one it invented.
+ * A dropped context row must stay recognizable in the file line it covered:
+ * both non-blank, sharing a common prefix or suffix, differing only in a
+ * short middle — two characters outright, or a quarter of the line. A
+ * closing fence against a blank line is one the model invented.
  */
 function recognizable(dropped: string, file: string): boolean {
   const left = dropped.trim();
@@ -255,8 +247,7 @@ function resolveExact(
 ): Resolution {
   const sourceRows = hunk.rows.filter((row) => row.operation !== "add");
   if (sourceRows.length === 0) {
-    // A pure insertion is placed solely by its coordinate, so a hunk whose
-    // header carried none cannot be placed at all.
+    // A pure insertion is placed solely by its coordinate — without an anchor it cannot be placed at all.
     if (!hunk.anchored || hunk.oldStart < 0 || hunk.oldStart > lines.length)
       return { kind: "bad_anchor" };
     return {
@@ -285,11 +276,7 @@ function resolveExact(
   return searchAll(lines, hunk, "fuzzy", budget);
 }
 
-/**
- * Resolve a hunk, escalating through the context-fuzz ladder on a total miss.
- * Returns the hunk that actually matched: a fuzzed hunk's rows are what the
- * resulting match indexes into, so the caller must splice from that one.
- */
+/** Escalate through the fuzz ladder on a total miss; splice from the hunk that actually matched. */
 function resolveHunk(
   lines: SourceLine[],
   hunk: UdiffHunk,
@@ -303,7 +290,10 @@ function resolveHunk(
     if (!candidate) continue;
     const retry = resolveExact(lines, candidate, fuzzy, budget);
     if (retry.kind === "miss") continue;
-    if (retry.kind === "match" && !boundaryHolds(lines, hunk, retry.value, lead, tail))
+    if (
+      retry.kind === "match" &&
+      !boundaryHolds(lines, hunk, retry.value, lead, tail)
+    )
       continue;
     return { attempt: retry, hunk: candidate };
   }

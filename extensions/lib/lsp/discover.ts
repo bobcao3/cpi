@@ -22,7 +22,12 @@ import { resolveCwdPath } from "../cwd.ts";
 export type Language = "typescript" | "python" | "shell" | "ruby";
 
 /** Ordered list, for deterministic iteration. */
-export const LSP_LANGUAGES: readonly Language[] = ["typescript", "python", "shell", "ruby"];
+export const LSP_LANGUAGES: readonly Language[] = [
+  "typescript",
+  "python",
+  "shell",
+  "ruby",
+];
 
 /** File extensions per language (lowercased, with dot). */
 export const LANGUAGE_EXTENSIONS: Record<Language, string[]> = {
@@ -91,20 +96,27 @@ export function languageByPath(path: string): Language | null {
  * {@link DISCOVERY_MAX_DEPTH} levels. If no marker is found, returns the
  * start path's own directory (lone-file fallback) so a session still gets a root.
  */
-export function discoverProjectRoot(startPath: string, langHint?: Language): string {
+export function discoverProjectRoot(
+  startPath: string,
+  langHint?: Language,
+): string {
   if (typeof startPath !== "string" || startPath.length === 0) {
-    throw new Error("discoverProjectRoot: startPath must be a non-empty string");
+    throw new Error(
+      "discoverProjectRoot: startPath must be a non-empty string",
+    );
   }
   const abs = resolveCwdPath(startPath);
   const isFile = existsSync(abs) && statSync(abs).isFile();
   const startDir = isFile ? dirname(abs) : abs;
-  const langMarkers = langHint !== undefined ? LANGUAGE_MARKERS[langHint] : ALL_LANGUAGE_MARKERS;
+  const langMarkers =
+    langHint !== undefined ? LANGUAGE_MARKERS[langHint] : ALL_LANGUAGE_MARKERS;
   const home = process.env.HOME ?? "";
 
   let dir = startDir;
   for (let depth = 0; depth < DISCOVERY_MAX_DEPTH; depth++) {
     if (dir === "/" || dir === home) break;
-    if (hasMarker(dir, langMarkers) || hasMarker(dir, GENERIC_MARKERS)) return dir;
+    if (hasMarker(dir, langMarkers) || hasMarker(dir, GENERIC_MARKERS))
+      return dir;
     const parent = dirname(dir);
     if (parent === dir) break; // reached fs root
     dir = parent;

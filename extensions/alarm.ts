@@ -11,13 +11,22 @@
  * reconstructed on session start / tree navigation.
  */
 
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type {
+  ExtensionAPI,
+  ExtensionContext,
+} from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { Text } from "@earendil-works/pi-tui";
 import { sendNotification } from "./lib/notification.ts";
 import { registerHoldSource } from "./lib/session-hold.ts";
 import { recordAlarmSetup } from "./lib/poll-guard.ts";
-import { loadText, render, renderLines, textPath, type ToolText } from "./lib/text.ts";
+import {
+  loadText,
+  render,
+  renderLines,
+  textPath,
+  type ToolText,
+} from "./lib/text.ts";
 
 const ALARM_TOOL = "alarm";
 const MAX_ALARM_SECONDS = 365 * 24 * 60 * 60; // ~1 year
@@ -53,7 +62,8 @@ function formatAlarmDate(ms: number): string {
   const h = d.getHours().toString().padStart(2, "0");
   const m = d.getMinutes().toString().padStart(2, "0");
   const s = d.getSeconds();
-  const time = s > 0 ? `${h}:${m}:${s.toString().padStart(2, "0")}` : `${h}:${m}`;
+  const time =
+    s > 0 ? `${h}:${m}:${s.toString().padStart(2, "0")}` : `${h}:${m}`;
   return `${d.getMonth() + 1}/${d.getDate()} ${time}`;
 }
 
@@ -108,7 +118,10 @@ function scheduleAlarm(alarm: Alarm): void {
     return;
   }
 
-  const timer = setTimeout(() => fireAlarm(alarm), Math.min(delayMs, MAX_ALARM_SECONDS * 1000));
+  const timer = setTimeout(
+    () => fireAlarm(alarm),
+    Math.min(delayMs, MAX_ALARM_SECONDS * 1000),
+  );
   timers.set(alarm.id, timer);
 }
 
@@ -158,12 +171,8 @@ export default function (pi: ExtensionAPI) {
     target_time: Type.Optional(
       Type.String({ description: T.schema!.target_time }),
     ),
-    message: Type.Optional(
-      Type.String({ description: T.schema!.message }),
-    ),
-    alarm_id: Type.Optional(
-      Type.String({ description: T.schema!.alarm_id }),
-    ),
+    message: Type.Optional(Type.String({ description: T.schema!.message })),
+    alarm_id: Type.Optional(Type.String({ description: T.schema!.alarm_id })),
     cancel: Type.Optional(
       Type.Union([
         Type.Boolean({ description: T.schema!.cancel_all }),
@@ -188,7 +197,9 @@ export default function (pi: ExtensionAPI) {
           alarms = alarms.filter((a) => a.id !== params.cancel);
           if (alarms.length === before) {
             return {
-              content: [{ type: "text", text: `No active alarm ${params.cancel}` }],
+              content: [
+                { type: "text", text: `No active alarm ${params.cancel}` },
+              ],
               details: { alarms: [...alarms] } satisfies AlarmDetails,
             };
           }
@@ -213,7 +224,9 @@ export default function (pi: ExtensionAPI) {
       const hasTarget = params.target_time !== undefined;
 
       if (hasRelative === hasTarget) {
-        throw new Error("Provide exactly one of relative_seconds or target_time.");
+        throw new Error(
+          "Provide exactly one of relative_seconds or target_time.",
+        );
       }
 
       let targetMs: number;
@@ -252,7 +265,11 @@ export default function (pi: ExtensionAPI) {
         details: { alarms: [...alarms] } satisfies AlarmDetails,
       };
     },
-    renderResult(result, { expanded: _expanded, isPartial: _isPartial }, theme) {
+    renderResult(
+      result,
+      { expanded: _expanded, isPartial: _isPartial },
+      theme,
+    ) {
       const text = result.content[0];
       const raw = text?.type === "text" ? text.text : "";
       // Parse alarm ID from text to look up targetMs in details
@@ -279,7 +296,8 @@ export default function (pi: ExtensionAPI) {
               : "passed";
           const t = new Text("", 0, 0);
           t.setText(
-            theme.fg("success", "✓") + theme.fg("dim", ` Alarm ${id} · ${absTime} · ${relTime}`),
+            theme.fg("success", "✓") +
+              theme.fg("dim", ` Alarm ${id} · ${absTime} · ${relTime}`),
           );
           return t;
         }

@@ -1,37 +1,24 @@
 /**
- * cpi provider — provider/model lifecycle: startup strip + runtime failover.
+ * cpi provider — startup strip + runtime failover (one feature). Both read
+ * the merged fallback config (lib/provider-config.ts).
  *
- * Two halves of one feature, previously separate extensions
- * (provider-strip + provider-failover). Merged because neither is useful
- * without the other: strip picks the first usable model at startup, failover
- * keeps a usable model across runtime failures. Both read the same merged
- * fallback config (lib/provider-config.ts). One extension = one coherent
- * provider feature; removing it removes the whole feature, not a dangling
- * half.
+ * Startup: register providers, strip unusable ones (defaults: env-based
+ * bedrock/huggingface, so ambient creds don't shadow real providers), then
+ * pick the first fitting fallback if the active model is gone.
  *
- *   Startup (session_start):
- *     1. Register all providers from the merged fallback config.
- *     2. Strip unusable providers via configurable provider:auth matching
- *        (the `strip` rules; defaults to env-based bedrock/huggingface so
- *        ambient cloud creds don't shadow real providers).
- *     3. If the active model is missing or was just stripped, pick the first
- *        fallback candidate whose context window fits.
- *
- *   Runtime (turn_end):
- *     When an endpoint fails repeatedly — an assistant turn whose
- *     `stopReason === "error"` (pi surfaces these after exhausting its own
- *     retries) — switch the active model to the next candidate on the
- *     fallback chain, but only if that candidate's context window fits.
- *     Applied at `turn_end` (not deferred to the next `input`): the failed
- *     turn's LLM call is complete when `turn_end` fires, so the request is
- *     no longer in flight; the handler is awaited before pi decides whether
- *     to retry, so `setModel` lands before the next attempt — seamless
- *     failover, no need to re-send the prompt.
- *
- * Config (fallback-providers.json): "failover": { "failureThreshold": 3 }.
+ * Runtime: after `failureThreshold` error turns, switch at turn_end — the
+ * failed call is complete and pi awaits this handler before retrying.
  */
 
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type {
+  ExtensionAPI,
+  ExtensionContext,
+} from "@earendil-works/pi-coding-agent";
+import {
+  DEFAULT_MODEL_STRIP_RULES,
+  isModelStripped,
+  stripModels,
+} from "./lib/model-strip";
 import {
   DEFAULT_FAILURE_THRESHOLD,
   DEFAULT_STRIP_RULES,
@@ -55,8 +42,11 @@ function configFor(ctx: ExtensionContext) {
   return live;
 }
 
-/** Switch to the next fitting fallback after `from`; notify on outcome. */
-async function applyFailover(pi: ExtensionAPI, ctx: ExtensionContext, from: string): Promise<void> {
+async function applyFailover(
+  pi: ExtensionAPI,
+  ctx: ExtensionContext,
+  from: string,
+): Promise<void> {
   const cfg = configFor(ctx);
   const pick = selectFallback(ctx, cfg.fallbacks, from);
   if (!pick) {
@@ -66,7 +56,10 @@ async function applyFailover(pi: ExtensionAPI, ctx: ExtensionContext, from: stri
     return;
   }
   const ok = await pi.setModel(pick.model);
-  debug("provider-failover", `setModel(${pick.candidate.provider}/${pick.candidate.model}) -> ${ok}`);
+  debug(
+    "provider-failover",
+    `setModel(${pick.candidate.provider}/${pick.candidate.model}) -> ${ok}`,
+  );
   const text = ok
     ? `Switched to ${pick.candidate.provider} / ${pick.candidate.model} after ${from} failures.`
     : `Failover: ${pick.candidate.provider} has no usable API key.`;
@@ -74,10 +67,10 @@ async function applyFailover(pi: ExtensionAPI, ctx: ExtensionContext, from: stri
   if (ctx.hasUI) ctx.ui.notify(text, ok ? "info" : "warning");
 }
 
-export default async function providerExtension(pi: ExtensionAPI): Promise<void> {
-  // ── Startup: register providers from process.cwd() config (best guess
-  // before session_start gives the real ctx.cwd). session_start re-registers
-  // any ctx.cwd-only providers idempotently.
+export default async function providerExtension(
+  pi: ExtensionAPI,
+): Promise<void> {
+  // Register providers from process.cwd() — best guess before session_start gives the real ctx.cwd.
   const config = loadMergedConfig(process.cwd());
   if (config.providers) {
     for (const [key, pcfg] of Object.entries(config.providers)) {
@@ -95,34 +88,59 @@ export default async function providerExtension(pi: ExtensionAPI): Promise<void>
       }
     }
 
-    // 1. Strip unusable providers (configurable; defaults to bedrock/hf).
     const rules = live.strip ?? DEFAULT_STRIP_RULES;
     const stripped: string[] = [];
     for (const rule of rules) {
       if (!stripMatches(rule)) {
-        debug("provider-strip", `${rule.provider}: auth-match not fired, keeping`);
+        debug(
+          "provider-strip",
+          `${rule.provider}: auth-match not fired, keeping`,
+        );
         continue;
       }
       try {
         pi.unregisterProvider(rule.provider);
         stripped.push(rule.provider);
       } catch (err) {
-        console.warn(`[provider-strip] unregisterProvider(${rule.provider}) failed:`, err);
+        console.warn(
+          `[provider-strip] unregisterProvider(${rule.provider}) failed:`,
+          err,
+        );
       }
     }
     if (stripped.length) {
-      process.stderr.write(`[provider-strip] stripped: ${stripped.join(", ")}\n`);
+      process.stderr.write(
+        `[provider-strip] stripped: ${stripped.join(", ")}\n`,
+      );
     }
 
-    // 2. If the active model is usable (present + not stripped), leave it.
+    const strippedModelIds = stripModels(
+      pi,
+      ctx,
+      live.stripModels ?? DEFAULT_MODEL_STRIP_RULES,
+    );
+    if (strippedModelIds.length) {
+      process.stderr.write(
+        `[model-strip] stripped ${strippedModelIds.length} superseded model${
+          strippedModelIds.length === 1 ? "" : "s"
+        }.\n`,
+      );
+      debug("model-strip", `stripped: ${strippedModelIds.join(", ")}`);
+    }
+
     const cur = ctx.model;
-    const curUsable = !!cur && ctx.modelRegistry.find(cur.provider, cur.id) != null;
+    const curUsable =
+      !!cur &&
+      ctx.modelRegistry.find(cur.provider, cur.id) != null &&
+      !isModelStripped(cur.provider, cur.id);
     if (curUsable) {
-      debug("provider-strip", `active ${cur!.provider}/${cur!.id} usable; skipping startup pick`);
+      debug(
+        "provider-strip",
+        `active ${cur!.provider}/${cur!.id} usable; skipping startup pick`,
+      );
       return;
     }
 
-    // 3. Pick the first fallback whose context fits.
     const pick = selectFallback(ctx, live.fallbacks, null);
     if (!pick) {
       const text = "No usable model; no fallback candidate available.";
@@ -131,7 +149,10 @@ export default async function providerExtension(pi: ExtensionAPI): Promise<void>
       return;
     }
     const ok = await pi.setModel(pick.model);
-    debug("provider-strip", `startup setModel(${pick.candidate.provider}/${pick.candidate.model}) -> ${ok}`);
+    debug(
+      "provider-strip",
+      `startup setModel(${pick.candidate.provider}/${pick.candidate.model}) -> ${ok}`,
+    );
     if (ok) {
       const text = `No usable model; using ${pick.candidate.provider} / ${pick.candidate.model}.`;
       process.stderr.write(`[provider-strip] ${text}\n`);
@@ -139,9 +160,7 @@ export default async function providerExtension(pi: ExtensionAPI): Promise<void>
     }
   });
 
-  // ── Runtime failover ───────────────────────────────────────────────────
-  // A new model was selected (by us or the user): clear its slate so we don't
-  // immediately fail away from a freshly-chosen model.
+  // New model selected (by us or the user): clear its failure slate so we don't fail away from it immediately.
   pi.on("model_select", (_event, ctx) => {
     const s = getState();
     const provider = ctx.model?.provider;
@@ -151,20 +170,19 @@ export default async function providerExtension(pi: ExtensionAPI): Promise<void>
     }
   });
 
-  // Count failed turns per provider; switch to the next fitting fallback once
-  // the threshold is crossed. Applied here (between turns) so pi's remaining
-  // retries run against the new model.
   pi.on("turn_end", async (event, ctx) => {
     const message = event.message as { role?: string; stopReason?: string };
     const provider = ctx.model?.provider;
     if (!provider) return;
     const s = getState();
     const cfg = configFor(ctx);
-    const threshold = cfg.failover?.failureThreshold ?? DEFAULT_FAILURE_THRESHOLD;
+    const threshold =
+      cfg.failover?.failureThreshold ?? DEFAULT_FAILURE_THRESHOLD;
 
-    const failed = message?.role === "assistant" && message?.stopReason === "error";
+    const failed =
+      message?.role === "assistant" && message?.stopReason === "error";
     if (!failed) {
-      s.fails.set(provider, 0); // recovered — clear this provider's slate
+      s.fails.set(provider, 0);
       return;
     }
 

@@ -1,14 +1,4 @@
-/**
- * Bounded, forgiving parser for llm-editor's single-file unified-diff dialect.
- *
- * Permissiveness policy: normalize whatever has exactly one reading, reject
- * whatever does not. A model that writes several hunks in one array element,
- * miscounts a header, wraps the patch in a fence, or drops the diff-prefix
- * space from a row has still expressed one unambiguous edit, so the
- * parser repairs it instead of failing the whole tool call. Anything that would
- * require guessing intent (missing context rows) still fails loudly — a wrong
- * patch is worse than a retry.
- */
+/** Bounded, forgiving parser for llm-editor's single-file unified-diff dialect: normalize whatever has exactly one reading, reject whatever does not — a wrong patch is worse than a retry. */
 
 export const MAX_DIFF_BLOCKS = 64;
 export const MAX_DIFF_BLOCK_BYTES = 262_144;
@@ -57,20 +47,12 @@ export type UdiffParseResult =
   | { ok: false; error: UdiffParseError };
 
 const HEADER = /^@@+ *-(\d+)(?:,(\d+))? *\+(\d+)(?:,(\d+))? *@@+(?: .*)?$/;
-/**
- * A coordinate-less hunk separator: `@@`, `@@ @@`, `@@ ... @@ trailing`, or the
- * bare `***` of the apply_patch dialect. Models use these to divide hunks inside
- * one element, and a malformed `@@` line degrades to this. The resulting hunk is
- * unanchored, and an empty one (a trailing end-marker) is simply dropped. Only
- * tried after HEADER, which it would otherwise shadow.
- */
+/** Coordinate-less hunk separator (`@@`, `@@ @@`, `@@ ... @@`, bare `***`):
+ *  unanchored, empty trailing ones dropped. Tried after HEADER, which it would
+ *  otherwise shadow. */
 const HEADER_LOOSE = /^(?:@@+(?: *(?:\.\.\.)? *@@+)?(?: .*)?|\*\*\*)$/;
-/**
- * Envelope lines models wrap a patch in: Markdown fences, and the codex
- * `apply_patch` markers (`*** Begin Patch`, `*** Update File: p`, `*** End
- * Patch`). Unprefixed only — a fence or `***` belonging to the edited file
- * carries a diff prefix and is never matched here.
- */
+/** Envelope lines models wrap patches in (fences, `*** Begin/End Patch`);
+ *  unprefixed only — file content carries a diff prefix and never matches. */
 const WRAPPER = /^(?:```|~~~|\*\*\* )/;
 const NO_NEWLINE = /^\\ No newline at end of (?:file|source|target)[ \t]*$/;
 
@@ -89,15 +71,8 @@ function logicalLines(diff: string): string[] {
   return lines;
 }
 
-/**
- * Classify one body line.
- *
- * A line with no diff prefix is read as context. Models routinely drop the
- * prefix space on rows that start at column 0 while every neighbour is
- * indented, visually aligning the diff. Context is the only reading that can
- * be wrong without corrupting the file: a misread row cannot delete or insert
- * anything, it can only fail to match, which surfaces as a located error.
- */
+/** No prefix reads as context: models drop the prefix space for visual
+ *  alignment, and a misread context row can only fail to match, never corrupt. */
 function classify(line: string): UdiffRow {
   const prefix = line[0];
   const bare = prefix !== " " && prefix !== "-" && prefix !== "+";
@@ -112,21 +87,17 @@ interface HunkParse {
   error?: UdiffParseError;
 }
 
-/**
- * Parse one hunk header plus its body rows. `base` is the header's line number;
- * a null `header` is a coordinate-less `@@`, which yields an unanchored hunk the
- * applier must locate by unique content match.
- */
+/** `base` is the header's line number; a null `header` (coordinate-less `@@`)
+ *  yields an unanchored hunk the applier locates by unique match. */
 function parseHunk(
   header: RegExpExecArray | null,
   body: string[],
   block: number,
   base: number,
 ): HunkParse {
-  const bad = (
-    code: UdiffParseErrorCode,
-    line?: number,
-  ): HunkParse => ({ error: { code, block, line } });
+  const bad = (code: UdiffParseErrorCode, line?: number): HunkParse => ({
+    error: { code, block, line },
+  });
 
   const anchored = header !== null;
   const oldStart = anchored ? Number(header[1]) : 0;
@@ -178,14 +149,10 @@ function parseHunk(
     if (row.operation !== "context") changed = true;
   }
 
-  // A hunk that changes nothing is dropped, not fatal: it costs the caller
-  // nothing to ignore, and one stray no-op must not sink its siblings.
+  // A no-op hunk is dropped, not fatal: one stray no-op must not sink its siblings.
   if (!changed) return {};
 
-  // Header counts are advisory: the body is the authority on how many source
-  // and target lines a hunk covers. The one thing the body cannot supply is a
-  // context row the model dropped, so a header claiming source lines the body
-  // lacks stays fatal rather than becoming a blind insertion.
+  // Header counts are advisory; the body is authority — a header claiming source lines the body lacks stays fatal (context rows can't be recovered).
   if (sourceCount === 0 && headerOldCount > 0) return bad("bad_count", base);
 
   const sourceMarked = rows.filter((row) => row.sourceNoNewline);
@@ -217,13 +184,8 @@ function parseHunk(
   };
 }
 
-/**
- * Parse one array element, which may hold several hunks.
- *
- * Everything before the first `@@` (fences, `diff --git`, `---`/`+++` headers,
- * prose) is dropped the way patch(1) drops it; WRAPPER lines are dropped
- * wherever they appear.
- */
+/** Parse one array element, which may hold several hunks. Content before the
+ *  first `@@` and WRAPPER lines are dropped, as patch(1) drops them. */
 function parseBlock(diff: string, block: number): UdiffParseResult {
   if (Buffer.byteLength(diff, "utf8") > MAX_DIFF_BLOCK_BYTES)
     return fail("too_large", block);

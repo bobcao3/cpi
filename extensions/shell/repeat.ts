@@ -13,10 +13,20 @@ import { join } from "node:path";
 import { Type } from "typebox";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { renderShCall, renderShResult } from "./render.ts";
-import { getShuckBinPath, buildShellEnvWithDotenv, type ToolAvailability } from "./tools.ts";
+import {
+  getShuckBinPath,
+  buildShellEnvWithDotenv,
+  type ToolAvailability,
+} from "./tools.ts";
 import { resolveShell, type ShellProfile } from "./profile.ts";
 import { analyzeCommand, unsupportedDialectMessage } from "./analyze.ts";
-import { loadText, render, renderLines, textPath, type ToolText } from "../lib/text.ts";
+import {
+  loadText,
+  render,
+  renderLines,
+  textPath,
+  type ToolText,
+} from "../lib/text.ts";
 
 export interface RepeatLogRange {
   path: string;
@@ -62,7 +72,6 @@ let getScope: () => string | undefined = () => undefined;
 export const setRepeatScopeGetter = (fn: () => string | undefined): void => {
   getScope = fn;
 };
-
 
 export const setRepeatCompletionHook = (fn: RepeatCompletionHook) => {
   hook = fn;
@@ -131,11 +140,15 @@ function runIteration(mon: RepeatMonitor): void {
   const header = `═══════════════════════════════════════════════════════════════════════════════\nInvocation ${mon.invocation} — ${new Date().toISOString()}\nCommand: ${mon.command}\n───────────────────────────────────────────────────────────────────────────────\n`;
   writeLog(mon, header);
 
-  const child = spawn(mon.shell.executable, [...mon.shell.argvPrefix, "-c", mon.command], {
-    detached: true,
-    env: mon.env,
-    stdio: ["ignore", "pipe", "pipe"],
-  });
+  const child = spawn(
+    mon.shell.executable,
+    [...mon.shell.argvPrefix, "-c", mon.command],
+    {
+      detached: true,
+      env: mon.env,
+      stdio: ["ignore", "pipe", "pipe"],
+    },
+  );
   mon.child = child;
   mon.pid = child.pid ?? -1;
 
@@ -209,7 +222,10 @@ export function signalRepeat(id: string, signal: string): boolean {
   stopRepeat(mon);
   if (mon.child && mon.pid > 0) {
     try {
-      process.kill(-mon.pid, /^\d+$/.test(signal) ? Number(signal) : (signal as NodeJS.Signals));
+      process.kill(
+        -mon.pid,
+        /^\d+$/.test(signal) ? Number(signal) : (signal as NodeJS.Signals),
+      );
     } catch {}
   }
   rpt.delete(mon.id);
@@ -221,10 +237,14 @@ export const getRepeatCount = (): number =>
 export const hasActiveRepeats = (): boolean =>
   [...rpt.values()].some((m) => m.sessScope === getScope());
 export const getActiveRepeats = () =>
-  [...rpt.values()].filter((m) => m.sessScope === getScope()).map((e) => ({ id: e.id, describe: e.describe }));
+  [...rpt.values()]
+    .filter((m) => m.sessScope === getScope())
+    .map((e) => ({ id: e.id, describe: e.describe }));
 
 export function killAllRepeats(): void {
-  for (const mon of [...rpt.values()].filter((m) => m.sessScope === getScope())) {
+  for (const mon of [...rpt.values()].filter(
+    (m) => m.sessScope === getScope(),
+  )) {
     stopRepeat(mon);
     rpt.delete(mon.id);
   }
@@ -280,7 +300,9 @@ export function createRepeatTool(
       const description = params.description?.trim();
       if (interval < 5 || interval > 60) {
         return {
-          content: [{ type: "text", text: `interval must be 5-60s (got ${interval}).` }],
+          content: [
+            { type: "text", text: `interval must be 5-60s (got ${interval}).` },
+          ],
           isError: true,
         };
       }
@@ -294,7 +316,12 @@ export function createRepeatTool(
       });
       if (analysis.status === "unsupported-dialect") {
         return {
-          content: [{ type: "text", text: unsupportedDialectMessage(analysis.unsupported!) }],
+          content: [
+            {
+              type: "text",
+              text: unsupportedDialectMessage(analysis.unsupported!),
+            },
+          ],
           isError: true,
         };
       }
@@ -303,14 +330,19 @@ export function createRepeatTool(
         const count = analysis.errorCount;
         return {
           content: [
-            { type: "text", text: `${analysis.errorText}\n---\nblocked (${count} error${count !== 1 ? "s" : ""})` },
+            {
+              type: "text",
+              text: `${analysis.errorText}\n---\nblocked (${count} error${count !== 1 ? "s" : ""})`,
+            },
           ],
           details: { description, shuckBlocked: true, tsAst: parse.ast },
           isError: true,
         };
       }
       const shuckWarnings = analysis.warningText || undefined;
-      const warningPrefix = shuckWarnings ? `linter warnings:\n${shuckWarnings}\n---\n` : "";
+      const warningPrefix = shuckWarnings
+        ? `linter warnings:\n${shuckWarnings}\n---\n`
+        : "";
 
       const id = startRepeat(
         params.command,

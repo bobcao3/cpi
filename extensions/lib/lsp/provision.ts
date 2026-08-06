@@ -23,7 +23,14 @@
 import { execFile, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { createWriteStream, existsSync, readFileSync } from "node:fs";
-import { chmod, copyFile, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import {
+  chmod,
+  copyFile,
+  mkdir,
+  readFile,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { delimiter, dirname, join } from "node:path";
 import { promisify } from "node:util";
@@ -35,7 +42,9 @@ const execFileAsync = promisify(execFile);
 const DL_TIMEOUT = 60_000;
 const IS_WIN = process.platform === "win32";
 
-const INSTALL_G = globalThis as unknown as { __cpiLspInstalls?: Map<string, Promise<void>> };
+const INSTALL_G = globalThis as unknown as {
+  __cpiLspInstalls?: Map<string, Promise<void>>;
+};
 
 function installs(): Map<string, Promise<void>> {
   if (!INSTALL_G.__cpiLspInstalls) INSTALL_G.__cpiLspInstalls = new Map();
@@ -49,7 +58,10 @@ function installs(): Map<string, Promise<void>> {
  * re-running `npm install`/`uv pip install`. `globalThis` holds shared mutable
  * state (re-read every call), not a dedup flag.
  */
-async function withInstallLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
+async function withInstallLock<T>(
+  key: string,
+  fn: () => Promise<T>,
+): Promise<T> {
   const map = installs();
   const existing = map.get(key);
   if (existing) await existing.catch(() => {});
@@ -82,8 +94,12 @@ export interface ResolveOptions {
 }
 
 /** Locate `name` on PATH (env-PATH-first). Returns null when absent. */
-export function whichOnPath(name: string, env: NodeJS.ProcessEnv): string | null {
-  const key = Object.keys(env).find((k) => k.toLowerCase() === "path") ?? "PATH";
+export function whichOnPath(
+  name: string,
+  env: NodeJS.ProcessEnv,
+): string | null {
+  const key =
+    Object.keys(env).find((k) => k.toLowerCase() === "path") ?? "PATH";
   const dirs = (env[key] ?? "").split(delimiter).filter(Boolean);
   const cands = IS_WIN ? [`${name}.exe`, name] : [name];
   for (const d of dirs) {
@@ -135,7 +151,11 @@ async function runToCompletion(
   return withTimeout(
     timeoutMs,
     new Promise((resolve, reject) => {
-      const p = spawn(cmd, args, { cwd, env, stdio: ["ignore", "pipe", "pipe"] });
+      const p = spawn(cmd, args, {
+        cwd,
+        env,
+        stdio: ["ignore", "pipe", "pipe"],
+      });
       let stdout = "";
       let stderr = "";
       p.stdout?.on("data", (d) => {
@@ -146,7 +166,8 @@ async function runToCompletion(
       });
       p.on("error", reject);
       p.on("exit", (code) => {
-        if (code !== 0) reject(new Error(`exit ${code}: ${(stderr || "").slice(0, 500)}`));
+        if (code !== 0)
+          reject(new Error(`exit ${code}: ${(stderr || "").slice(0, 500)}`));
         else resolve({ stdout, stderr, code });
       });
     }),
@@ -205,13 +226,21 @@ function platformKey(): string {
   return `${process.platform}-${process.arch}`;
 }
 
-async function ensureUv(opts: ResolveOptions, env: NodeJS.ProcessEnv): Promise<string> {
+async function ensureUv(
+  opts: ResolveOptions,
+  env: NodeJS.ProcessEnv,
+): Promise<string> {
   const want = opts.uv.version;
   const dir = join(getAgentDir(), "cache", "uv", "bin");
   const bin = join(dir, IS_WIN ? "uv.exe" : "uv");
   if (existsSync(bin)) {
     try {
-      const v = await runCapture(bin, ["--version"], env, opts.installTimeoutMs);
+      const v = await runCapture(
+        bin,
+        ["--version"],
+        env,
+        opts.installTimeoutMs,
+      );
       if (v.includes(want)) return bin;
     } catch {
       /* stale; re-provision */
@@ -250,9 +279,13 @@ async function verifyUv(
   // Primary: GitHub Artifact Attestation (keyless Sigstore). Fallback: sha256.
   if (opts.uv.verify === "attestation-then-sha256") {
     try {
-      await execFileAsync("gh", ["attestation", "verify", archive, "--repo", opts.uv.repo], {
-        timeout: opts.installTimeoutMs,
-      });
+      await execFileAsync(
+        "gh",
+        ["attestation", "verify", archive, "--repo", opts.uv.repo],
+        {
+          timeout: opts.installTimeoutMs,
+        },
+      );
       return;
     } catch {
       /* gh absent or attestation absent → sha256 fallback */
@@ -284,15 +317,24 @@ async function installNpm(
   const want = spec.install.version;
   if (existsSync(bin)) {
     try {
-      const v = await runCapture(bin, ["--version"], env, opts.installTimeoutMs);
-      if (want && v.includes(want)) return { bin, source: "installed", pathDir: dirname(bin) };
+      const v = await runCapture(
+        bin,
+        ["--version"],
+        env,
+        opts.installTimeoutMs,
+      );
+      if (want && v.includes(want))
+        return { bin, source: "installed", pathDir: dirname(bin) };
     } catch {
       /* stale; reinstall */
     }
   }
   const pkgJson = join(envDir, "package.json");
   if (!existsSync(pkgJson))
-    await writeFile(pkgJson, JSON.stringify({ name: "cpi-lsp-typescript", private: true }));
+    await writeFile(
+      pkgJson,
+      JSON.stringify({ name: "cpi-lsp-typescript", private: true }),
+    );
   const pkgs = [`${spec.install.package}@${want}`];
   if (spec.install.tsVersion) pkgs.push(`typescript@${spec.install.tsVersion}`);
   await runToCompletion(
@@ -302,9 +344,11 @@ async function installNpm(
     env,
     opts.installTimeoutMs,
   );
-  if (!existsSync(bin)) throw new Error("tsserver binary missing after install");
+  if (!existsSync(bin))
+    throw new Error("tsserver binary missing after install");
   const v = await runCapture(bin, ["--version"], env, opts.installTimeoutMs);
-  if (want && !v.includes(want)) throw new Error(`tsserver version mismatch after install: ${v}`);
+  if (want && !v.includes(want))
+    throw new Error(`tsserver version mismatch after install: ${v}`);
   return { bin, source: "installed", pathDir: dirname(bin) };
 }
 
@@ -320,24 +364,43 @@ async function installUv(
   const want = spec.install.version;
   if (existsSync(bin)) {
     try {
-      const v = await runCapture(bin, ["--version"], env, opts.installTimeoutMs);
-      if (want && v.includes(want)) return { bin, source: "installed", pathDir: dirname(bin) };
+      const v = await runCapture(
+        bin,
+        ["--version"],
+        env,
+        opts.installTimeoutMs,
+      );
+      if (want && v.includes(want))
+        return { bin, source: "installed", pathDir: dirname(bin) };
     } catch {
       /* stale; reinstall */
     }
   }
   const venvPython = join(envDir, "bin", IS_WIN ? "python.exe" : "python");
-  await runToCompletion(uvBin, ["venv", envDir], envDir, env, opts.installTimeoutMs);
   await runToCompletion(
     uvBin,
-    ["pip", "install", "--python", venvPython, `${spec.install.package}==${want}`],
+    ["venv", envDir],
+    envDir,
+    env,
+    opts.installTimeoutMs,
+  );
+  await runToCompletion(
+    uvBin,
+    [
+      "pip",
+      "install",
+      "--python",
+      venvPython,
+      `${spec.install.package}==${want}`,
+    ],
     envDir,
     env,
     opts.installTimeoutMs,
   );
   if (!existsSync(bin)) throw new Error("pyrefly binary missing after install");
   const v = await runCapture(bin, ["--version"], env, opts.installTimeoutMs);
-  if (want && !v.includes(want)) throw new Error(`pyrefly version mismatch after install: ${v}`);
+  if (want && !v.includes(want))
+    throw new Error(`pyrefly version mismatch after install: ${v}`);
   return { bin, source: "installed", pathDir: dirname(bin) };
 }
 
@@ -383,6 +446,10 @@ export async function resolveBin(
     };
   } catch (err) {
     const e = err as { message?: string };
-    return { bin: "", source: "install-failed", error: String(e?.message || err) };
+    return {
+      bin: "",
+      source: "install-failed",
+      error: String(e?.message || err),
+    };
   }
 }

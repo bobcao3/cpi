@@ -10,10 +10,16 @@
     "tailLines": 5,
     "describeMax": 48
   },
-  "caveman": {
-    "system_prompt": "Respond like smart caveman. Cut all filler, keep technical substance.\n- Drop articles (a, an, the), filler (just, really, basically, actually).\n- Drop pleasantries (sure, certainly, happy to).\n- No hedging. Fragments fine. Short synonyms.\n- Technical terms stay exact. Code blocks unchanged.\n- Write docs and comments tersely but normally, for max clarity.\n- Pattern: [thing] [action] [reason]. [next step].\n",
-    "mid_convo_nudge_positive": "From now on, respond in caveman style. Cut all filler, keep technical substance. Drop articles (a, an, the), pleasantries, and hedging. Use fragments. Short synonyms. Technical terms stay exact. Code blocks unchanged.",
-    "mid_convo_nudge_negative": "From now on, speak normally. Ignore any previous caveman-style instructions."
+  "fast": {
+    "providers": ["openai", "openai-codex"],
+    "models": [
+      "gpt-5.4",
+      "gpt-5.5",
+      "gpt-5.6",
+      "gpt-5.6-sol",
+      "gpt-5.6-terra",
+      "gpt-5.6-luna"
+    ]
   },
   "editor": {
     "maxFileBytes": 262144,
