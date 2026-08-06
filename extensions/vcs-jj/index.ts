@@ -1,12 +1,4 @@
-/**
- * Contribute the jj change/bookmark to footer line 1: git reports a detached
- * HEAD in jj repos, so the built-in footer would show `(detached)`. vcs-jj only registers a branch resolver (lib/footer.ts owns rendering).
- */
-
-import type {
-  ExtensionAPI,
-  ExtensionContext,
-} from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { getCwd } from "../lib/cwd.ts";
 import { setBranchResolver, clearBranchResolver } from "../lib/footer.ts";
 import { existsSync } from "node:fs";
@@ -55,22 +47,22 @@ function resolveJjLabel(root: string): string | null {
   }
 }
 
-function install(ctx: ExtensionContext): void {
+function install(): void {
   const refresh = () => {
     const root = findJjRoot(getCwd());
     labelCache = root ? resolveJjLabel(root) : null;
   };
   refresh(); // prime synchronously so the first render already shows jj
-  setBranchResolver(() => labelCache, refresh);
+  setBranchResolver(() => (labelCache ? `jj:${labelCache}` : null), refresh);
 }
 
 export default function vcsJjExtension(pi: ExtensionAPI) {
-  pi.on("session_start", async (_event, ctx) => {
-    install(ctx);
+  pi.on("session_start", async (_event, _ctx) => {
+    install();
   });
 
-  pi.on("session_tree", async (_event, ctx) => {
-    install(ctx);
+  pi.on("session_tree", async (_event, _ctx) => {
+    install();
   });
 
   pi.on("session_shutdown", async () => {

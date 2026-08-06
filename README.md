@@ -69,8 +69,9 @@ project). Three mechanisms:
   reconfiguration.
 - **Fast mode when available.** Eligible OpenAI/OpenAI-Codex requests can use
   Fast mode.
-- **A no-frills status line.** The footer shows your jj change/bookmark,
-  `⚡fast` while active, and how many background shells and repeat monitors run.
+- **A no-frills status row.** The standard pi footer keeps showing its normal
+  information; the custom status row adds your jj change/bookmark, `⚡fast`
+  while active, and how many background shells and repeat monitors run.
 - **One LSP story.** `lsp` starts/stops/checks language servers; shell linting
   and the editor tooling are clients of the same servers, so everything agrees
   on one source of truth.
