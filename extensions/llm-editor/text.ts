@@ -13,10 +13,18 @@ export interface EditorText {
   system: {
     viewer: string;
     editor: string;
+    editor_direct: string;
+    editor_direct_retry: string;
     editor_fuzzy: string;
     editor_rewrite: string;
   };
-  tasks: { viewer: string; editor: string; editor_retry: string };
+  tasks: {
+    viewer: string;
+    editor: string;
+    editor_direct: string;
+    editor_direct_retry: string;
+    editor_retry: string;
+  };
   tool: { read: ToolMeta; write: ToolMeta; edit: ToolMeta };
   schema: {
     path: string;

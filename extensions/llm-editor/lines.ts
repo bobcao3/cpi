@@ -7,6 +7,6 @@ export function lineBodies(content: string): string[] {
 
 export function numberLines(content: string): string {
   return lineBodies(content)
-    .map((line, index) => `${index + 1}\t${line}`)
+    .map((line, index) => `${index + 1}|${line}`)
     .join("\n");
 }

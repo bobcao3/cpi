@@ -6,7 +6,8 @@
 
 [tool]
 description = '''
-Load the full SKILL.md of a discovered skill by exact name. Pass subdoc to load a relative sub-document inside the skill directory.
+Load the full SKILL.md of a discovered skill by exact name. Pass subdoc to load
+a relative sub-document inside the skill directory.
 
 Available skills:
 {{#skills}}

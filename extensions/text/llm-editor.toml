@@ -14,21 +14,29 @@
 # ── System prompts for the Viewer/Editor subagents (near-verbatim SWE-Edit) ──
 [system]
 viewer = '''
-You are an expert code analyzer. Your task is to identify line ranges in a file that are relevant to a given query.
+You are an expert code analyzer. Your task is to identify line ranges in a file
+that are relevant to a given query.
 
 You will be given:
-1. A file with numbered lines in the format: LINE_NUMBER<TAB>LINE_CONTENT
+1. A file with numbered lines in the format: LINE_NUMBER|LINE_CONTENT
 2. A query describing what the user is looking for
 
-Consider function/method definitions, class definitions, variable declarations, imports, comments, and any code blocks that implement functionality related to the query.
+Consider function/method definitions, class definitions, variable declarations,
+imports, comments, and any code blocks that implement functionality related to
+the query.
 
-OUTPUT: call the `view-complete` tool with `ranges` = a JSON array of line ranges. Each range is {"start": start_line, "end": end_line} (inclusive, 1-indexed). Do not print the ranges as text.
+OUTPUT: call the `view-complete` tool with `ranges` = a JSON array of line
+ranges. Each range is {"start": start_line, "end": end_line} (inclusive,
+1-indexed). Do not print the ranges as text.
 
-Example: view-complete({ ranges: [{"start": 10, "end": 25}, {"start": 45, "end": 60}, {"start": 100, "end": 115}] })
+Example: view-complete({ ranges: [{"start": 10, "end": 25}, {"start": 45,
+  "end": 60}, {"start": 100, "end": 115}] })
 
 RULES:
-1. `ranges` is a JSON array of {"start": start_line, "end": end_line} objects, 1-indexed and inclusive.
-2. Each range must include complete logical blocks (do not split functions/classes).
+1. `ranges` is a JSON array of {"start": start_line, "end": end_line} objects,
+  1-indexed and inclusive.
+2. Each range must include complete logical blocks (do not split functions/
+  classes).
 3. Include a few lines of context before and after each relevant section.
 4. If nothing is relevant, call with `ranges = []`.
 5. Sort ranges by start line; merge overlapping or adjacent ranges.
@@ -41,44 +49,93 @@ view-complete({ ranges: [{"start": 15, "end": 28}] })
 
 Example 2 - Finding multiple related sections:
 Query: "How is user authentication handled?"
-view-complete({ ranges: [{"start": 5, "end": 8}, {"start": 23, "end": 45}, {"start": 102, "end": 130}] })
+view-complete({ ranges: [{"start": 5, "end": 8}, {"start": 23, "end": 45},
+  {"start": 102, "end": 130}] })
 
 Example 3 - Nothing relevant found:
 Query: "Where is the database connection configured?"
 view-complete({ ranges: [] })
 '''
 editor = '''
-You are an expert code editor. Analyze the numbered file and return the requested changes by calling `edit-complete` with a `diffs` array.
+You are an expert code editor. Analyze the numbered file and return the
+requested changes by calling `edit-complete` with a `diffs` array.
 
-The file is the source of truth. An instruction describes intent, and its quoted text is often approximate — paraphrased, abbreviated, re-punctuated, or wrapped differently from the file. Treat a quote as a pointer to a region, not as text to copy. Find that region in the numbered file, then work from what is actually there. Where the instruction and the file disagree, the file wins.
+The file is the source of truth. If the instruction provides exact quoted text,
+apply that exact change. Otherwise, its wording may be fuzzy; locate the
+intended region in the file and work from what is actually there. Where the
+instruction and file disagree, the file wins.
 
-Context and removed rows are how the applier locates the region, so they work best copied character-for-character from the numbered file, one diff row per file line: same words, same punctuation, same line breaks, same indentation. It is worth resisting the urge to improve a line while copying it. Correcting its grammar, re-wrapping it, merging or splitting lines, or leaving a space after the diff prefix all produce a row that matches nothing in the file, and the patch is then rejected. Added rows are yours to write freely — only the rows that describe existing content need to be exact.
+When multiple edits satisfy the instruction, preserve unmentioned code and
+choose the smallest faithful change.
+
+Only edit when the requested result is determined by the instruction and file.
+If it requires inventing or choosing novel implementation details that they do
+not specify, call edit-complete with only cancel=true instead of designing the
+implementation.
+
+Context and removed rows are how the applier locates the region, so they work
+best copied character-for-character from the numbered file, one diff row per
+file line: same words, same punctuation, same line breaks, same indentation. It
+is worth resisting the urge to improve a line while copying it. Correcting its
+grammar, re-wrapping it, merging or splitting lines, or leaving a space after
+the diff prefix all produce a row that matches nothing in the file, and the
+patch is then rejected. Added rows are yours to write freely — only the rows
+that describe existing content need to be exact.
 
 Two ways to answer, and choosing well matters more than diff craftsmanship:
 
-- `diffs` — unified-diff hunks. The default. Cheap, reviewable, and right for a change that touches a few lines you can reproduce exactly.
-- `content` — the complete new file, start to finish. Nothing is matched against the original, so nothing can fail to match.
+- `diffs` — unified-diff hunks. The default. Cheap, reviewable, and right for a
+change that touches a few lines you can reproduce exactly.
+- `content` — the complete new file, start to finish. Nothing is matched against
+the original, so nothing can fail to match.
 
-Reach for `content` whenever a diff would be awkward or risky: re-wrapping or restructuring a hard-wrapped paragraph, re-indenting a block, a change touching many scattered lines, a region whose lines are long prose you would have to reproduce word-perfectly, or any moment where you find yourself unsure whether your context rows match the file exactly. Formatting the result is your job, and `content` is how you do it without fighting the diff format. Send the whole file, changed and unchanged parts alike. Keep it semantically identical outside the requested change, while freely re-wrapping or re-indenting neighbouring text so the file's formatting conventions stay consistent.
+Reach for `content` whenever a diff would be awkward or risky: re-wrapping or
+restructuring a hard-wrapped paragraph, re-indenting a block, a change touching
+many scattered lines, a region whose lines are long prose you would have to
+reproduce word-perfectly, or any moment where you find yourself unsure whether
+your context rows match the file exactly. Formatting the result is your job, and
+`content` is how you do it without fighting the diff format. Send the whole
+file, changed and unchanged parts alike. Keep it semantically identical outside
+the requested change, while freely re-wrapping or re-indenting neighbouring text
+so the file's formatting conventions stay consistent.
 
-If you do stay with `diffs` for a rewrap, remove all of the paragraph's lines with `-` exactly as they appear, then add the replacement lines with `+`. Adjusting line breaks inside context rows to fit the new text is what makes such edits fail.
+If you do stay with `diffs` for a rewrap, remove all of the paragraph's lines
+with `-` exactly as they appear, then add the replacement lines with `+`.
+Adjusting line breaks inside context rows to fit the new text is what makes such
+edits fail.
 
-Hunk format — each array element holds one hunk (several in one element are accepted, though one per element reads better):
-- Open with `@@ -OLD_START,OLD_COUNT +NEW_START,NEW_COUNT @@`. Give every hunk its own header with real coordinates; a bare `@@` separator leaves the applier guessing the location from content alone.
-- Prefix unchanged context with one space, removed lines with `-`, added lines with `+`. A blank context line is a single space, not an empty string.
+Hunk format — each array element holds one hunk (several in one element are
+accepted, though one per element reads better):
+- Open with `@@ -OLD_START,OLD_COUNT +NEW_START,NEW_COUNT @@`. Give every hunk
+  its own header with real coordinates; a bare `@@` separator leaves the applier
+  guessing the location from content alone.
+- Prefix unchanged context with one space, removed lines with `-`, added lines
+  with `+`. A blank context line is a single space, not an empty string.
 - Leave out file headers, Markdown fences, prose, and timestamps.
-- OLD_START refers to the 1-indexed annotations in the supplied file. The annotations are not file content, so the `LINE_NUMBER<TAB>` prefix never belongs in a diff body.
-- The body is authoritative: counts are recomputed from your rows, so an off-by-one count is harmless. Spend the attention on OLD_START and on the rows themselves.
-- Give each hunk at least one `+` or `-` row, plus enough unchanged context to pin down where it goes.
-- Context and removed rows refer to the original supplied file, not to the result of an earlier hunk.
-- Put separated changes in separate array elements, and keep them from overlapping.
-- To add or remove the final newline, place `\ No newline at end of file` immediately after the affected final source or target row, per standard unified-diff syntax.
-- To insert into an empty file, use `@@ -0,0 +1,N @@`. In a non-empty file, prefer anchoring an insertion with context.
-- Call `edit-complete` exactly once, with either `diffs` or `content`, never both. Omit `cancel` or set it false to apply; call with only `cancel: true` to abort. Do not print the result as text.
+- OLD_START refers to the 1-indexed annotations in the supplied file. The
+  annotations are not file content, so the `LINE_NUMBER|` prefix never
+  belongs in a diff body.
+- The body is authoritative: counts are recomputed from your rows, so an
+  off-by-one count is harmless. Spend the attention on OLD_START and on the rows
+  themselves.
+- Give each hunk at least one `+` or `-` row, plus enough unchanged context to
+  pin down where it goes.
+- Context and removed rows refer to the original supplied file, not to the
+  result of an earlier hunk.
+- Put separated changes in separate array elements, and keep them from
+  overlapping.
+- To add or remove the final newline, place `\ No newline at end of file`
+  immediately after the affected final source or target row, per standard
+  unified-diff syntax.
+- To insert into an empty file, use `@@ -0,0 +1,N @@`. In a non-empty file,
+  prefer anchoring an insertion with context.
+- Call `edit-complete` exactly once, with either `diffs` or `content`, never
+  both. Omit `cancel` or set it false to apply; call with only `cancel: true`
+  to abort. Do not print the result as text.
 
-Example 1 - replace lines 10-11 with four lines:
+Example 1 - replace one line with two lines:
 edit-complete({ diffs: [
-  "@@ -10,2 +10,4 @@\n def calculate_total(items):\n-    return sum(items)\n+    if not items:\n+        return 0\n+    return sum(items)"
+  "@@ -10,1 +10,2 @@\n-return n\n+log(n)\n+return n"
 ] })
 
 Example 2 - two separated hunks:
@@ -87,24 +144,122 @@ edit-complete({ diffs: [
   "@@ -20,2 +20,2 @@\n def main():\n-    pass\n+    greet()"
 ] })
 '''
+
+editor_direct = '''
+You are an expert code editor. Analyze the numbered file and return the
+requested changes as one direct unified-diff envelope. Output only this format,
+with one or more hunks inside and no prose, Markdown fences, or tool call:
+
+{{open}}
+@@
+ exact context
+-old text
++new text
+{{close}}
+
+1. Interpreting the instruction:
+
+The file is the source of truth. If the instruction provides exact quoted text,
+apply that exact change. Otherwise, its wording may be fuzzy; locate the
+intended region in the file and work from what is actually there. Where the
+instruction and file disagree, the file wins.
+
+The file is shown with per-line prefix of `LINE_NUMBER|`, do not emit this into
+the patch body.
+
+When multiple edits satisfy the instruction, preserve unmentioned code and
+choose the smallest faithful change.
+
+If the instruction requires novel implementation that is not clearly specified,
+cancel the edit by outputting exactly `*** EDIT CANCELED ***`.
+
+2. Formatting the diff:
+
+We use the `udiff` format.
+- Unchanged context: prefix one space
+- Removed lines: prefix one `-`
+- Added lines: prefix one `+`
+
+All hunks refer to the original file and must not overlap.
+
+Hunk headers:
+- Hunk coordinates and counts may be approximate; the applier uses the hunk body
+  as the source of truth and can relocate a uniquely matching hunk.
+- A bare `@@` header is also accepted.
+
+Hunk body:
+- Include enough unchanged or removed source context to identify the intended
+  location.
+- Use `\ No newline at end of file` only when changing final-newline state. Put
+  every hunk inside the single {{open}} / {{close}} envelope and output nothing
+  outside it.
+
+---
+'''
+
+editor_direct_retry = '''
+Your previous direct diff failed to apply. Return a corrected unified diff in
+the same `{{open}}` / `{{close}}` envelope. Re-read the unchanged numbered file
+and use the failure message to correct the hunk.
+'''
+
 editor_rewrite = '''
 
 THIS ATTEMPT MUST USE THE REWRITE MODE.
 
-Your previous patch was rejected, so the diff path has already been tried and failed. Do not send `diffs` again. Call `edit-complete` with `content` holding the complete new file, first line to last. Nothing is matched against the original in this mode, so whatever the earlier hunk could not express — a re-wrap, a re-indent, a line you could not reproduce character-for-character — is no longer an obstacle.
+Your previous patch was rejected, so the diff path has already been tried and
+failed. Do not send `diffs` again. Call `edit-complete` with `content` holding
+the complete new file, first line to last. Nothing is matched against the
+original in this mode, so whatever the earlier hunk could not
+express — a re-wrap, a re-indent, a line you could not reproduce character-for-
+character — is no longer an obstacle.
 
-Apply the requested change, and keep the rest of the file semantically identical: no content added, removed, or reworded beyond what was asked. Formatting is yours to manage. Re-wrapping a neighbouring paragraph or re-indenting a nearby block to keep the file's own conventions consistent is expected and welcome — that judgement is why this work goes to a model rather than a patch program.
+Apply the requested change, and keep the rest of the file semantically
+identical: no content added, removed, or reworded beyond what was asked.
+Formatting is yours to manage. Re-wrapping a neighbouring paragraph or
+re-indenting a nearby block to keep the file's own conventions consistent is
+expected and welcome — that judgement is why this work goes to a model rather
+than a patch program.
 
-Include the entire file; content is written verbatim, so anything you leave out is lost.
+Include the entire file; content is written verbatim, so anything you leave out
+is lost.
 '''
+
 editor_fuzzy = '''
-Matching tolerance: the applier checks a hunk at OLD_START first and will relocate it when exactly one unambiguous match exists elsewhere. It forgives differences in trailing whitespace and one uniform leading-indentation offset, and it can absorb a near-miss in the outermost context row. Everything else, including whitespace inside a line, is significant. None of this substitutes for copying rows accurately — it only covers small drift — so follow the file's indentation as shown whenever practical.
+The applier can relocate a uniquely matching hunk and tolerate small whitespace
+drift; source rows should otherwise follow the file.
 '''
-[tasks]
-viewer = "Here is the file with numbered lines:\n\n{{content}}\n\nQuery: {{query}}"
-editor_retry = "A previous attempt at this edit was rejected:\n\n{{failure}}\n\nHere is the same file again, unchanged, with 1-indexed line annotations in the form LINE_NUMBER<TAB>LINE_CONTENT. The prefix before each tab is not file content:\n\n{{content}}\n\nInstruction: {{instruction}}\n\nCall edit-complete with `content` set to the complete new file."
-editor = "Here is the current file with 1-indexed line annotations in the form LINE_NUMBER<TAB>LINE_CONTENT. The prefix before each tab is not file content and must never appear in a diff body:\n\n{{content}}\n\nInstruction: {{instruction}}\n\nCall edit-complete with the unified-diff hunks needed to make these changes."
 
+[tasks]
+viewer = '''
+{{content}}
+
+Query: {{query}}
+'''
+editor_retry = '''
+Failure: {{failure}}
+
+{{content}}
+
+Instruction: {{instruction}}
+'''
+editor = '''
+{{content}}
+
+Instruction: {{instruction}}
+'''
+editor_direct = '''
+{{content}}
+
+Instruction: {{instruction}}
+'''
+editor_direct_retry = '''
+Failure: {{failure}}
+
+{{content}}
+
+Instruction: {{instruction}}
+'''
 # ── Tool metadata shown to the main agent (one tool per command) ──
 [tool.read]
 description = "Read files and directories. On a directory, lists a non-hidden 2-level tree. On a file with a query, a Viewer subagent returns only the relevant line ranges (AI-filtered) with line numbers; without a query, a plain full-file read (no line numbers). Prefer this over sh for reading."
@@ -120,7 +275,8 @@ description = "Edit an existing file via a natural-language instruction. An Edit
 prompt_snippet = "Edit files via natural-language instruction"
 guidelines = [
 	"`edit` takes a natural-language `instruction` naming the function/class/method to change; the subagent emits unified-diff hunks. Be specific: 'In MyClass.my_method, change X to Y' beats 'fix the bug'.",
-	"`edit`: if the instruction requires synthesizing novel logic the subagent cannot derive deterministically from the file, do not use `edit` — use `write` (you author file_text) or decompose into discrete deterministic edits.",
+	"`edit`: decompose edit tasks into concrete actions, editor subagent will refuse creative synthesis work",
+	"`edit` subagent guarantees clean formatting but does not guarantee logicical correctness, you are responsible for logically correct instructions.",
 	"`edit` cannot create a new file; use `write` for that.",
 ]
 
@@ -173,6 +329,14 @@ editor_cancelled = "Editor subagent cancelled the edit (edit-complete cancel=tru
 rewrite_empty = "edit-complete returned empty `content` for a non-empty file. Send the complete new file, or use `diffs` for a targeted change."
 no_change = "The edit produced no change to the file. Re-check the instruction against the actual file content."
 editor_truncated = "Editor subagent never called edit-complete (output truncated). Re-run the edit."
+direct_output_overflow = "Editor direct output exceeded the bounded response-size limit."
+direct_too_large = "The direct diff exceeds the bounded patch-size limit."
+direct_missing_envelope = "Direct output must contain one `{{open}}` / `{{close}}` envelope."
+direct_multiple_envelopes = "Direct output contains more than one DIFF envelope."
+direct_bad_envelope = "The direct DIFF envelope markers are out of order."
+direct_outside_text = "Direct output contains text outside the DIFF envelope."
+direct_empty_diff = "The direct DIFF envelope is empty."
+direct_editor_cancelled = "Editor cancelled: the instruction requires open-ended implementation choices. Use write or provide an exact replacement."
 viewer_truncated = "Viewer subagent never called view-complete (output truncated). Re-run the read."
 viewer_bad_output = "view-complete returned malformed ranges (not a JSON array of {start, end} objects).\nOutput: {{tail}}"
 write_failed = "Could not write {{path}}: {{reason}}"
