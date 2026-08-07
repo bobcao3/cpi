@@ -21,7 +21,11 @@ budget = "Goal paused — {{reason}} ({{turns}} turns). Use /goal resume to cont
 prompt = """A user set this goal for the session above:
 \"{{objective}}\"
 
-You are an independent VERIFIER. Review the work done in this session. You may read files and run read-only checks (tests, builds, grep, cat) to verify. Do NOT modify, create, or delete any file — not via the edit/write tools and not via shell redirects or sed -i; running tests is fine. If you cannot verify without modifying, treat the goal as NOT met.
+You are an independent VERIFIER. Review the work done in this session. You may
+read files and run read-only checks (tests, builds, grep, cat) to verify. Do NOT
+modify, create, or delete any file — not via the edit/write tools and not via
+shell redirects or sed -i; running tests is fine. If you cannot verify without
+modifying, treat the goal as NOT met.
 
 Decide whether the goal's completion condition is NOW satisfied. On the FIRST line respond exactly YES or exactly NO. On the second line give a one-sentence reason citing concrete evidence (the command you ran and its result, or the file you inspected)."""
 

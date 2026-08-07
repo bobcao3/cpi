@@ -35,6 +35,8 @@ export interface SubagentOptions {
   provider: string;
   modelId: string;
   thinkingLevel?: string;
+  outputMode?: "tool-call" | "text";
+  maxOutputBytes?: number;
   cwd: string;
   signal?: AbortSignal;
   timeoutMs: number;
@@ -58,6 +60,8 @@ export interface SubagentResult {
   elapsedMs: number;
   usage?: Usage;
   completion: SubagentCompletion | null;
+  text: string;
+  outputOverflow: boolean;
 }
 
 async function readCompletion(
@@ -85,6 +89,8 @@ export async function runSubagent(
   opts: SubagentOptions,
 ): Promise<SubagentResult> {
   const T = loadEditorText(opts.cwd);
+  const outputMode = opts.outputMode ?? "tool-call";
+  const maxOutputBytes = opts.maxOutputBytes ?? 524288;
   const args = [
     "--print",
     "--no-extensions",
@@ -92,8 +98,7 @@ export async function runSubagent(
     SUBAGENT_TRANSCRIPT_EXT,
     "-e",
     COST_TREE_EXT,
-    "-e",
-    COMPLETION_EXT,
+    ...(outputMode === "tool-call" ? ["-e", COMPLETION_EXT] : []),
     "--no-builtin-tools",
     "--no-session",
     "--no-context-files",
@@ -116,7 +121,9 @@ export async function runSubagent(
     ...process.env,
     PI_SUBAGENT: "1",
     PI_SUBAGENT_ROLE: opts.role,
-    PI_SUBAGENT_COMPLETION: completionPath,
+    ...(outputMode === "tool-call"
+      ? { PI_SUBAGENT_COMPLETION: completionPath }
+      : {}),
   };
   const start = Date.now();
   const child = spawn("pi", args, {
@@ -125,11 +132,24 @@ export async function runSubagent(
     env: childEnv,
   });
 
-  // stdout is the (empty) final assistant text in print mode — drain, do not parse.
+  // stdout is the final assistant text in print mode: in tool-call mode it is
+  // (empty) and merely drained; in text mode it is captured up to maxOutputBytes.
   let stderr = "";
+  let stdoutChunks: Buffer[] = [];
+  let stdoutBytes = 0;
+  let outputOverflow = false;
   let spawnError: string | undefined;
   let lastStreamUpd = 0;
-  child.stdout.on("data", () => {});
+  child.stdout.on("data", (d: Buffer) => {
+    if (outputMode === "tool-call") return;
+    stdoutBytes += d.length;
+    if (stdoutBytes > maxOutputBytes) {
+      outputOverflow = true;
+      child.kill("SIGKILL");
+      return;
+    }
+    stdoutChunks.push(d);
+  });
   child.stderr.on("data", (d: Buffer) => {
     stderr += d.toString("utf8");
     const now = Date.now();
@@ -167,8 +187,12 @@ export async function runSubagent(
   if (opts.signal) opts.signal.removeEventListener("abort", onAbort);
   const elapsedMs = Date.now() - start;
 
-  const completion = await readCompletion(completionPath);
-  await unlink(completionPath).catch(() => {});
+  const text = Buffer.concat(stdoutChunks).toString("utf8");
+  const completion =
+    outputMode === "tool-call" ? await readCompletion(completionPath) : null;
+  if (outputMode === "tool-call") {
+    await unlink(completionPath).catch(() => {});
+  }
   const usage = parseSummaryUsage(stderr);
 
   const head =
@@ -180,13 +204,17 @@ export async function runSubagent(
     `- elapsed: ${elapsedMs}ms\n` +
     `- exit: ${exitCode}\n` +
     `- timed_out: ${timedOut}\n` +
+    `- output_mode: ${outputMode}\n` +
+    `- output_overflow: ${outputOverflow}\n` +
     (spawnError ? `- spawn_error: ${spawnError}\n` : "") +
     `\n${T.transcript.section_system}\n\n${opts.systemPrompt}\n\n` +
     `${T.transcript.section_user}\n\n${opts.task}\n\n` +
     `${T.transcript.section_completion}\n\n${
       completion
         ? `\`\`\`json\n${JSON.stringify({ tool: completion.tool, args: completion.args }, null, 2)}\n\`\`\`\n`
-        : `${T.messages.no_output}\n`
+        : text.trim()
+          ? `\`\`\`diff\n${text.trim()}\n\`\`\`\n`
+          : `${T.messages.no_output}\n`
     }` +
     (stderr.trim()
       ? `\n${T.transcript.section_stderr}\n\n\`\`\`\n${stderr.trim()}\n\`\`\`\n`
@@ -195,11 +223,13 @@ export async function runSubagent(
   await writeTranscript(opts.transcriptDir, opts.id, head, opts.maxTranscripts);
   return {
     stderr,
+    text,
     exitCode,
     timedOut,
     spawnError,
     elapsedMs,
     usage,
     completion,
+    outputOverflow,
   };
 }

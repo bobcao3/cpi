@@ -6,9 +6,16 @@ import {
   generateDiffString,
   generateUnifiedPatch,
 } from "@earendil-works/pi-coding-agent";
+import { loadEditorConfig, type EditorMode } from "../lib/config.ts";
 import { runSubagent } from "./subagent.ts";
 import { loadEditorText, fmt, type EditorText } from "./text.ts";
 import { parseUdiffs, type UdiffParseError } from "./udiff.ts";
+import {
+  MAX_DIRECT_OUTPUT_BYTES,
+  directDiffEnvelope,
+  parseDirectDiff,
+  type DirectDiffMarkers,
+} from "./direct-diff.ts";
 import {
   applyUdiffs,
   type UdiffApplyError,
@@ -34,6 +41,9 @@ export interface EditFileOptions {
   fuzzyMatch?: boolean;
   onStream?: (accumulated: string) => void;
   thinkingLevel?: string;
+  mode?: EditorMode;
+  /** Direct-diff envelope markers (default "patch"). */
+  directMarkers?: DirectDiffMarkers;
 }
 
 export type EditFileResult =
@@ -49,7 +59,11 @@ export type EditFileResult =
       lsp: string;
       usage?: { input: number; output: number };
     }
-  | { ok: false; error: string };
+  | {
+      ok: false;
+      error: string;
+      usage?: { input: number; output: number };
+    };
 
 type Attempt =
   | { ok: "applied"; result: UdiffApplyResult & { ok: true } }
@@ -131,26 +145,36 @@ export async function editFile(
 
     let usage: { input: number; output: number } | undefined;
     const numbered = numberLines(content);
+    const direct =
+      (opts.mode ?? loadEditorConfig(opts.cwd).mode) === "direct-diff";
+    const directMarkers = opts.directMarkers ?? "patch";
+    const envelopeMarkers = directDiffEnvelope(directMarkers);
     const baseSystem =
-      opts.fuzzyMatch === false
-        ? T.system.editor
-        : T.system.editor + T.system.editor_fuzzy;
+      (direct
+        ? fmt(T.system.editor_direct, envelopeMarkers)
+        : T.system.editor) +
+      (opts.fuzzyMatch === false ? "" : T.system.editor_fuzzy);
 
     const attempt = async (failure?: string): Promise<Attempt> => {
       const res = await runSubagent({
         role: "editor",
         systemPrompt: failure
-          ? baseSystem + T.system.editor_rewrite
+          ? baseSystem +
+            (direct
+              ? fmt(T.system.editor_direct_retry, envelopeMarkers)
+              : T.system.editor_rewrite)
           : baseSystem,
         task: failure
-          ? fmt(T.tasks.editor_retry, {
+          ? fmt(direct ? T.tasks.editor_direct_retry : T.tasks.editor_retry, {
               content: numbered,
               instruction: opts.instruction,
               failure,
+              ...envelopeMarkers,
             })
-          : fmt(T.tasks.editor, {
+          : fmt(direct ? T.tasks.editor_direct : T.tasks.editor, {
               content: numbered,
               instruction: opts.instruction,
+              ...envelopeMarkers,
             }),
         provider: opts.provider,
         modelId: opts.modelId,
@@ -162,6 +186,8 @@ export async function editFile(
         maxTranscripts: opts.maxTranscripts,
         onStream: opts.onStream,
         thinkingLevel: opts.thinkingLevel,
+        outputMode: direct ? "text" : "tool-call",
+        maxOutputBytes: MAX_DIRECT_OUTPUT_BYTES,
       });
 
       if (res.spawnError)
@@ -174,17 +200,39 @@ export async function editFile(
           ok: "fatal",
           error: fmt(T.errors.editor_timeout, { ms: opts.timeoutMs }),
         };
+      if (res.usage)
+        usage = {
+          input: (usage?.input ?? 0) + res.usage.input,
+          output: (usage?.output ?? 0) + res.usage.output,
+        };
+
+      if (direct) {
+        if (res.outputOverflow)
+          return { ok: "retryable", error: T.errors.direct_output_overflow };
+        const envelope = parseDirectDiff(res.text, directMarkers);
+        if (envelope.ok === false)
+          return {
+            ok: "retryable",
+            error: fmt(T.errors["direct_" + envelope.error], envelopeMarkers),
+          };
+        if ("cancel" in envelope)
+          return { ok: "fatal", error: T.errors.direct_editor_cancelled };
+        const parsed = parseUdiffs([envelope.diff]);
+        if (parsed.ok === false)
+          return { ok: "retryable", error: formatParseError(T, parsed.error) };
+        const result = applyUdiffs(content, parsed.hunks, {
+          fuzzy: opts.fuzzyMatch,
+        });
+        if (result.ok === false)
+          return { ok: "retryable", error: formatApplyError(T, result.error) };
+        return { ok: "applied", result };
+      }
 
       const c = res.completion;
       if (!c || c.tool !== "edit-complete")
         return { ok: "fatal", error: T.errors.editor_truncated };
       if (c.args.cancel === true)
         return { ok: "fatal", error: T.errors.editor_cancelled };
-      if (res.usage)
-        usage = {
-          input: (usage?.input ?? 0) + res.usage.input,
-          output: (usage?.output ?? 0) + res.usage.output,
-        };
 
       const rewrite =
         typeof c.args.content === "string" ? c.args.content : undefined;
@@ -215,10 +263,11 @@ export async function editFile(
 
     let outcome = await attempt();
     if (outcome.ok === "retryable") outcome = await attempt(outcome.error);
-    if (outcome.ok !== "applied") return { ok: false, error: outcome.error };
+    if (outcome.ok !== "applied")
+      return { ok: false, error: outcome.error, usage };
     const applied = outcome.result;
     if (applied.content === content) {
-      return { ok: false, error: T.errors.no_change };
+      return { ok: false, error: T.errors.no_change, usage };
     }
 
     const tmp = join(

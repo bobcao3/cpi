@@ -21,7 +21,7 @@ function output(source: string, diffs: string[], fuzzy = true): string {
 describe("numbered editor context", () => {
   test("coordinates match source lines without a trailing phantom", () => {
     expect(lineBodies("a\r\nb\r\n")).toEqual(["a", "b"]);
-    expect(numberLines("a\r\nb\r\n")).toBe("1\ta\n2\tb");
+    expect(numberLines("a\r\nb\r\n")).toBe("1|a\n2|b");
     expect(numberLines("")).toBe("");
   });
 });
