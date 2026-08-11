@@ -169,6 +169,7 @@ async function start() {
       cwd: spawnDir.cwd,
       env: spawnDir.env,
       stdio: ["pipe", "pipe", "pipe"],
+      windowsHide: true,
     });
   } catch (err) {
     post({

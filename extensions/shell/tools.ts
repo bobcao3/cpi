@@ -61,7 +61,7 @@ const binName = (n: string) => (IS_WIN ? `${n}.exe` : n);
 
 async function verifyTool(binPath: string): Promise<boolean> {
   try {
-    await execFileAsync(binPath, ["--version"]);
+    await execFileAsync(binPath, ["--version"], { windowsHide: true });
     return true;
   } catch {
     return false;
@@ -188,6 +188,7 @@ async function ensureTool(spec: ToolSpec): Promise<boolean> {
           profile.commandArgs(
             `Expand-Archive -LiteralPath ${quote(archivePath)} -DestinationPath ${quote(tmp)} -Force`,
           ),
+          { windowsHide: true },
         );
       } else {
         try {

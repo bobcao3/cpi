@@ -12,6 +12,7 @@
  */
 
 import { Worker } from "node:worker_threads";
+import { createHash } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import { delimiter, dirname, join } from "node:path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
@@ -35,6 +36,7 @@ export interface LspSession {
   projectRoot: string;
   envPath?: string;
   bin: string;
+  binArgs: string[];
   source: string;
   pathDir?: string;
   worker: Worker | null;
@@ -117,6 +119,7 @@ export function makeSession(
   root: string,
   envPath: string | undefined,
   bin: string,
+  binArgs: string[],
   source: string,
   pathDir: string | undefined,
   state: SessionState,
@@ -127,6 +130,7 @@ export function makeSession(
     projectRoot: root,
     envPath,
     bin,
+    binArgs,
     source,
     pathDir,
     worker: null,
@@ -192,7 +196,15 @@ export function spawnSession(
   cfg: LspConfig,
 ): void {
   const rootUri = root ? pathToFileURL(root).href : null;
-  const logPath = join(getAgentDir(), "lsp_logs", `${session.id}.log`);
+  const rootHash = createHash("sha256")
+    .update(session.projectRoot || "<inline>")
+    .digest("hex")
+    .slice(0, 16);
+  const logPath = join(
+    getAgentDir(),
+    "lsp_logs",
+    `${session.language}-${rootHash}.log`,
+  );
   mkdirSync(dirname(logPath), { recursive: true });
   const directive = spec.serverCommand(session.bin, root);
   const spawnEnv = buildSpawnEnv(
@@ -203,7 +215,7 @@ export function spawnSession(
     workerData: {
       spawn: {
         cmd: directive.cmd,
-        args: directive.args,
+        args: [...session.binArgs, ...directive.args],
         cwd: directive.cwd ?? root,
         env: spawnEnv,
         logPath,
