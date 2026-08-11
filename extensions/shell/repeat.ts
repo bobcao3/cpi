@@ -148,6 +148,7 @@ function runIteration(mon: RepeatMonitor): void {
       detached: process.platform !== "win32",
       env: mon.env,
       stdio: ["ignore", "pipe", "pipe"],
+      windowsHide: true,
     },
   );
   mon.child = child;

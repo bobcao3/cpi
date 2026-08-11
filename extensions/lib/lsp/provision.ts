@@ -1,4 +1,4 @@
-import { execFile, spawn } from "node:child_process";
+import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
 import { createWriteStream, existsSync, readFileSync } from "node:fs";
 import {
@@ -10,12 +10,23 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { delimiter, dirname, join } from "node:path";
+import { dirname, join } from "node:path";
 import { promisify } from "node:util";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { ensureShellTools, getShuckBinPath } from "../../shell/tools.ts";
 import { resolveShell } from "../../shell/profile.ts";
 import { type LspServerSpec } from "./registry.ts";
+import {
+  installedNpmTarget,
+  launchTarget,
+  npmCliTarget,
+  npmPackageTarget,
+  runCapture,
+  runToCompletion,
+  whichOnPath,
+} from "./process.ts";
+
+export { whichOnPath } from "./process.ts";
 
 const execFileAsync = promisify(execFile);
 const DL_TIMEOUT = 60_000;
@@ -57,6 +68,7 @@ export type ResolveSource = "env" | "installed" | "reuse" | "install-failed";
 
 export interface ResolveResult {
   bin: string;
+  args?: string[];
   source: ResolveSource;
   pathDir?: string;
   error?: string;
@@ -65,23 +77,6 @@ export interface ResolveResult {
 export interface ResolveOptions {
   installTimeoutMs: number;
   uv: { version: string; repo: string; verify: string };
-}
-
-export function whichOnPath(
-  name: string,
-  env: NodeJS.ProcessEnv,
-): string | null {
-  const key =
-    Object.keys(env).find((k) => k.toLowerCase() === "path") ?? "PATH";
-  const dirs = (env[key] ?? "").split(delimiter).filter(Boolean);
-  const cands = IS_WIN ? [`${name}.exe`, name] : [name];
-  for (const d of dirs) {
-    for (const c of cands) {
-      const p = join(d, c);
-      if (existsSync(p)) return p;
-    }
-  }
-  return null;
 }
 
 function withTimeout<T>(ms: number, p: Promise<T>): Promise<T> {
@@ -98,53 +93,6 @@ function withTimeout<T>(ms: number, p: Promise<T>): Promise<T> {
       },
     );
   });
-}
-
-async function runCapture(
-  cmd: string,
-  args: string[],
-  env: NodeJS.ProcessEnv,
-  timeoutMs: number,
-): Promise<string> {
-  const r = await withTimeout(
-    timeoutMs,
-    execFileAsync(cmd, args, { env, maxBuffer: 4 * 1024 * 1024 }),
-  );
-  return (r.stdout ?? "") + (r.stderr ?? "");
-}
-
-/** Run to exit 0 or reject on non-zero exit. */
-async function runToCompletion(
-  cmd: string,
-  args: string[],
-  cwd: string,
-  env: NodeJS.ProcessEnv,
-  timeoutMs: number,
-): Promise<{ stdout: string; stderr: string; code: number | null }> {
-  return withTimeout(
-    timeoutMs,
-    new Promise((resolve, reject) => {
-      const p = spawn(cmd, args, {
-        cwd,
-        env,
-        stdio: ["ignore", "pipe", "pipe"],
-      });
-      let stdout = "";
-      let stderr = "";
-      p.stdout?.on("data", (d) => {
-        stdout += d.toString("utf8");
-      });
-      p.stderr?.on("data", (d) => {
-        stderr += d.toString("utf8");
-      });
-      p.on("error", reject);
-      p.on("exit", (code) => {
-        if (code !== 0)
-          reject(new Error(`exit ${code}: ${(stderr || "").slice(0, 500)}`));
-        else resolve({ stdout, stderr, code });
-      });
-    }),
-  );
 }
 
 async function download(url: string, dest: string): Promise<void> {
@@ -214,8 +162,9 @@ async function ensureUv(
   if (existsSync(bin)) {
     try {
       const v = await runCapture(
-        bin,
+        launchTarget(bin, env),
         ["--version"],
+        dir,
         env,
         opts.installTimeoutMs,
       );
@@ -239,10 +188,12 @@ async function ensureUv(
         shell.commandArgs(
           `Expand-Archive -LiteralPath ${psQuote(archive)} -DestinationPath ${psQuote(tmp)} -Force`,
         ),
-        { env },
+        { env, windowsHide: true },
       );
     } else {
-      await execFileAsync("tar", ["-xzf", archive, "-C", tmp]);
+      await execFileAsync("tar", ["-xzf", archive, "-C", tmp], {
+        windowsHide: true,
+      });
     }
     const extracted = IS_WIN
       ? join(tmp, "uv.exe")
@@ -250,7 +201,13 @@ async function ensureUv(
     await mkdir(dir, { recursive: true });
     await copyFile(extracted, bin);
     if (!IS_WIN) await chmod(bin, 0o755);
-    const v = await runCapture(bin, ["--version"], env, opts.installTimeoutMs);
+    const v = await runCapture(
+      launchTarget(bin, env),
+      ["--version"],
+      dir,
+      env,
+      opts.installTimeoutMs,
+    );
     if (!v.includes(want)) throw new Error(`uv version mismatch: ${v}`);
     return bin;
   } finally {
@@ -273,6 +230,7 @@ async function verifyUv(
         ["attestation", "verify", archive, "--repo", opts.uv.repo],
         {
           timeout: opts.installTimeoutMs,
+          windowsHide: true,
         },
       );
       return;
@@ -294,24 +252,21 @@ async function installNpm(
   env: NodeJS.ProcessEnv,
 ): Promise<ResolveResult> {
   const envDir = join(getAgentDir(), "lsp_envs", "typescript");
-  await mkdir(envDir, { recursive: true });
-  const bin = join(
-    envDir,
-    "node_modules",
-    ".bin",
-    IS_WIN ? "typescript-language-server.cmd" : "typescript-language-server",
-  );
+  const packageName = spec.install.package!;
   const want = spec.install.version;
-  if (existsSync(bin)) {
+  await mkdir(envDir, { recursive: true });
+  let target = installedNpmTarget(envDir, packageName, spec.binName);
+  if (target) {
     try {
-      const v = await runCapture(
-        bin,
+      const version = await runCapture(
+        target,
         ["--version"],
+        envDir,
         env,
         opts.installTimeoutMs,
       );
-      if (want && v.includes(want))
-        return { bin, source: "installed", pathDir: dirname(bin) };
+      if (want && version.includes(want))
+        return { ...target, source: "installed" };
     } catch {}
   }
   const pkgJson = join(envDir, "package.json");
@@ -320,21 +275,30 @@ async function installNpm(
       pkgJson,
       JSON.stringify({ name: "cpi-lsp-typescript", private: true }),
     );
-  const pkgs = [`${spec.install.package}@${want}`];
-  if (spec.install.tsVersion) pkgs.push(`typescript@${spec.install.tsVersion}`);
+  const packages = [`${packageName}@${want}`];
+  if (spec.install.tsVersion)
+    packages.push(`typescript@${spec.install.tsVersion}`);
+  const npm = npmCliTarget(env);
+  if (!npm) throw new Error("npm CLI entry not found");
   await runToCompletion(
-    "npm",
-    ["install", "--prefix", envDir, ...pkgs],
+    npm,
+    ["install", "--prefix", envDir, ...packages],
     envDir,
     env,
     opts.installTimeoutMs,
   );
-  if (!existsSync(bin))
-    throw new Error("tsserver binary missing after install");
-  const v = await runCapture(bin, ["--version"], env, opts.installTimeoutMs);
-  if (want && !v.includes(want))
-    throw new Error(`tsserver version mismatch after install: ${v}`);
-  return { bin, source: "installed", pathDir: dirname(bin) };
+  target = installedNpmTarget(envDir, packageName, spec.binName);
+  if (!target) throw new Error("tsserver package entry missing after install");
+  const version = await runCapture(
+    target,
+    ["--version"],
+    envDir,
+    env,
+    opts.installTimeoutMs,
+  );
+  if (want && !version.includes(want))
+    throw new Error(`tsserver version mismatch after install: ${version}`);
+  return { ...target, source: "installed" };
 }
 
 async function installUv(
@@ -354,13 +318,14 @@ async function installUv(
   if (existsSync(bin)) {
     try {
       const v = await runCapture(
-        bin,
+        launchTarget(bin, env),
         ["--version"],
+        envDir,
         env,
         opts.installTimeoutMs,
       );
       if (want && v.includes(want))
-        return { bin, source: "installed", pathDir: dirname(bin) };
+        return { ...launchTarget(bin, env), source: "installed" };
     } catch {}
   }
   const venvPython = join(
@@ -369,14 +334,14 @@ async function installUv(
     IS_WIN ? "python.exe" : "python",
   );
   await runToCompletion(
-    uvBin,
+    launchTarget(uvBin, env),
     ["venv", envDir],
     envDir,
     env,
     opts.installTimeoutMs,
   );
   await runToCompletion(
-    uvBin,
+    launchTarget(uvBin, env),
     [
       "pip",
       "install",
@@ -389,10 +354,16 @@ async function installUv(
     opts.installTimeoutMs,
   );
   if (!existsSync(bin)) throw new Error("pyrefly binary missing after install");
-  const v = await runCapture(bin, ["--version"], env, opts.installTimeoutMs);
+  const v = await runCapture(
+    launchTarget(bin, env),
+    ["--version"],
+    envDir,
+    env,
+    opts.installTimeoutMs,
+  );
   if (want && !v.includes(want))
     throw new Error(`pyrefly version mismatch after install: ${v}`);
-  return { bin, source: "installed", pathDir: dirname(bin) };
+  return { ...launchTarget(bin, env), source: "installed" };
 }
 
 /**
@@ -405,12 +376,19 @@ export async function resolveBin(
   opts: ResolveOptions,
 ): Promise<ResolveResult> {
   const found = whichOnPath(spec.binName, env);
-  if (found) return { bin: found, source: "env", pathDir: dirname(found) };
+  if (found) {
+    const target =
+      spec.install.method === "npm"
+        ? (npmPackageTarget(found, spec.install.package!, spec.binName) ??
+          launchTarget(found, env))
+        : launchTarget(found, env);
+    return { ...target, source: "env" };
+  }
   if (spec.install.method === "env-only")
     return {
       bin: "",
       source: "install-failed",
-      error: `${spec.binName} not found on PATH (env-only: cpi does not auto-install it). Install it in the project's active Ruby env (e.g. \`gem install ${spec.binName}\`), capture the env via env-capture, then \`lsp start file=<path> env=<dotenv>\`.`,
+      error: `${spec.binName} not found on PATH (env-only: cpi does not auto-install it).`,
     };
   if (spec.install.method === "reuse") {
     let bin = getShuckBinPath();
@@ -418,7 +396,7 @@ export async function resolveBin(
       await ensureShellTools();
       bin = getShuckBinPath();
     }
-    if (bin) return { bin, source: "reuse", pathDir: dirname(bin) };
+    if (bin) return { ...launchTarget(bin, env), source: "reuse" };
     return { bin: "", source: "install-failed", error: "shuck unavailable" };
   }
   try {
@@ -435,12 +413,11 @@ export async function resolveBin(
       source: "install-failed",
       error: `unknown install method: ${spec.install.method}`,
     };
-  } catch (err) {
-    const e = err as { message?: string };
+  } catch (error) {
     return {
       bin: "",
       source: "install-failed",
-      error: String(e?.message || err),
+      error: error instanceof Error ? error.message : String(error),
     };
   }
 }

@@ -17,6 +17,7 @@ import { writeTranscript } from "./log.ts";
 import { STREAM_UPDATE_MS } from "./render.ts";
 import { loadEditorText, fmt } from "./text.ts";
 import { parseSummaryUsage, type Usage } from "../lib/cost-ledger.ts";
+import { resolvePiInvocation } from "../lib/pi-invocation.ts";
 
 const SUBAGENT_TRANSCRIPT_EXT = fileURLToPath(
   new URL("../subagent-transcript/index.ts", import.meta.url),
@@ -126,10 +127,12 @@ export async function runSubagent(
       : {}),
   };
   const start = Date.now();
-  const child = spawn("pi", args, {
+  const invocation = resolvePiInvocation(args);
+  const child = spawn(invocation.command, invocation.args, {
     cwd: opts.cwd,
     stdio: ["pipe", "pipe", "pipe"],
     env: childEnv,
+    windowsHide: true,
   });
 
   // stdout is the final assistant text in print mode: in tool-call mode it is

@@ -196,7 +196,8 @@ Per-language install:
 
 - **typescript** (`npm`): minimal `package.json` in `envDir`, then
   `npm install --prefix <envDir> typescript-language-server@<ver> typescript@<tsVer>`.
-  Bin: `<envDir>/node_modules/.bin/typescript-language-server`.
+  npm itself and the installed server run as the concrete Node executable plus
+  their JavaScript entry points, never through an npm shell shim.
 - **python** (`uv`): download a **static `uv`** (platform musl release from
   `astral-sh/uv`) into `getAgentDir()/cache/uv/bin/uv`. uv publishes no minisign
   — verify via **GitHub Artifact Attestation** primary
@@ -205,6 +206,12 @@ Per-language install:
   `uv venv <envDir>` +
   `uv pip install --python <envDir>/bin/python pyrefly==<ver>`. Bin:
   `<envDir>/bin/pyrefly`. **uv is never assumed on PATH.**
+
+Windows PATH lookup follows `PATHEXT`. Resolution produces a concrete executable
+plus bounded prefix arguments: native executables run directly, Node package
+bins run through `node`, and unavoidable `.cmd`/`.bat` files run through the
+configured `ComSpec`. Unix executables remain direct launches. Every child spawn
+uses `windowsHide`, which is ignored on non-Windows platforms.
 
 Server spawn env: `{ ...getToolEnv(), ...parseDotEnv(envPath) }` with the
 resolved bin's dir prepended to `PATH` so the server spawns its own tooling. The
@@ -218,7 +225,9 @@ is per `(language, root)` (separate worker per root, each with its own rootUri).
 Generic JSON-RPC stdio worker (parameterized server). One Worker thread owns ONE
 language server child process and all its LSP stdio I/O (Content-Length
 framing). Generalizes the former `shell/lsp-worker.mjs`: the spawn directive
-comes from `workerData`, so one worker drives shuck, tsserver, and pyrefly.
+comes from `workerData`, so one worker drives shuck, tsserver, and pyrefly. Log
+filenames contain the language and a bounded SHA-256 root digest; raw project
+paths never become filename components.
 
 Protocol (main→worker): `{ type:"lint", id, uri, languageId, text, file }`,
 `{ type:"dispose" }`. (worker→main): `{ type:"ready", ok, error? }`,

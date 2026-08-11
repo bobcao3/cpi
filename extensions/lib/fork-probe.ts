@@ -10,6 +10,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { existsSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { resolvePiInvocation } from "./pi-invocation.ts";
 
 const DEFAULT_TIMEOUT_MS = 5 * 60 * 1000; // 5 min
 const MAX_TIMEOUT_MS = 30 * 60 * 1000; // 30 min
@@ -77,22 +78,6 @@ function realpathSafe(p: string): string {
   }
 }
 
-function resolvePiInvocation(
-  args: string[],
-  overrideCommand?: string,
-): { command: string; args: string[] } {
-  if (overrideCommand) return { command: overrideCommand, args };
-  const currentScript = process.argv[1];
-  const isBunVirtualScript = currentScript?.startsWith("/$bunfs/root/");
-  if (currentScript && !isBunVirtualScript && existsSync(currentScript)) {
-    return { command: process.execPath, args: [currentScript, ...args] };
-  }
-  const execName = path.basename(process.execPath).toLowerCase();
-  const isGenericRuntime = /^(node|bun)(\.exe)?$/.test(execName);
-  if (!isGenericRuntime) return { command: process.execPath, args };
-  return { command: "pi", args };
-}
-
 /** Never rejects: failures come back as `ok:false` so callers can leave it be without try/catch. */
 export async function runForkProbe(
   opts: ForkSpawnOptions,
@@ -151,6 +136,7 @@ export async function runForkProbe(
         shell: false,
         stdio: ["pipe", "pipe", "pipe"],
         env: { ...process.env, [FORK_PROBE_ENV]: "1" },
+        windowsHide: true,
       });
     } catch (err) {
       cleanup();

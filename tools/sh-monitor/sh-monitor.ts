@@ -38,6 +38,7 @@ function runMonitor(logPath: string, cmd: string[]): void {
   const child: ChildProcess = spawn(cmd[0], cmd.slice(1), {
     detached: process.platform !== "win32",
     stdio: ["ignore", "pipe", "pipe"],
+    windowsHide: true,
   });
   const pid = child.pid ?? -1;
   const log: WriteStream = createWriteStream(logPath, { flags: "a" });

@@ -1,11 +1,9 @@
 /** Detached supervisor drains child output; resume records are scoped per session. */
-import { spawn, type ChildProcess } from "node:child_process";
+import { type ChildProcess } from "node:child_process";
 import type { Readable } from "node:stream";
 import { connect, type Socket } from "node:net";
 import { mkdir, readFile, readdir, unlink, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join, dirname } from "node:path";
-import { fileURLToPath } from "node:url";
+import { join } from "node:path";
 import {
   writeControl,
   FrameReader,
@@ -17,17 +15,9 @@ import {
   type ErrMsg,
   type Request,
 } from "../../tools/sh-monitor/protocol.ts";
-import { runtimeSpawn } from "../lib/runtime.ts";
 import { resolveShell, type ShellProfile } from "./profile.ts";
+import { spawnMonitor } from "./spawn-monitor.ts";
 
-const SH_MONITOR_TS = join(
-  dirname(fileURLToPath(import.meta.url)),
-  "..",
-  "..",
-  "tools",
-  "sh-monitor",
-  "sh-monitor.ts",
-);
 const STDERR_CAP = 8192;
 const RESUME_SUBDIR = "sh-mon";
 
@@ -431,22 +421,12 @@ export async function launchMonitor(
   pathId: string,
   shell: ShellProfile = resolveShell("bash"),
 ): Promise<MonitorHandle> {
-  const logPath = join(tmpdir(), `pi-sh-output-${pathId}.log`);
-  const { bin, pre } = runtimeSpawn();
-  const child = spawn(
-    bin,
-    [
-      ...pre,
-      SH_MONITOR_TS,
-      "spawn",
-      logPath,
-      "--",
-      shell.executable,
-      ...shell.commandArgs(command),
-    ],
-    { detached: true, stdio: ["pipe", "pipe", "pipe"], env },
+  const { child, logPath, runtimeBin } = spawnMonitor(
+    command,
+    env,
+    pathId,
+    shell,
   );
-  child.unref();
-  const client = new MonitorClient(child, logPath, bin);
+  const client = new MonitorClient(child, logPath, runtimeBin);
   return { client, logPath };
 }
