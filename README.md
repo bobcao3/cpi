@@ -17,6 +17,11 @@ pi install git:forge.bc3.moe/bob/cpi@<tag>    # pinned release
 
 `pi update --extensions` reconciles an existing install to its pinned ref.
 
+cpi supports Linux, macOS, WSL, and native Windows PowerShell. On native
+Windows, it automatically uses `pwsh`, then Windows PowerShell, and provisions
+`fd`/`rg` into its cache. Bash-oriented examples use POSIX syntax; PowerShell
+users should use equivalent quoting.
+
 ### Slash commands
 
 | Command   | Why it matters to you                                                                                                                                                                                                  |
@@ -52,12 +57,13 @@ project). Three mechanisms:
 - **File I/O.** `read`/`write`/`edit` replace the builtins with a careful
   pipeline: query-reads surface only the relevant lines, edits land as precise
   search-replace hunks. Images inline for vision models.
-- **Rule-checked shell commands.** `sh` runs through your configured shell with
-  backgrounding and busy-wait detection. Commands are checked against your AST
-  rules before execution — `reject` blocks a bad command outright, `warn` flags
-  it — so habits like `find` over `fd` are caught automatically. Long output is
-  truncated, slow jobs background with a live log and completion notification;
-  `sh_signal` and `sh_repeat_until` manage background and polling work.
+- **Rule-checked shell commands.** `sh` runs through your configured Bash/POSIX
+  shell or PowerShell with backgrounding and busy-wait detection. Commands are
+  checked against your AST rules before execution — `reject` blocks a bad
+  command outright, `warn` flags it — so habits like `find` over `fd` are caught
+  automatically. Long output is truncated, slow jobs background with a live log
+  and completion notification; `sh_signal` and `sh_repeat_until` manage
+  background and polling work.
 - **Orientation that survives long sessions.** `set_cwd` moves the session
   between projects; the working directory is re-announced at 25/50/75% context
   usage, and `cd` targets in shell commands surface the new project's

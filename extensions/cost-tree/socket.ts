@@ -1,5 +1,6 @@
 import { createServer, connect, type Server, type Socket } from "node:net";
 import { mkdtempSync, rmSync, chmodSync } from "node:fs";
+import { randomBytes } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -31,8 +32,15 @@ export function createCostSocket(onReport: (r: CostReport) => void): {
   path: string;
   close: () => void;
 } {
-  const dir = mkdtempSync(join(tmpdir(), "cpi-cost-"));
-  const path = join(dir, "sock");
+  const isWindows = process.platform === "win32";
+  let dir: string | undefined;
+  let path: string;
+  if (isWindows) {
+    path = `\\\\.\\pipe\\cpi-cost-${process.pid}-${randomBytes(16).toString("hex")}`;
+  } else {
+    dir = mkdtempSync(join(tmpdir(), "cpi-cost-"));
+    path = join(dir, "sock");
+  }
   const server: Server = createServer((sock: Socket) => {
     let buf = "";
     sock.on("data", (d: Buffer) => {
@@ -45,18 +53,22 @@ export function createCostSocket(onReport: (r: CostReport) => void): {
     sock.on("error", () => {});
   });
   server.listen(path);
-  try {
-    chmodSync(path, 0o600);
-  } catch {
-    // perms are defense-in-depth on a single-user dev box
+  if (!isWindows) {
+    try {
+      chmodSync(path, 0o600);
+    } catch {
+      // perms are defense-in-depth on a single-user dev box
+    }
   }
   const close = (): void => {
     try {
       server.close();
     } catch {}
-    try {
-      rmSync(dir, { recursive: true, force: true });
-    } catch {}
+    if (!isWindows) {
+      try {
+        rmSync(dir!, { recursive: true, force: true });
+      } catch {}
+    }
   };
   return { path, close };
 }

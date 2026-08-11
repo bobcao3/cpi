@@ -15,9 +15,17 @@
     "bin",
     "extensions",
     "skills",
+    "tools/sh-monitor/package.json",
+    "tools/sh-monitor/process-tree.ts",
+    "tools/sh-monitor/protocol.ts",
+    "tools/sh-monitor/runtime-dir.ts",
+    "tools/sh-monitor/sh-monitor.ts",
     "cpi-config.default.json",
     "fallback-providers.example.json"
   ],
+  "bin": {
+    "subagent": "bin/subagent.js"
+  },
   "workspaces": [
     "tools/sh-monitor"
   ],
@@ -45,6 +53,7 @@
     "@types/mustache": "^4.2.6",
     "diff": "8.0.4",
     "prettier": "^3",
+    "typebox": "^1.1.0",
     "typescript": "~5.9"
   }
 }

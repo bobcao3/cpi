@@ -26,7 +26,7 @@ description = "Run a command via `{{shell_invocation}}` ({{shell_name}}). Statel
 prompt_snippet = "Run shell commands"
 
 [sh_signal]
-description = "Signal a background shell command by its PID (sh-returned). Send SIGKILL to terminate background shell process-group."
+description = "Signal a background shell command by its PID (sh-returned). {{#windows}}On Windows, this terminates the background process tree; POSIX signal names are treated as forced termination.{{/windows}}{{^windows}}Send SIGKILL to terminate background shell process-group.{{/windows}}"
 prompt_snippet = "Signal background shell commands"
 
 [sh_background_ps]
@@ -45,10 +45,15 @@ env = "Dotenv merged into sh env; dotenv wins"
 
 [schema.sh_signal]
 id = "Background shell PID (as returned by sh)"
-signal = "Signal name/number (default SIGINT; SIGKILL to terminate)"
+signal = "Signal name/number (default SIGINT; {{#windows}}on Windows, any signal request forcibly terminates the entire background process tree; POSIX signal names are treated as forced termination{{/windows}}{{^windows}}SIGKILL to terminate{{/windows}})"
 
 [schema.sh_detach]
 id = "Background shell PID (as returned by sh)"
+
+[results.sh_signal]
+windows_terminated = "Background {{id}} process tree terminated (requested {{signal}})."
+posix_killed = "Background {{id}} terminated (SIGKILL)."
+posix_sent = "Sent {{signal}} to {{id}}."
 
 # ── promptGuidelines ──
 [guidelines]
@@ -65,9 +70,11 @@ sh = [
   "If an LSP session is running, `sh` tool editing commands will trigger LSP auto-lint.",
 ]
 sh_signal = [
-  "sh_signal defaults to SIGINT, and signal is always delivered to the whole process group.",
-  "Do not run `kill` via sh on background PIDs; use `sh_signal` instead.",
-  "SIGKILL terminates the process group and suppresses the completion notice; no completion notification will fire for that shell, so do not call wait_any expecting one; any other signal (SIGINT, SIGTERM, …) may be caught or ignored, so the process is not guaranteed to stop. Its completion notification will still fire when the process eventually exits; call wait_any to yield until then."
+  "{{^windows}}sh_signal defaults to SIGINT, and signal is always delivered to the whole process group.{{/windows}}",
+  "{{^windows}}Do not run `kill` via sh on background PIDs; use `sh_signal` instead.{{/windows}}",
+  "{{^windows}}SIGKILL terminates the process group and suppresses the completion notice; no completion notification will fire for that shell, so do not call wait_any expecting one; any other signal (SIGINT, SIGTERM, …) may be caught or ignored, so the process is not guaranteed to stop. Its completion notification will still fire when the process eventually exits; call wait_any to yield until then.{{/windows}}",
+  "{{#windows}}Every signal request forcibly terminates the entire background process tree and suppresses the completion notice.{{/windows}}",
+  "{{#windows}}Windows does not provide POSIX signal delivery.{{/windows}}"
 ]
 sh_detach = [
   "After detach, the PID is gone from sh_background_ps and unreachable by sh_signal, no completion notification fires afterward, but the process will continue to run as if it's in nohup",

@@ -6,6 +6,7 @@
  */
 
 import { lintCommand, formatDiagnostics, type LintResult } from "./lint.ts";
+import { lintPowerShell } from "./powershell-analyzer.ts";
 import { parseCommand, type ParseResult } from "../lib/tree-sitter.ts";
 import {
   checkRules,
@@ -46,7 +47,7 @@ export interface AnalyzeInput {
   shuckPath: string | null;
 }
 
-const SUPPORTED_DIALECTS = new Set(["sh", "bash", "zsh", "mksh"]);
+const SUPPORTED_DIALECTS = new Set(["sh", "bash", "zsh", "mksh", "powershell"]);
 
 const EMPTY_LINT: LintResult = { errors: [], warnings: [], available: false };
 const EMPTY_PARSE: ParseResult = { ast: null, node: null, available: false };
@@ -75,6 +76,20 @@ export async function analyzeCommand(
       errorText: "",
       warningText: "",
       errorCount: 0,
+    };
+  }
+
+  if (shell.dialect === "powershell") {
+    const powershell = await lintPowerShell(command, shell, availability);
+    return {
+      status: powershell.available ? "ok" : "parser-unavailable",
+      unsupported: null,
+      lint: powershell,
+      parse: EMPTY_PARSE,
+      rules: EMPTY_RULES,
+      errorText: fmt(powershell.errors, formatDiagnostics),
+      warningText: fmt(powershell.warnings, formatDiagnostics).trim(),
+      errorCount: powershell.errors.length,
     };
   }
 
@@ -128,7 +143,7 @@ export function unsupportedDialectMessage(u: UnsupportedDialectInfo): string {
   return (
     `Blocked: shell ${JSON.stringify(u.displayName)} (${u.executable}) resolves to a dialect cpi ` +
     `cannot analyze. Command analysis (lint + safety rules) is never silently skipped, so the ` +
-    `command was not executed. Supported dialects: sh, bash, zsh, mksh. Set "shell.executable" ` +
-    `explicitly to a supported interpreter (e.g. "bash", "/bin/zsh", "sh") in your cpi config and retry.`
+    `command was not executed. Supported dialects: sh, bash, zsh, mksh, powershell. Set "shell.executable" ` +
+    `explicitly to a supported interpreter (e.g. "bash", "/bin/zsh", "sh", "powershell", "pwsh") in your cpi config and retry.`
   );
 }

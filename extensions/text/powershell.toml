@@ -1,0 +1,14 @@
+[errors]
+host = "PowerShell analysis failed; command was not executed"
+timeout = "PowerShell analysis exceeded its time limit; command was not executed"
+overflow = "PowerShell analysis output exceeded its limit; command was not executed"
+input = "PowerShell command exceeds the analysis input limit"
+dynamic = "Dynamic PowerShell command invocation cannot be safety-resolved"
+disk = "Destructive disk or volume command is blocked"
+root_remove = "Recursive forced removal of a filesystem root is blocked"
+invoke_expression = "Invoke-Expression is blocked because downloaded or dynamic text can become code"
+nested_shell = "Nested shell command strings bypass PowerShell safety analysis"
+
+[warnings]
+fd = "Use `fd` instead of Get-ChildItem for filesystem search"
+rg = "Use `rg` instead of Select-String for content search"

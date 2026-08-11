@@ -1,5 +1,6 @@
 /** Resume-socket dir for sh-monitor (hot path is pipes; sh_detach is nohup). Priority: XDG_RUNTIME_DIR/pi, PI_SESSION_DIR/sh-mon, HOME/.pi/runtime — env is forgeable, so roots are ownership-asserted, forced 0700. */
 import { chmodSync, mkdirSync, statSync } from "node:fs";
+import { randomBytes } from "node:crypto";
 import { join } from "node:path";
 import { platform } from "node:os";
 
@@ -28,6 +29,23 @@ export function resolveRuntimeDir(env: NodeJS.ProcessEnv): string | null {
     if (dir) return dir;
   }
   return null;
+}
+
+export function resolveRuntimePath(
+  env: NodeJS.ProcessEnv,
+  childPid: number,
+): string | null {
+  if (
+    !Number.isSafeInteger(childPid) ||
+    childPid <= 0 ||
+    !Number.isSafeInteger(process.pid) ||
+    process.pid <= 0
+  )
+    return null;
+  if (IS_WIN)
+    return `\\\\.\\pipe\\cpi-sh-mon-${process.pid}-${childPid}-${randomBytes(16).toString("hex")}`;
+  const dir = resolveRuntimeDir(env);
+  return dir ? join(dir, `pi-sh-mon-${childPid}.sock`) : null;
 }
 
 function ensurePrivateDir(

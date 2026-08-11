@@ -181,6 +181,12 @@ export function stripModels(
   ctx: ExtensionContext,
   configuredRules: ModelStripRule[],
 ): string[] {
+  if (
+    typeof ctx.modelRegistry.getProvider !== "function" ||
+    typeof ctx.modelRegistry.getRegisteredNativeProvider !== "function"
+  ) {
+    return [];
+  }
   const rules = compileRules(
     Array.isArray(configuredRules) ? configuredRules : [],
   );
