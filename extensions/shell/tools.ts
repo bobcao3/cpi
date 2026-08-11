@@ -12,6 +12,7 @@ import { delimiter, dirname, join } from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
+import { resolveShell } from "./profile.ts";
 import {
   initTreeSitterWasm,
   ensureTreeSitterReady,
@@ -57,6 +58,15 @@ function wasmVerifiedSync(): boolean {
 const IS_WIN = process.platform === "win32";
 const PLATFORM_KEY = `${process.platform}-${process.arch}`;
 const binName = (n: string) => (IS_WIN ? `${n}.exe` : n);
+
+async function verifyTool(binPath: string): Promise<boolean> {
+  try {
+    await execFileAsync(binPath, ["--version"]);
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 export interface ToolAvailability {
   fd: boolean;
@@ -158,7 +168,8 @@ async function ensureTool(spec: ToolSpec): Promise<boolean> {
   const binPath = join(BIN_DIR, binName(spec.name));
   try {
     await readFile(binPath);
-    return true;
+    if (await verifyTool(binPath)) return true;
+    await rm(binPath, { force: true });
   } catch {}
   const baseName = aname.replace(/\.(tar\.(?:gz|xz)|zip)$/, "");
   const url = `https://github.com/${spec.repo}/releases/download/${spec.version}/${aname}`;
@@ -169,10 +180,21 @@ async function ensureTool(spec: ToolSpec): Promise<boolean> {
     await download(url, archivePath);
     await mkdir(tmp, { recursive: true });
     if (spec.archiveExt === "zip") {
-      try {
-        await execFileAsync("tar", ["-xf", archivePath, "-C", tmp]);
-      } catch {
-        await execFileAsync("unzip", ["-q", archivePath, "-d", tmp]);
+      if (IS_WIN) {
+        const profile = resolveShell("auto");
+        const quote = (value: string) => `'${value.replaceAll("'", "''")}'`;
+        await execFileAsync(
+          profile.executable,
+          profile.commandArgs(
+            `Expand-Archive -LiteralPath ${quote(archivePath)} -DestinationPath ${quote(tmp)} -Force`,
+          ),
+        );
+      } else {
+        try {
+          await execFileAsync("tar", ["-xf", archivePath, "-C", tmp]);
+        } catch {
+          await execFileAsync("unzip", ["-q", archivePath, "-d", tmp]);
+        }
       }
     } else if (spec.archiveExt === "tar.xz") {
       try {
@@ -184,9 +206,12 @@ async function ensureTool(spec: ToolSpec): Promise<boolean> {
       await execFileAsync("tar", ["-xzf", archivePath, "-C", tmp]);
     }
     await mkdir(BIN_DIR, { recursive: true });
-    await copyFile(join(tmp, baseName, binName(spec.name)), binPath);
+    const extractedBin = join(tmp, binName(spec.name));
+    const nestedBin = join(tmp, baseName, binName(spec.name));
+    await copyFile(existsSync(nestedBin) ? nestedBin : extractedBin, binPath);
     if (!IS_WIN) await chmod(binPath, 0o755);
-    await execFileAsync(binPath, ["--version"]);
+    if (!(await verifyTool(binPath)))
+      throw new Error("tool verification failed");
     return true;
   } catch (err) {
     console.warn(`[shell-ext] Failed to install ${spec.name}:`, err);
@@ -203,36 +228,41 @@ const TOOLS_G = globalThis as unknown as {
 async function doEnsureShellTools(): Promise<ToolAvailability> {
   const [fd, rg, shuck, treeSitter] = await Promise.all([
     ...TOOLS.map(ensureTool),
-    (async () => {
-      let have = wasmVerifiedSync();
-      if (!have) {
-        try {
-          await mkdir(WASM_DIR, { recursive: true });
-          const tmpBr = join(tmpdir(), `pi-sh-wasm-${Date.now()}.br`);
-          await download(WASM_URL, tmpBr);
-          const compressed = await readFile(tmpBr);
-          await rm(tmpBr, { force: true });
-          await writeFile(WASM_PATH, brotliDecompressSync(compressed));
-          try {
-            await download(WASM_SIG_URL, WASM_SIG_PATH);
-          } catch (err) {
-            /* sig fetch failed; verify will fail below */
-          }
-          have = wasmVerifiedSync();
+    IS_WIN
+      ? Promise.resolve(false)
+      : (async () => {
+          let have = wasmVerifiedSync();
           if (!have) {
-            await rm(WASM_PATH, { force: true });
-            await rm(WASM_SIG_PATH, { force: true });
-            console.warn(
-              "[shell-ext] tree-sitter-wasm signature verification failed; highlighting disabled",
-            );
+            try {
+              await mkdir(WASM_DIR, { recursive: true });
+              const tmpBr = join(tmpdir(), `pi-sh-wasm-${Date.now()}.br`);
+              await download(WASM_URL, tmpBr);
+              const compressed = await readFile(tmpBr);
+              await rm(tmpBr, { force: true });
+              await writeFile(WASM_PATH, brotliDecompressSync(compressed));
+              try {
+                await download(WASM_SIG_URL, WASM_SIG_PATH);
+              } catch (err) {
+                /* sig fetch failed; verify will fail below */
+              }
+              have = wasmVerifiedSync();
+              if (!have) {
+                await rm(WASM_PATH, { force: true });
+                await rm(WASM_SIG_PATH, { force: true });
+                console.warn(
+                  "[shell-ext] tree-sitter-wasm signature verification failed; highlighting disabled",
+                );
+              }
+            } catch (err) {
+              console.warn(
+                "[shell-ext] Failed to download tree-sitter-wasm:",
+                err,
+              );
+            }
           }
-        } catch (err) {
-          console.warn("[shell-ext] Failed to download tree-sitter-wasm:", err);
-        }
-      }
-      if (have) await ensureTreeSitterReady(); // keep first-paint highlighting synchronous
-      return have;
-    })(),
+          if (have) await ensureTreeSitterReady(); // keep first-paint highlighting synchronous
+          return have;
+        })(),
   ]);
   return { fd, rg, shuck, treeSitter };
 }
@@ -283,6 +313,17 @@ export function buildShellEnvWithDotenv(
   if (!envPath) return env;
   const parsed = parseDotEnv(resolveCwdPath(envPath));
   for (const [k, v] of Object.entries(parsed)) env[k] = v;
+  const pathKeys = Object.keys(env).filter((k) => k.toLowerCase() === "path");
+  const pathKey = IS_WIN ? (pathKeys[pathKeys.length - 1] ?? "PATH") : "PATH";
+  if (IS_WIN) {
+    for (const key of pathKeys) {
+      if (key !== pathKey) delete env[key];
+    }
+  }
+  const path = (env[pathKey] ?? "")
+    .split(delimiter)
+    .filter((p) => p !== VENDOR_BIN && p !== BIN_DIR);
+  env[pathKey] = [VENDOR_BIN, BIN_DIR, ...path].join(delimiter);
   return env;
 }
 

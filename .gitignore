@@ -4,6 +4,7 @@
 # ── Node.js / TypeScript ────────────────────────────
 node_modules/
 *.js
+!bin/subagent.js
 *.js.map
 # Rails app JS sources are tracked (override global *.js)
 !benchmarks/tb_web_monitor/**/*.js

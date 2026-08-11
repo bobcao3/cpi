@@ -442,9 +442,7 @@ export async function launchMonitor(
       logPath,
       "--",
       shell.executable,
-      ...shell.argvPrefix,
-      "-c",
-      command,
+      ...shell.commandArgs(command),
     ],
     { detached: true, stdio: ["pipe", "pipe", "pipe"], env },
   );

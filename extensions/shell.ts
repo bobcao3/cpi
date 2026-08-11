@@ -73,6 +73,7 @@ interface ShellText {
     sh_signal: Record<string, string>;
     sh_detach: Record<string, string>;
   };
+  results: { sh_signal: Record<string, string> };
 }
 const SLEEP_UNITS: Record<string, number> = { s: 1, m: 60, h: 3600, d: 86400 };
 let shellStatus: ShellStatusRefresher | null = null;
@@ -152,6 +153,7 @@ export default async function (pi: ExtensionAPI) {
   const switches = {
     max_waitfor: MAX_WAITFOR,
     max_preview_lines: MAX_PREVIEW_LINES,
+    windows: process.platform === "win32",
     fd: availability.fd,
     rg: availability.rg,
     shuck: availability.shuck,
@@ -350,17 +352,30 @@ export default async function (pi: ExtensionAPI) {
       // "wait_any to yield, or sh_signal SIGKILL to return control".
       const isKill = signal === "SIGKILL" || signal === "9";
       const isShell = !params.id.startsWith("rpt-");
-      if (isShell && isKill) silenceChild(params.id);
+      const isWindows = process.platform === "win32";
+      const isTerminating = isKill || isWindows;
+      if (isShell && isTerminating) silenceChild(params.id);
       const text =
-        isShell && isKill
-          ? `Background ${params.id} terminated (SIGKILL).`
-          : `Sent ${signal} to ${params.id}.`;
+        isShell && isWindows
+          ? render(T.results.sh_signal.windows_terminated, {
+              id: params.id,
+              signal,
+            })
+          : isShell && isKill
+            ? render(T.results.sh_signal.posix_killed, {
+                id: params.id,
+                signal,
+              })
+            : render(T.results.sh_signal.posix_sent, {
+                id: params.id,
+                signal,
+              });
       return {
         content: [{ type: "text", text }],
         details: {
           id: params.id,
           signal,
-          completionNoticeSuppressed: isShell && isKill,
+          completionNoticeSuppressed: isShell && isTerminating,
         },
       };
     },

@@ -7,40 +7,20 @@ import {
   unlinkSync,
   type WriteStream,
 } from "node:fs";
-import { join } from "node:path";
+import { constants as osConstants } from "node:os";
 import {
   writeControl,
   writeData,
   FrameReader,
   type Message,
 } from "./protocol.ts";
-import { resolveRuntimeDir } from "./runtime-dir.ts";
+import { resolveRuntimePath } from "./runtime-dir.ts";
+import { signalProcessTree } from "./process-tree.ts";
 
 const DRAIN_MS = 200;
 const HARD_CAP_MS = 5000;
 const MAX_LOG_BYTES = 64 * 1024 * 1024; // Bound each process log.
 const MAX_SUBS = 8; // Bound resume-socket subscribers.
-
-function signum(sig: string): number {
-  switch (sig) {
-    case "SIGHUP":
-      return 1;
-    case "SIGINT":
-      return 2;
-    case "SIGQUIT":
-      return 3;
-    case "SIGABRT":
-      return 6;
-    case "SIGKILL":
-      return 9;
-    case "SIGPIPE":
-      return 13;
-    case "SIGTERM":
-      return 15;
-    default:
-      return 0;
-  }
-}
 
 interface MonitorState {
   pid: number;
@@ -56,7 +36,7 @@ function runMonitor(logPath: string, cmd: string[]): void {
   process.on("SIGTERM", () => forward("SIGTERM"));
 
   const child: ChildProcess = spawn(cmd[0], cmd.slice(1), {
-    detached: true,
+    detached: process.platform !== "win32",
     stdio: ["ignore", "pipe", "pipe"],
   });
   const pid = child.pid ?? -1;
@@ -112,7 +92,7 @@ function runMonitor(logPath: string, cmd: string[]): void {
     if (st.bytes >= MAX_LOG_BYTES) {
       logCapped = true;
       try {
-        child.kill("SIGKILL");
+        signalProcessTree(pid, "SIGKILL");
       } catch {}
       finish(-1);
     }
@@ -150,7 +130,7 @@ function runMonitor(logPath: string, cmd: string[]): void {
       setTimeout(maybeExit, DRAIN_MS);
     });
   };
-  child.on("exit", (code, signal) =>
+  child.on("close", (code, signal) =>
     finish(code ?? (signal ? 128 + signum(signal) : -1)),
   );
   child.on("error", () => finish(-1));
@@ -162,23 +142,14 @@ function runMonitor(logPath: string, cmd: string[]): void {
       resumeServer?.close();
     } catch {}
     try {
-      if (resumeSockPath) unlinkSync(resumeSockPath);
+      if (process.platform !== "win32" && resumeSockPath)
+        unlinkSync(resumeSockPath);
     } catch {}
   });
 
   function forward(sig: string | number): boolean {
     if (st.exitCode !== null || pid <= 0) return false;
-    let s: string | number = sig;
-    if (typeof s === "string") {
-      if (/^\d+$/.test(s)) s = Number(s);
-      else if (!s.startsWith("SIG")) s = "SIG" + s.toUpperCase();
-    }
-    try {
-      process.kill(-pid, s as NodeJS.Signals);
-      return true;
-    } catch {
-      return false;
-    }
+    return signalProcessTree(pid, sig);
   }
 
   function handle(sock: Socket): void {
@@ -244,18 +215,19 @@ function runMonitor(logPath: string, cmd: string[]): void {
       });
       return;
     }
-    const dir = resolveRuntimeDir(process.env);
-    if (!dir) {
+    const sp = resolveRuntimePath(process.env, pid);
+    if (!sp) {
       writeControl(process.stdout, {
         kind: "err",
         message: "no runtime dir for resume socket",
       });
       return;
     }
-    const sp = join(dir, `pi-sh-mon-${pid}.sock`);
-    try {
-      if (existsSync(sp)) unlinkSync(sp);
-    } catch {}
+    if (process.platform !== "win32") {
+      try {
+        if (existsSync(sp)) unlinkSync(sp);
+      } catch {}
+    }
     let replied = false;
     const reply = (m: Message): void => {
       if (replied) return;
@@ -342,6 +314,11 @@ function splitCmd(
   const i = argv.indexOf("--");
   if (i === -1) return null;
   return { before: argv.slice(0, i), after: argv.slice(i + 1) };
+}
+
+function signum(sig: string): number {
+  const n = (osConstants.signals as Record<string, number>)[sig];
+  return Number.isInteger(n) && n >= 1 && n < 128 ? n : 0;
 }
 
 async function main(argv: string[]): Promise<number> {

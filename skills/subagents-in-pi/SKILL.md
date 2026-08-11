@@ -9,23 +9,33 @@ description:
 
 # Subagents in pi
 
-A subagent is another `pi` process launched through the `sh` tool with the
-`subagent` helper (on PATH). Run it via `sh`; if it outlives `waitfor` it
-backgrounds, and `sh` returns its PID + a logfile and fires a completion
-follow-up on exit. There is **no separate transcript file**: `pi` print-mode
-stdout is the clean final answer, while the helper streams the live markdown
-transcript to stderr (the `sh` background log) and prints the raw session
-`jsonl` path at start and end, with a run summary (time, turns, input/output
-tokens, cost) at the very end of stdout. Token + cost totals are recursive: they
-include every nested sub-agent, so a parent parsing one number gets the whole
-subtree (no double counting).
+A subagent is a child agent launched by the cross-platform Node `subagent`
+launcher (on PATH), which uses pi's SDK programmatically rather than launching
+another `pi` CLI process. On POSIX, run it via the `sh` tool; if it outlives
+`waitfor` it backgrounds, and `sh` returns its PID + a logfile and fires a
+completion follow-up on exit. There is **no separate transcript file**: `pi`
+print-mode stdout is the clean final answer, while the helper streams the live
+markdown transcript to stderr (the `sh` background log) and prints the raw
+session `jsonl` path at start and end, with a run summary (time, turns,
+input/output tokens, cost) at the very end of stdout. Token + cost totals are
+recursive: they include every nested sub-agent, so a parent parsing one number
+gets the whole subtree (no double counting).
 
 ## Launch / resume
 
-ALWAYS pass the task via a **quoted heredoc** (`<<'TASK'`) on stdin, never as a
-quoted argument. A prompt with backticks, `$`, globs, or quotes gets executed /
-word-split / "Argument list too long" if passed as an arg; the quoted heredoc
-keeps every character literal — no escaping needed.
+On POSIX shells, ALWAYS pass the task via a **quoted heredoc** (`<<'TASK'`) on
+stdin, never as a quoted argument. A prompt with backticks, `$`, globs, or
+quotes gets executed / word-split / "Argument list too long" if passed as an
+arg; the quoted heredoc keeps every character literal — no escaping needed. In
+native PowerShell, use a literal here-string piped to `subagent` instead:
+
+```
+@'
+<task, with backticks, $vars, globs, quotes all staying literal>
+'@ | subagent -m provider/model:effort -s sub-<slug>
+```
+
+Positional arguments remain discouraged; pass the task through standard input.
 
 ```
 subagent -m provider/model:effort -s sub-<slug> <<'TASK'

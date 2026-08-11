@@ -14,6 +14,7 @@ import { delimiter, dirname, join } from "node:path";
 import { promisify } from "node:util";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { ensureShellTools, getShuckBinPath } from "../../shell/tools.ts";
+import { resolveShell } from "../../shell/profile.ts";
 import { type LspServerSpec } from "./registry.ts";
 
 const execFileAsync = promisify(execFile);
@@ -191,10 +192,16 @@ const UV_TARGETS: Record<string, string> = {
   "linux-arm64": "aarch64-unknown-linux-musl",
   "darwin-arm64": "aarch64-apple-darwin",
   "darwin-x64": "x86_64-apple-darwin",
+  "win32-x64": "x86_64-pc-windows-msvc",
+  "win32-arm64": "aarch64-pc-windows-msvc",
 };
 
 function platformKey(): string {
   return `${process.platform}-${process.arch}`;
+}
+
+function psQuote(value: string): string {
+  return `'${value.replaceAll("'", "''")}'`;
 }
 
 async function ensureUv(
@@ -217,7 +224,7 @@ async function ensureUv(
   }
   const target = UV_TARGETS[platformKey()];
   if (!target) throw new Error(`no uv asset for ${platformKey()}`);
-  const aname = `uv-${target}.tar.gz`;
+  const aname = `uv-${target}${IS_WIN ? ".zip" : ".tar.gz"}`;
   const url = `https://github.com/${opts.uv.repo}/releases/download/${want}/${aname}`;
   const tmp = join(tmpdir(), `pi-uv-${Date.now()}`);
   await mkdir(tmp, { recursive: true });
@@ -225,8 +232,21 @@ async function ensureUv(
   try {
     await download(url, archive);
     await verifyUv(archive, aname, want, opts, tmp);
-    await execFileAsync("tar", ["-xzf", archive, "-C", tmp]);
-    const extracted = join(tmp, `uv-${target}`, IS_WIN ? "uv.exe" : "uv");
+    if (IS_WIN) {
+      const shell = resolveShell("auto", env);
+      await execFileAsync(
+        shell.executable,
+        shell.commandArgs(
+          `Expand-Archive -LiteralPath ${psQuote(archive)} -DestinationPath ${psQuote(tmp)} -Force`,
+        ),
+        { env },
+      );
+    } else {
+      await execFileAsync("tar", ["-xzf", archive, "-C", tmp]);
+    }
+    const extracted = IS_WIN
+      ? join(tmp, "uv.exe")
+      : join(tmp, `uv-${target}`, "uv");
     await mkdir(dir, { recursive: true });
     await copyFile(extracted, bin);
     if (!IS_WIN) await chmod(bin, 0o755);
@@ -325,7 +345,11 @@ async function installUv(
   const uvBin = await ensureUv(opts, env);
   const envDir = join(getAgentDir(), "lsp_envs", "python");
   await mkdir(envDir, { recursive: true });
-  const bin = join(envDir, "bin", IS_WIN ? "pyrefly.exe" : "pyrefly");
+  const bin = join(
+    envDir,
+    IS_WIN ? "Scripts" : "bin",
+    IS_WIN ? "pyrefly.exe" : "pyrefly",
+  );
   const want = spec.install.version;
   if (existsSync(bin)) {
     try {
@@ -339,7 +363,11 @@ async function installUv(
         return { bin, source: "installed", pathDir: dirname(bin) };
     } catch {}
   }
-  const venvPython = join(envDir, "bin", IS_WIN ? "python.exe" : "python");
+  const venvPython = join(
+    envDir,
+    IS_WIN ? "Scripts" : "bin",
+    IS_WIN ? "python.exe" : "python",
+  );
   await runToCompletion(
     uvBin,
     ["venv", envDir],

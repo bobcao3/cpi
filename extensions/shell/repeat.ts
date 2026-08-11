@@ -20,6 +20,7 @@ import {
 } from "./tools.ts";
 import { resolveShell, type ShellProfile } from "./profile.ts";
 import { analyzeCommand, unsupportedDialectMessage } from "./analyze.ts";
+import { signalProcessTree } from "../../tools/sh-monitor/process-tree.ts";
 import {
   loadText,
   render,
@@ -96,7 +97,7 @@ function stopRepeat(mon: RepeatMonitor): void {
   clearTimeout(mon.nextTimer);
   if (mon.child && !mon.child.killed && mon.pid > 0) {
     try {
-      process.kill(-mon.pid, "SIGTERM");
+      signalProcessTree(mon.pid, "SIGTERM");
     } catch {}
   }
   mon.logStream.end();
@@ -142,9 +143,9 @@ function runIteration(mon: RepeatMonitor): void {
 
   const child = spawn(
     mon.shell.executable,
-    [...mon.shell.argvPrefix, "-c", mon.command],
+    mon.shell.commandArgs(mon.command),
     {
-      detached: true,
+      detached: process.platform !== "win32",
       env: mon.env,
       stdio: ["ignore", "pipe", "pipe"],
     },
@@ -159,7 +160,7 @@ function runIteration(mon: RepeatMonitor): void {
     mon.breached = true;
     if (mon.child && !mon.child.killed && mon.pid > 0) {
       try {
-        process.kill(-mon.pid, "SIGTERM");
+        signalProcessTree(mon.pid, "SIGTERM");
       } catch {}
     }
   }, mon.intervalSec * 1000);
@@ -222,10 +223,7 @@ export function signalRepeat(id: string, signal: string): boolean {
   stopRepeat(mon);
   if (mon.child && mon.pid > 0) {
     try {
-      process.kill(
-        -mon.pid,
-        /^\d+$/.test(signal) ? Number(signal) : (signal as NodeJS.Signals),
-      );
+      signalProcessTree(mon.pid, signal);
     } catch {}
   }
   rpt.delete(mon.id);
