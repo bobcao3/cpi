@@ -44,6 +44,18 @@ const WASM_SIG_PATH = join(WASM_DIR, "tree-sitter-wasm.wasm.minisig");
 const WASM_URL = `https://github.com/bobcao3/cpi/releases/download/${WASM_VERSION}/tree-sitter-wasm.wasm.br`;
 const WASM_SIG_URL = `https://github.com/bobcao3/cpi/releases/download/${WASM_VERSION}/tree-sitter-wasm.wasm.minisig`;
 const WASM_PUB = parsePubKey(WASM_PUBKEY_B64);
+const CPI_CONTROL_ENV_KEYS = [
+  "CPI_RUNTIME_BIN",
+  "CPI_RUNTIME_KIND",
+  CPI_SUBAGENT_RPC,
+  "PI_SESSION",
+  "PI_SESSION_ID",
+  "PI_SESSION_DIR",
+  "PI_SUBAGENT",
+  "PI_SUBAGENT_COMPLETION",
+  "PI_SUBAGENT_ROLE",
+  "PI_SUBAGENT_SUMMARY",
+] as const;
 
 function wasmVerifiedSync(): boolean {
   if (!existsSync(WASM_PATH) || !existsSync(WASM_SIG_PATH)) return false;
@@ -317,11 +329,15 @@ export function buildShellEnvWithDotenv(
 ): NodeJS.ProcessEnv {
   const env = buildShellEnv(sm);
   if (!envPath) return env;
+  const controlEnv = new Map(
+    CPI_CONTROL_ENV_KEYS.map((key) => [key, env[key]]),
+  );
   const parsed = parseDotEnv(resolveCwdPath(envPath));
   for (const [k, v] of Object.entries(parsed)) env[k] = v;
-  Object.assign(env, runtimeEnv());
-  const subagentRpc = getSubagentRpc();
-  if (subagentRpc) env[CPI_SUBAGENT_RPC] = subagentRpc;
+  for (const [key, value] of controlEnv) {
+    if (value === undefined) delete env[key];
+    else env[key] = value;
+  }
   const pathKeys = Object.keys(env).filter((k) => k.toLowerCase() === "path");
   const pathKey = IS_WIN ? (pathKeys[pathKeys.length - 1] ?? "PATH") : "PATH";
   if (IS_WIN) {

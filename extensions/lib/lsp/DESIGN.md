@@ -300,9 +300,12 @@ wasm, `truncateHead`/`truncateTail`).
 
 `sh` schema gains `env?: path`; env built via
 `buildShellEnvWithDotenv(ctx?.sessionManager, params.env)` (= `buildShellEnv`
-then merge `parseDotEnv(resolveCwdPath(env))`). Merge order: process env ← tool
-PATH bins ← `PI_SESSION*` ← dotenv wins. `sh_repeat_until` is wired identically
-(now uses `ctx.sessionManager`, not bare `getToolEnv()`).
+then merge `parseDotEnv(resolveCwdPath(env))`). Dotenv wins for ordinary command
+variables; cpi-owned session/runtime/subagent routing keys are then restored
+from the active process/session, and PATH bins are normalized. This prevents
+reusable captures from routing completion records or nested subagents to the
+session that originally created the capture. `sh_repeat_until` is wired
+identically (now uses `ctx.sessionManager`, not bare `getToolEnv()`).
 
 ### 11.2 Editing-command detection (`shell/edit-detect.ts`)
 

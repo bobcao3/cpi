@@ -9,7 +9,7 @@ prompt_snippet = "Poll with repeated shell commands"
 command = "Command to run repeatedly"
 interval = "Seconds between repetitions (5-60)"
 description = "Short description of what this monitor is doing (a few words)"
-env = "Dotenv merged into monitor env; dotenv wins"
+env = "Dotenv wins for command variables; cpi session/runtime routing variables remain current"
 
 [guidelines]
 bullets = [

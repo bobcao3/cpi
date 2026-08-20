@@ -2,20 +2,31 @@
 import {
   runShell,
   signalChild,
-  silenceChild,
   detachChild,
   killAll,
   getActiveBackgrounds,
   setCompletionHook,
+  setCurrentScope,
 } from "../../extensions/shell/exec.ts";
+import {
+  buildShellEnv,
+  buildShellEnvWithDotenv,
+} from "../../extensions/shell/tools.ts";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 const tunables = { previewMaxBytes: 4096, maxAcc: 65536, updateMs: 50 };
 const truncation = { maxLines: 1000 };
 const env = { ...process.env };
+delete env.PI_SESSION;
+delete env.PI_SESSION_ID;
+delete env.PI_SESSION_DIR;
+setCurrentScope(undefined);
 
-let hookFired: { id: string; code: number | null } | null = null;
+const completions: { id: string; code: number | null }[] = [];
 setCompletionHook((id, _cmd, code) => {
-  hookFired = { id, code };
+  completions.push({ id, code });
 });
 
 function assert(cond: unknown, msg: string): void {
@@ -110,11 +121,46 @@ console.log("   detached logPath:", logPath);
 
 assert(!signalChild(bgId, "SIGINT"), "signal on detached id fails");
 
-hookFired = null;
+const sessionDir = mkdtempSync(join(tmpdir(), "cpi-session-"));
+const envPath = join(sessionDir, ".env");
+writeFileSync(
+  envPath,
+  "PI_SESSION=stale-se\nPI_SESSION_ID=stale-session\nPI_SESSION_DIR=/tmp/stale-session\nPI_SUBAGENT=stale\nCPI_RUNTIME_BIN=/tmp/stale-runtime\nCPI_RUNTIME_KIND=stale\nCPI_SUBAGENT_RPC=/tmp/stale-rpc\nTEST_CAPTURE_VALUE=loaded\n",
+);
+const fakeSessionManager = {
+  getSessionId: () => "current-session",
+  getSessionDir: () => sessionDir,
+};
+const baselineEnv = buildShellEnv(fakeSessionManager);
+setCurrentScope("current-session");
+const scopedEnv = buildShellEnvWithDotenv(fakeSessionManager, envPath);
+assert(scopedEnv.PI_SESSION === "current-", "scoped env has current short id");
+assert(
+  scopedEnv.PI_SESSION_ID === "current-session",
+  "scoped env has current session id",
+);
+assert(
+  scopedEnv.PI_SESSION_DIR === sessionDir,
+  "scoped env has current session dir",
+);
+assert(scopedEnv.TEST_CAPTURE_VALUE === "loaded", "dotenv value loaded");
+for (const key of [
+  "PI_SUBAGENT",
+  "CPI_RUNTIME_BIN",
+  "CPI_RUNTIME_KIND",
+  "CPI_SUBAGENT_RPC",
+] as const) {
+  assert(
+    scopedEnv[key] === baselineEnv[key],
+    `${key} preserves baseline value`,
+  );
+}
+
+completions.length = 0;
 r = await runShell(
   "for i in 1 2 3; do echo s$i; sleep 0.15; done",
   0.4,
-  env,
+  scopedEnv,
   undefined,
   undefined,
   "hook",
@@ -125,12 +171,14 @@ r = await runShell(
 assert(r.status === "running", "hook-test backgrounded");
 const hookId = r.id!;
 const deadline = Date.now() + 5000;
-while (!hookFired && Date.now() < deadline)
+while (completions.length === 0 && Date.now() < deadline)
   await new Promise((r) => setTimeout(r, 100));
 assert(
-  hookFired && hookFired.id === hookId,
-  "completion hook fired for backgrounded shell: " + JSON.stringify(hookFired),
+  completions[0]?.id === hookId,
+  "completion hook fired for backgrounded shell: " +
+    JSON.stringify(completions[0]),
 );
 
+rmSync(sessionDir, { recursive: true, force: true });
 killAll();
 console.log("\nALL PASS");
