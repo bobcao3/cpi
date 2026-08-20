@@ -9,6 +9,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { getCwd } from "./cwd.ts";
 
 export interface ShellConfig {
   /** Shell executable to use (`auto` follows `$SHELL`; otherwise a command/path). */
@@ -167,7 +168,7 @@ export function deepMerge<T>(user: T, project: Partial<T> | undefined): T {
   return merged as T;
 }
 
-export function loadCpiConfig(cwd: string = process.cwd()): CpiConfig {
+export function loadCpiConfig(cwd: string = getCwd()): CpiConfig {
   const userPath = join(
     process.env.HOME ?? "",
     ".pi",
@@ -195,7 +196,7 @@ function intInRange(
   return Number.isInteger(n) && n >= min && n <= max ? n : fallback;
 }
 
-export function loadShellConfig(cwd: string = process.cwd()): ShellConfig {
+export function loadShellConfig(cwd: string = getCwd()): ShellConfig {
   const config = loadCpiConfig(cwd);
   const defaults = loadDefaultConfig();
   const s = config.shell ?? defaults.shell!;
@@ -232,9 +233,7 @@ function bool(value: unknown, fallback: boolean): boolean {
   return typeof value === "boolean" ? value : fallback;
 }
 
-export function loadEditorConfig(
-  cwd: string = process.cwd(),
-): ResolvedEditorConfig {
+export function loadEditorConfig(cwd: string = getCwd()): ResolvedEditorConfig {
   const config = loadCpiConfig(cwd);
   const d = loadDefaultConfig().editor ?? {};
   const e = deepMerge(d, config.editor ?? {}) as ResolvedEditorConfig;
@@ -272,7 +271,7 @@ export function loadEditorConfig(
   };
 }
 
-export function loadLspConfig(cwd: string = process.cwd()): LspConfig {
+export function loadLspConfig(cwd: string = getCwd()): LspConfig {
   const config = loadCpiConfig(cwd);
   const d = loadDefaultConfig().lsp!;
   const merged = deepMerge(d, config.lsp ?? {}) as LspConfig;

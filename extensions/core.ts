@@ -19,6 +19,7 @@ import {
 } from "./lib/footer.ts";
 import { setSessionDir } from "./lib/session-dir.ts";
 import { getSubagentUsage, resetSubagentUsage } from "./lib/cost-ledger.ts";
+import { ensureSubagentRpc, stopSubagentRpc } from "./lib/subagent-rpc.ts";
 import {
   awaitHoldInterval,
   doubleHoldInterval,
@@ -45,6 +46,7 @@ import {
 
 export default function coreExtension(pi: ExtensionAPI): void {
   pi.on("session_start", async (_event, ctx: ExtensionContext) => {
+    if (!process.env.PI_SUBAGENT) await ensureSubagentRpc();
     setupCpiFooter(pi, ctx);
     setSessionDir(ctx.sessionManager?.getSessionDir());
     resetSubagentUsage();
@@ -184,6 +186,12 @@ export default function coreExtension(pi: ExtensionAPI): void {
       check();
     });
     abortAll();
+  });
+
+  pi.on("session_shutdown", async (event: any) => {
+    if (event.reason === "quit" && !process.env.PI_SUBAGENT) {
+      await stopSubagentRpc();
+    }
   });
 }
 

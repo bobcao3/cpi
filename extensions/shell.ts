@@ -12,6 +12,7 @@ import type {
   ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import { loadShellConfig } from "./lib/config.ts";
+import { getCwd } from "./lib/cwd.ts";
 import { checkShellPoll } from "./lib/poll-guard.ts";
 import { sendNotification, type NotificationKind } from "./lib/notification.ts";
 import { registerHoldSource, signalHoldEvent } from "./lib/session-hold.ts";
@@ -284,6 +285,7 @@ export default async function (pi: ExtensionAPI) {
         truncation,
         tunables,
         shell,
+        getCwd(),
       );
 
       const tag = describe ? ` (${truncateDescribe(describe)})` : "";

@@ -9,6 +9,7 @@ import { fileURLToPath } from "node:url";
 import { parse as parseToml } from "smol-toml";
 import Mustache from "mustache";
 import { deepMerge } from "./config.ts";
+import { getCwd } from "./cwd.ts";
 
 export interface ToolText {
   tool: { description: string; prompt_snippet: string };
@@ -83,7 +84,7 @@ function signature(paths: string[]): string {
 export function loadText<T = Record<string, unknown>>(
   id: string,
   defaultPath: string,
-  cwd: string = process.cwd(),
+  cwd: string = getCwd(),
 ): T {
   const userPath = join(process.env.HOME ?? "", ".pi", "agent", `${id}.toml`);
   const projectPath = join(cwd, ".pi", `${id}.toml`);

@@ -138,13 +138,14 @@ export async function runShell(
   truncation: OutputTruncation,
   tunables: ShellTunables,
   shell: ShellProfile = resolveShell("bash"),
+  cwd: string = process.cwd(),
 ): Promise<ShResult> {
   const pathId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const sessDir = env.PI_SESSION_DIR;
   const sessScope = env.PI_SESSION_ID;
   let handle: Awaited<ReturnType<typeof launchMonitor>>;
   try {
-    handle = await launchMonitor(command, env, pathId, shell);
+    handle = await launchMonitor(command, env, pathId, shell, cwd);
   } catch (e) {
     return {
       id: null,

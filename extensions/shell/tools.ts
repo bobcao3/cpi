@@ -20,6 +20,8 @@ import {
 import { parsePubKey, parseSig, verifyMinisign } from "../lib/minisig.ts";
 import { parseDotEnv } from "../lib/dotenv.ts";
 import { resolveCwdPath } from "../lib/cwd.ts";
+import { runtimeEnv } from "../lib/runtime.ts";
+import { CPI_SUBAGENT_RPC, getSubagentRpc } from "../lib/subagent-rpc.ts";
 import { brotliDecompressSync } from "node:zlib";
 import { fileURLToPath } from "node:url";
 
@@ -281,8 +283,11 @@ export async function ensureShellTools(): Promise<ToolAvailability> {
 export function getToolEnv(): NodeJS.ProcessEnv {
   const key =
     Object.keys(process.env).find((k) => k.toLowerCase() === "path") ?? "PATH";
+  const subagentRpc = getSubagentRpc();
   return {
     ...process.env,
+    ...runtimeEnv(),
+    ...(subagentRpc ? { [CPI_SUBAGENT_RPC]: subagentRpc } : {}),
     [key]: [VENDOR_BIN, BIN_DIR, process.env[key] ?? ""].join(delimiter),
   };
 }
@@ -314,6 +319,9 @@ export function buildShellEnvWithDotenv(
   if (!envPath) return env;
   const parsed = parseDotEnv(resolveCwdPath(envPath));
   for (const [k, v] of Object.entries(parsed)) env[k] = v;
+  Object.assign(env, runtimeEnv());
+  const subagentRpc = getSubagentRpc();
+  if (subagentRpc) env[CPI_SUBAGENT_RPC] = subagentRpc;
   const pathKeys = Object.keys(env).filter((k) => k.toLowerCase() === "path");
   const pathKey = IS_WIN ? (pathKeys[pathKeys.length - 1] ?? "PATH") : "PATH";
   if (IS_WIN) {

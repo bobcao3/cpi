@@ -1,11 +1,11 @@
 /**
- * Keeps the model oriented to the working directory: set_cwd chdir()s and
- * queues a <system-reminder> after the tool result; at each 25% context
- * boundary a reminder lands before the next user turn.
+ * Keeps the model oriented to the working directory: set_cwd changes cpi's
+ * logical context cwd and queues reminders after the tool result and at
+ * context boundaries.
  *
- * Why process.chdir: the shell inherits process.cwd() and pi exposes no API
- * to mutate its own cwd. Limitation: pi's system-prompt cwd line and
- * AGENTS.md discovery don't follow; the reminder carries the truth.
+ * cpi tools and prompts consume this logical cwd, making it safe for
+ * worker-isolated subagents. Limitation: pi's immutable SDK cwd and resource
+ * discovery do not automatically follow; the reminder carries truth.
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";

@@ -1,6 +1,6 @@
 /** llm-editor text over lib/text.ts: all content lives in extensions/text/llm-editor.toml, layered with ~/.pi/agent and <cwd>/.pi overrides, deep-merged and cached per-cwd with mtime invalidation by loadText. Mustache {{name}} syntax, HTML-escaping disabled (plain text). */
 
-import * as process from "node:process";
+import { getCwd } from "../lib/cwd.ts";
 import { loadText, render, textPath } from "../lib/text.ts";
 
 export interface ToolMeta {
@@ -70,6 +70,6 @@ export interface EditorText {
 /** Mustache render with HTML-escaping disabled. */
 export const fmt = render;
 
-export function loadEditorText(cwd: string = process.cwd()): EditorText {
+export function loadEditorText(cwd: string = getCwd()): EditorText {
   return loadText<EditorText>("llm-editor", textPath("llm-editor"), cwd);
 }

@@ -420,12 +420,14 @@ export async function launchMonitor(
   env: NodeJS.ProcessEnv,
   pathId: string,
   shell: ShellProfile = resolveShell("bash"),
+  cwd: string = process.cwd(),
 ): Promise<MonitorHandle> {
   const { child, logPath, runtimeBin } = spawnMonitor(
     command,
     env,
     pathId,
     shell,
+    cwd,
   );
   const client = new MonitorClient(child, logPath, runtimeBin);
   return { client, logPath };
