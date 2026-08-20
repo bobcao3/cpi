@@ -25,6 +25,7 @@ export function spawnMonitor(
   env: NodeJS.ProcessEnv,
   pathId: string,
   shell: ShellProfile,
+  cwd: string,
 ): SpawnedMonitor {
   const logPath = join(tmpdir(), `pi-sh-output-${pathId}.log`);
   const { bin, pre } = runtimeSpawn();
@@ -43,6 +44,7 @@ export function spawnMonitor(
       detached: true,
       stdio: ["pipe", "pipe", "pipe"],
       env,
+      cwd,
       windowsHide: true,
     },
   );

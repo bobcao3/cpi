@@ -1,2 +1,18 @@
-#!/usr/bin/env node
-import './subagent.js';
+#!/bin/sh
+
+SCRIPT_DIR=$(CDPATH= cd "$(dirname "$0")" && pwd)
+RUNTIME_KIND=${CPI_RUNTIME_KIND:-node}
+RUNTIME_BIN=${CPI_RUNTIME_BIN:-"$RUNTIME_KIND"}
+
+case "$RUNTIME_KIND" in
+  bun|node)
+    exec "$RUNTIME_BIN" "$SCRIPT_DIR/subagent.js" "$@"
+    ;;
+  deno)
+    exec "$RUNTIME_BIN" run --allow-all "$SCRIPT_DIR/subagent.js" "$@"
+    ;;
+  *)
+    echo "unsupported CPI_RUNTIME_KIND: $RUNTIME_KIND" >&2
+    exit 1
+    ;;
+esac

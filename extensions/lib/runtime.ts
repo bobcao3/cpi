@@ -6,6 +6,9 @@ export interface RuntimeSpawn {
   pre: string[];
 }
 
+export const CPI_RUNTIME_BIN = "CPI_RUNTIME_BIN";
+export const CPI_RUNTIME_KIND = "CPI_RUNTIME_KIND";
+
 /** Required for Node 22.6–23.5; ≥23.6 enables strip-types by default. */
 const NODE_STRIP_FLAG = "--experimental-strip-types";
 
@@ -14,6 +17,13 @@ export function detectRuntime(): RuntimeKind {
   if (typeof g.Bun !== "undefined") return "bun";
   if (typeof g.Deno !== "undefined") return "deno";
   return "node";
+}
+
+export function runtimeEnv(): Record<string, string> {
+  return {
+    [CPI_RUNTIME_BIN]: process.execPath,
+    [CPI_RUNTIME_KIND]: detectRuntime(),
+  };
 }
 
 export function runtimeSpawn(): RuntimeSpawn {

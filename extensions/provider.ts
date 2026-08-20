@@ -29,16 +29,18 @@ import {
   storeConfig,
   stripMatches,
 } from "./lib/provider-config";
+import { getCwd } from "./lib/cwd.ts";
 
 const debug = (tag: string, msg: string): void => {
   if (process.env.PF_DEBUG) process.stderr.write(`[${tag}] ${msg}\n`);
 };
 
-function configFor(ctx: ExtensionContext) {
+function configFor() {
   const s = getState();
-  if (s.config && s.configCwd === ctx.cwd) return s.config;
-  const live = loadMergedConfig(ctx.cwd);
-  storeConfig(ctx.cwd, live);
+  const cwd = getCwd();
+  if (s.config && s.configCwd === cwd) return s.config;
+  const live = loadMergedConfig(cwd);
+  storeConfig(cwd, live);
   return live;
 }
 
@@ -47,7 +49,7 @@ async function applyFailover(
   ctx: ExtensionContext,
   from: string,
 ): Promise<void> {
-  const cfg = configFor(ctx);
+  const cfg = configFor();
   const pick = selectFallback(ctx, cfg.fallbacks, from);
   if (!pick) {
     const text = `Failover: no fallback candidate fits after ${from} failures.`;
@@ -70,8 +72,8 @@ async function applyFailover(
 export default async function providerExtension(
   pi: ExtensionAPI,
 ): Promise<void> {
-  // Register providers from process.cwd() — best guess before session_start gives the real ctx.cwd.
-  const config = loadMergedConfig(process.cwd());
+  // Register providers from the logical cwd — the best value before session_start.
+  const config = loadMergedConfig(getCwd());
   if (config.providers) {
     for (const [key, pcfg] of Object.entries(config.providers)) {
       registerProviderConfig(pi, key, pcfg);
@@ -79,8 +81,9 @@ export default async function providerExtension(
   }
 
   pi.on("session_start", async (_event, ctx) => {
-    const live = loadMergedConfig(ctx.cwd);
-    storeConfig(ctx.cwd, live);
+    const cwd = getCwd();
+    const live = loadMergedConfig(cwd);
+    storeConfig(cwd, live);
 
     if (live.providers) {
       for (const [key, pcfg] of Object.entries(live.providers)) {
@@ -175,7 +178,7 @@ export default async function providerExtension(
     const provider = ctx.model?.provider;
     if (!provider) return;
     const s = getState();
-    const cfg = configFor(ctx);
+    const cfg = configFor();
     const threshold =
       cfg.failover?.failureThreshold ?? DEFAULT_FAILURE_THRESHOLD;
 

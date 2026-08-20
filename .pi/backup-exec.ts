@@ -32,6 +32,7 @@ import {
   textPath,
   type ToolText,
 } from "../extensions/lib/text.ts";
+import { getCwd } from "../extensions/lib/cwd.ts";
 
 const TOOL = "backup-exec";
 const DEFAULT_TIMEOUT_MS = 30_000;
@@ -93,7 +94,7 @@ export default function (pi: ExtensionAPI): void {
       const workdir =
         typeof params.workdir === "string" && params.workdir.trim()
           ? params.workdir
-          : process.cwd();
+          : getCwd();
       const requested =
         typeof params.timeout_ms === "number" && params.timeout_ms > 0
           ? params.timeout_ms

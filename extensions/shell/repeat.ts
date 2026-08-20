@@ -28,6 +28,7 @@ import {
   textPath,
   type ToolText,
 } from "../lib/text.ts";
+import { getCwd } from "../lib/cwd.ts";
 
 export interface RepeatLogRange {
   path: string;
@@ -51,6 +52,7 @@ interface RepeatMonitor {
   describe?: string;
   intervalSec: number;
   env: NodeJS.ProcessEnv;
+  cwd: string;
   running: boolean;
   breached: boolean;
   child?: ChildProcess;
@@ -147,6 +149,7 @@ function runIteration(mon: RepeatMonitor): void {
     {
       detached: process.platform !== "win32",
       env: mon.env,
+      cwd: mon.cwd,
       stdio: ["ignore", "pipe", "pipe"],
       windowsHide: true,
     },
@@ -192,6 +195,7 @@ export function startRepeat(
   env: NodeJS.ProcessEnv,
   describe?: string,
   shell: ShellProfile = resolveShell("bash"),
+  cwd: string = process.cwd(),
 ): string {
   const id = `rpt-${++rptCounter}`;
   const logPath = join(tmpdir(), `pi-rpt-output-${id}-${Date.now()}.log`);
@@ -204,6 +208,7 @@ export function startRepeat(
     describe,
     intervalSec,
     env,
+    cwd,
     running: true,
     breached: false,
     pid: -1,
@@ -349,6 +354,7 @@ export function createRepeatTool(
         buildShellEnvWithDotenv(ctx?.sessionManager, params.env),
         description,
         shell,
+        getCwd(),
       );
       const status = `repeating PID=${id} every ${interval}s · stop on non-zero exit`;
       const tag = description ? ` (${truncateDescribe(description)})` : "";

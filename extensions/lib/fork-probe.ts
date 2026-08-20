@@ -10,6 +10,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { existsSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { getCwd } from "./cwd.ts";
 import { resolvePiInvocation } from "./pi-invocation.ts";
 
 const DEFAULT_TIMEOUT_MS = 5 * 60 * 1000; // 5 min
@@ -132,7 +133,7 @@ export async function runForkProbe(
     let proc: ChildProcess | undefined;
     try {
       proc = spawn(invocation.command, invocation.args, {
-        cwd: opts.cwd ?? process.cwd(),
+        cwd: opts.cwd ?? getCwd(),
         shell: false,
         stdio: ["pipe", "pipe", "pipe"],
         env: { ...process.env, [FORK_PROBE_ENV]: "1" },

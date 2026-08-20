@@ -116,6 +116,9 @@ session, no re-install.
 - **`globalThis` holds shared state, never dedup flags.** Registration is
   guarded on real resource state (a live timer, an existing binary), so
   hot-reloads re-register instead of silently breaking.
+- **Subagents stay local and isolated.** Root pi owns private local RPC
+  endpoints and worker threads, avoiding nested pi process trees while
+  preserving context isolation.
 
 This repo is managed with [Jujutsu (`jj`)](https://jj-vcs.dev); `jj fix` runs
 Prettier. Full conventions live in `AGENTS.md`.

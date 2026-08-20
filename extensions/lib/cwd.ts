@@ -1,5 +1,4 @@
-/** pi's `_cwd` snapshot is immutable (no mutation API), so setCwd() chdirs
- * the process and tracks the value here — getCwd() stays in lockstep. */
+/** cpi's cwd is logical and stored globally, avoiding process-wide chdir(). */
 
 import { isAbsolute, resolve } from "node:path";
 
@@ -27,6 +26,5 @@ export function resolveCwdPath(input: string): string {
 }
 
 export function setCwd(target: string): void {
-  process.chdir(target);
   state().cwd = target;
 }

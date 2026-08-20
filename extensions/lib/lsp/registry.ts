@@ -5,6 +5,7 @@ import {
   LANGUAGE_MARKERS,
 } from "./discover.ts";
 import { type LspConfig, loadLspConfig } from "../config.ts";
+import { getCwd } from "../cwd.ts";
 
 export interface SpawnDirective {
   cmd: string;
@@ -115,7 +116,7 @@ function rubySpec(cfg: LspConfig): LspServerSpec {
 
 export function getLspServerSpec(
   language: Language,
-  cwd: string = process.cwd(),
+  cwd: string = getCwd(),
 ): LspServerSpec {
   const cfg = loadLspConfig(cwd);
   switch (language) {
@@ -133,7 +134,7 @@ export function getLspServerSpec(
 }
 
 export function loadAllLspSpecs(
-  cwd: string = process.cwd(),
+  cwd: string = getCwd(),
 ): Record<Language, LspServerSpec> {
   const cfg = loadLspConfig(cwd);
   return {

@@ -7,6 +7,7 @@
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
+import { getCwd } from "./lib/cwd.ts";
 import { registerSystemPromptTransform } from "./lib/system-prompt.ts";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
@@ -108,7 +109,7 @@ export default function rulesExtension(_pi: ExtensionAPI): void {
   registerSystemPromptTransform(
     "cpi-rules",
     (systemPrompt) => {
-      const projectDir = join(process.cwd(), ".pi", "rules");
+      const projectDir = join(getCwd(), ".pi", "rules");
       const signature = `${dirSignature(USER_RULES_DIR)};${dirSignature(projectDir)}`;
 
       const cached = cache();

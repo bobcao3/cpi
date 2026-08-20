@@ -4,6 +4,7 @@ import {
   loadDefaultConfig,
   type FastConfig,
 } from "./config.ts";
+import { getCwd } from "./cwd.ts";
 
 const LIST_ITEMS_MAX = 64;
 
@@ -24,7 +25,7 @@ function stringList(value: unknown, fallback: string[]): string[] {
   return result;
 }
 
-export function loadFastConfig(cwd: string = process.cwd()): FastConfig {
+export function loadFastConfig(cwd: string = getCwd()): FastConfig {
   const defaults = loadDefaultConfig().fast;
   if (!defaults)
     throw new Error("[cpi-config] shipped fast config is missing.");
