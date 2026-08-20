@@ -41,7 +41,7 @@ prompt_snippet = "Detach background shells to run untracked"
 description = "Short description of what this command is doing (a few words)"
 waitfor = "Seconds to wait before backgrounding (default {{max_waitfor}}, max {{max_waitfor}}; >{{max_waitfor}} errors)"
 command = "Command to run"
-env = "Dotenv merged into sh env; dotenv wins"
+env = "Dotenv merged into sh env; dotenv wins for command variables, while cpi session/runtime routing variables refresh from the current session"
 
 [schema.sh_signal]
 id = "Background shell PID (as returned by sh)"

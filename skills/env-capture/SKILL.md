@@ -54,6 +54,10 @@ lsp:          lsp start file=src/main.ts env=<path>
 sh_repeat_until: poller inherits the same dotenv via its env= arg
 ```
 
+Loading a capture restores ordinary command environment values. cpi-owned
+session, runtime, and sub-agent routing variables are refreshed from the active
+session rather than replayed from the snapshot.
+
 ## Limits
 
 4096 keys · 32 KiB per value (write side, matching `lib/dotenv.ts` read side).
