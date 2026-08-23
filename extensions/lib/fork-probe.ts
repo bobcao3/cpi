@@ -1,13 +1,21 @@
 /**
- * Out-of-band fork-probe: spawn `pi --fork <session> -p` with a prompt on
- * stdin; the child copies the full conversation to a throwaway session and
- * runs its own agent loop. The parent session is mutated only via the
- * consumer's `onSignal`, and only when `decide` returns a non-null signal —
- * on null or failure, "leave it be" is literal.
+ * Children run `pi --fork <session> -p` with a prompt from stdin.
+ * They copy the conversation into isolated temporary sessions.
+ * Each child inherits its parent provider prompt-cache identity.
+ * Only a non-null `decide` result lets `onSignal` mutate the
+ * parent; null/failure leaves it untouched.
  */
 
 import { spawn, type ChildProcess } from "node:child_process";
-import { existsSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
+import {
+  closeSync,
+  existsSync,
+  mkdtempSync,
+  openSync,
+  readSync,
+  realpathSync,
+  rmSync,
+} from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { getCwd } from "./cwd.ts";
@@ -19,6 +27,7 @@ const KILL_GRACE_MS = 5000;
 const MAX_STDOUT_BYTES = 1 * 1024 * 1024; // 1 MiB
 const MAX_STDERR_BYTES = 256 * 1024; // 256 KiB
 const MAX_PROMPT_BYTES = 256 * 1024; // 256 KiB
+const MAX_SESSION_HEADER_BYTES = 16 * 1024; // 16 KiB
 /** Marks a process as a fork-probe child; consumers read it to disable self-recursive probing. */
 const FORK_PROBE_ENV = "CPI_FORK_PROBE";
 
@@ -32,7 +41,7 @@ export interface ForkSpawnOptions {
   appendSystemPrompt?: string;
   timeoutMs?: number;
   signal?: AbortSignal;
-  /** Throwaway temp session dir, removed on exit; set false to keep it for post-mortem. */
+  /** Unique temp session dir; removed on exit unless false, which retains it for post-mortem. */
   ephemeral?: boolean;
 }
 
@@ -79,6 +88,64 @@ function realpathSafe(p: string): string {
   }
 }
 
+function readParentSessionId(parentFile: string): string {
+  const fd = openSync(parentFile, "r");
+  try {
+    const header = Buffer.allocUnsafe(MAX_SESSION_HEADER_BYTES);
+    let length = 0;
+    let foundLf = false;
+    while (length < header.length) {
+      const bytesRead = readSync(
+        fd,
+        header,
+        length,
+        header.length - length,
+        null,
+      );
+      if (bytesRead === 0) break;
+      const chunk = header.subarray(length, length + bytesRead);
+      const lf = chunk.indexOf(0x0a);
+      if (lf !== -1) {
+        length += lf;
+        foundLf = true;
+        break;
+      }
+      length += bytesRead;
+    }
+    assertc(
+      foundLf || length < header.length,
+      `parent session header exceeds ${MAX_SESSION_HEADER_BYTES} bytes`,
+    );
+    let session: unknown;
+    try {
+      session = JSON.parse(header.subarray(0, length).toString("utf8"));
+    } catch (err) {
+      throw new Error(
+        `[cpi-fork-probe] failed to parse parent session header: ${errmsg(err)}`,
+      );
+    }
+    assertc(
+      session !== null &&
+        typeof session === "object" &&
+        !Array.isArray(session),
+      "parent session header must be a record",
+    );
+    const record = session as Record<string, unknown>;
+    assertc(
+      record.type === "session",
+      "parent session header must be a session",
+    );
+    assertc(
+      typeof record.id === "string" &&
+        /^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$/.test(record.id),
+      "parent session header has an invalid id",
+    );
+    return record.id;
+  } finally {
+    closeSync(fd);
+  }
+}
+
 /** Never rejects: failures come back as `ok:false` so callers can leave it be without try/catch. */
 export async function runForkProbe(
   opts: ForkSpawnOptions,
@@ -93,6 +160,7 @@ export async function runForkProbe(
     existsSync(parentFile),
     `parent session file not found: ${opts.parentSessionFile}`,
   );
+  const parentSessionId = readParentSessionId(parentFile);
   assertc(typeof prompt === "string", "prompt must be a string");
   const promptBytes = Buffer.byteLength(prompt, "utf8");
   assertc(
@@ -106,25 +174,26 @@ export async function runForkProbe(
   );
   const ephemeral = opts.ephemeral !== false;
 
-  const args: string[] = ["--fork", parentFile, "-p"];
+  const args: string[] = [
+    "--fork",
+    parentFile,
+    "--session-id",
+    parentSessionId,
+    "-p",
+  ];
   if (opts.model) args.push("--model", opts.model);
   if (opts.tools) args.push("--tools", opts.tools);
   if (opts.appendSystemPrompt)
     args.push("--append-system-prompt", opts.appendSystemPrompt);
 
-  let tmpSessionDir: string | undefined;
-  if (ephemeral) {
-    tmpSessionDir = mkdtempSync(path.join(os.tmpdir(), "pi-fork-"));
-    args.push("--session-dir", tmpSessionDir);
-  }
+  const tmpSessionDir = mkdtempSync(path.join(os.tmpdir(), "pi-fork-"));
+  args.push("--session-dir", tmpSessionDir);
 
   const cleanup = (): void => {
-    if (tmpSessionDir) {
-      try {
-        rmSync(tmpSessionDir, { recursive: true, force: true });
-      } catch {}
-      tmpSessionDir = undefined;
-    }
+    if (!ephemeral) return;
+    try {
+      rmSync(tmpSessionDir, { recursive: true, force: true });
+    } catch {}
   };
 
   const invocation = resolvePiInvocation(args, opts.command);
