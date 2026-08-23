@@ -1,0 +1,4 @@
+# Model-facing prompt for the periodic out-of-band status report.
+
+[report]
+prompt = "Describe in one sentence what you are currently working on or your current status, start the sentence with `I'm [verb]-ing ...` e.g. working on, waiting on, testing, etc."
