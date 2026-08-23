@@ -17,6 +17,12 @@ import {
   disposeCpiFooter,
   registerRightSegment,
 } from "./lib/footer.ts";
+import {
+  setupStatusReports,
+  disposeStatusReports,
+  statusReportTurnStarted,
+  statusReportTurnEnded,
+} from "./lib/status-report.ts";
 import { setSessionDir } from "./lib/session-dir.ts";
 import { getSubagentUsage, resetSubagentUsage } from "./lib/cost-ledger.ts";
 import { ensureSubagentRpc, stopSubagentRpc } from "./lib/subagent-rpc.ts";
@@ -48,6 +54,7 @@ export default function coreExtension(pi: ExtensionAPI): void {
   pi.on("session_start", async (_event, ctx: ExtensionContext) => {
     if (!process.env.PI_SUBAGENT) await ensureSubagentRpc();
     setupCpiFooter(pi, ctx);
+    setupStatusReports(ctx);
     setSessionDir(ctx.sessionManager?.getSessionDir());
     resetSubagentUsage();
     registerRightSegment("subagent-cost", costSegment);
@@ -57,16 +64,20 @@ export default function coreExtension(pi: ExtensionAPI): void {
   });
   pi.on("session_tree", async (_event, ctx: ExtensionContext) => {
     setupCpiFooter(pi, ctx);
+    setupStatusReports(ctx);
     registerRightSegment("subagent-cost", costSegment);
   });
-  pi.on("session_shutdown", async () => {
+  pi.on("session_shutdown", async (_event, ctx: ExtensionContext) => {
     disposeCpiFooter();
+    disposeStatusReports(ctx);
   });
 
   registerNotificationRenderer(pi);
 
   pi.on("before_agent_start", () => drainBeforeUser(pi));
   pi.on("tool_execution_end", () => drainAfterTool(pi));
+  pi.on("turn_start", (event, ctx) => statusReportTurnStarted(event, ctx));
+  pi.on("turn_end", (event, ctx) => statusReportTurnEnded(event, ctx));
 
   // Sole systemPrompt return across cpi — no other handler returns one.
   pi.on("before_agent_start", async (event: any, ctx: any) => {
