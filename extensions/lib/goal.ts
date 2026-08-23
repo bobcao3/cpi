@@ -250,7 +250,6 @@ export async function evaluateGoal(
   const T = loadText<GoalText>("goal", textPath("goal"));
   const result = await runForkProbe(
     {
-      command: process.env.CPI_FORK_PI_BIN,
       parentSessionFile: parentFile,
       cwd: ctx.cwd,
       signal: ctx.signal,

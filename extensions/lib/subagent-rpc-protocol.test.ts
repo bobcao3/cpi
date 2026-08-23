@@ -3,9 +3,11 @@ import { describe, expect, test } from "bun:test";
 import { resolve } from "node:path";
 import {
   validCliSubagentRequest,
+  validForkProbeSubagentRequest,
   validLlmEditorCandidate,
   validLlmEditorCorrectionPrompt,
   validLlmEditorSubagentRequest,
+  validSubagentWorkerRequest,
 } from "./subagent-rpc-protocol.ts";
 
 const common = {
@@ -29,6 +31,16 @@ const editor = {
   maxOutputBytes: 524288,
 };
 
+const forkProbe = {
+  ...common,
+  version: 1 as const,
+  kind: "fork-probe" as const,
+  parentSessionFile: resolve("parent.jsonl"),
+  parentSessionId: "12345678-1234-1234-1234-123456789abc",
+  sessionDir: resolve("fork-session"),
+  prompt: "evaluate",
+};
+
 describe("subagent RPC request boundary", () => {
   test("keeps the external CLI shape separate from trusted editor requests", () => {
     const cli = { ...common, argv: [], task: "answer" };
@@ -38,6 +50,39 @@ describe("subagent RPC request boundary", () => {
     expect(validLlmEditorSubagentRequest({ ...editor, version: 1 })).toBe(
       false,
     );
+  });
+
+  test("accepts trusted bounded fork requests only on the Worker boundary", () => {
+    expect(validForkProbeSubagentRequest(forkProbe)).toBe(true);
+    expect(validSubagentWorkerRequest(forkProbe)).toBe(true);
+    expect(validCliSubagentRequest(forkProbe)).toBe(false);
+    expect(
+      validForkProbeSubagentRequest({
+        ...forkProbe,
+        parentSessionFile: "relative.jsonl",
+      }),
+    ).toBe(false);
+    expect(
+      validForkProbeSubagentRequest({ ...forkProbe, parentSessionId: "bad-" }),
+    ).toBe(false);
+    expect(
+      validForkProbeSubagentRequest({
+        ...forkProbe,
+        parentSessionId: "x".repeat(129),
+      }),
+    ).toBe(false);
+    expect(validForkProbeSubagentRequest({ ...forkProbe, prompt: "" })).toBe(
+      false,
+    );
+    expect(
+      validForkProbeSubagentRequest({
+        ...forkProbe,
+        prompt: "x".repeat(256 * 1024 + 1),
+      }),
+    ).toBe(false);
+    expect(
+      validForkProbeSubagentRequest({ ...forkProbe, env: { BROKEN: 1 } }),
+    ).toBe(false);
   });
 
   test("requires a bounded absolute completion path only in tool-call mode", () => {

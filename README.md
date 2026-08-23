@@ -118,7 +118,9 @@ session, no re-install.
   hot-reloads re-register instead of silently breaking.
 - **Subagents stay local and isolated.** Root pi owns private local RPC
   endpoints and worker threads, avoiding nested pi process trees while
-  preserving context isolation.
+  preserving context isolation. They may run as `sh`-tracked background jobs,
+  but cannot detach: root pi owns their Worker threads and cancels/terminates
+  them when it exits.
 
 This repo is managed with [Jujutsu (`jj`)](https://jj-vcs.dev); `jj fix` runs
 Prettier. Full conventions live in `AGENTS.md`.

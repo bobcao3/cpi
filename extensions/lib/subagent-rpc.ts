@@ -3,13 +3,9 @@ import { createServer, type Server, type Socket } from "node:net";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
-  type LlmEditorCandidate,
-  type LlmEditorSubagentRequest,
   type SubagentWorkerRequest,
   validCliSubagentRequest,
-  validLlmEditorCandidate,
-  validLlmEditorCorrectionPrompt,
-  validLlmEditorSubagentRequest,
+  validSubagentWorkerRequest,
 } from "./subagent-rpc-protocol.ts";
 import {
   createSubagentRpcEndpoint,
@@ -18,6 +14,7 @@ import {
 } from "./subagent-rpc-endpoint.ts";
 
 export type {
+  ForkProbeSubagentRequest,
   LlmEditorCandidate,
   LlmEditorSubagentRequest,
 } from "./subagent-rpc-protocol.ts";
@@ -36,21 +33,17 @@ const WORKER_PATH = join(
   "subagent-worker.js",
 );
 
-export interface SubagentRpcRunOptions {
+export interface SubagentWorkerRunOptions {
   signal?: AbortSignal;
   stdout?: (chunk: Buffer) => void;
   stderr?: (chunk: Buffer) => void;
-  onCandidate?: (candidate: LlmEditorCandidate) => SubagentRpcCandidateDecision;
+  onMessage?: (message: unknown) => unknown;
 }
 
-export interface SubagentRpcRunResult {
+export interface SubagentWorkerRunResult {
   exitCode: number | null;
   error?: Error;
 }
-
-export type SubagentRpcCandidateDecision =
-  | { kind: "finish" }
-  | { kind: "continue"; prompt: string };
 
 interface ActiveRun {
   socket?: Socket;
@@ -97,10 +90,10 @@ function abortRun(run: ActiveRun): void {
   run.timer.unref?.();
 }
 
-function workerEnvironment(request: SubagentWorkerRequest, rpc: RpcState) {
+function workerEnvironment(request: SubagentWorkerRequest, endpoint: string) {
   const env: Record<string, string> = {
     ...request.env,
-    [CPI_SUBAGENT_RPC]: rpc.endpoint!,
+    [CPI_SUBAGENT_RPC]: endpoint,
     PI_SUBAGENT: "1",
   };
   if ("kind" in request && request.kind === "llm-editor") {
@@ -109,12 +102,23 @@ function workerEnvironment(request: SubagentWorkerRequest, rpc: RpcState) {
     if (request.outputMode === "tool-call")
       env.PI_SUBAGENT_COMPLETION = request.completionPath!;
   }
+  if ("kind" in request && request.kind === "fork-probe") {
+    env.CPI_FORK_PROBE = "1";
+    env.PI_SESSION_ID = request.parentSessionId;
+    env.PI_SESSION = request.parentSessionId.slice(0, 8);
+    env.PI_SESSION_DIR = request.sessionDir;
+    delete env.PI_SUBAGENT_COMPLETION;
+    delete env.PI_SUBAGENT_ROLE;
+    delete env.PI_SUBAGENT_CWD;
+    delete env.PI_SUBAGENT_SUMMARY;
+  }
   return env;
 }
 
 function startRun(
   request: SubagentWorkerRequest,
   rpc: RpcState,
+  endpoint: string,
   socket?: Socket,
 ): ActiveRun {
   if (rpc.active.size >= MAX_ACTIVE) {
@@ -122,7 +126,7 @@ function startRun(
   }
   const worker = new Worker(WORKER_PATH, {
     workerData: request,
-    env: workerEnvironment(request, rpc),
+    env: workerEnvironment(request, endpoint),
     stdout: true,
     stderr: true,
   });
@@ -152,7 +156,7 @@ function launch(
 ): void {
   let run: ActiveRun;
   try {
-    run = startRun(request, rpc, socket);
+    run = startRun(request, rpc, rpc.endpoint!, socket);
   } catch (error) {
     fail(
       socket,
@@ -233,20 +237,19 @@ function accept(socket: Socket, rpc: RpcState): void {
   socket.on("error", () => {});
 }
 
-export async function runSubagentRpc(
-  request: LlmEditorSubagentRequest,
-  options: SubagentRpcRunOptions = {},
-): Promise<SubagentRpcRunResult> {
-  if (!validLlmEditorSubagentRequest(request)) {
+export async function runSubagentWorker(
+  request: SubagentWorkerRequest,
+  options: SubagentWorkerRunOptions = {},
+): Promise<SubagentWorkerRunResult> {
+  if (!validSubagentWorkerRequest(request)) {
     return {
       exitCode: null,
-      error: new Error("invalid llm-editor subagent request"),
+      error: new Error("invalid subagent worker request"),
     };
   }
-  let rpc: RpcState;
+  let endpoint = getSubagentRpc();
   try {
-    await ensureSubagentRpc();
-    rpc = state();
+    endpoint ??= await ensureSubagentRpc();
   } catch (error) {
     return {
       exitCode: null,
@@ -256,11 +259,12 @@ export async function runSubagentRpc(
           : new Error("failed to start subagent RPC"),
     };
   }
+  const rpc = state();
   if (options.signal?.aborted) return { exitCode: null };
 
   let run: ActiveRun;
   try {
-    run = startRun(request, rpc);
+    run = startRun(request, rpc, endpoint);
   } catch (error) {
     return {
       exitCode: null,
@@ -273,8 +277,6 @@ export async function runSubagentRpc(
 
   let error: Error | undefined;
   let receivedDone = false;
-  let expectedTurn = 0;
-  let sentFinish = false;
   const fail = (value: unknown): void => {
     if (!error)
       error =
@@ -303,50 +305,38 @@ export async function runSubagentRpc(
     forward(options.stderr, chunk),
   );
   run.worker.on("message", (message) => {
-    if (message?.kind === "done" && Number.isInteger(message.exitCode)) {
+    if (message?.kind === "done") {
+      if (receivedDone) {
+        fail(
+          new Error("subagent worker sent multiple structured done messages"),
+        );
+        return;
+      }
+      if (!Number.isInteger(message.exitCode)) {
+        fail(new Error("unexpected subagent worker message"));
+        return;
+      }
       receivedDone = true;
       run.exitCode = message.exitCode;
       return;
     }
-    if (message?.kind !== "candidate") return;
-    if (
-      sentFinish ||
-      !validLlmEditorCandidate(message, request) ||
-      message.turn !== expectedTurn
-    ) {
-      fail(new Error("invalid llm-editor candidate message"));
+    if (!options.onMessage) {
+      fail(new Error("unexpected subagent worker message"));
       return;
     }
-    expectedTurn++;
-    if (options.signal?.aborted) {
-      abortRun(run);
-      return;
-    }
-    let decision: SubagentRpcCandidateDecision;
+    let response: unknown;
     try {
-      decision = options.onCandidate?.(message) ?? { kind: "finish" };
+      response = options.onMessage(message);
     } catch (value) {
       fail(value);
       return;
     }
-    if (decision.kind === "continue") {
-      if (
-        message.turn + 1 >= request.maxTurns ||
-        !validLlmEditorCorrectionPrompt(decision.prompt)
-      ) {
-        fail(new Error("invalid llm-editor correction decision"));
-        return;
+    if (response !== undefined) {
+      try {
+        run.worker.postMessage(response);
+      } catch (value) {
+        fail(value);
       }
-    } else if (decision.kind === "finish") {
-      sentFinish = true;
-    } else {
-      fail(new Error("invalid llm-editor correction decision"));
-      return;
-    }
-    try {
-      run.worker.postMessage(decision);
-    } catch (value) {
-      fail(value);
     }
   });
   run.worker.on("error", (value) => fail(value));

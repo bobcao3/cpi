@@ -153,7 +153,6 @@ async function runStatusProbe(request: ProbeRequest): Promise<void> {
     );
     const result = await runForkProbe(
       {
-        command: process.env.CPI_FORK_PI_BIN,
         parentSessionFile: request.parentSessionFile,
         cwd: request.ctx.cwd,
         signal: controller.signal,

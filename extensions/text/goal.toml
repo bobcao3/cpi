@@ -15,7 +15,7 @@ achieved = "Goal achieved ({{turns}} turns): {{objective}}"
 budget = "Goal paused — {{reason}} ({{turns}} turns). Use /goal resume to continue."
 
 [evaluate]
-# Sent to the FORK CHILD — a full copy of this session (via `pi --fork`) that may
+# Sent to the FORK CHILD — a full copy of this session (by the root-owned SDK Worker) that may
 # run read-only checks to verify. It is a VERIFIER: it must not modify files. Its
 # first non-empty line is matched by the parser: "YES" -> met; "NO" -> not met.
 prompt = """A user set this goal for the session above:

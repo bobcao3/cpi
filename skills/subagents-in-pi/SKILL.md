@@ -14,13 +14,17 @@ bounded request over a private local RPC endpoint to the root pi process. Root
 pi runs the SDK session in an isolated worker thread under its own Bun or Node
 interpreter, so agent nesting does not create nested pi processes. On POSIX, run
 it via the `sh` tool; if it outlives `waitfor` it backgrounds, and `sh` returns
-its PID + a logfile and fires a completion follow-up on exit. There is **no
-separate transcript file**: `pi` print-mode stdout is the clean final answer,
-while the helper streams the live markdown transcript to stderr (the `sh`
-background log) and prints the raw session `jsonl` path at start and end, with a
-run summary (time, turns, input/output tokens, cost) at the very end of stdout.
-Token + cost totals are recursive: they include every nested sub-agent, so a
-parent parsing one number gets the whole subtree (no double counting).
+its PID + a logfile and fires a completion follow-up on exit. This ordinary `sh`
+background job remains tracked by the client; there is **no detachment**. Its
+SDK Worker thread and RPC request are owned by root pi. The launcher refuses to
+run without that RPC endpoint; it never falls back to a standalone or nested
+agent process. The job ends if the client connection or root pi ends. There is
+**no separate transcript file**: `pi` print-mode stdout is the clean final
+answer, while the helper streams the live markdown transcript to stderr (the
+`sh` background log) and prints the raw session `jsonl` path at start and end,
+with a run summary (time, turns, input/output tokens, cost) at the very end of
+stdout. Token + cost totals are recursive: they include every nested sub-agent,
+so a parent parsing one number gets the whole subtree (no double counting).
 
 ## Launch / resume
 
@@ -49,7 +53,8 @@ stdout/stderr (`>`, `2>`, `2>&1`) or pipe it, especially to `tail`/`tail -f`.
 Those consumers can buffer or discard the live transcript and hide intermediate
 observability. Use `waitfor=1` to `waitfor=5`; if it backgrounds, leave it
 running and wait for the shell completion notification instead of reading or
-polling its log. </VERY_IMPORTANT>
+polling its log. This is tracked backgrounding, not detachment: **never** launch
+subagents with `sh_detach`, `setsid`, `nohup`, or `disown`. </VERY_IMPORTANT>
 
 - `-s <session-id>`: pick a slug to enable resume; **re-run with the same `-s`**
   to continue (pi restores prior context). Omit to auto-generate, then read the
@@ -104,7 +109,8 @@ NOT busy poll its status**, just wait for the shell completion notification.
 
 The `sh` result — inline if it finished within `waitfor`, else the background
 log `/tmp/pi-sh-output-<PID>.log` (`<PID>` = the id returned by `sh`, reused in
-the completion notification) — merges stdout + stderr:
+the completion notification) — merges stdout + stderr. This tracked background
+job only lives while its client connection and root pi remain alive:
 
 - **stderr, live during the run:** a `jsonl: <path>` line at the start, then the
   streaming markdown transcript (one block per message; tool calls render as

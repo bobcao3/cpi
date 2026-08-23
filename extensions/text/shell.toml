@@ -79,6 +79,7 @@ sh_signal = [
 sh_detach = [
   "After detach, the PID is gone from sh_background_ps and unreachable by sh_signal, no completion notification fires afterward, but the process will continue to run as if it's in nohup",
   "For a process you know that must outlive current session (such as a service or web server), you should invoke sh_detach after backgrounding to make it a detached daemon.",
+  "Never use sh_detach for the subagent launcher: detaching only its RPC client cannot detach the root-owned Worker thread, and root pi shutdown cancels the agent.",
   "Detaching a background shell is basically equivalent to runnint it in a nohup / tmux."
 ]
 sh_background_ps = [

@@ -47,6 +47,21 @@ export interface LlmEditorSubagentRequest {
   runId: string;
 }
 
+export interface ForkProbeSubagentRequest {
+  version: 1;
+  kind: "fork-probe";
+  parentSessionFile: string;
+  parentSessionId: string;
+  sessionDir: string;
+  prompt: string;
+  model?: string;
+  tools?: string;
+  appendSystemPrompt?: string;
+  cwd: string;
+  env: Record<string, string>;
+  runId: string;
+}
+
 export interface LlmEditorCompletion {
   tool: "view-complete" | "edit-complete";
   args: Record<string, unknown>;
@@ -62,7 +77,8 @@ export interface LlmEditorCandidate {
 
 export type SubagentWorkerRequest =
   | CliSubagentRequest
-  | LlmEditorSubagentRequest;
+  | LlmEditorSubagentRequest
+  | ForkProbeSubagentRequest;
 
 function validCommonRequest(request: Record<string, unknown>): boolean {
   if (
@@ -116,6 +132,49 @@ export function validCliSubagentRequest(
   );
 }
 
+export function validForkProbeSubagentRequest(
+  value: unknown,
+): value is ForkProbeSubagentRequest {
+  if (!value || typeof value !== "object") return false;
+  const request = value as Record<string, unknown>;
+  return (
+    request.version === 1 &&
+    request.kind === "fork-probe" &&
+    typeof request.parentSessionFile === "string" &&
+    isAbsolute(request.parentSessionFile) &&
+    Buffer.byteLength(request.parentSessionFile) <= 4096 &&
+    !request.parentSessionFile.includes("\0") &&
+    typeof request.parentSessionId === "string" &&
+    /^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$/.test(
+      request.parentSessionId,
+    ) &&
+    Buffer.byteLength(request.parentSessionId) <= 128 &&
+    typeof request.sessionDir === "string" &&
+    isAbsolute(request.sessionDir) &&
+    Buffer.byteLength(request.sessionDir) <= 4096 &&
+    !request.sessionDir.includes("\0") &&
+    typeof request.prompt === "string" &&
+    request.prompt.length > 0 &&
+    Buffer.byteLength(request.prompt) <= 256 * 1024 &&
+    !request.prompt.includes("\0") &&
+    (request.model === undefined ||
+      (typeof request.model === "string" &&
+        request.model.length > 0 &&
+        Buffer.byteLength(request.model) <= 1024 &&
+        !request.model.includes("\0"))) &&
+    (request.tools === undefined ||
+      (typeof request.tools === "string" &&
+        request.tools.length > 0 &&
+        Buffer.byteLength(request.tools) <= 4096 &&
+        !request.tools.includes("\0"))) &&
+    (request.appendSystemPrompt === undefined ||
+      (typeof request.appendSystemPrompt === "string" &&
+        Buffer.byteLength(request.appendSystemPrompt) <= 256 * 1024 &&
+        !request.appendSystemPrompt.includes("\0"))) &&
+    validCommonRequest(request)
+  );
+}
+
 export function validLlmEditorSubagentRequest(
   value: unknown,
 ): value is LlmEditorSubagentRequest {
@@ -161,6 +220,16 @@ export function validLlmEditorSubagentRequest(
     isAbsolute(request.completionPath) &&
     Buffer.byteLength(request.completionPath) <= 4096 &&
     !request.completionPath.includes("\0")
+  );
+}
+
+export function validSubagentWorkerRequest(
+  value: unknown,
+): value is SubagentWorkerRequest {
+  return (
+    validCliSubagentRequest(value) ||
+    validForkProbeSubagentRequest(value) ||
+    validLlmEditorSubagentRequest(value)
   );
 }
 

@@ -6,7 +6,7 @@
 #   {{answer}}        (append.abort only) the fork child's final answer text
 
 [probe]
-# Sent to the FORK CHILD — a full copy of this session (via `pi --fork`) that can
+# Sent to the FORK CHILD — a full copy of this session (by the root-owned SDK Worker) that can
 # run tools to investigate. Its last-line answer is matched by decide():
 # contains "ABORT" -> append to the original session; anything else (incl. WAIT)
 # -> leave the original untouched.
