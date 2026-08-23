@@ -107,7 +107,9 @@ Per file, the orchestrator:
    still work for one-off entries like the defender and adjudicator.
 4. Launches it backgrounded via the sh tool:
    `python3 run_phase.py manifest.json results/`, then collects on the
-   completion notification.
+   completion notification. Backgrounding is sh-tracked only: never use
+   `sh_detach`, `setsid`, `nohup`, or `disown`; the phase remains bounded by
+   root pi's lifetime.
 
 Progress is tracked by the workspace itself — the manifests and results dirs are
 the ledger. List them to see each phase's status; no separate state file.

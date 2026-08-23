@@ -1,4 +1,5 @@
 import { parentPort, workerData } from "node:worker_threads";
+import { runForkProbeSubagent } from "./fork-probe-runner.js";
 import { runLlmEditorSubagent } from "./llm-editor-runner.js";
 import { runSubagent } from "./subagent-runner.js";
 
@@ -33,7 +34,7 @@ parentPort.on("message", (message) => {
     settleDecision({ kind: "finish" });
     return;
   }
-  if (workerData.kind !== "llm-editor" || !pendingDecision) return;
+  if (workerData?.kind !== "llm-editor" || !pendingDecision) return;
   if (message?.kind === "finish") {
     settleDecision(message);
     return;
@@ -55,14 +56,22 @@ parentPort.on("message", (message) => {
 
 let exitCode = 1;
 try {
-  exitCode =
-    workerData.kind === "llm-editor"
-      ? await runLlmEditorSubagent(
-          workerData,
-          abortController.signal,
-          exchangeCandidate,
-        )
-      : await runSubagent(workerData, abortController.signal);
+  if (!workerData || typeof workerData !== "object") {
+    throw new Error("unsupported subagent worker request");
+  }
+  if (workerData.kind === "llm-editor") {
+    exitCode = await runLlmEditorSubagent(
+      workerData,
+      abortController.signal,
+      exchangeCandidate,
+    );
+  } else if (workerData.kind === "fork-probe") {
+    exitCode = await runForkProbeSubagent(workerData, abortController.signal);
+  } else if (workerData.kind === undefined) {
+    exitCode = await runSubagent(workerData, abortController.signal);
+  } else {
+    throw new Error("unsupported subagent worker request");
+  }
 } catch (error) {
   process.stderr.write(
     `${error instanceof Error ? error.message : String(error)}\n`,

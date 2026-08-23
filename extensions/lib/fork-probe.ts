@@ -1,12 +1,12 @@
 /**
- * Children run `pi --fork <session> -p` with a prompt from stdin.
- * They copy the conversation into isolated temporary sessions.
- * Each child inherits its parent provider prompt-cache identity.
+ * A root-owned SDK Worker uses `SessionManager.forkFrom` with a prompt.
+ * It copies the conversation into an isolated temporary session.
+ * The worker inherits its parent provider prompt-cache identity.
  * Only a non-null `decide` result lets `onSignal` mutate the
  * parent; null/failure leaves it untouched.
  */
 
-import { spawn, type ChildProcess } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import {
   closeSync,
   existsSync,
@@ -19,22 +19,21 @@ import {
 import os from "node:os";
 import path from "node:path";
 import { getCwd } from "./cwd.ts";
-import { resolvePiInvocation } from "./pi-invocation.ts";
+import {
+  runSubagentWorker,
+  type ForkProbeSubagentRequest,
+} from "./subagent-rpc.ts";
 
 const DEFAULT_TIMEOUT_MS = 5 * 60 * 1000; // 5 min
 const MAX_TIMEOUT_MS = 30 * 60 * 1000; // 30 min
-const KILL_GRACE_MS = 5000;
 const MAX_STDOUT_BYTES = 1 * 1024 * 1024; // 1 MiB
 const MAX_STDERR_BYTES = 256 * 1024; // 256 KiB
 const MAX_PROMPT_BYTES = 256 * 1024; // 256 KiB
 const MAX_SESSION_HEADER_BYTES = 16 * 1024; // 16 KiB
-/** Marks a process as a fork-probe child; consumers read it to disable self-recursive probing. */
-const FORK_PROBE_ENV = "CPI_FORK_PROBE";
 
 export interface ForkSpawnOptions {
-  /** Absolute parent session JSONL (ctx.sessionManager.getSessionFile()); `--fork` copies it in full. */
+  /** Absolute parent session JSONL (ctx.sessionManager.getSessionFile()); `SessionManager.forkFrom` copies it in full. */
   parentSessionFile: string;
-  command?: string;
   cwd?: string;
   model?: string;
   tools?: string;
@@ -86,6 +85,30 @@ function realpathSafe(p: string): string {
   } catch {
     return p;
   }
+}
+
+function boundedOutput(limit: number) {
+  const buffer = Buffer.allocUnsafe(limit);
+  let length = 0;
+  return {
+    write(chunk: Buffer): void {
+      const toCopy = Math.min(limit - length, chunk.length);
+      if (toCopy <= 0) return;
+      chunk.copy(buffer, length, 0, toCopy);
+      length += toCopy;
+    },
+    text(): string {
+      return buffer.subarray(0, length).toString("utf8");
+    },
+  };
+}
+
+function inheritedEnvironment(): Record<string, string> {
+  const env: Record<string, string> = {};
+  for (const [key, value] of Object.entries(process.env)) {
+    if (typeof value === "string") env[key] = value;
+  }
+  return env;
 }
 
 function readParentSessionId(parentFile: string): string {
@@ -162,10 +185,15 @@ export async function runForkProbe(
   );
   const parentSessionId = readParentSessionId(parentFile);
   assertc(typeof prompt === "string", "prompt must be a string");
+  assertc(prompt.length > 0, "prompt required");
   const promptBytes = Buffer.byteLength(prompt, "utf8");
   assertc(
     promptBytes <= MAX_PROMPT_BYTES,
     `prompt too large: ${promptBytes} > ${MAX_PROMPT_BYTES}`,
+  );
+  assertc(
+    Buffer.byteLength(parentSessionId, "utf8") <= 128,
+    "parent session id too large",
   );
   const timeoutMs = clamp(
     opts.timeoutMs ?? DEFAULT_TIMEOUT_MS,
@@ -174,21 +202,7 @@ export async function runForkProbe(
   );
   const ephemeral = opts.ephemeral !== false;
 
-  const args: string[] = [
-    "--fork",
-    parentFile,
-    "--session-id",
-    parentSessionId,
-    "-p",
-  ];
-  if (opts.model) args.push("--model", opts.model);
-  if (opts.tools) args.push("--tools", opts.tools);
-  if (opts.appendSystemPrompt)
-    args.push("--append-system-prompt", opts.appendSystemPrompt);
-
   const tmpSessionDir = mkdtempSync(path.join(os.tmpdir(), "pi-fork-"));
-  args.push("--session-dir", tmpSessionDir);
-
   const cleanup = (): void => {
     if (!ephemeral) return;
     try {
@@ -196,127 +210,99 @@ export async function runForkProbe(
     } catch {}
   };
 
-  const invocation = resolvePiInvocation(args, opts.command);
-
-  return new Promise<ForkProbeResult>((resolve) => {
-    let proc: ChildProcess | undefined;
-    try {
-      proc = spawn(invocation.command, invocation.args, {
-        cwd: opts.cwd ?? getCwd(),
-        shell: false,
-        stdio: ["pipe", "pipe", "pipe"],
-        env: { ...process.env, [FORK_PROBE_ENV]: "1" },
-        windowsHide: true,
-      });
-    } catch (err) {
-      cleanup();
-      resolve({
-        ok: false,
-        answer: "",
-        exitCode: null,
-        stderr: "",
-        errorMessage: `spawn failed: ${errmsg(err)}`,
-      });
-      return;
+  const request: ForkProbeSubagentRequest = {
+    version: 1,
+    kind: "fork-probe",
+    parentSessionFile: parentFile,
+    parentSessionId,
+    sessionDir: tmpSessionDir,
+    prompt,
+    cwd: opts.cwd ?? getCwd(),
+    env: inheritedEnvironment(),
+    runId: randomUUID(),
+    ...(opts.model ? { model: opts.model } : {}),
+    ...(opts.tools ? { tools: opts.tools } : {}),
+    ...(opts.appendSystemPrompt
+      ? { appendSystemPrompt: opts.appendSystemPrompt }
+      : {}),
+  };
+  const stdout = boundedOutput(MAX_STDOUT_BYTES);
+  const stderr = boundedOutput(MAX_STDERR_BYTES);
+  const controller = new AbortController();
+  let timedOut = false;
+  let callerAborted = false;
+  const timeout = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, timeoutMs);
+  const abortFromCaller = (): void => {
+    callerAborted = true;
+    controller.abort();
+  };
+  let callerListenerAdded = false;
+  if (opts.signal) {
+    if (opts.signal.aborted) {
+      abortFromCaller();
+    } else {
+      opts.signal.addEventListener("abort", abortFromCaller, { once: true });
+      callerListenerAdded = true;
     }
+  }
 
-    let stdoutText = "";
-    let stderrText = "";
-    let settled = false;
-    const timers: NodeJS.Timeout[] = [];
-    const armTimer = (fn: () => void, ms: number): NodeJS.Timeout => {
-      const t = setTimeout(fn, ms);
-      timers.push(t);
-      return t;
+  let result: Awaited<ReturnType<typeof runSubagentWorker>> | undefined;
+  let workerError: unknown;
+  try {
+    result = await runSubagentWorker(request, {
+      signal: controller.signal,
+      stdout: stdout.write,
+      stderr: stderr.write,
+    });
+  } catch (error) {
+    workerError = error;
+  } finally {
+    clearTimeout(timeout);
+    if (callerListenerAdded)
+      opts.signal?.removeEventListener("abort", abortFromCaller);
+    cleanup();
+  }
+
+  const answer = stdout.text().trim();
+  const stderrText = stderr.text().trim();
+  if (workerError !== undefined) {
+    return {
+      ok: false,
+      answer,
+      exitCode: null,
+      stderr: stderrText,
+      errorMessage: `worker failed: ${errmsg(workerError)}`,
     };
-    const finish = (result: ForkProbeResult): void => {
-      if (settled) return;
-      settled = true;
-      for (const t of timers) clearTimeout(t);
-      cleanup();
-      resolve(result);
-    };
-    const killChild = (sig: NodeJS.Signals): void => {
-      try {
-        proc?.kill(sig);
-      } catch {}
-    };
+  }
 
-    proc.stdout.on("data", (data: Buffer) => {
-      const room = MAX_STDOUT_BYTES - Buffer.byteLength(stdoutText, "utf8");
-      if (room <= 0) return;
-      stdoutText += data.toString("utf8").slice(0, room);
-    });
-    proc.stderr.on("data", (data: Buffer) => {
-      const room = MAX_STDERR_BYTES - Buffer.byteLength(stderrText, "utf8");
-      if (room <= 0) return;
-      stderrText += data.toString("utf8").slice(0, room);
-    });
-    proc.on("close", (code) => {
-      const answer = stdoutText.trim();
-      const ok = code === 0 && answer.length > 0;
-      finish({
-        ok,
-        answer,
-        exitCode: code,
-        stderr: stderrText.trim(),
-        errorMessage: ok
-          ? undefined
-          : stderrText.trim() || `fork probe exited ${code}`,
-      });
-    });
-    proc.on("error", (err) => {
-      finish({
-        ok: false,
-        answer: "",
-        exitCode: null,
-        stderr: stderrText.trim(),
-        errorMessage: `spawn error: ${errmsg(err)}`,
-      });
-    });
-
-    // Prompt via stdin (readPipedStdin): no ARG_MAX, no shell escaping.
-    try {
-      proc.stdin?.end(prompt, "utf8");
-    } catch (err) {
-      killChild("SIGTERM");
-      armTimer(() => killChild("SIGKILL"), KILL_GRACE_MS);
-      // Let close fire with whatever was produced; surface the write failure.
-      armTimer(
-        () =>
-          finish({
-            ok: false,
-            answer: "",
-            exitCode: null,
-            stderr: stderrText.trim(),
-            errorMessage: `stdin write failed: ${errmsg(err)}`,
-          }),
-        KILL_GRACE_MS + 100,
-      );
-      return;
-    }
-
-    armTimer(() => {
-      killChild("SIGTERM");
-      armTimer(() => killChild("SIGKILL"), KILL_GRACE_MS);
-    }, timeoutMs);
-
-    if (opts.signal) {
-      if (opts.signal.aborted) {
-        killChild("SIGTERM");
-        armTimer(() => killChild("SIGKILL"), KILL_GRACE_MS);
-      } else {
-        opts.signal.addEventListener(
-          "abort",
-          () => {
-            killChild("SIGTERM");
-            armTimer(() => killChild("SIGKILL"), KILL_GRACE_MS);
-          },
-          { once: true },
-        );
-      }
-    }
-  });
+  const exitCode = result!.exitCode;
+  const transportError = result!.error;
+  const ok =
+    !controller.signal.aborted &&
+    !transportError &&
+    exitCode === 0 &&
+    answer.length > 0;
+  return {
+    ok,
+    answer,
+    exitCode,
+    stderr: stderrText,
+    errorMessage: ok
+      ? undefined
+      : timedOut
+        ? `fork probe timed out after ${timeoutMs}ms`
+        : callerAborted
+          ? "fork probe aborted"
+          : transportError
+            ? transportError.message
+            : stderrText ||
+              (exitCode === 0 && !answer
+                ? "fork probe returned no answer"
+                : `fork probe exited ${exitCode}`),
+  };
 }
 
 export async function forkGate<TSignal>(

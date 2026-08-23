@@ -141,7 +141,6 @@ export async function maybeAntiStuckProbe(
   let outcome: ForkGateOutcome<"ABORT">;
   try {
     outcome = await forkGate<"ABORT">({
-      command: process.env.CPI_FORK_PI_BIN,
       parentSessionFile: parentFile,
       cwd: ctx.cwd,
       signal: probeController.signal,

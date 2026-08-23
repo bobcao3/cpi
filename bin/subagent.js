@@ -147,12 +147,9 @@ async function run() {
   process.once("SIGTERM", stop);
   try {
     const endpoint = process.env.CPI_SUBAGENT_RPC;
-    const exitCode =
-      typeof endpoint === "string" && endpoint.length > 0
-        ? await runRpc(endpoint, request, controller.signal)
-        : await (
-            await import("./subagent-runner.js")
-          ).runSubagent(request, controller.signal);
+    if (typeof endpoint !== "string" || endpoint.length === 0)
+      throw new Error("launch subagent through root pi's sh tool");
+    const exitCode = await runRpc(endpoint, request, controller.signal);
     if (Number.isInteger(exitCode)) process.exitCode = exitCode;
   } finally {
     process.off("SIGINT", stop);

@@ -14,10 +14,14 @@ import { STREAM_UPDATE_MS } from "./render.ts";
 import { loadEditorText, fmt, type EditorText } from "./text.ts";
 import { parseSummaryUsage, type Usage } from "../lib/cost-ledger.ts";
 import {
-  runSubagentRpc,
+  runSubagentWorker,
   type LlmEditorCandidate,
   type LlmEditorSubagentRequest,
 } from "../lib/subagent-rpc.ts";
+import {
+  validLlmEditorCandidate,
+  validLlmEditorCorrectionPrompt,
+} from "../lib/subagent-rpc-protocol.ts";
 
 export interface SubagentOptions {
   role: "viewer" | "editor";
@@ -132,6 +136,8 @@ export async function runSubagent(
   const turns: RecordedTurn[] = [];
   let lastCandidate: SubagentCandidate | undefined;
   let lastStreamUpd = 0;
+  let expectedTurn = 0;
+  let sentFinish = false;
   const controller = new AbortController();
   let timedOut = false;
   const timer =
@@ -148,7 +154,7 @@ export async function runSubagent(
     if (opts.signal.aborted) controller.abort();
     else opts.signal.addEventListener("abort", onAbort, { once: true });
   }
-  const result = await runSubagentRpc(request, {
+  const result = await runSubagentWorker(request, {
     signal: controller.signal,
     stderr(chunk) {
       stderr += chunk.toString("utf8");
@@ -158,13 +164,34 @@ export async function runSubagent(
         opts.onStream?.(stderr);
       }
     },
-    onCandidate(candidate) {
+    onMessage(message) {
+      if (
+        sentFinish ||
+        !validLlmEditorCandidate(message, request) ||
+        message.turn !== expectedTurn
+      ) {
+        throw new Error("invalid llm-editor candidate");
+      }
+      expectedTurn++;
+      if (controller.signal.aborted) {
+        sentFinish = true;
+        return { kind: "finish" };
+      }
+      const candidate = message;
       lastCandidate = candidate;
       const correction = opts.onCandidate?.(candidate);
       turns.push({ candidate, correction });
-      return correction === undefined
-        ? { kind: "finish" }
-        : { kind: "continue", prompt: correction };
+      if (correction === undefined) {
+        sentFinish = true;
+        return { kind: "finish" };
+      }
+      if (
+        expectedTurn >= request.maxTurns ||
+        !validLlmEditorCorrectionPrompt(correction)
+      ) {
+        throw new Error("invalid llm-editor correction decision");
+      }
+      return { kind: "continue", prompt: correction };
     },
   });
   if (timer) clearTimeout(timer);
