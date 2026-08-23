@@ -7,7 +7,7 @@ import {
   generateUnifiedPatch,
 } from "@earendil-works/pi-coding-agent";
 import { loadEditorConfig, type EditorMode } from "../lib/config.ts";
-import { runSubagent } from "./subagent.ts";
+import { runSubagent, type SubagentCandidate } from "./subagent.ts";
 import { loadEditorText, fmt, type EditorText } from "./text.ts";
 import { parseUdiffs, type UdiffParseError } from "./udiff.ts";
 import {
@@ -34,6 +34,8 @@ export interface EditFileOptions {
   cwd: string;
   signal?: AbortSignal;
   timeoutMs: number;
+  /** Bounded validation-feedback turns. */
+  maxCorrectionTurns?: number;
   transcriptDir: string;
   maxTranscripts: number;
   maxFileBytes: number;
@@ -116,6 +118,7 @@ export async function editFile(
   opts: EditFileOptions,
 ): Promise<EditFileResult> {
   const T = loadEditorText(opts.cwd);
+  const editorConfig = loadEditorConfig(opts.cwd);
   const abs = resolve(opts.cwd, path);
   return withPathLock(abs, async () => {
     let content: string;
@@ -145,8 +148,9 @@ export async function editFile(
 
     let usage: { input: number; output: number } | undefined;
     const numbered = numberLines(content);
-    const direct =
-      (opts.mode ?? loadEditorConfig(opts.cwd).mode) === "direct-diff";
+    const direct = (opts.mode ?? editorConfig.mode) === "direct-diff";
+    const maxCorrectionTurns =
+      opts.maxCorrectionTurns ?? editorConfig.maxCorrectionTurns;
     const directMarkers = opts.directMarkers ?? "patch";
     const envelopeMarkers = directDiffEnvelope(directMarkers);
     const baseSystem =
@@ -155,61 +159,11 @@ export async function editFile(
         : T.system.editor) +
       (opts.fuzzyMatch === false ? "" : T.system.editor_fuzzy);
 
-    const attempt = async (failure?: string): Promise<Attempt> => {
-      const res = await runSubagent({
-        role: "editor",
-        systemPrompt: failure
-          ? baseSystem +
-            (direct
-              ? fmt(T.system.editor_direct_retry, envelopeMarkers)
-              : T.system.editor_rewrite)
-          : baseSystem,
-        task: failure
-          ? fmt(direct ? T.tasks.editor_direct_retry : T.tasks.editor_retry, {
-              content: numbered,
-              instruction: opts.instruction,
-              failure,
-              ...envelopeMarkers,
-            })
-          : fmt(direct ? T.tasks.editor_direct : T.tasks.editor, {
-              content: numbered,
-              instruction: opts.instruction,
-              ...envelopeMarkers,
-            }),
-        provider: opts.provider,
-        modelId: opts.modelId,
-        cwd: opts.cwd,
-        signal: opts.signal,
-        timeoutMs: opts.timeoutMs,
-        transcriptDir: opts.transcriptDir,
-        id: failure ? `${opts.id}-retry` : opts.id,
-        maxTranscripts: opts.maxTranscripts,
-        onStream: opts.onStream,
-        thinkingLevel: opts.thinkingLevel,
-        outputMode: direct ? "text" : "tool-call",
-        maxOutputBytes: MAX_DIRECT_OUTPUT_BYTES,
-      });
-
-      if (res.spawnError)
-        return {
-          ok: "fatal",
-          error: fmt(T.errors.spawn_not_found, { reason: res.spawnError }),
-        };
-      if (res.timedOut)
-        return {
-          ok: "fatal",
-          error: fmt(T.errors.editor_timeout, { ms: opts.timeoutMs }),
-        };
-      if (res.usage)
-        usage = {
-          input: (usage?.input ?? 0) + res.usage.input,
-          output: (usage?.output ?? 0) + res.usage.output,
-        };
-
+    const validateCandidate = (candidate: SubagentCandidate): Attempt => {
       if (direct) {
-        if (res.outputOverflow)
+        if (candidate.outputOverflow)
           return { ok: "retryable", error: T.errors.direct_output_overflow };
-        const envelope = parseDirectDiff(res.text, directMarkers);
+        const envelope = parseDirectDiff(candidate.text, directMarkers);
         if (envelope.ok === false)
           return {
             ok: "retryable",
@@ -225,12 +179,14 @@ export async function editFile(
         });
         if (result.ok === false)
           return { ok: "retryable", error: formatApplyError(T, result.error) };
+        if (result.content === content)
+          return { ok: "retryable", error: T.errors.no_change };
         return { ok: "applied", result };
       }
 
-      const c = res.completion;
+      const c = candidate.completion;
       if (!c || c.tool !== "edit-complete")
-        return { ok: "fatal", error: T.errors.editor_truncated };
+        return { ok: "retryable", error: T.errors.editor_truncated };
       if (c.args.cancel === true)
         return { ok: "fatal", error: T.errors.editor_cancelled };
 
@@ -239,6 +195,8 @@ export async function editFile(
       if (rewrite !== undefined) {
         if (rewrite.trim() === "" && content.trim() !== "")
           return { ok: "retryable", error: T.errors.rewrite_empty };
+        if (rewrite === content)
+          return { ok: "retryable", error: T.errors.no_change };
         return {
           ok: "applied",
           result: {
@@ -258,17 +216,84 @@ export async function editFile(
       });
       if (result.ok === false)
         return { ok: "retryable", error: formatApplyError(T, result.error) };
+      if (result.content === content)
+        return { ok: "retryable", error: T.errors.no_change };
       return { ok: "applied", result };
     };
 
-    let outcome = await attempt();
-    if (outcome.ok === "retryable") outcome = await attempt(outcome.error);
+    let outcome: Attempt | undefined;
+    let correctionsSent = 0;
+    const res = await runSubagent({
+      role: "editor",
+      systemPrompt: baseSystem,
+      task: fmt(direct ? T.tasks.editor_direct : T.tasks.editor, {
+        content: numbered,
+        instruction: opts.instruction,
+        ...envelopeMarkers,
+      }),
+      provider: opts.provider,
+      modelId: opts.modelId,
+      cwd: opts.cwd,
+      signal: opts.signal,
+      timeoutMs: opts.timeoutMs,
+      transcriptDir: opts.transcriptDir,
+      id: opts.id,
+      maxTranscripts: opts.maxTranscripts,
+      onStream: opts.onStream,
+      thinkingLevel: opts.thinkingLevel,
+      outputMode: direct ? "text" : "tool-call",
+      maxOutputBytes: MAX_DIRECT_OUTPUT_BYTES,
+      maxCorrectionTurns,
+      onCandidate: (candidate) => {
+        outcome = validateCandidate(candidate);
+        if (
+          outcome.ok === "retryable" &&
+          correctionsSent < maxCorrectionTurns
+        ) {
+          correctionsSent++;
+          return fmt(
+            direct
+              ? T.tasks.editor_direct_correction
+              : T.tasks.editor_correction,
+            { failure: outcome.error, ...envelopeMarkers },
+          );
+        }
+        return undefined;
+      },
+    });
+    usage = res.usage;
+    if (res.timedOut)
+      return {
+        ok: false,
+        error: fmt(T.errors.editor_timeout, { ms: opts.timeoutMs }),
+        usage,
+      };
+    if (res.aborted) return { ok: false, error: T.errors.aborted, usage };
+    if (res.spawnError)
+      return {
+        ok: false,
+        error: fmt(T.errors.subagent_start_failed, { reason: res.spawnError }),
+        usage,
+      };
+    if (!outcome) return { ok: false, error: T.errors.editor_truncated, usage };
+    if (correctionsSent >= res.turns)
+      return { ok: false, error: T.errors.editor_truncated, usage };
+    if (
+      outcome.ok === "retryable" &&
+      maxCorrectionTurns > 0 &&
+      correctionsSent === maxCorrectionTurns
+    )
+      return {
+        ok: false,
+        error: fmt(T.errors.editor_corrections_exhausted, {
+          turns: maxCorrectionTurns,
+          failure: outcome.error,
+        }),
+        usage,
+      };
     if (outcome.ok !== "applied")
       return { ok: false, error: outcome.error, usage };
     const applied = outcome.result;
-    if (applied.content === content) {
-      return { ok: false, error: T.errors.no_change, usage };
-    }
 
     const tmp = join(
       dirname(abs),
@@ -276,6 +301,10 @@ export async function editFile(
     );
     try {
       await writeFile(tmp, applied.content, "utf-8");
+      if (opts.signal?.aborted) {
+        await unlink(tmp).catch(() => {});
+        return { ok: false, error: T.errors.aborted, usage };
+      }
       await rename(tmp, abs);
     } catch (err) {
       await unlink(tmp).catch(() => {});

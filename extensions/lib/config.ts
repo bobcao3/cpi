@@ -41,6 +41,8 @@ export interface EditorConfig {
   provider?: string;
   maxFileBytes?: number;
   subagentTimeoutMs?: number;
+  /** Bounded number of validation-feedback turns after the initial response. */
+  maxCorrectionTurns?: number;
   transcriptDir?: string;
   maxTranscripts?: number;
   /** Whitespace/elision fallback (trailing whitespace, uniform indentation, `...` elision) when anchored exact matching misses. Default true. */
@@ -55,6 +57,7 @@ export interface ResolvedEditorConfig {
   provider?: string;
   maxFileBytes: number;
   subagentTimeoutMs: number;
+  maxCorrectionTurns: number;
   transcriptDir: string;
   maxTranscripts: number;
   fuzzyMatch: boolean;
@@ -261,6 +264,12 @@ export function loadEditorConfig(cwd: string = getCwd()): ResolvedEditorConfig {
       Number.isFinite(subagentTimeoutMs) && subagentTimeoutMs > 0
         ? subagentTimeoutMs
         : 120000,
+    maxCorrectionTurns: intInRange(
+      e.maxCorrectionTurns,
+      intInRange(d.maxCorrectionTurns, 2, 0, 8),
+      0,
+      8,
+    ),
     transcriptDir: typeof e.transcriptDir === "string" ? e.transcriptDir : "",
     maxTranscripts:
       Number.isFinite(maxTranscripts) && maxTranscripts > 0

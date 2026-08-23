@@ -361,6 +361,7 @@ async function executeEdit(
     cwd: getCwd(),
     signal,
     timeoutMs: cfg.subagentTimeoutMs,
+    maxCorrectionTurns: cfg.maxCorrectionTurns,
     transcriptDir: resolveTranscriptDir(cfg.transcriptDir, getCwd()),
     maxTranscripts: cfg.maxTranscripts,
     maxFileBytes: cfg.maxFileBytes,

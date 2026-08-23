@@ -121,15 +121,16 @@ export async function viewFile(
     thinkingLevel: opts.thinkingLevel,
   });
 
-  if (res.spawnError)
-    return {
-      text: "",
-      error: fmt(T.errors.spawn_not_found, { reason: res.spawnError }),
-    };
   if (res.timedOut)
     return {
       text: "",
       error: fmt(T.errors.viewer_timeout, { ms: opts.timeoutMs }),
+    };
+  if (res.aborted) return { text: "", error: T.errors.aborted };
+  if (res.spawnError)
+    return {
+      text: "",
+      error: fmt(T.errors.subagent_start_failed, { reason: res.spawnError }),
     };
   // The view-complete tool call IS the signal: missing/wrong tool => truncation.
   const c = res.completion;
