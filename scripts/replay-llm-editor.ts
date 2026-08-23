@@ -56,11 +56,19 @@ const hash = (text: string): string =>
 
 function parseTranscript(file: string, body: string): ReplayCase | null {
   const userTag = "## User\n\n";
-  const completionTag = "\n\n## Completion\n";
+  const oldCompletionTag = "\n\n## Completion\n";
+  const newCompletionTag = "\n\n## Completion 1\n";
   const userStart = body.indexOf(userTag);
   if (userStart < 0 || !body.startsWith("# editor editor subagent"))
     return null;
-  const userEnd = body.indexOf(completionTag, userStart + userTag.length);
+  const oldUserEnd = body.indexOf(oldCompletionTag, userStart + userTag.length);
+  const newUserEnd = body.indexOf(newCompletionTag, userStart + userTag.length);
+  const userEnd =
+    oldUserEnd < 0
+      ? newUserEnd
+      : newUserEnd < 0
+        ? oldUserEnd
+        : Math.min(oldUserEnd, newUserEnd);
   if (userEnd < 0) return null;
   const user = body.slice(userStart + userTag.length, userEnd);
   const contentStart = user.indexOf("\n\n");

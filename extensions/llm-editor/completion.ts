@@ -29,7 +29,7 @@ function coerceArrayField(args: Record<string, unknown>, key: string): void {
 
 export default function (pi: ExtensionAPI): void {
   if (!process.env.PI_SUBAGENT) return;
-  const T = loadEditorText();
+  const T = loadEditorText(process.env.PI_SUBAGENT_CWD);
   const role = process.env.PI_SUBAGENT_ROLE;
 
   if (!role || role === "viewer") {

@@ -17,7 +17,7 @@ import { getSubagentUsage, formatCost } from "../lib/cost-ledger.ts";
 
 const SUMMARY_PATH = process.env.PI_SUBAGENT_SUMMARY;
 
-// Print mode is single-shot, so plain module-level state suffices.
+// Each isolated worker owns one session, so module-level state suffices.
 let active = false;
 let sessionFile = "(unknown)";
 let startTimeMs = 0;
@@ -109,8 +109,8 @@ export default async function (pi: ExtensionAPI) {
     stderr(`jsonl: ${sessionFile}\n`);
   });
 
-  pi.on("turn_end", async (event) => {
-    if (active) turns = event.turnIndex + 1;
+  pi.on("turn_end", async (_event) => {
+    if (active) turns += 1;
   });
 
   pi.on("message_start", async (event) => {

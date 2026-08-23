@@ -1,9 +1,9 @@
 # All textual content for the editor tool and its tool-less subagents.
 # Layered, last-wins (project > user > shipped default), matching cpi's config
 # convention:
-#   extensions/llm-editor/text.toml             (shipped defaults)
-#   ~/.pi/agent/cpi-editor-text.toml            (user, all projects)
-#   <cwd>/.pi/cpi-editor-text.toml              (project, overrides user)
+#   extensions/text/llm-editor.toml             (shipped defaults)
+#   ~/.pi/agent/llm-editor.toml                 (user, all projects)
+#   <cwd>/.pi/llm-editor.toml                   (project, overrides user)
 #
 # Format is TOML, parsed by `smol-toml` (0 deps, BSD-3). Multi-line literal
 # strings ('''...''') preserve the exact text the model sees (no escape
@@ -197,34 +197,6 @@ Hunk body:
 ---
 '''
 
-editor_direct_retry = '''
-Your previous direct diff failed to apply. Return a corrected unified diff in
-the same `{{open}}` / `{{close}}` envelope. Re-read the unchanged numbered file
-and use the failure message to correct the hunk.
-'''
-
-editor_rewrite = '''
-
-THIS ATTEMPT MUST USE THE REWRITE MODE.
-
-Your previous patch was rejected, so the diff path has already been tried and
-failed. Do not send `diffs` again. Call `edit-complete` with `content` holding
-the complete new file, first line to last. Nothing is matched against the
-original in this mode, so whatever the earlier hunk could not
-express — a re-wrap, a re-indent, a line you could not reproduce character-for-
-character — is no longer an obstacle.
-
-Apply the requested change, and keep the rest of the file semantically
-identical: no content added, removed, or reworded beyond what was asked.
-Formatting is yours to manage. Re-wrapping a neighbouring paragraph or
-re-indenting a nearby block to keep the file's own conventions consistent is
-expected and welcome — that judgement is why this work goes to a model rather
-than a patch program.
-
-Include the entire file; content is written verbatim, so anything you leave out
-is lost.
-'''
-
 editor_fuzzy = '''
 The applier can relocate a uniquely matching hunk and tolerate small whitespace
 drift; source rows should otherwise follow the file.
@@ -236,12 +208,15 @@ viewer = '''
 
 Query: {{query}}
 '''
-editor_retry = '''
-Failure: {{failure}}
+editor_correction = '''
+Validation rejected your previous edit-complete submission:
 
-{{content}}
+{{failure}}
 
-Instruction: {{instruction}}
+The file is unchanged. The original numbered file, instruction, and previous
+tool call remain in the conversation; do not restate or ask for them. Call
+edit-complete exactly once with a corrected submission. If diff parsing or
+matching caused the rejection, use `content`.
 '''
 editor = '''
 {{content}}
@@ -253,12 +228,13 @@ editor_direct = '''
 
 Instruction: {{instruction}}
 '''
-editor_direct_retry = '''
-Failure: {{failure}}
+editor_direct_correction = '''
+Validation rejected your previous direct diff:
+{{failure}}
 
-{{content}}
-
-Instruction: {{instruction}}
+The file is unchanged. The original numbered file, instruction, and response
+remain in the conversation. Do not restate or ask for them. Output only one
+corrected {{open}} / {{close}} envelope with no prose.
 '''
 # ── Tool metadata shown to the main agent (one tool per command) ──
 [tool.read]
@@ -311,7 +287,7 @@ restart_hint = "LSP auto-started for {{root}}. If the env is wrong, run 'lsp sta
 
 # ── Error message templates ({{placeholder}} substituted at runtime) ──
 [errors]
-aborted = "Aborted before start."
+aborted = "Aborted."
 not_found = "Not found: {{path}}"
 not_a_file = "Not a file: {{path}}"
 file_too_large = "{{path}} is {{size}}B (limit {{limit}}B) — too large to load. Use sh: `rg` to locate, `sed -n 'M,Np'` to read a range."
@@ -328,7 +304,8 @@ editor_timeout = "Editor subagent timed out after {{ms}}ms. Consider reducing sc
 editor_cancelled = "Editor subagent cancelled the edit (edit-complete cancel=true)."
 rewrite_empty = "edit-complete returned empty `content` for a non-empty file. Send the complete new file, or use `diffs` for a targeted change."
 no_change = "The edit produced no change to the file. Re-check the instruction against the actual file content."
-editor_truncated = "Editor subagent never called edit-complete (output truncated). Re-run the edit."
+editor_truncated = "Editor subagent did not call edit-complete; its response cannot be applied."
+editor_corrections_exhausted = "Editor correction limit reached after {{turns}} correction turns. Last validation error: {{failure}}"
 direct_output_overflow = "Editor direct output exceeded the bounded response-size limit."
 direct_too_large = "The direct diff exceeds the bounded patch-size limit."
 direct_missing_envelope = "Direct output must contain one `{{open}}` / `{{close}}` envelope."
@@ -340,7 +317,7 @@ direct_editor_cancelled = "Editor cancelled: the instruction requires open-ended
 viewer_truncated = "Viewer subagent never called view-complete (output truncated). Re-run the read."
 viewer_bad_output = "view-complete returned malformed ranges (not a JSON array of {start, end} objects).\nOutput: {{tail}}"
 write_failed = "Could not write {{path}}: {{reason}}"
-spawn_not_found = "pi binary not found on PATH: {{reason}}"
+subagent_start_failed = "Could not start subagent worker: {{reason}}"
 apply_no_diffs = "edit-complete was called without any diff hunks."
 apply_too_many = "Diff block {{i}} exceeds the bounded hunk-count limit."
 apply_too_large = "Diff block {{i}} exceeds the bounded patch-size limit."
@@ -362,6 +339,8 @@ title = "# editor {{role}} subagent"
 section_system = "## System Prompt"
 section_user = "## User"
 section_completion = "## Completion"
+section_completion_turn = "## Completion {{turn}}"
+section_correction_turn = "## Correction {{turn}}"
 section_stderr = "## stderr"
 
 # ── Completion tools for the Viewer/Editor subagents (registered by

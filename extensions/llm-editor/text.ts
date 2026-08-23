@@ -1,4 +1,4 @@
-/** llm-editor text over lib/text.ts: all content lives in extensions/text/llm-editor.toml, layered with ~/.pi/agent and <cwd>/.pi overrides, deep-merged and cached per-cwd with mtime invalidation by loadText. Mustache {{name}} syntax, HTML-escaping disabled (plain text). */
+/** llm-editor text over lib/text.ts: all content lives in extensions/text/llm-editor.toml, layered with ~/.pi/agent/llm-editor.toml and <cwd>/.pi/llm-editor.toml overrides, deep-merged and cached per-cwd with mtime invalidation by loadText. Mustache {{name}} syntax, HTML-escaping disabled (plain text). */
 
 import { getCwd } from "../lib/cwd.ts";
 import { loadText, render, textPath } from "../lib/text.ts";
@@ -14,16 +14,14 @@ export interface EditorText {
     viewer: string;
     editor: string;
     editor_direct: string;
-    editor_direct_retry: string;
     editor_fuzzy: string;
-    editor_rewrite: string;
   };
   tasks: {
     viewer: string;
     editor: string;
     editor_direct: string;
-    editor_direct_retry: string;
-    editor_retry: string;
+    editor_direct_correction: string;
+    editor_correction: string;
   };
   tool: { read: ToolMeta; write: ToolMeta; edit: ToolMeta };
   schema: {
@@ -63,6 +61,8 @@ export interface EditorText {
     section_system: string;
     section_user: string;
     section_completion: string;
+    section_completion_turn: string;
+    section_correction_turn: string;
     section_stderr: string;
   };
 }
