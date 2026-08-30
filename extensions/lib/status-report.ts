@@ -4,11 +4,16 @@ import type {
   TurnStartEvent,
 } from "@earendil-works/pi-coding-agent";
 import { runForkProbe } from "./fork-probe.ts";
+import {
+  clearLineSegment,
+  registerLineSegment,
+  requestFooterRender,
+} from "./footer.ts";
 import { loadText, textPath } from "./text.ts";
 
 const GLOBAL_KEY = "__cpiStatusReport";
 const FORK_ENV = "CPI_FORK_PROBE";
-const STATUS_KEY = "cpi-status-report";
+const SEGMENT_NAME = "summary";
 const MAX_REPORT_CHARS = 320;
 
 function envInteger(
@@ -54,6 +59,7 @@ interface ProbeRequest {
 
 interface StatusReportState {
   enabled: boolean;
+  report: string | null;
   epoch: number;
   turnCount: number;
   activeTurn: ActiveTurn | null;
@@ -67,6 +73,7 @@ function state(): StatusReportState {
   if (!globals[GLOBAL_KEY]) {
     globals[GLOBAL_KEY] = {
       enabled: false,
+      report: null,
       epoch: 0,
       turnCount: 0,
       activeTurn: null,
@@ -75,7 +82,9 @@ function state(): StatusReportState {
       queuedProbe: null,
     } satisfies StatusReportState;
   }
-  return globals[GLOBAL_KEY] as StatusReportState;
+  const current = globals[GLOBAL_KEY] as Partial<StatusReportState>;
+  if (!("report" in current)) current.report = null;
+  return current as StatusReportState;
 }
 
 function clearLongTurnTimer(s: StatusReportState): void {
@@ -91,11 +100,14 @@ function cancelWork(s: StatusReportState): void {
   s.activeTurn = null;
 }
 
-function clearStatus(ctx: ExtensionContext): void {
-  if (ctx.mode !== "tui") return;
-  try {
-    ctx.ui.setStatus(STATUS_KEY, undefined);
-  } catch {}
+function statusReportSegment(): string | null {
+  const report = state().report;
+  return report ? `[ ${report} ]` : null;
+}
+
+function clearStatus(): void {
+  state().report = null;
+  requestFooterRender();
 }
 
 export function setupStatusReports(ctx: ExtensionContext): void {
@@ -104,16 +116,18 @@ export function setupStatusReports(ctx: ExtensionContext): void {
   s.epoch += 1;
   s.turnCount = 0;
   s.enabled = ctx.mode === "tui" && process.env[FORK_ENV] !== "1";
-  clearStatus(ctx);
+  clearStatus();
+  registerLineSegment(SEGMENT_NAME, statusReportSegment);
 }
 
-export function disposeStatusReports(ctx: ExtensionContext): void {
+export function disposeStatusReports(): void {
   const s = state();
   cancelWork(s);
   s.epoch += 1;
   s.turnCount = 0;
   s.enabled = false;
-  clearStatus(ctx);
+  clearStatus();
+  clearLineSegment(SEGMENT_NAME);
 }
 
 function normalizeReport(answer: string): string | null {
@@ -133,12 +147,8 @@ function normalizeReport(answer: string): string | null {
 
 function publishReport(request: ProbeRequest, report: string): void {
   if (request.ctx.mode !== "tui") return;
-  try {
-    request.ctx.ui.setStatus(
-      STATUS_KEY,
-      request.ctx.ui.theme.fg("border", `[ ${report} ]`),
-    );
-  } catch {}
+  state().report = report;
+  requestFooterRender();
 }
 
 async function runStatusProbe(request: ProbeRequest): Promise<void> {

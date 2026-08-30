@@ -24,7 +24,7 @@ import {
 } from "../core/topics";
 import { createMessage } from "../core/messages";
 import { authorString, resolveIdentity } from "../core/identity";
-import { renderColumns, renderTopics } from "./admin";
+import { renderTopics } from "./admin";
 import { renderBoard } from "./board";
 import { renderCard } from "./card";
 import {
@@ -280,12 +280,13 @@ async function postAdmin(
       throw new Error("action is unavailable — reload the page and try again");
     return mutationPage(
       request,
-      renderColumns(projectId, {
+      renderBoard(projectId, "", {
         kind: "ok",
         message: "Board structure updated.",
       }),
-      "Columns",
-      `/projects/${projectId}/columns`,
+      "Board",
+      `/projects/${projectId}`,
+      action !== "move",
     );
   }
   throw new Error("action is unavailable — reload the page and try again");

@@ -25,18 +25,22 @@ The label is refreshed every 2s (jj mutations emit no pi event) via
 
 ## How it stays out of the way
 
-vcs-jj does **not** replace pi's footer. It registers a branch resolver with the
-shared cpi footer bridge (`extensions/lib/footer.ts`), which a single cpi
-extension (`extensions/core.ts`) owns, and renders via `ctx.ui.setStatus` into
-pi's custom status row. Pi's built-in footer stays in charge of cwd, git branch,
-and token/context/model rows, so:
+vcs-jj registers a branch resolver with the shared cpi footer bridge
+(`extensions/lib/footer.ts`), which is owned by the single cpi extension
+(`extensions/core.ts`). Core installs a thin custom footer wrapper that
+delegates pi's normal rows to the actual built-in footer Component and appends
+the cpi status row. Pi's built-in footer stays in charge of cwd, git branch, and
+token/context/model rows, so:
 
-- Thinking level, token stats, context %, `(auto)`, extension statuses (`🪨`,
-  `bg:N`/`mon:N` from other extensions), and the built-in rows all render
+- Built-in thinking, token, context, and model information continues to render
   normally.
-- Multiple cpi extensions contribute to the custom status row via
-  `registerLineSegment` / `setBranchResolver` without any replacing pi's footer
-  themselves.
+- cpi contributors share one muted foreground/background status entry with a
+  darker one-cell separator, ordered jj, Fast indicator when active, Codex
+  usage, shell/subagent indicators when present, then generated summary last. If
+  the combined row exceeds terminal width, the summary moves as a whole to a
+  second cpi row.
+- Producers contribute via `registerLineSegment` / `setBranchResolver` without
+  owning footer rendering.
 
 State is shared across extensions via a `globalThis` slot: pi loads each
 extension with jiti `moduleCache: false`, so module-level state is not shared
@@ -44,6 +48,6 @@ between importers.
 
 ## Stability
 
-Riding pi's standard footer/status-row plumbing means cpi never depends on pi's
-internal `FooterComponent` session shape, so this extension survives pi footer
-refactors without touching its internals.
+Delegating render/invalidate to the captured built-in Component avoids
+duplicating pi's footer logic or depending on `FooterComponent`'s private
+session shape.

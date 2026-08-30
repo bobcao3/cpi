@@ -315,7 +315,8 @@ a.bevel {
 }
 
 .bar,
-.dialog-title {
+.dialog-title,
+.column-bar {
   display: flex;
   align-items: center;
   justify-content: space-between;

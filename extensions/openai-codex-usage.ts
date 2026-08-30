@@ -2,9 +2,15 @@ import type {
   ExtensionAPI,
   ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
+import {
+  clearRightSegment,
+  registerRightSegment,
+  requestFooterRender,
+} from "./lib/footer.ts";
 
 const PROVIDER_ID = "openai-codex";
-const STATUS_KEY = "openai-codex-usage";
+const SEGMENT_NAME = "codex";
+const RPC_STATUS_KEY = "openai-codex-usage";
 const USAGE_URL = "https://chatgpt.com/backend-api/wham/usage";
 const REQUEST_TIMEOUT_MS = 10_000;
 const RESPONSE_LIMIT_BYTES = 64 * 1024;
@@ -232,11 +238,8 @@ export default function openAICodexUsageExtension(pi: ExtensionAPI): void {
 
   const active = (): boolean =>
     ctx?.hasUI === true && ctx.model?.provider === PROVIDER_ID;
-  const setStatus = (): void => {
-    if (!ctx || !active() || !report) {
-      ctx?.ui.setStatus(STATUS_KEY, undefined);
-      return;
-    }
+  const statusValue = (): string | undefined => {
+    if (!active() || !report) return undefined;
     const primary = report.primary;
     const secondary = report.secondary;
     const dual = primary && secondary;
@@ -251,17 +254,12 @@ export default function openAICodexUsageExtension(pi: ExtensionAPI): void {
       ? `${remainingPercent(primary)}%/${remainingPercent(secondary)}%`
       : `${remainingPercent(window)}%`;
     const reset = secondary?.resetAt ?? primary?.resetAt;
-    const exhausted =
-      (dual && (primary.usedPercent >= 100 || secondary.usedPercent >= 100)) ||
-      (!dual && window.usedPercent >= 100);
     const countdown = formatResetCountdown(reset);
-    const theme = ctx.ui.theme;
-    const display = theme.bg(
-      exhausted ? "toolErrorBg" : "selectedBg",
-      theme.fg("dim", value),
-    );
-    const status = `${theme.fg("accent", "codex")} ${display}${theme.fg("dim", ` ${percentage}`)}${countdown ? theme.fg("dim", ` ${countdown}`) : ""}`;
-    ctx.ui.setStatus(STATUS_KEY, status);
+    return `codex ${value} ${percentage}${countdown ? ` ${countdown}` : ""}`;
+  };
+  const updateFooter = (): void => {
+    if (ctx?.mode === "rpc") ctx.ui.setStatus(RPC_STATUS_KEY, statusValue());
+    else requestFooterRender();
   };
 
   const scheduleCountdown = (): void => {
@@ -279,7 +277,7 @@ export default function openAICodexUsageExtension(pi: ExtensionAPI): void {
       boundary = remaining - (Math.ceil(remaining / 60_000) - 1) * 60_000;
     else boundary = remaining - Math.floor(remaining / 1000) * 1000;
     countdown = setTimeout(() => {
-      setStatus();
+      updateFooter();
       scheduleCountdown();
     }, boundary + 1);
   };
@@ -293,7 +291,7 @@ export default function openAICodexUsageExtension(pi: ExtensionAPI): void {
       const next = await fetchWeeklyUsage(ctx, controller.signal);
       if (next) {
         report = next;
-        setStatus();
+        updateFooter();
         scheduleCountdown();
       }
     } catch {
@@ -308,20 +306,22 @@ export default function openAICodexUsageExtension(pi: ExtensionAPI): void {
     immediate = false,
   ): Promise<void> => {
     ctx = next;
+    registerRightSegment(SEGMENT_NAME, statusValue);
     if (!active()) {
       request?.abort();
       if (poll) clearInterval(poll);
       if (countdown) clearTimeout(countdown);
       poll = undefined;
       countdown = undefined;
-      setStatus();
+      clearRightSegment(SEGMENT_NAME);
+      updateFooter();
       return;
     }
     if (!poll)
       poll = setInterval(() => {
         if (ctx) void refresh(ctx);
       }, POLL_MS);
-    setStatus();
+    updateFooter();
     scheduleCountdown();
     if (immediate) await refresh(next);
   };
@@ -339,7 +339,9 @@ export default function openAICodexUsageExtension(pi: ExtensionAPI): void {
     if (countdown) clearTimeout(countdown);
     poll = undefined;
     countdown = undefined;
-    ctx?.ui.setStatus(STATUS_KEY, undefined);
+    clearRightSegment(SEGMENT_NAME);
+    if (ctx?.mode === "rpc") ctx.ui.setStatus(RPC_STATUS_KEY, undefined);
+    else requestFooterRender();
     ctx = undefined;
     report = undefined;
   });

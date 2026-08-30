@@ -12,17 +12,17 @@ export function projectById(projectId: string): ProjectRow {
 
 function projectNavigation(
   project: ProjectRow,
-  active: "board" | "topics" | "columns" | "activity",
+  active: "board" | "topics" | "activity",
 ): string {
   const base = `/projects/${enc(project.id)}`;
   const item = (name: string, href: string, key: typeof active) =>
     `<a class="tab${active === key ? " is-active" : ""}" href="${href}" hx-get="${href}" hx-target="#workspace" hx-swap="outerHTML" hx-push-url="true">${name}</a>`;
-  return `<nav class="top-nav" aria-label="Project sections">${item("Board", base, "board")}${item("Topics", `${base}/topics`, "topics")}${item("Columns", `${base}/columns`, "columns")}${item("Activity", `${base}/activity`, "activity")}</nav>`;
+  return `<nav class="top-nav" aria-label="Project sections">${item("Board", base, "board")}${item("Topics", `${base}/topics`, "topics")}${item("Activity", `${base}/activity`, "activity")}</nav>`;
 }
 
 function menuBar(
   project?: ProjectRow,
-  active?: "board" | "topics" | "columns" | "activity",
+  active?: "board" | "topics" | "activity",
 ): string {
   const firstRow = project
     ? `<a class="back-button" href="/" hx-get="/" hx-target="#workspace" hx-swap="outerHTML" hx-push-url="true" aria-label="All projects">&lt;</a><strong class="project-identity">Project: ${escapeHtml(project.name)}</strong>`
@@ -40,7 +40,7 @@ export function workspace(
     title: string;
     path: string;
     project?: ProjectRow;
-    active?: "board" | "topics" | "columns" | "activity";
+    active?: "board" | "topics" | "activity";
     notice?: Notice;
     poll?: boolean;
     footer?: string;

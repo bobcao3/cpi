@@ -40,6 +40,66 @@
   align-self: start;
 }
 
+.column-bar {
+  cursor: grab;
+  user-select: none;
+  touch-action: pan-y;
+}
+
+.board-column.is-reordering .column-bar {
+  cursor: grabbing;
+}
+
+.column-bar h2 {
+  min-width: 0;
+  overflow: hidden;
+  flex: 1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.column-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.column-actions .icon-button {
+  width: 1.8rem;
+  min-height: 1.8rem;
+}
+
+.column-reorder-form {
+  display: none;
+}
+
+.column-placeholder {
+  display: grid;
+  width: 100%;
+  min-height: 9rem;
+  align-self: stretch;
+  place-items: center;
+  border: 2px dashed var(--ink-500);
+  background: transparent;
+  color: var(--ink-500);
+  box-shadow: none;
+  cursor: pointer;
+  text-align: center;
+}
+
+.column-placeholder:hover {
+  border-color: var(--violet-700);
+  background: var(--paper-200);
+  color: var(--violet-700);
+}
+
+.board-column.is-reordering {
+  position: relative;
+  z-index: 1;
+  transform: translateY(-2px);
+  box-shadow: 0 0.4rem 1rem rgb(0 0 0 / 18%);
+}
+
 .column-body {
   display: grid;
   gap: 0.7rem;

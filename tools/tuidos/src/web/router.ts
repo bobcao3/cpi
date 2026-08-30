@@ -5,8 +5,13 @@ import { getMediaForTask } from "../core/media";
 import { mediaPath } from "../core/paths";
 import { getTask } from "../core/tasks";
 import { postRoute, restoreNotice } from "./actions";
-import { renderActivity, renderColumns, renderTopics } from "./admin";
-import { renderBoard, renderTaskForm } from "./board";
+import { renderActivity, renderTopics } from "./admin";
+import {
+  renderBoard,
+  renderColumnEditor,
+  renderColumnForm,
+  renderTaskForm,
+} from "./board";
 import { renderCard, renderTaskEditor } from "./card";
 import { renderHome } from "./home";
 import { enc, escapeHtml, safeId } from "./html";
@@ -29,15 +34,16 @@ function secure(response: Response): Response {
 function requireSameOrigin(request: Request): void {
   if (!MUTATION.has(request.method)) return;
   const site = request.headers.get("sec-fetch-site");
-  if (site === "cross-site")
+  if (site === "cross-site" || site === "same-site")
     throw new Error(
-      "cross-site write blocked — reload this page and try again",
+      "cross-origin write blocked — reload this page and try again",
     );
   const origin = request.headers.get("origin");
   if (!origin)
     throw new Error(
       "request origin is missing — reload this page and try again",
     );
+  if (site === "same-origin") return;
   if (origin !== new URL(request.url).origin)
     throw new Error(
       "request origin did not match — reload this page and try again",
@@ -210,10 +216,23 @@ async function getRoute(request: Request, url: URL, part: string[]) {
         headers: { "content-type": "text/html; charset=utf-8" },
       },
     );
+  if (part[2] === "columns" && part.length === 3)
+    return Response.redirect(
+      new URL(`/projects/${projectId}`, url).toString(),
+      302,
+    );
+  if (part[2] === "column-form" && part.length === 3)
+    return new Response(renderColumnForm(projectId), {
+      headers: { "content-type": "text/html; charset=utf-8" },
+    });
+  if (part[2] === "columns" && part.length === 5 && part[4] === "edit") {
+    const columnId = safeId(part[3], "column");
+    return new Response(renderColumnEditor(projectId, columnId), {
+      headers: { "content-type": "text/html; charset=utf-8" },
+    });
+  }
   if (part[2] === "topics" && part.length === 3)
     return pageResponse(request, renderTopics(projectId), "Topics");
-  if (part[2] === "columns" && part.length === 3)
-    return pageResponse(request, renderColumns(projectId), "Columns");
   if (part[2] === "activity" && part.length === 3)
     return pageResponse(request, renderActivity(projectId), "Activity");
   if (part[2] !== "tasks") return notFound(request);

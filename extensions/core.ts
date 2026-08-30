@@ -67,9 +67,9 @@ export default function coreExtension(pi: ExtensionAPI): void {
     setupStatusReports(ctx);
     registerRightSegment("subagent-cost", costSegment);
   });
-  pi.on("session_shutdown", async (_event, ctx: ExtensionContext) => {
+  pi.on("session_shutdown", async () => {
     disposeCpiFooter();
-    disposeStatusReports(ctx);
+    disposeStatusReports();
   });
 
   registerNotificationRenderer(pi);

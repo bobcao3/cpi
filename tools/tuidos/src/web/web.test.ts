@@ -119,9 +119,69 @@ test("browser workflow uses canonical HTML and shared core writes", async () => 
   });
   expect(created.status).toBe(200);
   expect(created.headers.get("HX-Trigger")).toBe("tuidos:close-dialog");
+  const createdBoardHtml = await created.text();
+  expect(createdBoardHtml).toContain('class="column-bar"');
+  expect(createdBoardHtml).toContain('class="column-placeholder"');
+  expect(createdBoardHtml).toContain('aria-label="Edit column"');
+  expect(createdBoardHtml).not.toMatch(/>\s*Columns\s*</);
+  expect(createdBoardHtml).not.toMatch(/href="[^"]*\/columns(?:["?])/);
   const project = listProjects()[0]!;
   expect(project.name).toBe("Flight Deck");
   const column = listColumns(project.id)[0]!;
+
+  const newColumnForm = await get(`/projects/${project.id}/column-form`);
+  expect(newColumnForm.status).toBe(200);
+  expect(await newColumnForm.text()).toContain(
+    `action="/projects/${project.id}/columns"`,
+  );
+
+  const newColumn = await post(`/projects/${project.id}/columns`, {
+    name: "Empty column",
+  });
+  expect(newColumn.status).toBe(200);
+  expect(newColumn.headers.get("HX-Trigger")).toBe("tuidos:close-dialog");
+  expect(newColumn.headers.get("HX-Push-Url")).toBe(`/projects/${project.id}`);
+  const createdColumn = listColumns(project.id).find(
+    (candidate) => candidate.name === "Empty column",
+  )!;
+
+  const editColumnForm = await get(
+    `/projects/${project.id}/columns/${createdColumn.id}/edit`,
+  );
+  expect(editColumnForm.status).toBe(200);
+
+  const renamedColumn = await post(
+    `/projects/${project.id}/columns/${createdColumn.id}/rename`,
+    { name: "Renamed column" },
+  );
+  expect(renamedColumn.status).toBe(200);
+  expect(listColumns(project.id).map((candidate) => candidate.name)).toContain(
+    "Renamed column",
+  );
+
+  const movedColumn = await post(
+    `/projects/${project.id}/columns/${createdColumn.id}/move`,
+    { position: "0" },
+  );
+  expect(movedColumn.status).toBe(200);
+  expect(listColumns(project.id)[0]?.id).toBe(createdColumn.id);
+
+  const archivedColumn = await post(
+    `/projects/${project.id}/columns/${createdColumn.id}/archive`,
+    {},
+  );
+  expect(archivedColumn.status).toBe(200);
+  expect(
+    listColumns(project.id).some(
+      (candidate) => candidate.id === createdColumn.id,
+    ),
+  ).toBe(false);
+
+  const legacyColumns = await get(`/projects/${project.id}/columns`);
+  expect(legacyColumns.status).toBe(302);
+  expect(legacyColumns.headers.get("location")).toBe(
+    `${origin}/projects/${project.id}`,
+  );
 
   const invalidTask = await post(`/projects/${project.id}/tasks`, {
     title: "",
@@ -296,6 +356,7 @@ test("TLS HTTP/2 adapter serves bounded requests", async () => {
     expect(asset.headers["last-modified"]).toBeTruthy();
     expect(asset.text).toContain("commandForElement");
     expect(asset.text).toContain("bindScrollRegion");
+    expect(asset.text).toContain("bindColumnReordering");
     expect(asset.text).toContain("htmx:after:settle");
 
     const notModified = await h2Request(

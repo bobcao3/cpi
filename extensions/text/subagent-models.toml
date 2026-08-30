@@ -1,0 +1,118 @@
+[command]
+description = "Build or refresh the agent-authored subagent model-selection guide"
+requires_tui = "/setup-subagent-models requires TUI mode."
+no_models = "No enabled models with configured provider authentication were found."
+too_many_models = "The enabled model inventory exceeds setup limits. Narrow enabledModels or select fewer providers."
+no_providers = "Select at least one provider."
+ready = "Setup workflow loaded in the editor. Review it and press Enter to run."
+confirm_title = "Subagent model guide"
+confirm_message = "No subagent model-selection guide was found. Set one up now?"
+provider_title = "Select enabled providers"
+provider_hint = "Enter/Space toggles · Esc continues"
+scope_title = "Save model guide"
+scope_user = "User settings (all projects)"
+scope_project = "Project settings (this project)"
+
+[skill]
+guide = '''
+{{skill}}
+
+---
+
+# Active subagent model-selection guide
+
+Loaded dynamically from `{{path}}`. Treat its exact `provider/model:effort`
+selectors as recommendations, not as availability guarantees.
+
+{{guide}}
+'''
+
+[workflow]
+guide_template = '''
+# Subagent model picks
+
+Retrieved: YYYY-MM-DD · Artificial Analysis Intelligence Index version: VERSION · Source: https://artificialanalysis.ai/models
+
+## Picks
+| Work | Exact Selector | Intelligence | USD/task | Grounded reason |
+|---|---|---:|---:|---|
+| <!-- quick delegated lookup --> | `provider/model:effort` | <!-- measured --> | <!-- measured --> | <!-- evidence --> |
+| <!-- routine investigation --> | `provider/model:effort` | <!-- measured --> | <!-- measured --> | <!-- evidence --> |
+| <!-- deep implementation or review --> | `provider/model:effort` | <!-- measured --> | <!-- measured --> | <!-- evidence --> |
+
+## Routing
+<!-- Explain when to use each pick. -->
+
+## Caveats
+<!-- Mapping gaps, unavailable measurements, and limitations. -->
+'''
+prompt = '''
+Set up the subagent model-selection guide for this harness. This is an
+agent-driven research and recommendation task; do not implement Pareto or model
+selection logic in extension source.
+
+Write the finished guide to `{{targetPath}}`. It will be loaded dynamically the
+next time the `subagents-in-pi` skill is invoked, without a reload.
+
+Selected enabled providers:
+{{#providers}}
+- `{{id}}` ({{name}})
+{{/providers}}
+
+Exact enabled Pi model inventory:
+{{models}}
+
+Follow this workflow:
+
+1. Run `node "{{benchmarkScript}}"` for the overview, and run it with
+   Artificial Analysis model slugs for full effort variants. Treat the script
+   as data gathering only. Also load current first-party data from
+   https://artificialanalysis.ai/models and consult
+   https://artificialanalysis.ai/methodology/intelligence-benchmarking. Use the
+   official "Intelligence Index vs. Cost per Intelligence Index Task" data,
+   preferably its downloadable data or the public page's raw embedded data.
+   Do not substitute blended per-token list price for measured cost per task.
+   If the script or pages cannot provide reliable data, retain the official
+   page/methodology fallback and clearly attribute the data.
+2. Restrict recommendations to the exact Pi inventory above. Map Pi IDs to
+   Artificial Analysis releases carefully. Keep uncertain or unmatched mappings
+   out of the recommended frontier and document them as gaps.
+3. Treat every measured model-and-thinking-effort variant as a distinct
+   candidate. Preserve efforts such as `low`, `medium`, `high`, `xhigh`, and
+   `max` in exact `provider/model:effort` selectors. Lower effort should win when
+   it is cheaper without losing task-relevant capability. Never invent an
+   effort measurement that Artificial Analysis did not publish.
+4. Build the nondominated frontier by maximizing Artificial Analysis
+   Intelligence Index and minimizing measured Cost per Intelligence Index Task.
+   You, the agent, must interpret the evidence and make task recommendations;
+   the extension must not hard-code recommendations. Use coding/agentic scores,
+   speed, context, and reliability only as clearly identified task-specific
+   evidence or tie-breakers.
+5. Recommend concise choices for distinct workloads, including quick delegated
+   lookups, routine code investigation, implementation and debugging, deep
+   architecture/research, and adversarial review. Recommend no more than three
+   exact model+effort selectors total. Prefer the cheapest adequate frontier
+   point and explain when extra effort is worth its cost. Ground every selection
+   in measured intelligence and cost/task; name any task-specific score used.
+6. Write a self-contained Markdown guide using the supplied template, under 500
+   words, with retrieval date, selected
+   providers, exact selectors, a frontier table containing model, effort,
+   intelligence, cost/task, and rationale, task recommendations, mapping gaps,
+   and caveats. Attribute the benchmark data to Artificial Analysis with the
+   source URL and Intelligence Index version. Clearly separate measured values
+   from your recommendations. Enforce the maximum of three exact model+effort
+   selectors and ground every selection in measured intelligence and cost/task
+   plus any clearly named task-specific score.
+7. Read the written file back, verify it is under 500 words, contains no more
+   than three exact model+effort selectors, and verify every recommended
+   selector occurs in the enabled inventory. Report the path plus a short
+   summary to the user.
+
+If official data cannot be obtained or mapped reliably, do not fabricate a
+frontier. Write only verified partial findings and clearly state what is
+missing.
+
+Use the supplied template structure. Fill its placeholders, delete unused pick
+rows, and do not embed recommendations in the extension:
+{{guideTemplate}}
+'''

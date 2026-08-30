@@ -2,6 +2,7 @@ import { Type } from "typebox";
 import type {
   AgentToolResult,
   ExtensionAPI,
+  ExtensionContext,
   Skill,
 } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
@@ -16,9 +17,18 @@ import {
 } from "./lib/text.ts";
 
 import { registerSystemPromptTransform } from "./lib/system-prompt.ts";
+import {
+  findSubagentModelGuide,
+  SUBAGENT_SKILL_NAME,
+} from "./lib/subagent-model-guide.ts";
 
 const SKILL_TOOL = "skill";
 const SKILL_TEXT = loadText<ToolText>("skill", textPath("skill"));
+type SubagentModelsText = { skill: { guide: string } };
+const SUBAGENT_MODELS_TEXT = loadText<SubagentModelsText>(
+  "subagent-models",
+  textPath("subagent-models"),
+);
 
 interface SkillRef {
   filePath: string;
@@ -156,7 +166,13 @@ export default function (pi: ExtensionAPI) {
         }
         return new Text(theme.fg("dim", "\u200b"), 0, 0);
       },
-      async execute(_toolCallId, params) {
+      async execute(
+        _toolCallId,
+        params,
+        _signal,
+        _onUpdate,
+        context: ExtensionContext,
+      ) {
         const ref = skills.get(params.name);
         if (!ref) {
           const names = Array.from(skills.keys()).sort();
@@ -190,10 +206,30 @@ export default function (pi: ExtensionAPI) {
           target = ref.filePath;
         }
 
-        const text = readFileSync(target, "utf8");
+        let text = readFileSync(target, "utf8");
+        let guidePath: string | undefined;
+        if (!params.subdoc?.trim() && params.name === SUBAGENT_SKILL_NAME) {
+          const guide = findSubagentModelGuide(
+            context.cwd,
+            context.isProjectTrusted(),
+          );
+          if (guide) {
+            guidePath = guide.path;
+            text = render(SUBAGENT_MODELS_TEXT.skill.guide, {
+              skill: text,
+              path: guide.path,
+              guide: guide.text,
+            });
+          }
+        }
         return {
           content: [{ type: "text", text }],
-          details: { name: params.name, subdoc: params.subdoc, path: target },
+          details: {
+            name: params.name,
+            subdoc: params.subdoc,
+            path: target,
+            ...(guidePath ? { guidePath } : {}),
+          },
         };
       },
     });

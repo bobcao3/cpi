@@ -92,7 +92,9 @@ export function renderBoard(
         )
         .join("");
       const formUrl = `/projects/${enc(projectId)}/task-form?column=${enc(column.id)}`;
-      return `<section class="board-column window"><div class="bar"><h2>${escapeHtml(column.name)}</h2><span>${tasks.length}</span></div><div class="column-body">${cards || `<div class="column-empty">${query ? "No matches" : "Drop the next idea here"}</div>`}<button class="add-card bevel" type="button" hx-get="${formUrl}" hx-target="#modal-body" command="show-modal" commandfor="modal">＋ Add card</button></div></section>`;
+      const editUrl = `/projects/${enc(projectId)}/columns/${enc(column.id)}/edit`;
+      const moveUrl = `/projects/${enc(projectId)}/columns/${enc(column.id)}/move`;
+      return `<section class="board-column window" data-column-id="${enc(column.id)}"><div class="column-bar" tabindex="0" aria-label="Drag to reorder ${escapeHtml(column.name)}"><h2>${escapeHtml(column.name)}</h2><div class="column-actions"><span>${tasks.length}</span><button class="icon-button" type="button" aria-label="Edit column" title="Edit column" hx-get="${editUrl}" hx-target="#modal-body" command="show-modal" commandfor="modal">✎</button></div></div><form class="column-reorder-form" action="${moveUrl}" method="post" hx-post="${moveUrl}" ${htmxForm}><input type="hidden" name="position" value="${index}"></form><div class="column-body">${cards || `<div class="column-empty">${query ? "No matches" : "Drop the next idea here"}</div>`}<button class="add-card bevel" type="button" hx-get="${formUrl}" hx-target="#modal-body" command="show-modal" commandfor="modal">＋ Add card</button></div></section>`;
     })
     .join("");
   const q = rawQuery.trim().slice(0, 128);
@@ -101,7 +103,7 @@ export function renderBoard(
   if (q) params.set("q", q);
   if (restoreTaskId) params.set("restore", restoreTaskId);
   const path = `/projects/${enc(projectId)}${params.toString() ? `?${params}` : ""}`;
-  const body = `${bounded ? `<p class="form-note">The browser view is bounded; clidos can access remaining records.</p>` : ""}${columns.length ? `<section class="board" aria-label="Task board">${rendered}</section>` : `<section class="empty-state window"><strong>No columns are available.</strong><span>Open Columns and create the first stage.</span><a class="primary bevel" href="/projects/${enc(projectId)}/columns" hx-get="/projects/${enc(projectId)}/columns" hx-target="#workspace" hx-swap="outerHTML" hx-push-url="true">Manage columns</a></section>`}`;
+  const body = `${bounded ? `<p class="form-note">The browser view is bounded; clidos can access remaining records.</p>` : ""}<section class="board" aria-label="Task board">${rendered}<button class="column-placeholder" type="button" hx-get="/projects/${enc(projectId)}/column-form" hx-target="#modal-body" command="show-modal" commandfor="modal">＋ Add column</button></section>`;
   return workspace(body, {
     title: project.name,
     path,
@@ -111,6 +113,27 @@ export function renderBoard(
     poll: true,
     footer: filterFooter,
   });
+}
+
+export function renderColumnForm(projectId: string): string {
+  const project = projectById(projectId);
+  const action = `/projects/${enc(projectId)}/columns`;
+  return `<form class="form-stack" action="${action}" method="post" hx-post="${action}" ${htmxDialogForm} hx-indicator="#activity-indicator"><h2>New column</h2><label>Name<input name="name" required maxlength="64" autofocus autocomplete="off"></label><div class="dialog-actions"><button type="button" command="close" commandfor="modal">Cancel</button><button class="primary bevel" type="submit">Add column</button></div><p class="form-note">The new column will be appended to ${escapeHtml(project.name)}.</p></form>`;
+}
+
+export function renderColumnEditor(
+  projectId: string,
+  columnId: string,
+): string {
+  projectById(projectId);
+  const column = listColumns(projectId).find((item) => item.id === columnId);
+  if (!column)
+    throw new Error(
+      "column is unavailable — refresh the board and choose an active column",
+    );
+  const renameAction = `/projects/${enc(projectId)}/columns/${enc(column.id)}/rename`;
+  const archiveAction = `/projects/${enc(projectId)}/columns/${enc(column.id)}/archive`;
+  return `<form class="form-stack" action="${renameAction}" method="post" hx-post="${renameAction}" ${htmxDialogForm} hx-indicator="#activity-indicator"><h2>Rename column</h2><label>Name<input name="name" required maxlength="64" value="${escapeHtml(column.name)}" autofocus></label><div class="dialog-actions"><button type="button" command="close" commandfor="modal">Cancel</button><button class="primary bevel" type="submit">Save name</button></div></form><form class="form-stack" action="${archiveAction}" method="post" hx-post="${archiveAction}" ${htmxDialogForm} hx-indicator="#activity-indicator" hx-confirm="Archive ‘${escapeHtml(column.name)}’? The column must be empty before it can be archived."><h2>Archive column</h2><p class="form-note">The column must be empty before it can be archived.</p><div class="dialog-actions"><button type="button" command="close" commandfor="modal">Cancel</button><button class="danger" type="submit">Archive column</button></div></form>`;
 }
 
 export function renderTaskForm(projectId: string, columnId: string): string {

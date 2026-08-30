@@ -82,6 +82,23 @@ subagents with `sh_detach`, `setsid`, `nohup`, or `disown`. </VERY_IMPORTANT>
   completion notification / log after it exits. Fan out via several `sh`
   launches; collect each result.
 
+## Benchmark evidence
+
+From this skill's directory, `scripts/gather-aa-benchmarks.mjs` gathers the
+current official Artificial Analysis Intelligence Index, Cost per Intelligence
+Index Task, task-specific scores, and effort variants without making
+recommendations:
+
+```bash
+node scripts/gather-aa-benchmarks.mjs
+node scripts/gather-aa-benchmarks.mjs gpt-5-6-luna
+```
+
+The first command shows the main-page overview; one or more Artificial Analysis
+release slugs (such as `gpt-5-6-luna`) retrieve all measured effort variants.
+Output is attributed JSON. The agent remains responsible for Pi-ID mapping,
+Pareto analysis, and selecting at most three grounded recommendations.
+
 Examples:
 
 ```bash

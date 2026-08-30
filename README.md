@@ -77,7 +77,10 @@ project). Three mechanisms:
   Fast mode.
 - **A no-frills status row.** The standard pi footer keeps showing its normal
   information; the custom status row adds your jj change/bookmark, `⚡fast`
-  while active, and how many background shells and repeat monitors run.
+  while active, and how many background shells and repeat monitors run. cpi
+  sections use muted foreground/background styling with a darker one-cell
+  separator. The generated agent summary stays on the first cpi row when it fits
+  and moves to a second row on narrow terminals.
 - **One LSP story.** `lsp` starts/stops/checks language servers; shell linting
   and the editor tooling are clients of the same servers, so everything agrees
   on one source of truth.
