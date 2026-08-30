@@ -1,12 +1,7 @@
 import pc from "picocolors";
 import { createWebHandler } from "./router";
 import { startWebServer, type WebServer } from "./server";
-import {
-  detectTailnet,
-  ensureCertificate,
-  serveHttpsPorts,
-  type Tailnet,
-} from "./tls";
+import { detectTailnet, ensureCertificate } from "./tls";
 
 interface LaunchOptions {
   port: number;
@@ -108,85 +103,6 @@ function openBrowser(url: string): void {
 interface TailnetResult {
   url: string | null;
   reason?: string;
-  fallbackHost?: string;
-  fallbackUrlHost?: string;
-  stop: () => void;
-}
-
-function directFallback(tailnet: Tailnet, reason: string): TailnetResult {
-  return {
-    url: null,
-    fallbackHost: tailnet.ipv4 ?? undefined,
-    fallbackUrlHost: tailnet.dnsName,
-    reason,
-    stop: () => {},
-  };
-}
-
-async function startTailnet(
-  port: number,
-  tailnet: Tailnet | null,
-): Promise<TailnetResult> {
-  if (!tailnet)
-    return {
-      url: null,
-      reason: "Tailscale was not ready; the service remains loopback-only.",
-      stop: () => {},
-    };
-  if (tailnet.occupiedHttpsPorts === null)
-    return directFallback(
-      tailnet,
-      "Unable to inspect Tailscale Serve HTTPS ports; a direct private HTTPS listener will be attempted.",
-    );
-  if (tailnet.occupiedHttpsPorts.includes(port))
-    return {
-      url: null,
-      reason: `HTTPS port ${port} is already configured; the service remains loopback-only.`,
-      stop: () => {},
-    };
-  let intentionalStop = false;
-  const process = Bun.spawn(
-    [
-      tailnet.executable,
-      "serve",
-      "--yes",
-      `--https=${port}`,
-      `https+insecure://127.0.0.1:${port}`,
-    ],
-    { stdin: "inherit", stdout: "ignore", stderr: "ignore" },
-  );
-  const startup = await Promise.race([
-    process.exited.then((status) => ({ status })),
-    Bun.sleep(750).then(() => null),
-  ]);
-  if (startup)
-    return directFallback(
-      tailnet,
-      "Tailscale Serve exited during startup; a direct private HTTPS listener will be attempted.",
-    );
-  let occupiedHttpsPorts: number[] | null;
-  occupiedHttpsPorts = serveHttpsPorts(tailnet.executable);
-  if (!occupiedHttpsPorts?.includes(port)) {
-    intentionalStop = true;
-    process.kill();
-    return directFallback(
-      tailnet,
-      "Unable to verify Tailscale Serve HTTPS; a direct private HTTPS listener will be attempted.",
-    );
-  }
-  process.exited.then((status) => {
-    if (!intentionalStop)
-      console.error(
-        `> Tailnet exposure stopped (status ${status}). Enable HTTPS certificates in Tailscale, then restart tuidos.`,
-      );
-  });
-  return {
-    url: `https://${tailnet.dnsName}:${port}`,
-    stop: () => {
-      intentionalStop = true;
-      process.kill();
-    },
-  };
 }
 
 export async function launch(argv: string[]): Promise<void> {
@@ -224,29 +140,35 @@ export async function launch(argv: string[]): Promise<void> {
       key: certificate.key,
       fetch: createWebHandler(),
     });
-    tail = options.tailnet
-      ? await startTailnet(options.port, tailnet)
-      : {
-          url: null,
-          reason:
-            "Tailnet exposure disabled; the service remains loopback-only.",
-          stop: () => {},
-        };
-    if (!tail.url && tail.fallbackHost) {
+    if (!options.tailnet) {
+      tail = {
+        url: null,
+        reason: "Tailnet exposure disabled; the service remains loopback-only.",
+      };
+    } else if (!tailnet?.ipv4) {
+      tail = {
+        url: null,
+        reason:
+          "Tailscale was not ready or has no IPv4 address; the service remains loopback-only. Check Tailscale, then retry.",
+      };
+    } else {
       try {
         directServer = await startWebServer({
-          hostname: tail.fallbackHost,
+          hostname: tailnet.ipv4,
           port: options.port,
           cert: certificate.cert,
           key: certificate.key,
           fetch: createWebHandler(),
         });
-        tail.url = `https://${tail.fallbackUrlHost ?? tail.fallbackHost}:${options.port}`;
-        tail.reason =
-          "Direct private HTTPS is used because Tailscale Serve was unavailable.";
+        tail = {
+          url: `https://${tailnet.dnsName}:${options.port}`,
+        };
       } catch {
-        tail.reason =
-          "Direct private HTTPS binding failed; the service remains loopback-only. Check the Tailscale address and permissions, then retry.";
+        tail = {
+          url: null,
+          reason:
+            "Direct private HTTPS binding failed; the service remains loopback-only. Check the Tailscale address and permissions, then retry.",
+        };
       }
     }
     console.log(`\n${pc.bold("# tuidos is online")}\n`);
@@ -265,14 +187,12 @@ export async function launch(argv: string[]): Promise<void> {
     const stop = () => {
       if (stopping) return;
       stopping = true;
-      tail?.stop();
       void directServer?.close();
       void server?.close();
     };
     process.once("SIGINT", stop);
     process.once("SIGTERM", stop);
   } catch (error) {
-    tail?.stop();
     await Promise.allSettled([directServer?.close(), server?.close()]);
     const message = error instanceof Error ? error.message : String(error);
     console.error(`${pc.red("*LAUNCH FAILED*")} ${message}`);

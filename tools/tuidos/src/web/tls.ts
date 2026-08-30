@@ -154,37 +154,8 @@ export async function ensureCertificate(
 }
 
 export interface Tailnet {
-  executable: string;
   dnsName: string;
   ipv4: string | null;
-  occupiedHttpsPorts: number[] | null;
-}
-
-export function serveHttpsPorts(executable: string): number[] | null {
-  const result = run([executable, "serve", "status", "--json"]);
-  const stdout = result.stdout ?? new Uint8Array();
-  if (result.exitCode !== 0 || stdout.byteLength > 1_048_576) return null;
-  try {
-    const serveStatus = JSON.parse(new TextDecoder().decode(stdout)) as {
-      TCP?: unknown;
-    };
-    if (serveStatus.TCP === undefined) return [];
-    const tcp = serveStatus.TCP;
-    if (!tcp || typeof tcp !== "object" || Array.isArray(tcp)) return null;
-    return Object.entries(tcp)
-      .filter(
-        ([, value]) =>
-          value !== null &&
-          typeof value === "object" &&
-          !Array.isArray(value) &&
-          (value as { HTTPS?: unknown }).HTTPS === true,
-      )
-      .map(([port]) => Number(port))
-      .filter((port) => Number.isInteger(port) && port > 0 && port <= 65535)
-      .sort((a, b) => a - b);
-  } catch {
-    return null;
-  }
 }
 
 export function detectTailnet(): Tailnet | null {
@@ -207,8 +178,7 @@ export function detectTailnet(): Tailnet | null {
             typeof value === "string" && isIP(value) === 4,
         ) ?? null)
       : null;
-    const occupiedHttpsPorts = serveHttpsPorts(executable);
-    return { executable, dnsName, ipv4, occupiedHttpsPorts };
+    return { dnsName, ipv4 };
   } catch {
     return null;
   }
