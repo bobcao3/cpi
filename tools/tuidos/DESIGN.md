@@ -7,13 +7,13 @@ Tuidos uses three state tiers.
 2. **Per-project state.** Each project has its own SQLite at
    `~/.local/state/tuidos/projects/<project-id>/state.sqlite`. Tasks, kanban
    columns, and metadata live here.
-3. **Client state.** Selections, filters, and UI focus live only in memory while
-   a client runs.
+3. **Client state.** Browser navigation and form state live only in the browser
+   while a client runs.
 
 Two clients access the same data:
 
-- `clidos` — non-TTY CLI.
-- `tuidos` — interactive SolidJS/OpenTUI front-end.
+- `clidos` — non-interactive CLI.
+- `tuidos` — server-rendered HTMX 4 browser front end.
 
 Both read from and write to the same SQLite files.
 
@@ -32,9 +32,9 @@ in `docs/research/prior_art/Compare_Kanban.md`):
   itself.
 
 The project->topic coupling is what lands tuidos halfway — structural like
-Basecamp, view-based like Linear. Board rendering is deferred: it is not
-designed yet. The presentation tables (`*_display`) keep display preferences
-(color, ordering) apart from core, but how the board is drawn is TBD.
+Basecamp, view-based like Linear. Board rendering is an implemented browser view
+over that structure, not the structure itself. The presentation tables
+(`*_display`) keep display preferences (color, ordering) out of core.
 
 ## SQLite vs LibSQL
 

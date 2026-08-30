@@ -110,6 +110,7 @@ export function listMediaForMessage(
 export function listMediaForTask(
   projectId: string,
   taskId: string,
+  limit = -1,
 ): MediaRow[] {
   const db = openProjectRead(projectId);
   if (!db) return [];
@@ -121,11 +122,40 @@ export function listMediaForTask(
        FROM message_media mm
        JOIN card_messages m ON m.id = mm.message_id
        WHERE m.task_id = ? AND mm.archived_at IS NULL AND m.archived_at IS NULL
-       ORDER BY mm.created_at`,
+       ORDER BY mm.created_at
+       LIMIT ?`,
       )
-      .all(taskId) as MediaRow[];
+      .all(taskId, limit) as MediaRow[];
   } catch {
     return [];
+  } finally {
+    db.close();
+  }
+}
+
+/** Get one active media row on a task. */
+export function getMediaForTask(
+  projectId: string,
+  taskId: string,
+  mediaId: string,
+): MediaRow | null {
+  const db = openProjectRead(projectId);
+  if (!db) return null;
+  try {
+    return (
+      (db
+        .prepare(
+          `SELECT mm.id, mm.message_id, mm.content_hash, mm.filename, mm.mime_type,
+                mm.size_bytes, mm.created_at, mm.archived_at
+         FROM message_media mm
+         JOIN card_messages m ON m.id = mm.message_id
+         WHERE mm.id = ? AND m.task_id = ?
+           AND mm.archived_at IS NULL AND m.archived_at IS NULL`,
+        )
+        .get(mediaId, taskId) as MediaRow | undefined) ?? null
+    );
+  } catch {
+    return null;
   } finally {
     db.close();
   }

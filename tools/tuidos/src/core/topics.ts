@@ -25,15 +25,15 @@ function cap(s: string): string {
 }
 
 /** List a project's active topics, alphabetical. */
-export function listTopics(projectId: string): TopicRow[] {
+export function listTopics(projectId: string, limit = -1): TopicRow[] {
   const db = openReadonly(globalDbPath());
   if (!db) return [];
   try {
     return db
       .prepare(
-        "SELECT id, project_id, name, created_at, updated_at, archived_at FROM topics WHERE project_id = ? AND archived_at IS NULL ORDER BY name",
+        "SELECT id, project_id, name, created_at, updated_at, archived_at FROM topics WHERE project_id = ? AND archived_at IS NULL ORDER BY name LIMIT ?",
       )
-      .all(projectId) as TopicRow[];
+      .all(projectId, limit) as TopicRow[];
   } catch {
     return [];
   } finally {

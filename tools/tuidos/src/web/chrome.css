@@ -1,0 +1,433 @@
+@-moz-document url-prefix() {
+  * {
+    scrollbar-color: var(--ink-500) var(--paper-100);
+    scrollbar-width: auto;
+  }
+}
+
+::-webkit-scrollbar {
+  width: 13px;
+  height: 13px;
+  -webkit-appearance: none;
+}
+
+::-webkit-scrollbar-track {
+  background-color: var(--paper-200);
+  background-image: repeating-linear-gradient(
+    45deg,
+    var(--paper-100) 0,
+    var(--paper-100) 1px,
+    transparent 1px,
+    transparent 4px
+  );
+  border: 1px solid var(--ink-900);
+  box-shadow:
+    inset 1px 1px var(--paper-100),
+    inset -1px -1px var(--paper-300);
+}
+
+::-webkit-scrollbar-thumb {
+  min-width: 13px;
+  min-height: 13px;
+  background-image: linear-gradient(
+    180deg,
+    var(--paper-100),
+    var(--paper-300),
+    var(--paper-200)
+  );
+  border: 1px solid var(--ink-900);
+  box-shadow:
+    inset 1px 1px var(--paper-100),
+    inset -1px -1px var(--paper-300);
+}
+
+::-webkit-scrollbar-thumb:vertical {
+  background-image:
+    linear-gradient(var(--ink-500), var(--ink-500)),
+    linear-gradient(var(--ink-500), var(--ink-500)),
+    linear-gradient(var(--ink-500), var(--ink-500)),
+    linear-gradient(
+      180deg,
+      var(--paper-100),
+      var(--paper-300),
+      var(--paper-200)
+    );
+  background-position:
+    center calc(50% - 3px),
+    center,
+    center calc(50% + 3px),
+    center;
+  background-size:
+    6px 1px,
+    6px 1px,
+    6px 1px,
+    100% 100%;
+  background-repeat: no-repeat;
+}
+
+::-webkit-scrollbar-thumb:horizontal {
+  background-image:
+    linear-gradient(var(--ink-500), var(--ink-500)),
+    linear-gradient(var(--ink-500), var(--ink-500)),
+    linear-gradient(var(--ink-500), var(--ink-500)),
+    linear-gradient(
+      180deg,
+      var(--paper-100),
+      var(--paper-300),
+      var(--paper-200)
+    );
+  background-position:
+    calc(50% - 3px) center,
+    center,
+    calc(50% + 3px) center,
+    center;
+  background-size:
+    1px 6px,
+    1px 6px,
+    1px 6px,
+    100% 100%;
+  background-repeat: no-repeat;
+}
+
+::-webkit-scrollbar-corner {
+  background-color: var(--paper-200);
+  border: 1px solid var(--ink-900);
+  box-shadow:
+    inset 1px 1px var(--paper-100),
+    inset -1px -1px var(--paper-300);
+}
+
+::-webkit-scrollbar-button {
+  display: block;
+  width: 13px;
+  height: 13px;
+  background-image: linear-gradient(
+    180deg,
+    var(--paper-100),
+    var(--paper-300),
+    var(--paper-200)
+  );
+  border: 1px solid var(--ink-900);
+  box-shadow:
+    inset 1px 1px var(--paper-100),
+    inset -1px -1px var(--paper-300);
+}
+
+::-webkit-scrollbar-button:single-button:vertical:decrement {
+  background-image:
+    linear-gradient(135deg, transparent 50%, var(--ink-900) 50%),
+    linear-gradient(45deg, var(--ink-900) 50%, transparent 50%);
+  background-position:
+    2px 5px,
+    6px 5px;
+  background-size: 4px 4px;
+  background-repeat: no-repeat;
+}
+
+::-webkit-scrollbar-button:single-button:vertical:increment {
+  background-image:
+    linear-gradient(135deg, var(--ink-900) 50%, transparent 50%),
+    linear-gradient(45deg, transparent 50%, var(--ink-900) 50%);
+  background-position:
+    2px 3px,
+    6px 3px;
+  background-size: 4px 4px;
+  background-repeat: no-repeat;
+}
+
+::-webkit-scrollbar-button:single-button:horizontal:decrement {
+  background-image:
+    linear-gradient(135deg, transparent 50%, var(--ink-900) 50%),
+    linear-gradient(45deg, transparent 50%, var(--ink-900) 50%);
+  background-position:
+    5px 2px,
+    5px 6px;
+  background-size: 4px 4px;
+  background-repeat: no-repeat;
+}
+
+::-webkit-scrollbar-button:single-button:horizontal:increment {
+  background-image:
+    linear-gradient(135deg, var(--ink-900) 50%, transparent 50%),
+    linear-gradient(45deg, var(--ink-900) 50%, transparent 50%);
+  background-position:
+    3px 2px,
+    3px 6px;
+  background-size: 4px 4px;
+  background-repeat: no-repeat;
+}
+
+.os8-vertical {
+  display: none;
+  grid-column: 2;
+  grid-row: 1;
+  grid-template-rows: 13px minmax(0, 1fr) 13px;
+}
+
+.os8-horizontal {
+  display: none;
+  grid-column: 1;
+  grid-row: 2;
+  grid-template-columns: 13px minmax(0, 1fr) 13px;
+}
+
+.os8-corner {
+  display: none;
+  grid-column: 2;
+  grid-row: 2;
+}
+
+.has-custom-scrollbars .os8-vertical {
+  display: grid;
+}
+
+.has-custom-scrollbars .os8-horizontal {
+  display: grid;
+}
+
+.has-custom-scrollbars .os8-corner {
+  display: block;
+}
+
+.os8-vertical,
+.os8-horizontal,
+.os8-track,
+.os8-corner {
+  background-color: var(--paper-200);
+  background-image: repeating-linear-gradient(
+    45deg,
+    var(--paper-100) 0,
+    var(--paper-100) 1px,
+    transparent 1px,
+    transparent 4px
+  );
+  border: 1px solid var(--ink-900);
+  box-shadow:
+    inset 1px 1px var(--paper-100),
+    inset -1px -1px var(--paper-300);
+}
+
+.os8-vertical > button,
+.os8-horizontal > button {
+  width: 13px;
+  height: 13px;
+  min-width: 0;
+  min-height: 0;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  font-size: 7px;
+  line-height: 1;
+  background-image: linear-gradient(
+    180deg,
+    var(--paper-100),
+    var(--paper-300),
+    var(--paper-200)
+  );
+  border: 1px solid var(--ink-900);
+  box-shadow:
+    inset 1px 1px var(--paper-100),
+    inset -1px -1px var(--paper-300);
+}
+
+.os8-vertical > button:active,
+.os8-horizontal > button:active {
+  transform: none;
+}
+
+.os8-vertical > button:disabled,
+.os8-horizontal > button:disabled {
+  color: var(--ink-500);
+}
+
+.os8-track {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  cursor: pointer;
+}
+
+.os8-thumb {
+  position: absolute;
+  top: 0;
+  left: 0;
+  min-width: 20px;
+  min-height: 20px;
+  background-image: linear-gradient(
+    180deg,
+    var(--paper-100),
+    var(--paper-300),
+    var(--paper-200)
+  );
+  border: 1px solid var(--ink-900);
+  box-shadow:
+    inset 1px 1px var(--paper-100),
+    inset -1px -1px var(--paper-300);
+  cursor: grab;
+  touch-action: none;
+}
+
+.os8-vertical .os8-track {
+  grid-row: 2;
+}
+
+.os8-vertical .os8-thumb {
+  right: 0;
+}
+
+.os8-horizontal .os8-track {
+  grid-column: 2;
+}
+
+.os8-horizontal .os8-thumb {
+  right: 0;
+  bottom: 0;
+}
+
+.os8-thumb:active {
+  cursor: grabbing;
+}
+
+.os8-vertical .os8-thumb::after,
+.os8-horizontal .os8-thumb::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 7px;
+  height: 7px;
+  transform: translate(-50%, -50%);
+}
+
+.os8-vertical .os8-thumb::after {
+  background: linear-gradient(
+    var(--ink-500) 0 1px,
+    transparent 1px 3px,
+    var(--ink-500) 3px 4px,
+    transparent 4px 6px,
+    var(--ink-500) 6px 7px
+  );
+}
+
+.os8-horizontal .os8-thumb::after {
+  background: linear-gradient(
+    to right,
+    var(--ink-500) 0 1px,
+    transparent 1px 3px,
+    var(--ink-500) 3px 4px,
+    transparent 4px 6px,
+    var(--ink-500) 6px 7px
+  );
+}
+
+.os8-track.is-disabled .os8-thumb {
+  display: none;
+}
+
+dialog {
+  width: min(36rem, calc(100% - 2rem));
+  margin: auto;
+  border: 2px solid var(--ink-900);
+  border-radius: 0;
+  background: var(--paper-100);
+  padding: 0;
+  box-shadow: 5px 5px var(--ink-900);
+}
+
+dialog::backdrop {
+  background: var(--ink-700);
+}
+
+.dialog-title button {
+  width: 1.6rem;
+  min-height: 1.6rem;
+  padding: 0;
+}
+
+.dialog-body {
+  padding: 1rem;
+}
+
+.dialog-actions {
+  justify-content: end;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+}
+
+@media (max-width: 52rem) {
+  .home-grid,
+  .admin-grid,
+  .card-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .menubar {
+    gap: 0.3rem;
+  }
+
+  .menubar-copy {
+    display: none;
+  }
+
+  .record-row {
+    grid-template-columns: auto 1fr;
+  }
+
+  .inline-editor {
+    grid-column: 1 / -1;
+  }
+
+  .event-row {
+    grid-template-columns: 5rem 1fr;
+  }
+
+  .event-row span {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 34rem) {
+  .workspace-body {
+    padding: 0.55rem;
+  }
+
+  .top-nav .tab {
+    flex: 1;
+    text-align: center;
+    padding-inline: 0.4rem;
+  }
+
+  .form-grid,
+  .message-form {
+    grid-template-columns: 1fr;
+  }
+
+  .footer-search {
+    grid-template-columns: 1fr;
+    gap: 0.2rem;
+  }
+
+  .message-form button,
+  .message-form label,
+  .message-form textarea {
+    grid-column: 1;
+    grid-row: auto;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    transition: none !important;
+  }
+}

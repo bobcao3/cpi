@@ -20,16 +20,20 @@ const MSG_COLS =
   "id, task_id, author, content, created_at, updated_at, archived_at";
 
 /** A task's active thread (body first), ordered by (created_at, id). */
-export function listMessages(projectId: string, taskId: string): MessageRow[] {
+export function listMessages(
+  projectId: string,
+  taskId: string,
+  limit = -1,
+): MessageRow[] {
   const db = openProjectRead(projectId);
   if (!db) return [];
   try {
     return db
       .prepare(
         `SELECT ${MSG_COLS} FROM card_messages
-       WHERE task_id = ? AND archived_at IS NULL ORDER BY created_at, id`,
+       WHERE task_id = ? AND archived_at IS NULL ORDER BY created_at, id LIMIT ?`,
       )
-      .all(taskId) as MessageRow[];
+      .all(taskId, limit) as MessageRow[];
   } catch {
     return [];
   } finally {

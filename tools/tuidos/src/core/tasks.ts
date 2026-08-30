@@ -1,41 +1,9 @@
 import type { Database } from "bun:sqlite";
+import type { NewTask, TaskPatch, TaskRow } from "./task-types";
+export type { NewTask, TaskPatch, TaskRow } from "./task-types";
 import { openProjectRead, openProjectWrite } from "./db";
 import { newId } from "./id";
 import { recordAudit } from "./audit";
-
-export interface TaskRow {
-  id: string;
-  title: string;
-  description: string | null;
-  column_id: string;
-  priority: number | null;
-  assignee: string | null;
-  estimate: number | null;
-  due_at: number | null;
-  created_at: number;
-  updated_at: number;
-  completed_at: number | null;
-  archived_at: number | null;
-}
-
-export interface NewTask {
-  title: string;
-  description?: string | null;
-  column_id?: string | null;
-  priority?: number | null;
-  assignee?: string | null;
-  estimate?: number | null;
-  due_at?: number | null;
-}
-
-export interface TaskPatch {
-  title?: string;
-  description?: string | null;
-  priority?: number | null;
-  assignee?: string | null;
-  estimate?: number | null;
-  due_at?: number | null;
-}
 
 const ACTIVE = "archived_at IS NULL";
 const TASK_COLS =
@@ -58,7 +26,11 @@ function nextPosition(db: Database, columnId: string): number {
 }
 
 /** List a project's active tasks (optionally one column), board-ordered. */
-export function listTasks(projectId: string, columnId?: string): TaskRow[] {
+export function listTasks(
+  projectId: string,
+  columnId?: string,
+  limit = -1,
+): TaskRow[] {
   const db = openProjectRead(projectId);
   if (!db) return [];
   try {
@@ -68,9 +40,12 @@ export function listTasks(projectId: string, columnId?: string): TaskRow[] {
     const stmt = db.prepare(
       `SELECT ${TASK_COLS} FROM tasks ${where}
        ORDER BY (SELECT COALESCE(position, 0) FROM task_display WHERE task_id = tasks.id),
-                created_at`,
+                created_at
+       LIMIT ?`,
     );
-    return (columnId ? stmt.all(columnId) : stmt.all()) as TaskRow[];
+    return (
+      columnId ? stmt.all(columnId, limit) : stmt.all(limit)
+    ) as TaskRow[];
   } catch {
     return [];
   } finally {
@@ -79,13 +54,13 @@ export function listTasks(projectId: string, columnId?: string): TaskRow[] {
 }
 
 /** All task ids in a project (active + archived), for id-prefix resolution. */
-export function listAllTaskIds(projectId: string): string[] {
+export function listAllTaskIds(projectId: string, limit = -1): string[] {
   const db = openProjectRead(projectId);
   if (!db) return [];
   try {
-    return (db.prepare("SELECT id FROM tasks").all() as { id: string }[]).map(
-      (r) => r.id,
-    );
+    return (
+      db.prepare("SELECT id FROM tasks LIMIT ?").all(limit) as { id: string }[]
+    ).map((r) => r.id);
   } catch {
     return [];
   } finally {
@@ -127,6 +102,13 @@ export function createTask(projectId: string, t: NewTask): TaskRow {
           .get() as { id: string } | null;
         if (!col) throw new Error("project has no columns — reinitialize it");
         columnId = col.id;
+      } else {
+        const col = db
+          .prepare(
+            "SELECT id FROM columns WHERE id = ? AND archived_at IS NULL",
+          )
+          .get(columnId) as { id: string } | null;
+        if (!col) throw new Error(`no active column '${columnId}'`);
       }
       const position = nextPosition(db, columnId);
       db.prepare(
@@ -239,9 +221,11 @@ export function moveTask(
         .get(taskId) as { title: string } | null;
       if (!task) throw new Error(`no active task '${taskId}'`);
       const col = db
-        .prepare("SELECT name FROM columns WHERE id = ?")
+        .prepare(
+          "SELECT name FROM columns WHERE id = ? AND archived_at IS NULL",
+        )
         .get(columnId) as { name: string } | null;
-      if (!col) throw new Error(`no column '${columnId}'`);
+      if (!col) throw new Error(`no active column '${columnId}'`);
       const position = nextPosition(db, columnId);
       db.prepare(
         "UPDATE tasks SET column_id = ?, updated_at = ? WHERE id = ?",

@@ -24,6 +24,7 @@ export function openReadonly(file: string): Database | null {
   if (!existsSync(file)) return null;
   try {
     const db = new Database(file, { readonly: true });
+    db.exec("PRAGMA busy_timeout = 5000;");
     db.exec("PRAGMA foreign_keys = ON;");
     return db;
   } catch {
@@ -33,6 +34,7 @@ export function openReadonly(file: string): Database | null {
 
 export function openReadWrite(file: string): Database {
   const db = new Database(file);
+  db.exec("PRAGMA busy_timeout = 5000;");
   db.exec("PRAGMA journal_mode = WAL;");
   db.exec("PRAGMA foreign_keys = ON;");
   return db;
@@ -106,16 +108,32 @@ export function listProjects(limit = 0): ProjectRow[] {
   }
 }
 
+export function getProject(id: string): ProjectRow | null {
+  const db = openReadonly(globalDbPath());
+  if (!db) return null;
+  try {
+    return db
+      .prepare(
+        `SELECT id, name, description, created_at, updated_at FROM projects WHERE id = ? AND ${ACTIVE}`,
+      )
+      .get(id) as ProjectRow | null;
+  } catch {
+    return null;
+  } finally {
+    db.close();
+  }
+}
+
 /** Includes archived projects for audit resolution and traversal. */
-export function listAllProjects(): ProjectRowFull[] {
+export function listAllProjects(limit = -1): ProjectRowFull[] {
   const db = openReadonly(globalDbPath());
   if (!db) return [];
   try {
     return db
       .prepare(
-        "SELECT id, name, description, created_at, updated_at, archived_at FROM projects ORDER BY created_at DESC",
+        "SELECT id, name, description, created_at, updated_at, archived_at FROM projects ORDER BY created_at DESC LIMIT ?",
       )
-      .all() as ProjectRowFull[];
+      .all(limit) as ProjectRowFull[];
   } catch {
     return [];
   } finally {

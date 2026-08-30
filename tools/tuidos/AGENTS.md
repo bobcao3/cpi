@@ -1,9 +1,9 @@
-# Tui-Do(s)
+# tuidos
 
-- `clidos` is the CLI interface
-- `tuidos` is the TUI interface
+- `clidos` is the data CLI
+- `tuidos` is the browser interface and launcher
 
-Interfaces no matter TUI and CLI should be clean and beautiful.
+Browser and CLI interfaces should be clean and beautiful.
 
 There's no equal attention. Some information is more important than others, and
 design should conform this matter of life.
@@ -12,8 +12,8 @@ Interface should be opinionated, and user should feel guided. No errors shall be
 dumped to the user without suggestions of remedy, even though some suggestions
 could be "programming error, report to developer"
 
-Even for CLI without TTY, interface should still be beautiful: Use `*EMPHASIS*`,
-use `# section`, use `> note`.
+Even for CLI without a terminal, interface should still be beautiful: Use
+`*EMPHASIS*`, use `# section`, use `> note`.
 
 Even for CLI with programmatic audiences, beauty is still useful: No raw logs,
 no minified JSON, program parsable is beautify, crazy escape sequences and

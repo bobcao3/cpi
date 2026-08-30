@@ -16,7 +16,7 @@ function cap(s: string): string {
 }
 
 /** List a project's active columns in board order (position, then created_at). */
-export function listColumns(projectId: string): ColumnRow[] {
+export function listColumns(projectId: string, limit = -1): ColumnRow[] {
   const db = openProjectRead(projectId);
   if (!db) return [];
   try {
@@ -25,9 +25,10 @@ export function listColumns(projectId: string): ColumnRow[] {
         `SELECT c.id, c.name, c.created_at, c.updated_at, c.archived_at FROM columns c
        LEFT JOIN column_display d ON d.column_id = c.id
        WHERE c.archived_at IS NULL
-       ORDER BY COALESCE(d.position, 0), c.created_at`,
+       ORDER BY COALESCE(d.position, 0), c.created_at
+       LIMIT ?`,
       )
-      .all() as ColumnRow[];
+      .all(limit) as ColumnRow[];
   } catch {
     return [];
   } finally {
