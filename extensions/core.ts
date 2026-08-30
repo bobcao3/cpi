@@ -81,10 +81,14 @@ export default function coreExtension(pi: ExtensionAPI): void {
 
   // Sole systemPrompt return across cpi — no other handler returns one.
   pi.on("before_agent_start", async (event: any, ctx: any) => {
+    const model = ctx.model;
+    if (!model) throw new Error("cpi system prompt requires an active model");
     return {
       systemPrompt: applySystemPromptTransforms(
         buildCpiSystemPrompt(event.systemPromptOptions, {
-          vision: modelSupportsVision(ctx?.model),
+          vision: modelSupportsVision(model),
+          provider: model.provider,
+          modelId: model.id,
         }),
         ctx,
         event.systemPromptOptions,
