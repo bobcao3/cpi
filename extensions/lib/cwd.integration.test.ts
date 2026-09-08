@@ -2,7 +2,7 @@
 import { expect, test } from "bun:test";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { queueMessage, drainBeforeUser } from "./lib/prepend-message.ts";
+import { queueMessage, drainBeforeUser } from "./prepend-message.ts";
 
 const coding_url = import.meta.resolve("@earendil-works/pi-coding-agent");
 const coding_entry = fileURLToPath(coding_url);
@@ -15,7 +15,7 @@ queueMessage({ customType: "cwd-reminder", content: "stale one" });
 queueMessage({ customType: "cwd-reminder", content: "stale two" });
 queueMessage({ customType: "other", content: "keep" });
 const loaded = await loadExtensions(
-  [fileURLToPath(new URL("./cwd.ts", import.meta.url))],
+  [fileURLToPath(new URL("../cwd.ts", import.meta.url))],
   process.cwd(),
 );
 if (loaded.errors.length) throw new Error(JSON.stringify(loaded.errors));
