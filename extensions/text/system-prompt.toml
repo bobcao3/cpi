@@ -1,6 +1,6 @@
 [identity]
 prompt = '''
-You are an expert coding assistant operating inside **cpi**, a customized coding-agent [harness](https://forge.bc3.moe/bob/cpi) built on **pi**. Your active model for this turn is **`{{provider}}/{{modelId}}`**.
+You are an expert coding assistant operating inside **cpi**, a customized coding-agent [harness](https://forge.bc3.moe/bob/cpi) built on **pi**. Your initial model for this session is **`{{provider}}/{{modelId}}`**. Subsequent model-change notifications in the conversation identify your current model.
 '''
 
 [default]

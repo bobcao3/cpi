@@ -1,4 +1,5 @@
 import {
+  ModelRuntime,
   SessionManager,
   createAgentSessionFromServices,
   createAgentSessionRuntime,
@@ -7,12 +8,27 @@ import {
   resolveCliModel,
 } from "@earendil-works/pi-coding-agent";
 import { observeSession } from "./subagent-activity.mjs";
+import {
+  installFastModels,
+  initializeFastModels,
+  resolveFastModel,
+} from "./fast-models.mjs";
 import { selectForkProbeSubstitute } from "./fork-probe-model.mjs";
 
 function selectModel(request, services, diagnostics, manager) {
+  const restored = manager.buildSessionContext().model;
+  if (
+    !request.model &&
+    restored?.modelId.endsWith("-fast") &&
+    !services.modelRuntime.getModel(restored.provider, restored.modelId)
+  ) {
+    throw new Error(
+      `Fast model unavailable: ${restored.provider}/${restored.modelId}`,
+    );
+  }
   if (!request.model)
     return selectForkProbeSubstitute(request, services, manager);
-  const resolved = resolveCliModel({
+  const resolved = resolveFastModel(resolveCliModel, {
     cliModel: request.model,
     modelRuntime: services.modelRuntime,
   });
@@ -54,6 +70,7 @@ function reportDiagnostics(runtime) {
 }
 
 export async function runForkProbeSubagent(request, signal) {
+  installFastModels(ModelRuntime);
   const manager = SessionManager.forkFrom(
     request.parentSessionFile,
     request.cwd,
@@ -78,6 +95,7 @@ export async function runForkProbeSubagent(request, signal) {
         ? { appendSystemPrompt: [request.appendSystemPrompt] }
         : undefined,
     });
+    await initializeFastModels(services.modelRuntime, cwd);
     const diagnostics = [
       ...services.diagnostics,
       ...services.resourceLoader

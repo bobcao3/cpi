@@ -1,194 +1,181 @@
-import type {
-  ExtensionAPI,
-  ExtensionContext,
+import {
+  ModelRuntime,
+  type ExtensionAPI,
+  type ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import {
-  clearRightSegment,
-  registerRightSegment,
-  requestFooterRender,
-} from "./lib/footer.ts";
+  installFastModels,
+  isGeneratedFastModel,
+  canonicalFastModel,
+} from "../bin/fast-models.mjs";
 import { getCwd } from "./lib/cwd.ts";
+import { clearRightSegment } from "./lib/footer.ts";
 import { loadFastConfig } from "./lib/fast-config.ts";
-import type { FastConfig } from "./lib/config.ts";
 import { loadText, render, textPath, type ToolText } from "./lib/text.ts";
-
-const SEGMENT_NAME = "fast";
-const STATE_ENTRY = "fast-state";
-const STATE_KEY = "__cpiFastState";
-const ENV_KEY = "CPI_FAST_MODE";
-const SERVICE_TIER = "priority";
-const INDICATOR = "⚡fast";
-const OPTIONS = ["on", "off", "toggle"] as const;
-
-type ModelRef = { provider: string; id: string };
-type FastState = { enabled: boolean };
-type FastText = ToolText & { flag: { description: string } };
-
-function getState(): FastState {
-  const global = globalThis as Record<string, unknown>;
-  if (
-    !isRecord(global[STATE_KEY]) ||
-    typeof global[STATE_KEY].enabled !== "boolean"
-  ) {
-    global[STATE_KEY] = { enabled: process.env[ENV_KEY] === "1" };
+type FastText = ToolText & {
+  flag: { description: string };
+  messages: { usage: string; unavailable: string; auth: string };
+};
+function cliModel(): string | undefined {
+  const args = process.argv;
+  for (let index = 0; index < args.length; index++) {
+    if (args[index] === "--model" || args[index] === "-m")
+      return args[index + 1];
+    if (args[index].startsWith("--model=")) return args[index].slice(8);
   }
-  return global[STATE_KEY] as FastState;
+  return undefined;
 }
-
-function applyEnabled(enabled: boolean): void {
-  getState().enabled = enabled;
-  process.env[ENV_KEY] = enabled ? "1" : "0";
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function toModelRef(model: unknown): ModelRef | undefined {
-  if (!isRecord(model)) return undefined;
-  return typeof model.provider === "string" && typeof model.id === "string"
-    ? { provider: model.provider, id: model.id }
-    : undefined;
-}
-
-function isEligible(config: FastConfig, model: ModelRef | undefined): boolean {
-  return (
-    model !== undefined &&
-    config.providers.includes(model.provider) &&
-    config.models.includes(model.id)
-  );
-}
-
-function parseEnabled(args: string, enabled: boolean): boolean {
-  const value = args.trim().toLowerCase();
-  if (!value || value === "toggle") return !enabled;
-  if (value === "on") return true;
-  if (value === "off") return false;
-  throw new Error("Usage: /fast [on|off|toggle]");
-}
-
 export default function fastExtension(pi: ExtensionAPI): void {
   const text = loadText<FastText>("fast", textPath("fast"));
-  let config = loadFastConfig(getCwd());
-  let configCwd = getCwd();
-  let currentModel: ModelRef | undefined;
-
-  const indicator = (): string | undefined =>
-    getState().enabled && isEligible(config, currentModel)
-      ? INDICATOR
-      : undefined;
-
-  const refreshConfig = (): void => {
-    const cwd = getCwd();
-    if (cwd === configCwd) return;
-    config = loadFastConfig(cwd);
-    configCwd = cwd;
-    requestFooterRender();
+  const actions = new Map([
+    ["on", true],
+    ["off", false],
+  ]);
+  const options = [...actions.keys()];
+  clearRightSegment("fast");
+  installFastModels(ModelRuntime, () => loadFastConfig(getCwd()));
+  const select = async (
+    enabled: boolean,
+    ctx: ExtensionContext,
+    required = false,
+  ): Promise<void> => {
+    const current = ctx.model;
+    const id = current?.id;
+    if (!current || !id)
+      throw new Error(render(text.messages.unavailable, { model: "" }));
+    const targetId = enabled
+      ? id.endsWith("-fast")
+        ? id
+        : `${id}-fast`
+      : id.endsWith("-fast")
+        ? id.slice(0, -5)
+        : id;
+    const target = ctx.modelRegistry.find(current.provider, targetId);
+    if (!target) {
+      if (required && enabled) {
+        const effort = pi.getThinkingLevel();
+        await pi.setModel({ ...current, id: targetId });
+        pi.setThinkingLevel(effort);
+      }
+      throw new Error(
+        render(text.messages.unavailable, {
+          model: `${current.provider}/${targetId}`,
+        }),
+      );
+    }
+    if (targetId === id) return;
+    const effort = pi.getThinkingLevel();
+    if (!(await pi.setModel(target)))
+      throw new Error(
+        render(text.messages.auth, {
+          model: `${target.provider}/${target.id}`,
+        }),
+      );
+    pi.setThinkingLevel(effort);
   };
-
-  const reconstructState = (ctx: ExtensionContext): boolean => {
-    let found = false;
+  const migrate = async (ctx: ExtensionContext): Promise<void> => {
+    if (cliModel()) return;
+    let legacy: boolean | undefined;
+    let selected: { provider: string; modelId: string } | undefined;
     for (const entry of ctx.sessionManager.getBranch()) {
-      if (
-        entry.type === "custom" &&
-        entry.customType === STATE_ENTRY &&
-        isRecord(entry.data) &&
-        typeof entry.data.enabled === "boolean"
-      ) {
-        applyEnabled(entry.data.enabled);
-        found = true;
+      if (entry.type === "model_change") {
+        legacy = undefined;
+        selected = entry;
+      }
+      if (entry.type === "custom" && entry.customType === "fast-state") {
+        const data = entry.data as { enabled?: unknown } | undefined;
+        if (typeof data?.enabled === "boolean") legacy = data.enabled;
       }
     }
-    return found;
+    if (
+      legacy === undefined ||
+      !selected ||
+      selected.provider !== ctx.model?.provider ||
+      selected.modelId !== ctx.model?.id
+    )
+      return;
+    await select(legacy, ctx, true);
   };
-
-  const setEnabled = (enabled: boolean): void => {
-    pi.appendEntry(STATE_ENTRY, { enabled });
-    applyEnabled(enabled);
-    requestFooterRender();
-  };
-
   pi.registerFlag("fast", {
     description: render(text.flag.description, {}),
     type: "boolean",
     default: false,
   });
-
   pi.registerCommand("fast", {
     description: render(text.tool.description, {}),
     getArgumentCompletions(prefix) {
-      const normalized = prefix.trim().toLowerCase();
-      const matches = OPTIONS.filter((option) => option.startsWith(normalized));
+      const matches = options.filter((option) =>
+        option.startsWith(prefix.trim().toLowerCase()),
+      );
       return matches.length
         ? matches.map((value) => ({ value, label: value }))
         : null;
     },
     handler: async (args, ctx) => {
       try {
-        refreshConfig();
-        setEnabled(parseEnabled(args, getState().enabled));
-        ctx.ui.notify(
-          `Fast mode: ${getState().enabled ? "on" : "off"}`,
-          "info",
-        );
+        const value = args.trim().toLowerCase();
+        const enabled = actions.get(value);
+        if (value && enabled === undefined)
+          throw new Error(
+            render(text.messages.usage, { options: options.join("|") }),
+          );
+        await select(enabled ?? !ctx.model?.id.endsWith("-fast"), ctx);
       } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        ctx.ui.notify(message, "error");
+        ctx.ui.notify(
+          error instanceof Error ? error.message : String(error),
+          "error",
+        );
       }
     },
   });
-
   pi.on("session_start", async (_event, ctx) => {
-    configCwd = getCwd();
-    config = loadFastConfig(configCwd);
-    currentModel = toModelRef(ctx.model);
-    const foundState = reconstructState(ctx);
-    clearRightSegment(SEGMENT_NAME);
-    registerRightSegment(SEGMENT_NAME, indicator);
-    if (pi.getFlag("fast") === true) {
-      try {
-        setEnabled(true);
-      } catch (error) {
-        if (ctx.hasUI) {
-          const message =
-            error instanceof Error ? error.message : String(error);
-          ctx.ui.notify(message, "error");
-        }
-      }
-    } else if (!foundState) {
-      setEnabled(getState().enabled);
-    }
-    requestFooterRender();
-  });
-
-  pi.on("session_tree", (_event, ctx) => {
-    const foundState = reconstructState(ctx);
-    if (!foundState) {
-      setEnabled(getState().enabled);
-    }
-    requestFooterRender();
-  });
-
-  pi.on("model_select", (event) => {
-    currentModel = toModelRef(event.model);
-    requestFooterRender();
-  });
-
-  pi.on("before_provider_request", (event, ctx) => {
-    refreshConfig();
-    const model = toModelRef(ctx.model);
+    const explicit = cliModel()
+      ?.toLowerCase()
+      .replace(/:(off|minimal|low|medium|high|xhigh|max)$/, "");
     if (
-      !getState().enabled ||
-      !isEligible(config, model) ||
-      !isRecord(event.payload)
+      explicit &&
+      isGeneratedFastModel(ctx.model) &&
+      explicit !== ctx.model?.id.toLowerCase() &&
+      explicit !== `${ctx.model?.provider}/${ctx.model?.id}`.toLowerCase()
     ) {
-      return undefined;
+      const base = ctx.modelRegistry.find(
+        ctx.model!.provider,
+        canonicalFastModel(ctx.model),
+      );
+      if (base) {
+        const effort = pi.getThinkingLevel();
+        await pi.setModel(base);
+        pi.setThinkingLevel(effort);
+      }
     }
-    return { ...event.payload, service_tier: SERVICE_TIER };
+    const saved = ctx.sessionManager
+      .getBranch()
+      .filter((entry) => entry.type === "model_change")
+      .at(-1);
+    if (
+      !explicit &&
+      !process.env.PI_SUBAGENT &&
+      saved?.modelId.endsWith("-fast") &&
+      !ctx.modelRegistry.find(saved.provider, saved.modelId) &&
+      ctx.model
+    ) {
+      const effort = pi.getThinkingLevel();
+      await pi.setModel({
+        ...ctx.model,
+        provider: saved.provider,
+        id: saved.modelId,
+      });
+      pi.setThinkingLevel(effort);
+      throw new Error(
+        render(text.messages.unavailable, {
+          model: `${saved.provider}/${saved.modelId}`,
+        }),
+      );
+    }
+    if (pi.getFlag("fast") === true) await select(true, ctx, true);
+    else await migrate(ctx);
   });
-
-  pi.on("session_shutdown", async () => {
-    clearRightSegment(SEGMENT_NAME);
-    requestFooterRender();
+  pi.on("session_tree", async (_event, ctx) => {
+    await migrate(ctx);
   });
 }

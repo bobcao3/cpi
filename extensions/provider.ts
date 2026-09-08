@@ -30,6 +30,7 @@ import {
   stripMatches,
 } from "./lib/provider-config";
 import { getCwd } from "./lib/cwd.ts";
+import { loadText, render, textPath, type ToolText } from "./lib/text.ts";
 
 const debug = (tag: string, msg: string): void => {
   if (process.env.PF_DEBUG) process.stderr.write(`[${tag}] ${msg}\n`);
@@ -140,6 +141,20 @@ export default async function providerExtension(
       debug(
         "provider-strip",
         `active ${cur!.provider}/${cur!.id} usable; skipping startup pick`,
+      );
+      return;
+    }
+
+    if (cur?.id.endsWith("-fast")) {
+      const text = loadText<ToolText & { messages: { unavailable: string } }>(
+        "fast",
+        textPath("fast"),
+      );
+      ctx.ui.notify(
+        render(text.messages.unavailable, {
+          model: `${cur.provider}/${cur.id}`,
+        }),
+        "error",
       );
       return;
     }

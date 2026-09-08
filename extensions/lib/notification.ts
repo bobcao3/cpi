@@ -11,6 +11,7 @@ export type NotificationKind =
   | "shell-failed"
   | "repeat-stopped"
   | "repeat-breach"
+  | "model-change"
   | "orphaned-shells"
   | "completed-shells";
 

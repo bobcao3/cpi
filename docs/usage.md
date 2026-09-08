@@ -8,12 +8,21 @@ installation; use `/reload` after changing local extensions or settings.
 Type `/` in pi to browse available commands. Start with:
 
 - `/effort`: inspect or change the thinking budget.
-- `/fast`: toggle Fast mode on supported models.
+- `/fast`: switch between the current model and its `-fast` counterpart.
 - `/goal`: set a persistent objective; use `pause`, `resume`, or `clear`.
 - `/activity`: inspect background work without interrupting the agent.
 
 See [the activity browser](activity.md) for keyboard and mouse controls. Ask the
 agent about its tools and skills when you need a particular workflow.
+
+## Fast models
+
+Fast is a model identity, not a separate mode. Existing same-provider `-fast`
+registrations take precedence and remain unchanged.
+
+Use pi's command help and completion for `/fast`, and `/model` for available
+selections. See `fast` in
+[`cpi-config.default.json`](../cpi-config.default.json) for configuration.
 
 ## Configure
 

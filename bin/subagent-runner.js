@@ -21,6 +21,11 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
 import { observeSession } from "./subagent-activity.mjs";
+import {
+  installFastModels,
+  initializeFastModels,
+  resolveFastModel,
+} from "./fast-models.mjs";
 
 const THINKING = new Set([
   "off",
@@ -148,7 +153,7 @@ async function sessionManager(cwd, dir, id) {
 
 function resolveSelection(modelRuntime, selected) {
   if (!selected.model) return {};
-  const resolved = resolveCliModel({
+  const resolved = resolveFastModel(resolveCliModel, {
     cliProvider: selected.provider || undefined,
     cliModel: selected.model,
     cliThinking: selected.thinking || undefined,
@@ -175,7 +180,9 @@ export async function runSubagent(request, signal) {
   const parent = parentSettings(env);
   const selected = selector(args, parent);
   const agentDir = getAgentDir();
+  installFastModels(ModelRuntime);
   const modelRuntime = await ModelRuntime.create();
+  await initializeFastModels(modelRuntime, cwd);
   const selection = resolveSelection(modelRuntime, selected);
   const dir = subagentDir(env);
   const id =
@@ -185,6 +192,16 @@ export async function runSubagent(request, signal) {
       .replace(/[-:TZ.]/g, "")
       .slice(0, 14)}-${request.runId}`;
   const manager = await sessionManager(cwd, dir, id);
+  const restored = manager.buildSessionContext().model;
+  if (
+    !selected.model &&
+    restored?.modelId.endsWith("-fast") &&
+    !modelRuntime.getModel(restored.provider, restored.modelId)
+  ) {
+    throw new Error(
+      `Fast model unavailable: ${restored.provider}/${restored.modelId}`,
+    );
+  }
   const protocolPath = join(
     dirname(fileURLToPath(import.meta.url)),
     "output-protocol.md",

@@ -1,9 +1,14 @@
 [flag]
-description = "Start with OpenAI Fast mode enabled"
+description = "Select the current model's -fast variant"
 
 [tool]
-description = "Toggle OpenAI Fast mode. Usage: /fast [on|off|toggle]"
+description = "Select or leave the current model's -fast variant"
 prompt_snippet = ""
 
 [guidelines]
 bullets = []
+
+[messages]
+usage = "Usage: /fast [{{options}}]"
+unavailable = "Fast model unavailable: {{model}}. Select an available model explicitly."
+auth = "No usable authentication for {{model}}. Model selection was not changed."

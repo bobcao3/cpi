@@ -1,3 +1,5 @@
+import { canonicalFastModel } from "./fast-models.mjs";
+
 const EFFORT = /:(off|minimal|low|medium|high|xhigh|max)$/;
 const MAX_TIERS = 32;
 
@@ -56,7 +58,7 @@ export function selectForkProbeSubstitute(request, services, manager) {
   const source = registry.getModel(parent.provider, parent.modelId);
   if (!source || !registry.hasConfiguredAuth(source.provider)) return {};
   for (const rule of request.modelSubstitutions ?? []) {
-    if (rule.from !== source.id) continue;
+    if (rule.from !== canonicalFastModel(source)) continue;
     const effort = rule.to.match(EFFORT);
     const id = effort ? rule.to.slice(0, effort.index) : rule.to;
     const target = registry.getModel(source.provider, id);
