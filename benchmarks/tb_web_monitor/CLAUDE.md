@@ -20,35 +20,18 @@ verify the current latest against official sources:
 The toolchain is installed via Mise (user-level) per
 https://guides.rubyonrails.org/install_ruby_on_rails.html#install-ruby-on-ubuntu.
 
-Pin the exact Ruby version in `.ruby-version` (currently `ruby-4.0.5`) and pin
-Ruby gems in `Gemfile.lock`.
+Pin the exact Ruby version in [`.ruby-version`](.ruby-version) and Ruby gems in
+[`Gemfile.lock`](Gemfile.lock).
 
 ## Environment (project-local, via Mise)
 
-Everything project-local: Ruby, gems, bundler. No system gem writes, no sudo for
-gems.
+Project-local Ruby, gems, and Bundler are required; do not write gems to system
+locations or use sudo for gems.
 
-    # 1. toolchain (Mise + Ruby 4.x + Rails) — idempotent, follows the official guide
-    bash ../setup_rails.sh
-
-    # 2. activate Mise in this shell (or: mise shell ruby@4.0.5)
-    eval "$(~/.local/bin/mise activate bash)"
-
-    # 3. install gems project-local (vendor/bundle — already pinned in .bundle/config)
-    bundle install
-
-    # 4. run
-    bin/rails s -b 0.0.0.0 -p 8788
-
-- `.ruby-version` pins `ruby-4.0.5`; `.bundle/config` pins
-  `BUNDLE_PATH=vendor/bundle` (project-local gems) and `BUNDLE_WITHOUT` is unset
-  (install all groups).
-- `setup_rails.sh` follows
-  https://guides.rubyonrails.org/install_ruby_on_rails.html#install-ruby-on-ubuntu
-  (Mise, user-level; skips apt when build deps already present).
-- For automation/agents: capture the Mise-activated env once
-  (`eval "$(mise activate bash)" && ruby -v`) into a dotenv, then reuse it via
-  `env=<path>` on subsequent shell/LSP calls — avoids re-activating per command.
+- Setup procedure: [`../setup_rails.sh`](../setup_rails.sh).
+- For automation/agents, use the repository
+  [env-capture skill](../../skills/env-capture/SKILL.md) to capture an activated
+  environment once and reuse it for subsequent commands.
 
 ## Testing
 

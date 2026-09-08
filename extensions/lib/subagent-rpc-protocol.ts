@@ -1,4 +1,8 @@
 import { isAbsolute } from "node:path";
+import {
+  validForkProbeModelRules,
+  type ForkProbeModelRule,
+} from "./fork-probe-config.ts";
 
 const MAX_ARGV = 64;
 const MAX_CLI_TASK_BYTES = 1024 * 1024;
@@ -38,6 +42,7 @@ export interface SessionSubagentRequest {
   completionTool?: string;
   systemPrompt: string;
   task: string;
+  title?: string;
   provider: string;
   modelId: string;
   thinkingLevel?: string;
@@ -53,6 +58,7 @@ export interface SessionSubagentRequest {
 export interface ForkProbeSubagentRequest {
   version: 1;
   kind: "fork-probe";
+  modelSubstitutions?: ForkProbeModelRule[];
   parentSessionFile: string;
   parentSessionId: string;
   sessionDir: string;
@@ -143,6 +149,8 @@ export function validForkProbeSubagentRequest(
   return (
     request.version === 1 &&
     request.kind === "fork-probe" &&
+    (request.modelSubstitutions === undefined ||
+      validForkProbeModelRules(request.modelSubstitutions)) &&
     typeof request.parentSessionFile === "string" &&
     isAbsolute(request.parentSessionFile) &&
     Buffer.byteLength(request.parentSessionFile) <= 4096 &&
@@ -229,6 +237,11 @@ export function validSessionSubagentRequest(
     typeof request.task !== "string" ||
     request.task.length === 0 ||
     Buffer.byteLength(request.task) > MAX_SESSION_TASK_BYTES ||
+    (request.title !== undefined &&
+      (typeof request.title !== "string" ||
+        request.title.length === 0 ||
+        Buffer.byteLength(request.title) > 4096 ||
+        request.title.includes("\0"))) ||
     typeof request.provider !== "string" ||
     request.provider.length === 0 ||
     Buffer.byteLength(request.provider) > 256 ||

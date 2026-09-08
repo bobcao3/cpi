@@ -27,6 +27,7 @@ import {
 
 export interface SubagentOptions {
   role: "viewer" | "editor";
+  title: string;
   systemPrompt: string;
   task: string;
   provider: string;
@@ -148,6 +149,7 @@ export async function runSubagent(
     runId: randomUUID(),
     systemPrompt: opts.systemPrompt,
     task: opts.task,
+    title: opts.title,
     provider: opts.provider,
     modelId: opts.modelId,
     thinkingLevel: opts.thinkingLevel,
@@ -238,7 +240,7 @@ export async function runSubagent(
   const usage = parseSummaryUsage(stderr);
 
   const head =
-    `${fmt(T.transcript.title, { role: opts.role })}\n\n` +
+    `${fmt(T.transcript.title, { role: opts.role, title: opts.title })}\n\n` +
     `- model: ${opts.provider}/${opts.modelId}\n` +
     // Without this a failed edit cannot be attributed to the model tier that produced it: the pick is chain-resolved and may downgrade effort silently.
     `- thinking: ${opts.thinkingLevel ?? "(unset)"}\n` +

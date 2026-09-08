@@ -6,7 +6,7 @@
  */
 
 import { readFile, stat } from "node:fs/promises";
-import { resolve } from "node:path";
+import { basename, resolve } from "node:path";
 import { runSubagent } from "./subagent.ts";
 import { loadEditorText, fmt } from "./text.ts";
 import { lineBodies, numberLines } from "./lines.ts";
@@ -107,6 +107,7 @@ export async function viewFile(
   const task = fmt(T.tasks.viewer, { content: numbered, query: opts.query });
   const res = await runSubagent({
     role: "viewer",
+    title: basename(abs),
     systemPrompt: T.system.viewer,
     task,
     provider: opts.provider,

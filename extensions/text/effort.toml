@@ -1,5 +1,4 @@
-# Model-/user-facing text for the /effort command. Layered (project > user > shipped).
-# {{levels}} is the pipe-joined level list, rendered at registration.
+# Model-/user-facing text for the /effort command.
 
 [tool]
 description = "Tune thinking effort (no arg = show; levels: {{levels}})"

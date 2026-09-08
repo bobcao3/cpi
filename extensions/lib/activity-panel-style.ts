@@ -25,6 +25,18 @@ export function frameActivity(
   });
 }
 
+export function activityDetail(
+  text: string,
+  width: number,
+  theme: Theme,
+): string {
+  const content = truncateToWidth(`  ${text}`, width, "");
+  return theme.bg(
+    "customMessageBg",
+    content + " ".repeat(Math.max(0, width - visibleWidth(content))),
+  );
+}
+
 export function activityMetricValue(
   key: string,
   value: string | number,

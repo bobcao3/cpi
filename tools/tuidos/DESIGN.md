@@ -1,14 +1,8 @@
 # DESIGN
 
-Tuidos uses three state tiers.
-
-1. **Global state.** Stored in `~/.local/state/tuidos/global.sqlite`. This holds
-   the project registry; projects are named entries, not tied to folders.
-2. **Per-project state.** Each project has its own SQLite at
-   `~/.local/state/tuidos/projects/<project-id>/state.sqlite`. Tasks, kanban
-   columns, and metadata live here.
-3. **Client state.** Browser navigation and form state live only in the browser
-   while a client runs.
+Tuidos separates the global project registry, per-project task state, and
+ephemeral client state. Canonical state-path derivation lives in
+[`src/core/paths.ts`](src/core/paths.ts).
 
 Two clients access the same data:
 

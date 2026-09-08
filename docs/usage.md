@@ -26,6 +26,10 @@ Put personal instructions in `~/.pi/agent/rules/*.md`; project instructions
 belong in `.pi/rules/*.md`. Provider fallback examples are in
 [`fallback-providers.example.json`](../fallback-providers.example.json).
 
+### Fork-probe model substitutions
+
+See `forkProbe` in [`cpi-config.default.json`](../cpi-config.default.json).
+
 ## Develop locally
 
 With pi and Bun installed, run `bun install`, then `pi install -l .` in this

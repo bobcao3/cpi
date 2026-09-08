@@ -1,15 +1,4 @@
 # All textual content for the editor tool and its tool-less subagents.
-# Layered, last-wins (project > user > shipped default), matching cpi's config
-# convention:
-#   extensions/text/llm-editor.toml             (shipped defaults)
-#   ~/.pi/agent/llm-editor.toml                 (user, all projects)
-#   <cwd>/.pi/llm-editor.toml                   (project, overrides user)
-#
-# Format is TOML, parsed by `smol-toml` (0 deps, BSD-3). Multi-line literal
-# strings ('''...''') preserve the exact text the model sees (no escape
-# processing, so `\t` stays literal); basic strings ("...") interpret \n. A
-# newline right after the opening ''' is trimmed, so content starts on the next
-# line. Templates use {{placeholder}} tokens substituted at runtime.
 
 # ── System prompts for the Viewer/Editor subagents (near-verbatim SWE-Edit) ──
 [system]
@@ -344,7 +333,7 @@ apply_overlap = "Diff block {{i}} conflicts with diff block {{j}}. Separate or m
 
 # ── Transcript (persisted subagent log) labels ──
 [transcript]
-title = "# editor {{role}} subagent"
+title = "# {{role}} {{title}}"
 section_system = "## System Prompt"
 section_user = "## User"
 section_completion = "## Completion"

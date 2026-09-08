@@ -1,4 +1,4 @@
-# Model-facing text for the set_cwd tool. Layered (project > user > shipped).
+# Model-facing text for the set_cwd tool.
 
 [tool]
 description = "Change the cwd for all subsequent tool calls or shell commands."

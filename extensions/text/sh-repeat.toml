@@ -1,7 +1,6 @@
-# Model-facing text for the sh_repeat_until tool. Layered (project > user > shipped).
+# Model-facing text for the sh_repeat_until tool.
 
 [tool]
-# Template variables: shell_invocation is the shell command used to execute the monitor command, and shell_name is its name.
 description = "Run a command repeatedly via {{shell_invocation}} ({{shell_name}}) until it exits non-zero; exit code 0 continues looping. Stateless, detached process group. Backgrounded by default."
 prompt_snippet = "Poll with repeated shell commands"
 

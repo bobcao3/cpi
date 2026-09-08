@@ -37,6 +37,12 @@ export function observeSubagent(
   try {
     const role = request.env.PI_SUBAGENT_ROLE;
     const task = "task" in request ? request.task : request.prompt;
+    const title =
+      "title" in request &&
+      typeof request.title === "string" &&
+      request.title.length > 0
+        ? request.title
+        : task.slice(0, 240);
     beginActivity({
       id: request.runId,
       kind: "subagent",
@@ -45,7 +51,7 @@ export function observeSubagent(
         "parentSessionId" in request
           ? request.parentSessionId
           : request.env.PI_SESSION_ID,
-      label: `${role || ("kind" in request ? request.kind : "subagent")}: ${task.slice(0, 240)}`,
+      label: `${role || ("kind" in request ? request.kind : "subagent")}: ${title}`,
       cwd: request.cwd,
       started_at: Date.now(),
       log_path: role ? undefined : request.env.CPI_ACTIVITY_SHELL_LOG,

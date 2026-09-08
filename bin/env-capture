@@ -1,26 +1,11 @@
 #!/usr/bin/env bash
-# env-capture — snapshot the current shell env into a session-scoped dotenv
-# file, reloadable via `env=<path>` on sh / sh_repeat_until / lsp.
+# env-capture — snapshot the current shell env into a session-scoped dotenv.
+# See ../skills/env-capture/SKILL.md for workflow and reload details.
 #
-# Chain at the END of a `sh` command so the captured env reflects whatever the
-# preceding command did (source a venv, export vars, …). The script inherits
-# that exact env — no second spawn, no re-execution:
+# WHY: Chain this at the END of the same command so the captured env reflects
+# whatever the preceding command did. The script inherits that exact env.
 #
-#   source .venv/bin/activate && env-capture [label]
-#
-# Env contents are written to a file and referenced by path; they are NEVER
-# echoed into the conversation, so no redaction is needed.
-#
-# Output location + identity come from the cpi `sh` tool's env:
-#   PI_SESSION_DIR        parent session dir (absent for --no-session → agent dir)
-#   PI_CODING_AGENT_DIR   overrides the agent dir (~/.pi/agent)
-# Writes <dir>/env-captures/<label-or-snapshot>.env and prints to stdout:
-#   Captured N env var(s) → <path>
-#   Reload via: env=<path>
-#
-# Explicit limits (TigerStyle), matching lib/dotenv.ts read side: 4096 keys,
-# 32 KiB per value. `env` emits KEY=VALUE with no quoting → round-trips
-# losslessly through parseDotEnv for the common unquoted/unexported case.
+# Contents are written to a file and are NEVER echoed into the conversation.
 set -euo pipefail
 
 label=""
@@ -40,7 +25,6 @@ fi
 mkdir -p "$dir"
 
 if [[ -n "$label" ]]; then
-  # Sanitize label into a safe filename fragment (≤ 64 chars).
   name="$(printf '%s' "$label" | tr -c 'A-Za-z0-9._-' '_' | cut -c1-64).env"
 else
   name="env-$(date +%s)-$$.env"
@@ -50,10 +34,6 @@ file="$dir/$name"
 tmp="$(mktemp)"
 trap 'rm -f "$tmp"' EXIT
 
-# Emit KEY=VALUE lines from the inherited env, bounded: skip keys not matching
-# [A-Za-z_][A-Za-z0-9_]*; rejoin values that contain '='; cap values at 32 KiB;
-# cap at 4096 keys. `env` output is line-based; values with embedded newlines
-# are an inherent limitation shared with the old tool (parseDotEnv is line-based).
 env | awk '
   {
     eq = index($0, "=")

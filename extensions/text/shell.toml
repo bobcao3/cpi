@@ -1,24 +1,4 @@
-# Model-facing text for the shell extension (sh, sh_signal, sh_background_ps,
-# sh_repeat_until guidelines live in shell/repeat.toml).
-#
-# Layered, last-wins (project > user > shipped default), matching cpi's config
-# convention:
-#   extensions/shell/text.toml              (shipped defaults)
-#   ~/.pi/agent/shell.toml                  (user, all projects)
-#   <cwd>/.pi/shell.toml                    (project, overrides user)
-#
-# Templates use the mustache subset from lib/text.ts:
-#   {{name}}            interpolate (unescaped)
-#   {{#name}}...{{/}}   render when truthy; loops over arrays
-#   {{^name}}...{{/}}   render when falsy
-#   {{!comment}}        dropped
-# Conditionals here are driven by global switches resolved at tool registration:
-#   fd / rg / shuck / tree_sitter  (binary availability, process-stable)
-#   shell_invocation              (resolved interpreter plus -c)
-#   shell_name                    (detected shell name)
-#   max_waitfor / max_preview_lines  (tunables from cpi-config.json)
-# Vision-gated content belongs in system-prompt transforms (per-turn, ctx.model),
-# not in these static tool fields.
+# Model-facing text for the shell tools.
 
 # ── Tool metadata shown to the main agent ──
 [sh]

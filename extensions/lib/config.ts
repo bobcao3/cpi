@@ -1,22 +1,18 @@
 /**
- * Shared cpi configuration loader: deep-merges three JSON files at load time
- * (later wins): cpi-config.default.json, ~/.pi/agent/cpi-config.json,
- * <cwd>/.pi/cpi-config.json. Plain objects merge recursively; arrays are
- * replaced wholesale. A separate file, not pi's settings.json: that schema is
- * pi-owned and extensions load before it resolves.
+ * A separate file, not pi's settings.json: that schema is pi-owned and
+ * extensions load before it resolves.
  */
 
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { getCwd } from "./cwd.ts";
+import type { ForkProbeModelRule } from "./fork-probe-config.ts";
 
 export interface ShellConfig {
-  /** Shell executable to use (`auto` follows `$SHELL`; otherwise a command/path). */
   executable: string;
   defaultWaitfor: number;
   maxWaitfor: number;
-  /** Agent-facing tail-preview lines (default 500); independent of the TUI's folded preview. */
   maxPreviewLines: number;
   previewMaxBytes: number;
   maxAcc: number;
@@ -26,28 +22,22 @@ export interface ShellConfig {
 }
 
 export interface EditorChainRule {
-  /** Raw JavaScript RegExp source applied to the main model id; bare `(...)` captures, `|` alternation. */
   search: string;
-  /** Replacement producing the candidate model id via `mainId.replace(search, replace)`. Supports `$1`..`$9` backrefs and `$&` (whole match). */
   replace: string;
 }
 
 export type EditorMode = "tool-call" | "direct-diff";
 
 export interface EditorConfig {
-  /** Editor subagent model id; omit to derive from the main model. */
   model?: string;
   mode?: EditorMode;
   provider?: string;
   maxFileBytes?: number;
   subagentTimeoutMs?: number;
-  /** Bounded number of validation-feedback turns after the initial response. */
   maxCorrectionTurns?: number;
   transcriptDir?: string;
   maxTranscripts?: number;
-  /** Whitespace/elision fallback (trailing whitespace, uniform indentation, `...` elision) when anchored exact matching misses. Default true. */
   fuzzyMatch?: boolean;
-  /** Ordered {search,replace} rules deriving candidate editor model ids; fall-through = keep the main model. */
   chain?: EditorChainRule[];
 }
 
@@ -103,17 +93,17 @@ export interface LspConfig {
   tools: LspToolsConfig;
 }
 export interface CpiConfig {
+  forkProbe?: { substitutions?: ForkProbeModelRule[] };
   shell?: ShellConfig;
   editor?: EditorConfig;
   fast?: FastConfig;
   lsp?: LspConfig;
-  // Future extensions add their sections here.
 }
 
 let defaultCache: CpiConfig | null = null;
 
-/** Shipped defaults, cached after first read. Throws if missing/invalid —
- *  absence is a packaging error; silent degradation would hide it. */
+/** Throws if missing/invalid — absence is a packaging error; silent
+ * degradation would hide it. */
 export function loadDefaultConfig(): CpiConfig {
   if (defaultCache) return defaultCache;
   const path = fileURLToPath(
@@ -140,7 +130,6 @@ function loadConfigFile(path: string): Record<string, unknown> | null {
   }
 }
 
-// Returns a new object; inputs are not mutated.
 export function deepMerge<T>(user: T, project: Partial<T> | undefined): T {
   if (project === undefined) return user;
   if (typeof user !== "object" || user === null) return project as T;

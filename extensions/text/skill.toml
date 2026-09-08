@@ -1,8 +1,4 @@
-# Model-facing text for the skill tool. Layered (project > user > shipped).
-# The description is dynamic: the visible-skills list is rendered via a
-# {{#skills}}...{{/skills}} array loop (standalone tags). The consumer passes
-# { skills: [{name, description}, ...] } and trimEnd()s the result (mustache
-# array loops leave a trailing newline after the last item).
+# Model-facing text for the skill tool.
 
 [tool]
 description = '''

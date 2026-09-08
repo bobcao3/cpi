@@ -1,4 +1,4 @@
-# Model-facing text for the wait_any tool. Layered (project > user > shipped).
+# Model-facing text for the wait_any tool.
 
 [tool]
 description = "Yield and wait until any event triggers (user message, shell completion or error, alarm wakeups)."

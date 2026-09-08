@@ -59,8 +59,7 @@ function parseTranscript(file: string, body: string): ReplayCase | null {
   const oldCompletionTag = "\n\n## Completion\n";
   const newCompletionTag = "\n\n## Completion 1\n";
   const userStart = body.indexOf(userTag);
-  if (userStart < 0 || !body.startsWith("# editor editor subagent"))
-    return null;
+  if (userStart < 0 || !body.startsWith("# editor ")) return null;
   const oldUserEnd = body.indexOf(oldCompletionTag, userStart + userTag.length);
   const newUserEnd = body.indexOf(newCompletionTag, userStart + userTag.length);
   const userEnd =

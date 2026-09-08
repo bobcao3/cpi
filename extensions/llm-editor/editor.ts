@@ -1,5 +1,6 @@
 /** Applies editor changes atomically under a per-path lock. */
 
+import { basename, resolve } from "node:path";
 import { loadEditorConfig, type EditorMode } from "../lib/config.ts";
 import { runSubagent, type SubagentCandidate } from "./subagent.ts";
 import { loadEditorText, fmt } from "./text.ts";
@@ -118,6 +119,7 @@ export async function editFile(
     let correctionsSent = 0;
     const res = await runSubagent({
       role: "editor",
+      title: basename(resolve(opts.cwd, path)),
       systemPrompt: baseSystem,
       task: fmt(direct ? T.tasks.editor_direct : T.tasks.editor, {
         content: numbered,

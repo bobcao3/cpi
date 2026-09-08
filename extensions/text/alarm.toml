@@ -1,5 +1,4 @@
-# Model-facing text for the alarm tool. Layered (project > user > shipped).
-# Switch conditionals (if any) use mustache standalone tags; see lib/text.ts.
+# Model-facing text for the alarm tool.
 
 [tool]
 description = "Schedule a one-shot alarm to wake the model at a future time, or cancel active alarms. Provide either relative_seconds (seconds from now) or target_time (ISO 8601 or Unix epoch seconds). Pass cancel=true or cancel=<alarm_id> to cancel. When the alarm fires, a notification is sent to wake the model."

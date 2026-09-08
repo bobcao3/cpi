@@ -1,8 +1,4 @@
-# Model-facing text for /goal (the persistent-objective evaluator). Layered
-# (project > user > shipped). Rendered with mustache; HTML-escaping disabled.
-#
-# Vars: {{objective}} {{reason}} {{elapsed_min}} {{pending}} {{turns}}
-#   {{state}} {{elapsed}}
+# Model-facing text for /goal (the persistent-objective evaluator).
 
 [command]
 # Shown in the slash-command popup (user-facing, not sent to the model).

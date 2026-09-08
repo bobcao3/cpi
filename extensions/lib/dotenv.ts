@@ -1,6 +1,3 @@
-/** Bounded dotenv parser, deterministic (no `${}` interpolation): 256 KiB
- * file / 4096 keys / 32 KiB value caps; non-matching keys skipped. */
-
 import { readFileSync, statSync } from "node:fs";
 
 export const DOTENV_MAX_FILE_BYTES = 256 * 1024;
@@ -13,7 +10,6 @@ function assert(cond: unknown, msg: string): asserts cond {
 
 const KEY_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
-/** Strip one matching surrounding single/double quote pair. No escape handling. */
 function stripQuotes(v: string): string {
   if (v.length < 2) return v;
   const q = v[0];
@@ -21,7 +17,6 @@ function stripQuotes(v: string): string {
   return v;
 }
 
-/** Truncate to `maxBytes` UTF-8 bytes without splitting a trailing codepoint. */
 function truncateBytes(v: string, maxBytes: number): string {
   if (Buffer.byteLength(v, "utf8") <= maxBytes) return v;
   return Buffer.from(v, "utf8").subarray(0, maxBytes).toString("utf8");

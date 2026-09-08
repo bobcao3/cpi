@@ -1,4 +1,4 @@
-# Model-facing text for the lsp tool. Layered (project > user > shipped).
+# Model-facing text for the lsp tool.
 
 [tool]
 description = "Manage LSP sessions: list_sessions, list_supported_servers, start (resolve project + provision), stop, check (file diagnostics)."

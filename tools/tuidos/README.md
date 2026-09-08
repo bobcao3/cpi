@@ -5,16 +5,7 @@ and `tuidos` is the HTMX 4 browser interface.
 
 ## Run
 
-Bun 1.4 or newer is required.
-
-```bash
-bun install
-bun start
-bun dev
-bun run clidos
-```
-
-The browser interface is available at `https://localhost:3443` by default.
-
-Run `tuidos --help` for launcher options. See [DESIGN.md](DESIGN.md) and the
-source for architecture and implementation details.
+See [package.json](package.json) for dependency, runtime, and script details.
+Run `tuidos --help` for launcher options; see
+[src/web/launch.ts](src/web/launch.ts) for their implementation. See
+[DESIGN.md](DESIGN.md) for architecture.

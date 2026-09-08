@@ -19,6 +19,7 @@ import {
 import os from "node:os";
 import path from "node:path";
 import { getCwd } from "./cwd.ts";
+import { loadForkProbeModelRules } from "./fork-probe-config.ts";
 import {
   runSubagentWorker,
   type ForkProbeSubagentRequest,
@@ -169,7 +170,6 @@ function readParentSessionId(parentFile: string): string {
   }
 }
 
-/** Never rejects: failures come back as `ok:false` so callers can leave it be without try/catch. */
 export async function runForkProbe(
   opts: ForkSpawnOptions,
   prompt: string,
@@ -213,6 +213,7 @@ export async function runForkProbe(
   const request: ForkProbeSubagentRequest = {
     version: 1,
     kind: "fork-probe",
+    modelSubstitutions: loadForkProbeModelRules(opts.cwd ?? getCwd()),
     parentSessionFile: parentFile,
     parentSessionId,
     sessionDir: tmpSessionDir,

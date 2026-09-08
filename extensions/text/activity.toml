@@ -7,7 +7,7 @@ mouse_hint = "Click activity to browse"
 
 [panel]
 title = "Activity · read-only"
-help = "Esc close · Enter {{action}} · ←→ filter · ↑↓ move · Ctrl+↑↓/wheel scroll"
+help = "Esc/q close · Enter {{action}} · ←→ filter · ↑↓ move · Ctrl+↑↓/wheel scroll"
 expand = "expand"
 deeper = "more details"
 collapse = "collapse"

@@ -13,6 +13,7 @@ test("activity panel uses actual registry and log, bounds rendering, restores re
   const dir = await mkdtemp(join(tmpdir(), "activity-panel-"));
   const session_id = crypto.randomUUID();
   const id = crypto.randomUUID();
+  const next_id = crypto.randomUUID();
   const log_path = join(dir, "output.log");
   await writeFile(log_path, "first\nsecond\n\x1b[31mtail-output\x1b[0m\n");
   beginActivity({
@@ -24,11 +25,21 @@ test("activity panel uses actual registry and log, bounds rendering, restores re
     log_path,
     started_at: Date.now(),
   });
+  beginActivity({
+    id: next_id,
+    session_id,
+    kind: "shell",
+    status: "completed",
+    label: "next session",
+    started_at: Date.now() - 1000,
+    ended_at: Date.now(),
+  });
   let closed = false;
   let wake: (() => void) | undefined;
   const theme = getThemeByName("dark")!;
   const panel = new ActivityPanel({
     session_id,
+    kind: "shell",
     theme,
     height: () => 40,
     requestRender: () => wake?.(),
@@ -59,7 +70,15 @@ test("activity panel uses actual registry and log, bounds rendering, restores re
     assert.ok(output.includes(theme.fg("muted", "tail-output")));
     assert.ok(output.includes(theme.italic("Recent output")));
     assert.ok(output.includes(theme.getBgAnsi("userMessageBg")));
-    assert.ok(!output.includes(theme.getBgAnsi("customMessageBg")));
+    assert.ok(output.includes(theme.getBgAnsi("customMessageBg")));
+    panel.handleInput("\x1b[D");
+    assert.ok(text().includes("[ All ]"));
+    panel.handleInput("\x1b[C");
+    assert.ok(text().includes("[ Shell ]"));
+    const rows = text().split("\n");
+    const next_row = rows.findIndex((line) => line.includes("next session"));
+    assert.ok(next_row > 0);
+    assert.equal(rows[next_row - 1]!.replace(/[│ ]/g, ""), "");
     panel.handleMouse({
       type: "click",
       button: "left",
@@ -85,6 +104,7 @@ test("activity panel uses actual registry and log, bounds rendering, restores re
       assert.ok(rows.length <= 32);
       assert.ok(rows.every((row) => visibleWidth(row) <= width));
     }
+    panel.handleInput("\x1b[D");
     panel.handleInput("\t");
     assert.ok(text().includes("actual"));
     panel.handleInput("\t");
@@ -92,6 +112,20 @@ test("activity panel uses actual registry and log, bounds rendering, restores re
     panel.handleInput("\x1b");
     assert.equal(closed, true);
     assert.deepEqual(panel.render(80), []);
+    let q_closed = false;
+    const q_panel = new ActivityPanel({
+      session_id,
+      kind: "shell",
+      theme,
+      height: () => 40,
+      requestRender: () => {},
+      done: () => {
+        q_closed = true;
+      },
+    });
+    q_panel.handleInput("q");
+    assert.equal(q_closed, true);
+    assert.deepEqual(q_panel.render(80), []);
   } finally {
     panel.dispose();
     finishActivity(id, "completed");

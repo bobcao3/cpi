@@ -9,144 +9,46 @@ description:
 
 # Subagents in pi
 
-A subagent is launched by the `subagent` launcher (on PATH), which sends a
-bounded request over a private local RPC endpoint to the root pi process. Root
-pi runs the SDK session in an isolated worker thread under its own Bun or Node
-interpreter, so agent nesting does not create nested pi processes. On POSIX, run
-it via the `sh` tool; if it outlives `waitfor` it backgrounds, and `sh` returns
-its PID + a logfile and fires a completion follow-up on exit. This ordinary `sh`
-background job remains tracked by the client; there is **no detachment**. Its
-SDK Worker thread and RPC request are owned by root pi. The launcher refuses to
-run without that RPC endpoint; it never falls back to a standalone or nested
-agent process. The job ends if the client connection or root pi ends. There is
-**no separate transcript file**: `pi` print-mode stdout is the clean final
-answer, while the helper streams the live markdown transcript to stderr (the
-`sh` background log) and prints the raw session `jsonl` path at start and end,
-with a run summary (time, turns, input/output tokens, cost) at the very end of
-stdout. Token + cost totals are recursive: they include every nested sub-agent,
-so a parent parsing one number gets the whole subtree (no double counting).
+Launch `subagent` directly through `sh`. Use `subagent --help` for the current
+flags and output contract.
 
-## Launch / resume
+## Launch and resume
 
-On POSIX shells, ALWAYS pass the task via a **quoted heredoc** (`<<'TASK'`) on
-stdin, never as a quoted argument. A prompt with backticks, `$`, globs, or
-quotes gets executed / word-split / "Argument list too long" if passed as an
-arg; the quoted heredoc keeps every character literal — no escaping needed. In
-native PowerShell, use a literal here-string piped to `subagent` instead:
+On POSIX, always pass the task on standard input through a **quoted heredoc**;
+never pass prompts as positional arguments:
 
-```
-@'
-<task, with backticks, $vars, globs, quotes all staying literal>
-'@ | subagent -m provider/model:effort -s sub-<slug>
-```
-
-Positional arguments remain discouraged; pass the task through standard input.
-
-```
-subagent -m provider/model:effort -s sub-<slug> <<'TASK'
-<task, with full context — `backticks`, $vars, globs, quotes all stay literal>
+```sh
+subagent -s sub-task <<'TASK'
+<task, with full context>
 TASK
 ```
 
-<VERY_IMPORTANT> Invoke `subagent` directly through `sh`: never redirect its
-stdout/stderr (`>`, `2>`, `2>&1`) or pipe it, especially to `tail`/`tail -f`.
-Those consumers can buffer or discard the live transcript and hide intermediate
-observability. Use `waitfor=1` to `waitfor=5`; if it backgrounds, leave it
-running and wait for the shell completion notification instead of reading or
-polling its log. This is tracked backgrounding, not detachment: **never** launch
-subagents with `sh_detach`, `setsid`, `nohup`, or `disown`. </VERY_IMPORTANT>
+The quoted delimiter prevents shell expansion of task text. In native
+PowerShell, pipe a literal here-string to `subagent` instead.
 
-- `-s <session-id>`: pick a slug to enable resume; **re-run with the same `-s`**
-  to continue (pi restores prior context). Omit to auto-generate, then read the
-  id back from the `jsonl:` line (the jsonl filename contains the session id).
-  Sessions are nested under the parent's session dir in
-  `subagents_<PI_SESSION>/` (set by the cpi shell tool via `PI_SESSION` +
-  `PI_SESSION_DIR`), so they stay out of the parent's `/resume`. To **resume a
-  subagent manually** (outside the parent's `sh` env), pass its session dir
-  derived from the `jsonl:` path:
-  `pi --session-dir "$(dirname <jsonl-path>)" --session-id <id> -c`.
-- `-m [provider/]model[:effort]`: unified model selector. Provider and effort
-  are optional. Without `-p`, a bare model inherits the parent provider; a
-  `parent-provider/model` prefix is stripped; any other slash-qualified model is
-  passed to pi without `--provider`, so pi resolves it either as
-  `provider/model` or as a raw slash-bearing model id. Only valid thinking
-  suffixes (`off`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`) are
-  parsed as effort, so other colon-bearing model IDs remain intact. Effort
-  inherits parent `thinkingLevel` unless `:effort` is explicit, then maps to pi
-  `--thinking`.
-- `-p <provider>`: explicit provider override; takes precedence over parent
-  matching.
-- Injects `output-protocol.md` (shipped in `bin/`, keeps the subagent terse,
-  full answer in its final message). Use `waitfor=1` to `waitfor=5` with `sh`;
-  if the subagent backgrounds, leave it running and collect its result from the
-  completion notification / log after it exits. Fan out via several `sh`
-  launches; collect each result.
+Never redirect or pipe the launcher's stdout or stderr: doing so can hide live
+observability. Give `sh` a short `waitfor`; if the command backgrounds, wait for
+the completion notification rather than polling its log.
+
+Subagents are tracked work, not daemons. Never use `sh_detach`, `setsid`,
+`nohup`, or `disown`. Reuse a deliberately chosen session id to resume. Keep
+nesting one level deep.
+
+Authoritative launcher behavior is in
+[`../../bin/subagent`](../../bin/subagent),
+[`../../bin/subagent.js`](../../bin/subagent.js),
+[`../../bin/subagent-runner.js`](../../bin/subagent-runner.js), and
+[`../../bin/subagent-worker.js`](../../bin/subagent-worker.js).
 
 ## Benchmark evidence
 
-From this skill's directory, `scripts/gather-aa-benchmarks.mjs` gathers the
-current official Artificial Analysis Intelligence Index, Cost per Intelligence
-Index Task, task-specific scores, and effort variants without making
-recommendations:
+From this skill's directory, `scripts/gather-aa-benchmarks.mjs` gathers current
+official Artificial Analysis measurements without making recommendations:
 
-```bash
+```sh
 node scripts/gather-aa-benchmarks.mjs
-node scripts/gather-aa-benchmarks.mjs gpt-5-6-luna
+node scripts/gather-aa-benchmarks.mjs <release-slug>
 ```
 
-The first command shows the main-page overview; one or more Artificial Analysis
-release slugs (such as `gpt-5-6-luna`) retrieve all measured effort variants.
-Output is attributed JSON. The agent remains responsible for Pi-ID mapping,
-Pareto analysis, and selecting at most three grounded recommendations.
-
-Examples:
-
-```bash
-# Inherit parent provider and thinking effort.
-subagent -m gpt-5.6-terra -s sub-task <<'TASK'
-Reply with current date.
-TASK
-
-# Explicit provider and effort.
-subagent -m openai-codex/gpt-5.6-terra:high -s sub-task <<'TASK'
-Check implementation.
-TASK
-
-# Explicit -p remains supported for slash-containing model IDs.
-subagent -p deepseek -m deepseek/deepseek-chat:medium -s sub-task <<'TASK'
-Inspect model health.
-TASK
-```
-
-<VERY_IMPORTANT> The subagent is like any other backgrounded shell command: **DO
-NOT busy poll its status**, just wait for the shell completion notification.
-</VERY_IMPORTANT>
-
-## Read the result
-
-The `sh` result — inline if it finished within `waitfor`, else the background
-log `/tmp/pi-sh-output-<PID>.log` (`<PID>` = the id returned by `sh`, reused in
-the completion notification) — merges stdout + stderr. This tracked background
-job only lives while its client connection and root pi remain alive:
-
-- **stderr, live during the run:** a `jsonl: <path>` line at the start, then the
-  streaming markdown transcript (one block per message; tool calls render as
-  `bash or `xml).
-- **stdout, at the end:** the clean final answer, then a `jsonl: <path>` line
-  and a `summary: time=<s> turns=<n> in=<tok> out=<tok> cost=$<usd>` line
-  (tokens + cost are subtree totals; cost is model-correct since pi prices each
-  message by its own model).
-
-The completion notification and log are for results after the subagent exits.
-The `jsonl` path is pi's native raw session log (full-fidelity, structured) —
-read it for deep inspection. `rm` stale logs when finished.
-
-```
-grep '^jsonl:' /tmp/pi-sh-output-<PID>.log   # raw session log path
-```
-
-## Boundaries
-
-Subagents inherit this repo's `.pi` config (they get `sh` + these skills) — keep
-nesting one level deep. This is only spawn mechanics; plan what to delegate and
-stage sequencing yourself.
+The agent remains responsible for Pi-ID mapping, Pareto analysis, and selecting
+at most three grounded recommendations.

@@ -48,7 +48,6 @@ interface StatusReportText {
 interface ActiveTurn {
   index: number;
   startedAtMs: number;
-  reportTriggered: boolean;
 }
 
 interface ProbeRequest {
@@ -63,9 +62,7 @@ interface StatusReportState {
   epoch: number;
   turnCount: number;
   activeTurn: ActiveTurn | null;
-  longTurnTimer: NodeJS.Timeout | null;
   probeController: AbortController | null;
-  queuedProbe: ProbeRequest | null;
 }
 
 function state(): StatusReportState {
@@ -77,9 +74,7 @@ function state(): StatusReportState {
       epoch: 0,
       turnCount: 0,
       activeTurn: null,
-      longTurnTimer: null,
       probeController: null,
-      queuedProbe: null,
     } satisfies StatusReportState;
   }
   const current = globals[GLOBAL_KEY] as Partial<StatusReportState>;
@@ -87,16 +82,16 @@ function state(): StatusReportState {
   return current as StatusReportState;
 }
 
-function clearLongTurnTimer(s: StatusReportState): void {
-  if (s.longTurnTimer) clearTimeout(s.longTurnTimer);
-  s.longTurnTimer = null;
-}
-
 function cancelWork(s: StatusReportState): void {
-  clearLongTurnTimer(s);
+  const legacy = s as StatusReportState & {
+    longTurnTimer?: NodeJS.Timeout;
+    queuedProbe?: ProbeRequest;
+  };
+  if (legacy.longTurnTimer) clearTimeout(legacy.longTurnTimer);
+  delete legacy.longTurnTimer;
+  delete legacy.queuedProbe;
   s.probeController?.abort();
   s.probeController = null;
-  s.queuedProbe = null;
   s.activeTurn = null;
 }
 
@@ -153,9 +148,13 @@ function publishReport(request: ProbeRequest, report: string): void {
 
 async function runStatusProbe(request: ProbeRequest): Promise<void> {
   const s = state();
-  if (!s.enabled || s.epoch !== request.epoch) return;
+  if (!s.enabled || s.epoch !== request.epoch || request.ctx.signal?.aborted)
+    return;
   const controller = new AbortController();
   s.probeController = controller;
+  const signal = request.ctx.signal
+    ? AbortSignal.any([controller.signal, request.ctx.signal])
+    : controller.signal;
   try {
     const text = loadText<StatusReportText>(
       "status-report",
@@ -165,14 +164,14 @@ async function runStatusProbe(request: ProbeRequest): Promise<void> {
       {
         parentSessionFile: request.parentSessionFile,
         cwd: request.ctx.cwd,
-        signal: controller.signal,
+        signal,
         timeoutMs: PROBE_TIMEOUT_MS,
       },
       text.report.prompt,
     );
     const current = state();
     if (
-      controller.signal.aborted ||
+      signal.aborted ||
       current.probeController !== controller ||
       !current.enabled ||
       current.epoch !== request.epoch ||
@@ -186,74 +185,36 @@ async function runStatusProbe(request: ProbeRequest): Promise<void> {
     const current = state();
     if (current.probeController !== controller) return;
     current.probeController = null;
-    const queued = current.queuedProbe;
-    current.queuedProbe = null;
-    if (queued && current.enabled && current.epoch === queued.epoch) {
-      void runStatusProbe(queued);
-    }
   }
-}
-
-function requestReport(ctx: ExtensionContext, epoch: number): void {
-  const s = state();
-  if (!s.enabled || s.epoch !== epoch) return;
-  s.turnCount = 0;
-  const parentSessionFile = ctx.sessionManager.getSessionFile();
-  if (!parentSessionFile) return;
-  const request = { ctx, epoch, parentSessionFile } satisfies ProbeRequest;
-  if (s.probeController) {
-    s.queuedProbe = request;
-    return;
-  }
-  void runStatusProbe(request);
 }
 
 export function statusReportTurnStarted(
   event: TurnStartEvent,
-  ctx: ExtensionContext,
+  _ctx: ExtensionContext,
 ): void {
   const s = state();
   if (!s.enabled) return;
-  clearLongTurnTimer(s);
-  const epoch = s.epoch;
   s.activeTurn = {
     index: event.turnIndex,
     startedAtMs: Date.now(),
-    reportTriggered: false,
   };
-  s.longTurnTimer = setTimeout(() => {
-    const current = state();
-    const turn = current.activeTurn;
-    current.longTurnTimer = null;
-    if (
-      !current.enabled ||
-      current.epoch !== epoch ||
-      !turn ||
-      turn.index !== event.turnIndex
-    )
-      return;
-    turn.reportTriggered = true;
-    requestReport(ctx, epoch);
-  }, LONG_TURN_MS);
-  s.longTurnTimer.unref?.();
 }
 
-export function statusReportTurnEnded(
+export async function statusReportTurnEnded(
   event: TurnEndEvent,
   ctx: ExtensionContext,
-): void {
+): Promise<void> {
   const s = state();
   if (!s.enabled) return;
   const turn = s.activeTurn;
-  clearLongTurnTimer(s);
   s.activeTurn = null;
   s.turnCount = Math.min(s.turnCount + 1, TURN_LIMIT);
   const longTurn =
-    !!turn &&
-    turn.index === event.turnIndex &&
-    !turn.reportTriggered &&
+    turn?.index === event.turnIndex &&
     Date.now() - turn.startedAtMs >= LONG_TURN_MS;
-  if (longTurn || s.turnCount >= TURN_LIMIT) {
-    requestReport(ctx, s.epoch);
-  }
+  if (!longTurn && s.turnCount < TURN_LIMIT) return;
+  s.turnCount = 0;
+  const parentSessionFile = ctx.sessionManager.getSessionFile();
+  if (!parentSessionFile || ctx.signal?.aborted) return;
+  await runStatusProbe({ ctx, epoch: s.epoch, parentSessionFile });
 }

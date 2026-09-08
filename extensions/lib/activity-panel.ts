@@ -16,6 +16,7 @@ import {
 } from "./activity.ts";
 import { loadText, render, textPath } from "./text.ts";
 import { frameActivity, activityHelp } from "./activity-panel-style.ts";
+import { activityDetail } from "./activity-panel-style.ts";
 import {
   activityDetails,
   cleanActivityDisplay as clean,
@@ -191,7 +192,7 @@ export class ActivityPanel implements Component {
       this.detail_offset = Math.max(
         0,
         Math.min(
-          Math.max(0, this.detail_count - Math.max(1, this.viewport - 1)),
+          Math.max(0, this.detail_count - Math.max(1, this.viewport - 2)),
           this.detail_offset + delta,
         ),
       );
@@ -210,7 +211,7 @@ export class ActivityPanel implements Component {
 
   handleInput(data: string): void {
     if (this.closed) return;
-    if (matchesKey(data, "escape")) {
+    if (matchesKey(data, "escape") || matchesKey(data, "q")) {
       this.dispose();
       this.options.done();
     } else if (matchesKey(data, "left") || matchesKey(data, "shift+tab"))
@@ -323,16 +324,19 @@ export class ActivityPanel implements Component {
       });
       if (selected && this.expanded_id === entry.id) {
         const details = this.details(entry, Math.max(1, width - 2));
+        const detail_rows = Math.max(0, this.viewport - 2);
         this.detail_count = details.length;
         this.detail_offset = Math.min(
           this.detail_offset,
-          Math.max(0, details.length - Math.max(1, this.viewport - 1)),
+          Math.max(0, details.length - Math.max(1, detail_rows)),
         );
+        const id = entry.id;
         for (const detail of details.slice(
           this.detail_offset,
-          this.detail_offset + this.viewport - 1,
+          this.detail_offset + detail_rows,
         ))
-          rows.push({ text: clip(`  ${detail}`), id: entry.id });
+          rows.push({ text: activityDetail(detail, width, theme), id });
+        if (detail_rows) rows.push({ text: "", id: entry.id });
       }
       if (selected) selected_end = rows.length;
     }

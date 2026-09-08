@@ -1,5 +1,3 @@
-/** Anti-stuck: consumer of the out-of-band fork-probe. When the headless hold loop is eventless, fork and ask "WAIT or ABORT"; only ABORT appends a corrective message to the ORIGINAL session (follow-up turn exits the hold). Inter-probe interval backs off 30s ×2 cap 1h (CPI_ANTI_STUCK_*); the fork child cannot re-fork within PROBE_TIMEOUT_MS. */
-
 import type {
   ExtensionAPI,
   ExtensionContext,
@@ -73,7 +71,6 @@ function cancelProbe(s: AntiStuckState): void {
   s.probeController = null;
 }
 
-/** Idempotent: only the first call per episode arms the schedule. */
 export function markEventlessStart(): void {
   const s = state();
   if (s.waitSinceMs !== null) return;
@@ -96,7 +93,6 @@ function alarmUpcoming(): boolean {
 
 export type AntiStuckResult = "not_applicable" | "probed_wait" | "probed_abort";
 
-/** Maybe run an anti-stuck fork probe: "not_applicable" (no session, not due, or alarm upcoming — caller delivers a reminder), "probed_wait" (no ABORT — original untouched, backoff advances), "probed_abort" (ABORT or goal resume — follow-up turn triggered; caller must NOT deliver a reminder). */
 export async function maybeAntiStuckProbe(
   pi: ExtensionAPI,
   ctx: ExtensionContext,
@@ -131,7 +127,7 @@ export async function maybeAntiStuckProbe(
     elapsed_min: elapsedMin,
     pending: pendingText,
   });
-  if (s.probeController) return "not_applicable"; // one check per wait episode
+  if (s.probeController) return "not_applicable";
   const probeController = new AbortController();
   s.probeController = probeController;
   const abortFromContext = (): void => probeController.abort();
@@ -200,8 +196,6 @@ export async function maybeAntiStuckProbe(
   s.nextProbeAtMs = Date.now() + s.intervalMs;
   return "probed_wait";
 }
-
-// Headless: the hold loop's await is the clock (core.ts probes per eventless timeout). TUI: no hold await — a self-rescheduling setTimeout drives probes.
 
 function clearTimer(s: AntiStuckState): void {
   if (s.timer) {

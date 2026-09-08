@@ -5,12 +5,13 @@ import {
   createAgentSessionServices,
   getAgentDir,
   resolveCliModel,
-  runPrintMode,
 } from "@earendil-works/pi-coding-agent";
 import { observeSession } from "./subagent-activity.mjs";
+import { selectForkProbeSubstitute } from "./fork-probe-model.mjs";
 
-function selectModel(request, services, diagnostics) {
-  if (!request.model) return {};
+function selectModel(request, services, diagnostics, manager) {
+  if (!request.model)
+    return selectForkProbeSubstitute(request, services, manager);
   const resolved = resolveCliModel({
     cliModel: request.model,
     modelRuntime: services.modelRuntime,
@@ -86,7 +87,16 @@ export async function runForkProbeSubagent(request, signal) {
           message: `Failed to load extension "${path}": ${error}`,
         })),
     ];
-    const selection = selectModel(request, services, diagnostics);
+    const selection = selectModel(
+      request,
+      services,
+      diagnostics,
+      sessionManager,
+    );
+    services.settingsManager.applyOverrides({
+      compaction: { enabled: false },
+      retry: { enabled: false },
+    });
     const created = await createAgentSessionFromServices({
       services,
       sessionManager,
@@ -94,6 +104,7 @@ export async function runForkProbeSubagent(request, signal) {
       tools,
       ...selection,
     });
+    created.session.agent.shouldStopAfterTurn = () => true;
     return { ...created, services, diagnostics };
   };
   const runtime = await createAgentSessionRuntime(createRuntime, {
@@ -117,14 +128,43 @@ export async function runForkProbeSubagent(request, signal) {
     return 1;
   }
   const unobserve = observeSession(runtime.session);
+  let assistant;
+  const unsubscribe = runtime.session.subscribe((event) => {
+    if (event.type === "message_end" && event.message.role === "assistant") {
+      assistant = event.message;
+    }
+  });
   started = true;
   try {
-    return await runPrintMode(runtime, {
-      mode: "text",
-      initialMessage: request.prompt,
+    await runtime.session.bindExtensions({
+      mode: "print",
+      onError: ({ extensionPath, error }) =>
+        process.stderr.write(`Extension error (${extensionPath}): ${error}\n`),
     });
+    if (signal?.aborted) return 1;
+    await runtime.session.prompt(request.prompt);
+    if (
+      signal?.aborted ||
+      !assistant ||
+      ["error", "aborted"].includes(assistant.stopReason)
+    )
+      return 1;
+    const answer = assistant.content
+      .filter((part) => part.type === "text")
+      .map((part) => part.text)
+      .join("\n")
+      .trim();
+    if (!answer) return 1;
+    await new Promise((resolve, reject) => {
+      process.stdout.write(`${answer}\n`, (error) =>
+        error ? reject(error) : resolve(),
+      );
+    });
+    return 0;
   } finally {
+    unsubscribe();
     unobserve();
     signal?.removeEventListener("abort", stop);
+    await runtime.dispose();
   }
 }
