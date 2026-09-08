@@ -1,11 +1,6 @@
 import type { Worker } from "node:worker_threads";
 import type { SubagentWorkerRequest } from "./subagent-rpc-protocol.ts";
-import {
-  appendActivityTail,
-  beginActivity,
-  updateActivity,
-} from "./activity.ts";
-import { parseSummaryUsage } from "./cost-ledger.ts";
+import { beginActivity } from "./activity.ts";
 
 export function subagentEnvironment(
   request: SubagentWorkerRequest,
@@ -54,7 +49,6 @@ export function observeSubagent(
       label: `${role || ("kind" in request ? request.kind : "subagent")}: ${title}`,
       cwd: request.cwd,
       started_at: Date.now(),
-      log_path: role ? undefined : request.env.CPI_ACTIVITY_SHELL_LOG,
       metrics: {
         worker_thread: worker.threadId,
         usage_scope: "self",
@@ -67,63 +61,5 @@ export function observeSubagent(
           : {}),
       },
     });
-    let summaryTail = "";
-    let bytes = 0;
-    worker.stderr.on("data", (chunk: Buffer) => {
-      try {
-        const text = chunk.toString("utf8");
-        bytes += chunk.length;
-        summaryTail = (summaryTail + text).slice(-32768);
-        appendActivityTail(request.runId, text);
-        updateActivity(request.runId, { metrics: { output_bytes: bytes } });
-      } catch {}
-    });
-    worker.stdout.on("data", (chunk: Buffer) => {
-      try {
-        summaryTail = (summaryTail + chunk.toString("utf8")).slice(-32768);
-        bytes += chunk.length;
-        updateActivity(request.runId, { metrics: { output_bytes: bytes } });
-      } catch {}
-    });
-    worker.once("exit", () => {
-      try {
-        const usage = parseSummaryUsage(summaryTail);
-        if (usage) {
-          updateActivity(request.runId, {
-            metrics: {
-              input: usage.input,
-              output: usage.output,
-              cost: usage.cost,
-              usage_scope: "subtree",
-            },
-          });
-        }
-      } catch {}
-    });
   } catch {}
-}
-export function observeSubagentMessage(id: string, message: unknown): boolean {
-  if (
-    !message ||
-    typeof message !== "object" ||
-    !("kind" in message) ||
-    message.kind !== "activity"
-  )
-    return false;
-  try {
-    const value = message as { metrics?: Record<string, string | number> };
-    const metrics: Record<string, string | number> = {};
-    for (const [key, item] of Object.entries(value.metrics ?? {}).slice(
-      0,
-      24,
-    )) {
-      if (
-        typeof item === "string" ||
-        (typeof item === "number" && Number.isFinite(item))
-      )
-        metrics[key] = item;
-    }
-    updateActivity(id, { metrics });
-  } catch {}
-  return true;
 }

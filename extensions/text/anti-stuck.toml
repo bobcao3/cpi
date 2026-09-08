@@ -1,7 +1,12 @@
 # Model-facing text for the anti-stuck fork probe + abort append.
 
 [probe]
-prompt = "{{elapsed_min}} minutes have passed without completions (pending: {{pending}}), and no alarm is scheduled. Please review previous actions and background shells. If it is supposed to take this long, respond exactly: WAIT, and we will keep waiting for events. If it is incorrect or you think previous backgrounded commands might be stuck, respond exactly: ABORT, then we will wake up the agent to investigate"
+prompt = """
+---
+
+YOU ARE REQUESTED TO IMMEDIATELY RESPOND TO THIS REQUEST:
+
+{{elapsed_min}} minutes have passed without completions (pending: {{pending}}), and no alarm is scheduled. Please review previous actions and background shells. If it is supposed to take this long, respond exactly: WAIT, and we will keep waiting for events. If it is incorrect or you think previous backgrounded commands might be stuck, respond exactly: ABORT, then we will wake up the agent to investigate. Tools are disabled."""
 
 [append]
 abort = "We have waited {{elapsed_min}} min, please assess and check, backgrounded shells or agents (pending: {{pending}}) might be stuck."

@@ -8,13 +8,11 @@ export interface ToolCallBlock {
   arguments?: unknown;
 }
 
-// Markdown lines for the block, or null to defer to the default XML renderer.
+// Markdown lines for the block, or null to defer to the default summary renderer.
 export type ToolCallMarkdownRenderer = (
   block: ToolCallBlock,
 ) => string[] | null;
 
-// Bound recursion: pathological nesting must not overflow the stack (args are JSON, so no cycles).
-const MAX_XML_DEPTH = 32;
 const GLOBAL_KEY = "__cpiTranscriptRenderers";
 const IDS_KEY = "__cpiTranscriptIds";
 type Registry = Map<string, ToolCallMarkdownRenderer>;
@@ -88,78 +86,8 @@ export function shortToolCallId(
   return short;
 }
 
-function escapeXmlText(s: string): string {
-  return s.replace(/[&<>"']/g, (ch) => {
-    switch (ch) {
-      case "&":
-        return "&amp;";
-      case "<":
-        return "&lt;";
-      case ">":
-        return "&gt;";
-      case '"':
-        return "&quot;";
-      default:
-        return "&apos;";
-    }
-  });
-}
-
-// XML names: collapse invalid chars to _, prefix when starting with digit/hyphen/dot.
-function sanitizeTag(name: string): string {
-  const t = String(name).replace(/[^A-Za-z0-9_.:-]/g, "_");
-  if (/^[0-9.-]/.test(t)) return "_" + t;
-  return t || "_";
-}
-
-function isScalar(v: unknown): v is string | number | boolean {
-  return (
-    typeof v === "string" || typeof v === "number" || typeof v === "boolean"
-  );
-}
-
-function pushXml(
-  tag: string,
-  value: unknown,
-  depth: number,
-  out: string[],
-): void {
-  const pad = "  ".repeat(depth);
-  if (value === null || value === undefined) {
-    out.push(`${pad}<${tag}/>`);
-    return;
-  }
-  if (isScalar(value)) {
-    out.push(`${pad}<${tag}>${escapeXmlText(String(value))}</${tag}>`);
-    return;
-  }
-  if (depth >= MAX_XML_DEPTH) {
-    out.push(`${pad}<${tag}>…</${tag}>`);
-    return;
-  }
-  if (Array.isArray(value)) {
-    if (value.length === 0) {
-      out.push(`${pad}<${tag}/>`);
-      return;
-    }
-    out.push(`${pad}<${tag}>`);
-    for (const item of value) pushXml("item", item, depth + 1, out);
-    out.push(`${pad}</${tag}>`);
-    return;
-  }
-  if (typeof value === "object") {
-    const entries = Object.entries(value as Record<string, unknown>);
-    if (entries.length === 0) {
-      out.push(`${pad}<${tag}/>`);
-      return;
-    }
-    out.push(`${pad}<${tag}>`);
-    for (const [k, v] of entries) pushXml(sanitizeTag(k), v, depth + 1, out);
-    out.push(`${pad}</${tag}>`);
-    return;
-  }
-  out.push(`${pad}<${tag}>${escapeXmlText(String(value))}</${tag}>`);
-}
+const SUMMARY_KEYS = ["description", "describe", "instruction"];
+const MAX_SUMMARY_CHARS = 160;
 
 // Providers deliver args as object or JSON string; malformed JSON renders as raw text.
 export function parseArgs(block: ToolCallBlock): unknown {
@@ -174,14 +102,34 @@ export function parseArgs(block: ToolCallBlock): unknown {
   return a ?? {};
 }
 
-function defaultXmlLines(block: ToolCallBlock): string[] {
-  const head = `**${block.name}** \`${shortToolCallId(block.id, block.name)}\``;
-  const xml: string[] = [];
-  pushXml(sanitizeTag(block.name), parseArgs(block), 0, xml);
-  return [head, "```xml", ...xml, "```", ""];
+function firstString(args: Record<string, unknown>, keys: string[]): string {
+  for (const k of keys) {
+    const v = args[k];
+    if (typeof v === "string" && v.trim()) return v.trim();
+  }
+  return "";
 }
 
-// Never throws: a throwing or empty renderer falls back to the default XML.
+export function truncate(s: string, max: number): string {
+  return s.length <= max ? s : s.slice(0, max - 1) + "…";
+}
+
+// One-line call summary: `[edit|ed0007]: fix the bug · src/x.ts`.
+export function toolCallSummaryLine(block: ToolCallBlock): string {
+  const args = parseArgs(block);
+  const fields: string[] = [];
+  if (args && typeof args === "object" && !Array.isArray(args)) {
+    const rec = args as Record<string, unknown>;
+    const desc = firstString(rec, SUMMARY_KEYS);
+    if (desc)
+      fields.push(truncate(desc.replace(/\s+/g, " "), MAX_SUMMARY_CHARS));
+    if (typeof rec.path === "string" && rec.path) fields.push(rec.path);
+  }
+  const head = `[${block.name}|${shortToolCallId(block.id, block.name)}]`;
+  return fields.length ? `${head}: ${fields.join(" · ")}` : head;
+}
+
+// Never throws: a throwing or empty renderer falls back to the default summary line.
 export function renderToolCallMarkdown(block: ToolCallBlock): string[] {
   const custom = registry().get(block.name);
   if (custom) {
@@ -190,5 +138,5 @@ export function renderToolCallMarkdown(block: ToolCallBlock): string[] {
       if (lines && lines.length) return lines;
     } catch {}
   }
-  return defaultXmlLines(block);
+  return [toolCallSummaryLine(block)];
 }

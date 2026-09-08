@@ -1,7 +1,14 @@
-import { Worker } from "node:worker_threads";
-import { createServer, type Server, type Socket } from "node:net";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { createServer, type Socket } from "node:net";
+import {
+  MAX_ACTIVE,
+  state,
+  send,
+  startRun,
+  abortRun,
+  finishRun,
+  type ActiveRun,
+  type RpcState,
+} from "./subagent-rpc-runtime.ts";
 import {
   type SubagentWorkerRequest,
   validCliSubagentRequest,
@@ -12,12 +19,10 @@ import {
   removeSubagentRpcEndpoint,
   secureSubagentRpcEndpoint,
 } from "./subagent-rpc-endpoint.ts";
-import {
-  observeSubagent,
-  observeSubagentMessage,
-  subagentEnvironment,
-} from "./activity-subagent.ts";
-import { finishActivity, updateActivity } from "./activity.ts";
+import type {
+  SubagentObservationOptions,
+  SubagentObservationResult,
+} from "./subagent-events.ts";
 
 export type {
   ForkProbeSubagentRequest,
@@ -26,20 +31,11 @@ export type {
 } from "./subagent-rpc-protocol.ts";
 
 export const CPI_SUBAGENT_RPC = "CPI_SUBAGENT_RPC";
-const STATE_KEY = "__cpiSubagentRpc";
-const MAX_ACTIVE = 16;
 const MAX_REQUEST_BYTES = 2 * 1024 * 1024;
-const ABORT_GRACE_MS = 5000;
 const MAX_FORWARDED_DATA_CHUNK_BYTES = 48 * 1024;
-const WORKER_PATH = join(
-  dirname(fileURLToPath(import.meta.url)),
-  "..",
-  "..",
-  "bin",
-  "subagent-worker.js",
-);
+const MAX_SOCKET_BACKLOG_BYTES = 8 * 1024 * 1024;
 
-export interface SubagentWorkerRunOptions {
+export interface SubagentWorkerRunOptions extends SubagentObservationOptions {
   signal?: AbortSignal;
   stdout?: (chunk: Buffer) => void;
   stderr?: (chunk: Buffer) => void;
@@ -49,108 +45,13 @@ export interface SubagentWorkerRunOptions {
 export interface SubagentWorkerRunResult {
   exitCode: number | null;
   error?: Error;
-}
-
-interface ActiveRun {
-  activityId: string;
-  cancelled?: boolean;
-  failed?: boolean;
-  socket?: Socket;
-  worker: Worker;
-  done: boolean;
-  exitCode: number | null;
-  timer?: ReturnType<typeof setTimeout>;
-}
-
-interface RpcState {
-  server?: Server;
-  endpoint?: string;
-  ready?: Promise<string>;
-  active: Set<ActiveRun>;
-}
-
-function state(): RpcState {
-  const g = globalThis as Record<string, unknown>;
-  let value = g[STATE_KEY] as RpcState | undefined;
-  if (!value) {
-    value = { active: new Set() };
-    g[STATE_KEY] = value;
-  }
-  return value;
-}
-
-function send(socket: Socket, value: unknown): boolean {
-  if (!socket.writable) return false;
-  return socket.write(`${JSON.stringify(value)}\n`);
+  observation?: SubagentObservationResult;
 }
 
 function fail(socket: Socket, message: string): void {
   send(socket, { kind: "error", message: message.slice(0, 4096) });
   send(socket, { kind: "done", exitCode: 1 });
   socket.end();
-}
-
-function abortRun(run: ActiveRun): void {
-  if (run.done || run.timer) return;
-  run.cancelled = true;
-  updateActivity(run.activityId, { status: "stopping" });
-  try {
-    run.worker.postMessage({ kind: "abort" });
-  } catch {}
-  run.timer = setTimeout(() => void run.worker.terminate(), ABORT_GRACE_MS);
-  run.timer.unref?.();
-}
-
-function startRun(
-  request: SubagentWorkerRequest,
-  rpc: RpcState,
-  endpoint: string,
-  socket?: Socket,
-): ActiveRun {
-  if (rpc.active.size >= MAX_ACTIVE) {
-    throw new Error(`subagent concurrency limit reached (${MAX_ACTIVE})`);
-  }
-  const worker = new Worker(WORKER_PATH, {
-    workerData: request,
-    env: subagentEnvironment(request, endpoint),
-    stdout: true,
-    stderr: true,
-  });
-  const run: ActiveRun = {
-    activityId: request.runId,
-    socket,
-    worker,
-    done: false,
-    exitCode: null,
-  };
-  rpc.active.add(run);
-  observeSubagent(request, worker);
-  return run;
-}
-
-function finishRun(run: ActiveRun, rpc: RpcState): void {
-  if (run.done) return;
-  run.done = true;
-  if (run.timer) clearTimeout(run.timer);
-  finishActivity(
-    run.activityId,
-    run.failed
-      ? "failed"
-      : run.cancelled
-        ? "cancelled"
-        : run.exitCode === 0
-          ? "completed"
-          : "failed",
-    { exit_code: run.exitCode ?? "unknown" },
-  );
-  rpc.active.delete(run);
-  if (run.socket) {
-    send(run.socket, {
-      kind: "done",
-      exitCode: Number.isInteger(run.exitCode) ? run.exitCode : 1,
-    });
-    run.socket.end();
-  }
 }
 
 function launch(
@@ -172,6 +73,7 @@ function launch(
   }
   const { worker } = run;
   const forward = (stream: "stdout" | "stderr", chunk: Buffer): void => {
+    if (!socket.writable) return;
     for (
       let offset = 0;
       offset < chunk.length;
@@ -184,10 +86,18 @@ function launch(
           .subarray(offset, offset + MAX_FORWARDED_DATA_CHUNK_BYTES)
           .toString("base64"),
       });
-      if (!writable) {
+      if (socket.writableLength > MAX_SOCKET_BACKLOG_BYTES) {
+        run.error = new Error("subagent RPC output backlog limit");
+        abortRun(run);
+        socket.destroy();
+        return;
+      }
+      if (!writable && !run.observation.paused) {
+        run.observation.paused = true;
         worker.stdout.pause();
         worker.stderr.pause();
         socket.once("drain", () => {
+          run.observation.resume();
           worker.stdout.resume();
           worker.stderr.resume();
         });
@@ -196,14 +106,37 @@ function launch(
   };
   worker.stdout.on("data", (chunk: Buffer) => forward("stdout", chunk));
   worker.stderr.on("data", (chunk: Buffer) => forward("stderr", chunk));
+  run.observation.options = {
+    onMarkdown: (chunk) => forward("stderr", Buffer.from(chunk)),
+    onEvent: (event) => {
+      if (event.type === "terminal" && event.answer)
+        forward("stdout", Buffer.from(`${event.answer}\n`));
+    },
+  };
   worker.on("message", (message) => {
-    if (observeSubagentMessage(run.activityId, message)) return;
-    if (message?.kind === "done" && Number.isInteger(message.exitCode)) {
+    try {
+      if (run.observation.receive(message)) return;
+    } catch (error) {
+      run.failed = true;
+      run.error = new Error(String(error));
+      send(socket, { kind: "error", message: String(error) });
+      abortRun(run);
+      return;
+    }
+    if (
+      message?.kind === "done" &&
+      Number.isInteger(message.exitCode) &&
+      run.exitCode === null
+    ) {
       run.exitCode = message.exitCode;
+    } else {
+      run.error = new Error("unexpected subagent worker control message");
+      abortRun(run);
     }
   });
   worker.on("error", (error) => {
     run.failed = true;
+    run.error = error;
     send(socket, {
       kind: "error",
       message: (error instanceof Error ? error.message : String(error)).slice(
@@ -213,7 +146,9 @@ function launch(
     });
     run.exitCode = 1;
   });
-  worker.on("exit", () => {
+  worker.on("exit", (code) => {
+    if (code !== 0 && !run.cancelled)
+      run.error ??= new Error(`subagent worker exited ${code}`);
     finishRun(run, rpc);
   });
   socket.on("close", () => abortRun(run));
@@ -288,12 +223,14 @@ export async function runSubagentWorker(
   }
 
   let error: Error | undefined;
+  run.observation.options = options;
   let receivedDone = false;
   const fail = (value: unknown): void => {
     run.failed = true;
     if (!error)
       error =
         value instanceof Error ? value : new Error("subagent worker failed");
+    run.error = error;
     abortRun(run);
   };
   const forward = (
@@ -318,7 +255,12 @@ export async function runSubagentWorker(
     forward(options.stderr, chunk),
   );
   run.worker.on("message", (message) => {
-    if (observeSubagentMessage(run.activityId, message)) return;
+    try {
+      if (run.observation.receive(message)) return;
+    } catch (value) {
+      fail(value);
+      return;
+    }
     if (message?.kind === "done") {
       if (receivedDone) {
         fail(
@@ -354,19 +296,33 @@ export async function runSubagentWorker(
     }
   });
   run.worker.on("error", (value) => fail(value));
-  await new Promise<void>((resolve) => run.worker.once("exit", resolve));
-  finishRun(run, rpc);
+  const workerExit = await new Promise<number>((resolve) =>
+    run.worker.once("exit", resolve),
+  );
+  if (workerExit !== 0 && !run.cancelled)
+    error ??= new Error(`subagent worker exited ${workerExit}`);
   options.signal?.removeEventListener("abort", onAbort);
   if (!receivedDone && !error && !options.signal?.aborted)
     error = new Error(
       "subagent worker exited without a structured done message",
     );
-  return { exitCode: options.signal?.aborted ? null : run.exitCode, error };
+  if (error) run.failed = true;
+  run.error ??= error;
+  finishRun(run, rpc);
+  return {
+    exitCode: options.signal?.aborted ? null : run.exitCode,
+    error: run.error,
+    observation: run.observation.result,
+  };
 }
 
 export async function ensureSubagentRpc(): Promise<string> {
   const rpc = state();
-  if (rpc.endpoint && rpc.server?.listening) return rpc.endpoint;
+  if (rpc.endpoint && rpc.server?.listening) {
+    rpc.server.removeAllListeners("connection");
+    rpc.server.on("connection", (socket) => accept(socket, rpc));
+    return rpc.endpoint;
+  }
   if (rpc.ready) return rpc.ready;
   rpc.ready = new Promise<string>((resolve, reject) => {
     const endpoint = createSubagentRpcEndpoint();
@@ -375,6 +331,9 @@ export async function ensureSubagentRpc(): Promise<string> {
     server.once("error", reject);
     server.listen(endpoint, () => {
       server.off("error", reject);
+      server.on("error", (error) => {
+        process.stderr.write(`[subagent-rpc] ${error.message}\n`);
+      });
       secureSubagentRpcEndpoint(endpoint);
       rpc.server = server;
       rpc.endpoint = endpoint;

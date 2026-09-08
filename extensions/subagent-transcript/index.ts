@@ -7,10 +7,11 @@
  */
 
 import { writeFileSync } from "node:fs";
+import { isMainThread } from "node:worker_threads";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
   renderToolCallMarkdown,
-  shortToolCallId,
+  truncate,
   type ToolCallBlock,
 } from "../lib/transcript-registry.ts";
 import { getSubagentUsage, formatCost } from "../lib/cost-ledger.ts";
@@ -37,6 +38,39 @@ function stderr(s: string): void {
   }
 }
 
+// Whitespace discipline: right-trim lines, cap blank runs at one blank line,
+// never start the stream with blank lines. Deltas arrive mid-line, so lines
+// are completed through a buffer.
+let lineBuf = "";
+let blankRun = 0;
+let wroteLine = false;
+
+function commitLine(line: string): void {
+  if (!line.trim()) {
+    if (wroteLine) blankRun = 1;
+    return;
+  }
+  if (wroteLine) stderr("\n".repeat(blankRun));
+  stderr(line.replace(/\s+$/, "") + "\n");
+  wroteLine = true;
+  blankRun = 0;
+}
+
+function write(chunk: string): void {
+  lineBuf += chunk;
+  for (;;) {
+    const idx = lineBuf.indexOf("\n");
+    if (idx === -1) break;
+    commitLine(lineBuf.slice(0, idx));
+    lineBuf = lineBuf.slice(idx + 1);
+  }
+}
+
+function flushWrite(): void {
+  if (lineBuf) commitLine(lineBuf);
+  lineBuf = "";
+}
+
 function textOf(content: unknown): string {
   if (typeof content === "string") return content;
   if (!Array.isArray(content)) return "";
@@ -44,6 +78,34 @@ function textOf(content: unknown): string {
     .filter((c) => c?.type === "text" && c.text)
     .map((c) => c.text)
     .join("\n");
+}
+
+const RESULT_PREVIEW_LINES = 10;
+const MAX_RESULT_LINE_CHARS = 200;
+const ANSI_RE = /\x1b\[[0-9;]*[A-Za-z]/g;
+
+function resultText(m: any): string {
+  const parts: string[] = [];
+  for (const c of Array.isArray(m.content) ? m.content : []) {
+    if (c?.type === "text" && c.text) parts.push(c.text);
+    else if (c?.type === "image")
+      parts.push(`[image ${c.mimeType ?? "unknown"}]`);
+  }
+  return parts.join("\n").replace(/\r/g, "").replace(ANSI_RE, "");
+}
+
+// TUI-style preview: blockquoted tool output, capped like the interactive fallback.
+function renderResultQuote(m: any): string[] {
+  const text = resultText(m);
+  if (!text.trim()) return [];
+  const lines = text.split("\n").map((l) => truncate(l, MAX_RESULT_LINE_CHARS));
+  const quote = lines
+    .slice(0, RESULT_PREVIEW_LINES)
+    .map((l) => (l ? `> ${l}` : ">"));
+  const rest = lines.length - quote.length;
+  if (rest > 0) quote.push(`> … (${rest} more lines)`);
+  if (m.isError) quote[0] = `> [error] ${quote[0].slice(2)}`;
+  return [...quote, ""];
 }
 
 function renderMessage(m: any): string {
@@ -64,17 +126,15 @@ function renderMessage(m: any): string {
       }
     }
   } else if (role === "toolResult") {
-    const flag = m.isError ? " [error]" : "";
-    out.push(
-      `**result** ${m.toolName ?? ""} \`${shortToolCallId(m.toolCallId, m.toolName ?? "")}\`${flag}`,
-      "",
-      "```",
-      textOf(m.content) || "(no output)",
-      "```",
-      "",
-    );
+    out.push(...renderResultQuote(m));
   }
   return out.length ? out.join("\n") + "\n" : "";
+}
+
+function ensureAssistantHeader(): void {
+  if (streamed) return;
+  write(`## Assistant${asstTag}\n\n`);
+  streamed = true;
 }
 
 function tallyUsage(m: any): void {
@@ -95,6 +155,7 @@ function conclusionSummary(): string {
 }
 
 export default async function (pi: ExtensionAPI) {
+  if (!isMainThread && process.env.CPI_ACTIVITY_TELEMETRY === "1") return;
   pi.on("session_start", async (_event, ctx) => {
     active = ctx.mode === "print" || !!process.env.PI_SUBAGENT;
     if (!active) return;
@@ -105,8 +166,11 @@ export default async function (pi: ExtensionAPI) {
     outTokens = 0;
     costUsd = 0;
     streamed = false;
+    lineBuf = "";
+    blankRun = 0;
+    wroteLine = false;
     asstTag = "";
-    stderr(`jsonl: ${sessionFile}\n`);
+    write(`jsonl: ${sessionFile}\n`);
   });
 
   pi.on("turn_end", async (_event) => {
@@ -127,34 +191,33 @@ export default async function (pi: ExtensionAPI) {
     const ev = (event as { assistantMessageEvent: any }).assistantMessageEvent;
     if (!ev) return;
     const t = typeof ev.type === "string" ? ev.type : "";
-    if (t !== "text_delta" && t !== "thinking_delta" && t !== "toolcall_delta")
+    if (t === "toolcall_end") {
+      ensureAssistantHeader();
+      if (lastKind === "thinking") write("\n\n");
+      lastKind = "toolcall";
+      for (const line of renderToolCallMarkdown(ev.toolCall as ToolCallBlock))
+        write(line + "\n");
       return;
-    if (!streamed) {
-      stderr(`## Assistant${asstTag}\n\n`);
-      streamed = true;
     }
-    const kind =
-      t === "thinking_delta"
-        ? "thinking"
-        : t === "text_delta"
-          ? "text"
-          : "toolcall";
+    if (t !== "text_delta" && t !== "thinking_delta") return;
+    ensureAssistantHeader();
+    const kind = t === "thinking_delta" ? "thinking" : "text";
     if (kind !== lastKind) {
-      if (kind === "thinking") stderr("## Thinking\n\n");
-      else if (lastKind === "thinking") stderr("\n\n");
+      if (kind === "thinking") write("## Thinking\n\n");
+      else if (lastKind === "thinking") write("\n\n");
       lastKind = kind;
     }
     const d = typeof ev.delta === "string" ? ev.delta : "";
-    if (d) stderr(d);
+    if (d) write(d);
   });
 
   pi.on("message_end", async (event) => {
     if (!active) return;
     const m = (event as { message: any }).message;
     if (m?.role === "assistant") tallyUsage(m);
-    // Streamed assistants already emitted their content live; emit a trailing newline so the summary stays on its own filtered line.
+    // Streamed assistants already emitted their content live; the writer flushes any partial line so the summary starts on its own line.
     if (m?.role === "assistant" && streamed) {
-      stderr("\n");
+      flushWrite();
       return;
     }
     let md = "";
@@ -163,11 +226,12 @@ export default async function (pi: ExtensionAPI) {
     } catch {
       md = "";
     }
-    stderr(md);
+    write(md);
   });
 
   pi.on("session_shutdown", async () => {
     if (!active) return;
+    flushWrite();
     const summary = conclusionSummary();
     // Land after the answer via the wrapper's temp file; fall back to stderr without one.
     if (SUMMARY_PATH) {
@@ -178,6 +242,6 @@ export default async function (pi: ExtensionAPI) {
         // fall through to stderr
       }
     }
-    stderr(summary);
+    write(summary);
   });
 }

@@ -196,6 +196,8 @@ viewer = '''
 {{content}}
 
 Query: {{query}}
+
+Respond with `view-complete` and a JSON array of ranges relevant to the query.
 '''
 editor_correction = '''
 Validation rejected your previous edit-complete submission:

@@ -39,6 +39,8 @@ const forkProbe = {
   parentSessionId: "12345678-1234-1234-1234-123456789abc",
   sessionDir: resolve("fork-session"),
   prompt: "evaluate",
+  toolsDisabledMessage: "Tools are disabled.",
+  maxOutputTokens: 1024,
 };
 
 describe("subagent RPC request boundary", () => {
@@ -62,6 +64,12 @@ describe("subagent RPC request boundary", () => {
     ).toBe(false);
     expect(
       validForkProbeSubagentRequest({ ...forkProbe, parentSessionId: "bad-" }),
+    ).toBe(false);
+    expect(
+      validForkProbeSubagentRequest({ ...forkProbe, toolsDisabledMessage: "" }),
+    ).toBe(false);
+    expect(
+      validForkProbeSubagentRequest({ ...forkProbe, maxOutputTokens: 0 }),
     ).toBe(false);
     expect(
       validForkProbeSubagentRequest({

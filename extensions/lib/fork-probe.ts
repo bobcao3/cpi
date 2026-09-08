@@ -24,13 +24,14 @@ import {
   runSubagentWorker,
   type ForkProbeSubagentRequest,
 } from "./subagent-rpc.ts";
+import { loadText, textPath } from "./text.ts";
 
 const DEFAULT_TIMEOUT_MS = 5 * 60 * 1000; // 5 min
 const MAX_TIMEOUT_MS = 30 * 60 * 1000; // 30 min
-const MAX_STDOUT_BYTES = 1 * 1024 * 1024; // 1 MiB
 const MAX_STDERR_BYTES = 256 * 1024; // 256 KiB
 const MAX_PROMPT_BYTES = 256 * 1024; // 256 KiB
 const MAX_SESSION_HEADER_BYTES = 16 * 1024; // 16 KiB
+const MAX_OUTPUT_TOKENS = 1024;
 
 export interface ForkSpawnOptions {
   /** Absolute parent session JSONL (ctx.sessionManager.getSessionFile()); `SessionManager.forkFrom` copies it in full. */
@@ -212,6 +213,11 @@ export async function runForkProbe(
     } catch {}
   };
 
+  const forkProbeText = loadText<{ probe: { tools_disabled: string } }>(
+    "fork-probe",
+    textPath("fork-probe"),
+    opts.cwd ?? getCwd(),
+  );
   const request: ForkProbeSubagentRequest = {
     version: 1,
     kind: "fork-probe",
@@ -221,6 +227,8 @@ export async function runForkProbe(
     sessionDir: tmpSessionDir,
     prompt,
     ...(opts.title ? { title: opts.title } : {}),
+    toolsDisabledMessage: forkProbeText.probe.tools_disabled,
+    maxOutputTokens: MAX_OUTPUT_TOKENS,
     cwd: opts.cwd ?? getCwd(),
     env: inheritedEnvironment(),
     runId: randomUUID(),
@@ -230,7 +238,6 @@ export async function runForkProbe(
       ? { appendSystemPrompt: opts.appendSystemPrompt }
       : {}),
   };
-  const stdout = boundedOutput(MAX_STDOUT_BYTES);
   const stderr = boundedOutput(MAX_STDERR_BYTES);
   const controller = new AbortController();
   let timedOut = false;
@@ -258,7 +265,6 @@ export async function runForkProbe(
   try {
     result = await runSubagentWorker(request, {
       signal: controller.signal,
-      stdout: stdout.write,
       stderr: stderr.write,
     });
   } catch (error) {
@@ -270,7 +276,7 @@ export async function runForkProbe(
     cleanup();
   }
 
-  const answer = stdout.text().trim();
+  const answer = result?.observation?.finalAnswer.trim() ?? "";
   const stderrText = stderr.text().trim();
   if (workerError !== undefined) {
     return {

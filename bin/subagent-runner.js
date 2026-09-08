@@ -7,19 +7,10 @@ import {
   SettingsManager,
   createAgentSession,
 } from "@earendil-works/pi-coding-agent";
-import {
-  closeSync,
-  openSync,
-  readFileSync,
-  readSync,
-  readdirSync,
-  statSync,
-  unlinkSync,
-} from "node:fs";
+import { closeSync, openSync, readSync, readdirSync, statSync } from "node:fs";
 import { mkdir, readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { tmpdir } from "node:os";
 import { observeSession } from "./subagent-activity.mjs";
 import {
   installFastModels,
@@ -207,11 +198,8 @@ export async function runSubagent(request, signal) {
     "output-protocol.md",
   );
   const protocol = await readFile(protocolPath, "utf8");
-  const summaryPath = join(tmpdir(), `cpi-subagent-${request.runId}.summary`);
   const oldSubagent = process.env.PI_SUBAGENT;
-  const oldSummary = process.env.PI_SUBAGENT_SUMMARY;
   process.env.PI_SUBAGENT = "1";
-  process.env.PI_SUBAGENT_SUMMARY = summaryPath;
   const settingsManager = SettingsManager.create(cwd, agentDir);
   const loader = new DefaultResourceLoader({
     cwd,
@@ -244,15 +232,10 @@ export async function runSubagent(request, signal) {
         process.stderr.write(`Extension error (${extensionPath}): ${error}\n`),
     });
     await session.prompt(request.task);
-    const answer = session.getLastAssistantText();
-    if (answer) process.stdout.write(`${answer}\n`);
     await session.extensionRunner.emit({
       type: "session_shutdown",
       reason: "quit",
     });
-    try {
-      process.stdout.write(readFileSync(summaryPath, "utf8"));
-    } catch {}
     const last = session.messages.at(-1);
     return interrupted ||
       (last?.role === "assistant" &&
@@ -264,9 +247,5 @@ export async function runSubagent(request, signal) {
     unobserve();
     session.dispose();
     restoreEnv("PI_SUBAGENT", oldSubagent);
-    restoreEnv("PI_SUBAGENT_SUMMARY", oldSummary);
-    try {
-      unlinkSync(summaryPath);
-    } catch {}
   }
 }

@@ -3,7 +3,11 @@ import { createConnection } from "node:net";
 import { randomUUID } from "node:crypto";
 
 const MAX_TASK_SIZE = 1024 * 1024;
-const MAX_RESPONSE_SIZE = 256 * 1024;
+// Each frame is validated against MAX_FRAME_BYTES individually. The server may
+// coalesce a full worker burst into one TCP chunk, so the leftover backlog is
+// bounded separately by the larger MAX_PENDING_BYTES.
+const MAX_FRAME_BYTES = 256 * 1024;
+const MAX_PENDING_BYTES = 8 * 1024 * 1024;
 const USAGE =
   "usage: subagent [-p provider] [-m [provider/]model[:effort]] [-s session-id] [task]";
 
@@ -55,8 +59,10 @@ function decodeBase64(value) {
 function runRpc(endpoint, request, signal) {
   return new Promise((resolve, reject) => {
     const socket = createConnection(endpoint);
-    let buffer = "";
+    let pending = Buffer.alloc(0);
     let done = false;
+    let blocked = false;
+    let closed = false;
     const fail = (error) => {
       if (done) return;
       done = true;
@@ -64,6 +70,8 @@ function runRpc(endpoint, request, signal) {
       reject(error);
     };
     const event = (line) => {
+      if (Buffer.byteLength(line) > MAX_FRAME_BYTES)
+        throw new Error("RPC response frame exceeds 256 KiB");
       let message;
       try {
         message = JSON.parse(line);
@@ -76,7 +84,16 @@ function runRpc(endpoint, request, signal) {
         message.kind === "data" &&
         (message.stream === "stdout" || message.stream === "stderr")
       ) {
-        process[message.stream].write(decodeBase64(message.data));
+        const destination = process[message.stream];
+        if (!destination.write(decodeBase64(message.data))) {
+          blocked = true;
+          socket.pause();
+          destination.once("drain", () => {
+            blocked = false;
+            drain();
+            if (!blocked && !done) socket.resume();
+          });
+        }
       } else if (
         message.kind === "error" &&
         typeof message.message === "string"
@@ -93,25 +110,30 @@ function runRpc(endpoint, request, signal) {
         throw new Error("malformed RPC event");
       }
     };
-    socket.once("connect", () => socket.write(`${JSON.stringify(request)}\n`));
-    socket.on("data", (chunk) => {
-      buffer += chunk;
-      if (Buffer.byteLength(buffer) > MAX_RESPONSE_SIZE)
-        return fail(new Error("RPC response exceeds 256 KiB"));
+    const drain = () => {
       let newline;
-      while (!done && (newline = buffer.indexOf("\n")) >= 0) {
-        const line = buffer.slice(0, newline);
-        buffer = buffer.slice(newline + 1);
+      while (!done && !blocked && (newline = pending.indexOf(0x0a)) >= 0) {
+        const line = pending.subarray(0, newline).toString("utf8");
+        pending = pending.subarray(newline + 1);
         try {
           event(line);
         } catch (error) {
           fail(error);
         }
       }
+      if (closed && !done && !blocked) fail(new Error("RPC connection closed"));
+    };
+    socket.once("connect", () => socket.write(`${JSON.stringify(request)}\n`));
+    socket.on("data", (chunk) => {
+      pending = Buffer.concat([pending, chunk]);
+      drain();
+      if (pending.length > MAX_PENDING_BYTES)
+        return fail(new Error("RPC response backlog exceeds 8 MiB"));
     });
     socket.once("error", fail);
     socket.once("close", () => {
-      if (!done)
+      closed = true;
+      if (!done && !blocked)
         fail(
           signal.aborted
             ? new Error("aborted")

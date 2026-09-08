@@ -151,6 +151,7 @@ export function listActivities(session_id?: string): ActivityEntry[] {
     .map((entry) => ({ ...entry, metrics: { ...entry.metrics } }));
 }
 export async function readActivityTail(entry: ActivityEntry): Promise<string> {
+  if (entry.kind === "subagent") return bounded(entry.tail || "No output yet.");
   let file: Awaited<ReturnType<typeof open>> | undefined;
   try {
     if (entry.log_path) {

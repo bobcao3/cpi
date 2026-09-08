@@ -1,0 +1,4 @@
+# Model-facing text for fork-probe child sessions.
+
+[probe]
+tools_disabled = "Tools are disabled in this probe. Do not call tools; respond with your final text answer now."

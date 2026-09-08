@@ -15,6 +15,9 @@ import {
 } from "./fast-models.mjs";
 import { selectForkProbeSubstitute } from "./fork-probe-model.mjs";
 
+const MAX_PROBE_TURNS = 4;
+const MAX_OUTPUT_TOKENS_CEILING = 65536;
+
 function selectModel(request, services, diagnostics, manager) {
   const restored = manager.buildSessionContext().model;
   if (
@@ -44,6 +47,18 @@ function selectModel(request, services, diagnostics, manager) {
   };
 }
 
+function capProbeOutput(session, maxOutputTokens) {
+  if (
+    !Number.isInteger(maxOutputTokens) ||
+    maxOutputTokens < 1 ||
+    maxOutputTokens > MAX_OUTPUT_TOKENS_CEILING
+  )
+    return;
+  const { model } = session.agent.state;
+  if (!model || (model.maxTokens ?? Infinity) <= maxOutputTokens) return;
+  session.agent.state.model = { ...model, maxTokens: maxOutputTokens };
+}
+
 function enabledTools(value) {
   if (!value) return undefined;
   const tools = value
@@ -67,6 +82,19 @@ function reportDiagnostics(runtime) {
     process.stderr.write(`Warning: ${runtime.modelFallbackMessage}\n`);
   }
   return runtime.diagnostics.some((diagnostic) => diagnostic.type === "error");
+}
+
+function restrictProbeTools(session, disabledMessage) {
+  const agent = session.agent;
+  agent.beforeToolCall = () => ({ block: true, reason: disabledMessage });
+  let turns = 0;
+  agent.shouldStopAfterTurn = ({ message }) => {
+    turns += 1;
+    return (
+      !message.content.some((part) => part.type === "toolCall") ||
+      turns >= MAX_PROBE_TURNS
+    );
+  };
 }
 
 export async function runForkProbeSubagent(request, signal) {
@@ -122,7 +150,7 @@ export async function runForkProbeSubagent(request, signal) {
       tools,
       ...selection,
     });
-    created.session.agent.shouldStopAfterTurn = () => true;
+    restrictProbeTools(created.session, request.toolsDisabledMessage);
     return { ...created, services, diagnostics };
   };
   const runtime = await createAgentSessionRuntime(createRuntime, {
@@ -160,6 +188,7 @@ export async function runForkProbeSubagent(request, signal) {
         process.stderr.write(`Extension error (${extensionPath}): ${error}\n`),
     });
     if (signal?.aborted) return 1;
+    capProbeOutput(runtime.session, request.maxOutputTokens);
     await runtime.session.prompt(request.prompt);
     if (
       signal?.aborted ||
@@ -173,11 +202,6 @@ export async function runForkProbeSubagent(request, signal) {
       .join("\n")
       .trim();
     if (!answer) return 1;
-    await new Promise((resolve, reject) => {
-      process.stdout.write(`${answer}\n`, (error) =>
-        error ? reject(error) : resolve(),
-      );
-    });
     return 0;
   } finally {
     unsubscribe();

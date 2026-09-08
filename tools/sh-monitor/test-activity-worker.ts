@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
+import { readFileSync } from "node:fs";
 import {
   runSubagentWorker,
   stopSubagentRpc,
@@ -10,6 +11,7 @@ import { runShell, setCurrentScope } from "../../extensions/shell/exec.ts";
 import { listActivities } from "../../extensions/lib/activity.ts";
 
 const scope = `worker-activity-${randomUUID()}`;
+delete process.env.CPI_SUBAGENT_RPC;
 const env = Object.fromEntries(
   Object.entries(process.env).filter(
     (pair): pair is [string, string] => typeof pair[1] === "string",
@@ -22,7 +24,9 @@ const request = (modelId: string): SessionSubagentRequest => ({
   kind: "session",
   extensionPaths: [],
   tools: [],
-  provider: "openai-codex",
+  provider: modelId.startsWith("cpi-nonexistent")
+    ? "cpi-nonexistent-provider"
+    : "openai-codex",
   modelId,
   systemPrompt: "Reply concisely.",
   task: "Reply only ACTIVITY_OK.",
@@ -42,8 +46,8 @@ try {
   );
   assert.equal(failed?.status, "failed");
   assert.ok(failed?.ended_at);
-  assert.ok(failed?.tail);
-  console.log("PASS real worker startup failure retained with stderr");
+  assert.ok(readFileSync(String(failed?.metrics?.diagnostics_path), "utf8"));
+  console.log("PASS real worker failure retains separate diagnostics");
   const interrupted = request("cpi-nonexistent-model-for-activity-test");
   const abort = new AbortController();
   const pending = runSubagentWorker(interrupted, { signal: abort.signal });
@@ -62,8 +66,8 @@ try {
   console.log("PASS real worker abort stopping until Worker exit");
   setCurrentScope(scope);
   const shell = await runShell(
-    "subagent -m openai-codex/cpi-nonexistent-model-for-activity-test <<'TASK'\nactivity-cli-link-check\nTASK",
-    3,
+    "subagent -p cpi-nonexistent-provider -m cpi-nonexistent-model-for-activity-test <<'TASK'\nactivity-cli-link-check\nTASK",
+    30,
     { ...env, CPI_SUBAGENT_RPC: getSubagentRpc() },
     undefined,
     undefined,
@@ -77,9 +81,9 @@ try {
     entry.label.includes("activity-cli-link-check"),
   );
   assert.equal(cli?.status, "failed");
-  assert.match(cli?.log_path ?? "", /pi-sh-output-/);
+  assert.match(cli?.log_path ?? "", /subagent-transcripts\/.+\.md$/);
   console.log(
-    "PASS real CLI RPC worker links launching shell log and owner scope",
+    "PASS real CLI RPC worker links shared readable transcript and owner scope",
   );
   if (process.env.CPI_ACTIVITY_MODEL) {
     const live = request(process.env.CPI_ACTIVITY_MODEL);

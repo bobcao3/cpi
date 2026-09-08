@@ -135,6 +135,8 @@ async function probe(prompt: string) {
   const request: ForkProbeSubagentRequest = {
     version: 1,
     kind: "fork-probe",
+    toolsDisabledMessage: "Tools are unavailable during this probe.",
+    maxOutputTokens: 1024,
     parentSessionFile: parent.getSessionFile()!,
     parentSessionId: parent.getSessionId(),
     sessionDir,
@@ -162,7 +164,13 @@ async function probe(prompt: string) {
   const messages = SessionManager.open(
     join(sessionDir, file),
   ).buildSessionContext().messages;
-  return { result, stdout, stderr, messages };
+  assert.equal(stdout, "", "stdout is not the worker observation protocol");
+  return {
+    result,
+    answer: result.observation?.finalAnswer ?? "",
+    stderr,
+    messages,
+  };
 }
 try {
   const completed = await probe("Describe your current status without tools.");
@@ -171,18 +179,18 @@ try {
   assert.equal(last.customType, "cwd-reminder", JSON.stringify(completed));
   assert.equal(completed.result.exitCode, 0, completed.stderr);
   assert.equal(
-    completed.stdout.trim(),
+    completed.answer.trim(),
     answer,
     "summary lost behind real cwd reminder",
   );
   console.log("PASS summary survives production cwd reminder after assistant");
   const handled = await probe("NO_MODEL");
-  assert.equal(handled.stdout, "");
+  assert.equal(handled.answer, "");
   assert.notEqual(handled.result.exitCode, 0);
   console.log("PASS handled prompt cannot return inherited assistant text");
   fail = true;
   const failed = await probe("Describe status.");
-  assert.equal(failed.stdout, "");
+  assert.equal(failed.answer, "");
   assert.notEqual(failed.result.exitCode, 0);
   assert.equal(readFileSync(parent.getSessionFile()!, "utf8"), parentBytes);
   fail = false;

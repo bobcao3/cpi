@@ -67,6 +67,8 @@ export interface ForkProbeSubagentRequest {
   model?: string;
   tools?: string;
   appendSystemPrompt?: string;
+  toolsDisabledMessage: string;
+  maxOutputTokens: number;
   cwd: string;
   env: Record<string, string>;
   runId: string;
@@ -188,6 +190,14 @@ export function validForkProbeSubagentRequest(
       (typeof request.appendSystemPrompt === "string" &&
         Buffer.byteLength(request.appendSystemPrompt) <= 256 * 1024 &&
         !request.appendSystemPrompt.includes("\0"))) &&
+    typeof request.toolsDisabledMessage === "string" &&
+    request.toolsDisabledMessage.length > 0 &&
+    Buffer.byteLength(request.toolsDisabledMessage) <= 4096 &&
+    !request.toolsDisabledMessage.includes("\0") &&
+    typeof request.maxOutputTokens === "number" &&
+    Number.isInteger(request.maxOutputTokens) &&
+    request.maxOutputTokens >= 1 &&
+    request.maxOutputTokens <= 65536 &&
     validCommonRequest(request)
   );
 }

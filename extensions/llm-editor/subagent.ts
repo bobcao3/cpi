@@ -14,7 +14,7 @@ import { writeTranscript } from "./log.ts";
 import { getActivitySession, updateActivity } from "../lib/activity.ts";
 import { STREAM_UPDATE_MS } from "./render.ts";
 import { loadEditorText, fmt, type EditorText } from "./text.ts";
-import { parseSummaryUsage, type Usage } from "../lib/cost-ledger.ts";
+import type { Usage } from "../lib/cost-ledger.ts";
 import {
   runSubagentWorker,
   type SubagentCandidate as SessionCandidate,
@@ -162,6 +162,7 @@ export async function runSubagent(
   };
   const start = Date.now();
   let stderr = "";
+  let markdown = "";
   const turns: RecordedTurn[] = [];
   let lastCandidate: SubagentCandidate | undefined;
   let lastStreamUpd = 0;
@@ -187,11 +188,14 @@ export async function runSubagent(
   const result = await runSubagentWorker(request, {
     signal: controller.signal,
     stderr(chunk) {
-      stderr += chunk.toString("utf8");
+      stderr = (stderr + chunk.toString("utf8")).slice(-32768);
+    },
+    onMarkdown(chunk) {
+      markdown = (markdown + chunk).slice(-32768);
       const now = Date.now();
       if (now - lastStreamUpd >= STREAM_UPDATE_MS) {
         lastStreamUpd = now;
-        opts.onStream?.(stderr);
+        opts.onStream?.(markdown);
       }
     },
     onMessage(message) {
@@ -237,7 +241,7 @@ export async function runSubagent(
   if (completionPath) {
     await unlink(completionPath).catch(() => {});
   }
-  const usage = parseSummaryUsage(stderr);
+  const usage = result.observation?.usage;
 
   const head =
     `${fmt(T.transcript.title, { role: opts.role, title: opts.title })}\n\n` +
@@ -270,8 +274,8 @@ export async function runSubagent(
     opts.maxTranscripts,
   );
   updateActivity(request.runId, {
-    log_path: transcriptPath,
     metrics: {
+      correction_audit_path: transcriptPath,
       elapsed_ms: elapsedMs,
       turns: turns.length,
       timed_out: timedOut ? 1 : 0,

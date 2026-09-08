@@ -2,6 +2,7 @@ import { parentPort, workerData } from "node:worker_threads";
 import { runForkProbeSubagent } from "./fork-probe-runner.js";
 import { runSubagentSession } from "./subagent-session.js";
 import { runSubagent } from "./subagent-runner.js";
+import { finishObservation } from "./subagent-events.mjs";
 
 if (!parentPort) throw new Error("subagent worker requires a parent port");
 
@@ -55,6 +56,7 @@ parentPort.on("message", (message) => {
 });
 
 let exitCode = 1;
+let failure;
 try {
   if (!workerData || typeof workerData !== "object") {
     throw new Error("unsupported subagent worker request");
@@ -73,9 +75,20 @@ try {
     throw new Error("unsupported subagent worker request");
   }
 } catch (error) {
+  failure = error instanceof Error ? error.message : String(error);
   process.stderr.write(
     `${error instanceof Error ? error.message : String(error)}\n`,
   );
+}
+try {
+  exitCode = finishObservation(
+    exitCode,
+    abortController.signal.aborted,
+    failure,
+  );
+} catch (error) {
+  process.stderr.write(`Observation failure: ${error}\n`);
+  exitCode = 1;
 }
 parentPort.postMessage({ kind: "done", exitCode });
 parentPort.close();
