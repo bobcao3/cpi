@@ -62,7 +62,7 @@ interface EditorDetails {
 }
 
 function callBody(args: any): string {
-  return args.instruction ?? args.query ?? args.file_text ?? "";
+  return args.instruction ?? args.query ?? args.file_text ?? args.patch ?? "";
 }
 
 function headerLine(command: string, args: any, theme: any): string {

@@ -23,12 +23,18 @@ export interface EditorText {
     editor_direct_correction: string;
     editor_correction: string;
   };
-  tool: { read: ToolMeta; write: ToolMeta; edit: ToolMeta };
+  tool: {
+    read: ToolMeta;
+    write: ToolMeta;
+    edit: ToolMeta;
+    apply_patch: ToolMeta;
+  };
   schema: {
     path: string;
     query: string;
     instruction: string;
     file_text: string;
+    patch: string;
   };
   completion: {
     view_complete: ToolMeta;

@@ -56,7 +56,12 @@ project). Three mechanisms:
 
 - **File I/O.** `read`/`write`/`edit` replace the builtins with a careful
   pipeline: query-reads surface only the relevant lines, edits land as precise
-  search-replace hunks. Images inline for vision models.
+  unified-diff hunks. `apply_patch({ path, patch })` applies supplied hunks
+  directly without an editor subagent, using the same matching, per-path lock,
+  atomic writes, and LSP diagnostics. It updates existing files only; supply
+  bare `@@` or numbered unified-diff hunks without wrappers, file headers, or
+  function anchors. Use `edit` to delegate generating a change and `write` to
+  create files. Images inline for vision models.
 
   Editor/viewer workers use the shared configurable SDK-session runner and
   request `cacheRetention: "none"` on every inference, including correction

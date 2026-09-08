@@ -1,5 +1,6 @@
 /**
- * cpi's AI-mediated file tools `read`/`write`/`edit`, overriding pi's builtins
+ * cpi's AI-mediated file tools `read`/`write`/`edit`, plus direct `apply_patch`,
+ * overriding pi's builtins
  * by name (extension tools win pi's registry — nothing needs disabling). The
  * tool name IS the command: read = dir → 2-level listing, image → inline
  * attachment (vision models only), query → Viewer subagent ranges, else plain
@@ -13,7 +14,10 @@ import { Type } from "typebox";
 import { readFile, stat, writeFile, mkdir, readdir } from "node:fs/promises";
 import type { Dirent } from "node:fs";
 import { dirname, relative, join } from "node:path";
-import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type {
+  ExtensionContext,
+  ToolDefinition,
+} from "@earendil-works/pi-coding-agent";
 import {
   resizeImage,
   formatDimensionNote,
@@ -27,6 +31,8 @@ import { resolveEditorModel } from "./model-select.ts";
 import { loadEditorText, fmt } from "./text.ts";
 import { viewFile } from "./viewer.ts";
 import { editFile } from "./editor.ts";
+import { applyPatchFile } from "./file-edit.ts";
+import { MAX_DIFF_BLOCK_BYTES } from "./udiff.ts";
 import { withPathLock } from "./lock.ts";
 import { shortSha } from "./id.ts";
 import { resultXml, field } from "./result-xml.ts";
@@ -34,7 +40,7 @@ import { lspFields } from "./lsp.ts";
 import { renderEditorCall, renderEditorResult } from "./render.ts";
 import { sniffMediaType, modelSupportsVision } from "../lib/media.ts";
 
-export type Command = "read" | "write" | "edit";
+export type Command = "read" | "write" | "edit" | "apply_patch";
 
 // Tool metadata + schema descriptions are registered once at load (startup cwd); per-call messages/errors re-read per-cwd.
 const T0 = loadEditorText();
@@ -47,6 +53,14 @@ const editSchema = Type.Object({
   path: Type.String({ description: T0.schema.path }),
   instruction: Type.String({ description: T0.schema.instruction }),
 });
+const patchSchema = Type.Object({
+  path: Type.String({ description: T0.schema.path }),
+  patch: Type.String({
+    description: T0.schema.patch,
+    minLength: 1,
+    maxLength: MAX_DIFF_BLOCK_BYTES,
+  }),
+});
 const writeSchema = Type.Object({
   path: Type.String({ description: T0.schema.path }),
   file_text: Type.String({ description: T0.schema.file_text }),
@@ -54,8 +68,9 @@ const writeSchema = Type.Object({
 
 type ReadParams = { path: string; query?: string };
 type EditParams = { path: string; instruction: string };
+type PatchParams = { path: string; patch: string };
 type WriteParams = { path: string; file_text: string };
-type AnyParams = ReadParams | EditParams | WriteParams;
+type AnyParams = ReadParams | EditParams | PatchParams | WriteParams;
 
 function okResult(
   command: Command,
@@ -208,10 +223,7 @@ function videoResult(abs: string, id: string) {
   return textResult(id, "video", note, { path: abs });
 }
 
-type EditorUpdateCb = (partial: {
-  content: unknown[];
-  details?: unknown;
-}) => void;
+type EditorUpdateCb = NonNullable<Parameters<ToolDefinition["execute"]>[3]>;
 
 async function executeRead(
   params: ReadParams,
@@ -342,33 +354,41 @@ async function executeWrite(params: WriteParams, id: string, abs: string) {
 }
 
 async function executeEdit(
-  params: EditParams,
+  command: "edit" | "apply_patch",
+  params: EditParams | PatchParams,
   signal: AbortSignal | undefined,
   onUpdate: EditorUpdateCb | undefined,
   ctx: ExtensionContext,
   id: string,
   abs: string,
 ) {
-  const cfg = loadEditorConfig(getCwd());
-  const pick = resolveEditorModel(ctx);
-  const r = await editFile(params.path, {
-    id,
-    onStream: (text) =>
-      onUpdate?.({ content: [{ type: "text", text }], details: { id } }),
-    instruction: params.instruction,
-    provider: pick.provider,
-    modelId: pick.modelId,
-    cwd: getCwd(),
+  const cwd = getCwd();
+  const cfg = loadEditorConfig(cwd);
+  const common = {
+    cwd,
     signal,
-    timeoutMs: cfg.subagentTimeoutMs,
-    maxCorrectionTurns: cfg.maxCorrectionTurns,
-    transcriptDir: resolveTranscriptDir(cfg.transcriptDir, getCwd()),
-    maxTranscripts: cfg.maxTranscripts,
     maxFileBytes: cfg.maxFileBytes,
     fuzzyMatch: cfg.fuzzyMatch,
-    thinkingLevel: pick.thinkingLevel,
-  });
-  if (r.ok === false) return errorResult(id, "edit", abs, r.error);
+  };
+  const r =
+    command === "apply_patch"
+      ? await applyPatchFile(abs, {
+          ...common,
+          patch: (params as PatchParams).patch,
+        })
+      : await editFile(abs, {
+          ...common,
+          ...resolveEditorModel(ctx),
+          id,
+          instruction: (params as EditParams).instruction,
+          onStream: (text) =>
+            onUpdate?.({ content: [{ type: "text", text }], details: { id } }),
+          timeoutMs: cfg.subagentTimeoutMs,
+          maxCorrectionTurns: cfg.maxCorrectionTurns,
+          transcriptDir: resolveTranscriptDir(cfg.transcriptDir, cwd),
+          maxTranscripts: cfg.maxTranscripts,
+        });
+  if (r.ok === false) return errorResult(id, command, abs, r.error);
   const body = [
     field("hunks", String(r.applied)),
     field("rewrite", String(r.wholeFileRewrite)),
@@ -379,7 +399,7 @@ async function executeEdit(
   const agents = surfaceAgentsBlock(dirname(abs));
   requestFooterRender();
   return okResult(
-    "edit",
+    command,
     abs,
     body,
     {
@@ -413,7 +433,15 @@ async function execute(
   if (command === "read")
     return executeRead(params as ReadParams, signal, onUpdate, ctx, id, abs);
   if (command === "write") return executeWrite(params as WriteParams, id, abs);
-  return executeEdit(params as EditParams, signal, onUpdate, ctx, id, abs);
+  return executeEdit(
+    command,
+    params as EditParams | PatchParams,
+    signal,
+    onUpdate,
+    ctx,
+    id,
+    abs,
+  );
 }
 
 function defineTool(command: Command, schema: object) {
@@ -451,4 +479,5 @@ function defineTool(command: Command, schema: object) {
 
 export const readTool = defineTool("read", readSchema);
 export const editTool = defineTool("edit", editSchema);
+export const applyPatchTool = defineTool("apply_patch", patchSchema);
 export const writeTool = defineTool("write", writeSchema);

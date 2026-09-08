@@ -1,7 +1,7 @@
-/** llm-editor: overrides pi's built-in read/write/edit by name (extension tools win); read/edit delegate reasoning to tool-less pi subagents. */
+/** llm-editor: overrides pi's built-in read/write/edit by name (extension tools win); read/edit delegate reasoning to tool-less pi subagents, with a direct patch tool. */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { readTool, editTool, writeTool } from "./tool.ts";
+import { readTool, editTool, writeTool, applyPatchTool } from "./tool.ts";
 import { setThinkingApi } from "./model-select.ts";
 import { unregisterSystemPromptTransform } from "../lib/system-prompt.ts";
 
@@ -14,4 +14,5 @@ export default function llmEditorExtension(pi: ExtensionAPI): void {
   pi.registerTool(readTool);
   pi.registerTool(editTool);
   pi.registerTool(writeTool);
+  pi.registerTool(applyPatchTool);
 }
