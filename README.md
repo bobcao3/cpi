@@ -57,6 +57,16 @@ project). Three mechanisms:
 - **File I/O.** `read`/`write`/`edit` replace the builtins with a careful
   pipeline: query-reads surface only the relevant lines, edits land as precise
   search-replace hunks. Images inline for vision models.
+
+  Editor/viewer workers use the shared configurable SDK-session runner and
+  request `cacheRetention: "none"` on every inference, including correction
+  turns, without changing parent or general subagent caching. Other internal
+  callers can independently select cache retention, extension paths, active
+  tools, text or named-tool completion, and bounded continuation through the
+  same session request. Pi's provider adapters translate this where supported;
+  provider-controlled automatic caching (including Codex and DeepSeek) cannot be
+  guaranteed off.
+
 - **Rule-checked shell commands.** `sh` runs through your configured Bash/POSIX
   shell or PowerShell with backgrounding and busy-wait detection. Commands are
   checked against your AST rules before execution — `reject` blocks a bad

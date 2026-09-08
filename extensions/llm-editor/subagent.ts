@@ -8,19 +8,20 @@
 import { randomUUID } from "node:crypto";
 import { unlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { writeTranscript } from "./log.ts";
 import { STREAM_UPDATE_MS } from "./render.ts";
 import { loadEditorText, fmt, type EditorText } from "./text.ts";
 import { parseSummaryUsage, type Usage } from "../lib/cost-ledger.ts";
 import {
   runSubagentWorker,
-  type LlmEditorCandidate,
-  type LlmEditorSubagentRequest,
+  type SubagentCandidate as SessionCandidate,
+  type SessionSubagentRequest,
 } from "../lib/subagent-rpc.ts";
 import {
-  validLlmEditorCandidate,
-  validLlmEditorCorrectionPrompt,
+  validSubagentCandidate,
+  validSubagentContinuationPrompt,
 } from "../lib/subagent-rpc-protocol.ts";
 
 export interface SubagentOptions {
@@ -50,7 +51,9 @@ export interface SubagentCompletion {
   args: Record<string, unknown>;
 }
 
-export type SubagentCandidate = LlmEditorCandidate;
+export interface SubagentCandidate extends SessionCandidate {
+  completion: SubagentCompletion | null;
+}
 
 export interface SubagentResult {
   stderr: string;
@@ -114,11 +117,32 @@ export async function runSubagent(
     outputMode === "tool-call"
       ? join(tmpdir(), `cpi-editor-${process.pid}-${randomUUID()}.json`)
       : undefined;
-  const request: LlmEditorSubagentRequest = {
-    version: 2,
-    kind: "llm-editor",
+  const extensionRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+  const extensionPaths = [
+    join(extensionRoot, "subagent-transcript/index.ts"),
+    join(extensionRoot, "cost-tree/index.ts"),
+  ];
+  const env = inheritedEnvironment();
+  env.PI_SUBAGENT_ROLE = opts.role;
+  env.PI_SUBAGENT_CWD = opts.cwd;
+  if (completionPath) {
+    extensionPaths.push(join(extensionRoot, "llm-editor/completion.ts"));
+    env.PI_SUBAGENT_COMPLETION = completionPath;
+  } else {
+    delete env.PI_SUBAGENT_COMPLETION;
+  }
+  const request: SessionSubagentRequest = {
+    version: 1,
+    kind: "session",
+    cacheRetention: "none",
+    extensionPaths,
+    completionTool:
+      outputMode === "tool-call"
+        ? opts.role === "viewer"
+          ? "view-complete"
+          : "edit-complete"
+        : undefined,
     runId: randomUUID(),
-    role: opts.role,
     systemPrompt: opts.systemPrompt,
     task: opts.task,
     provider: opts.provider,
@@ -129,7 +153,7 @@ export async function runSubagent(
     completionPath,
     maxTurns: maxCorrectionTurns + 1,
     maxOutputBytes,
-    env: inheritedEnvironment(),
+    env,
   };
   const start = Date.now();
   let stderr = "";
@@ -167,7 +191,7 @@ export async function runSubagent(
     onMessage(message) {
       if (
         sentFinish ||
-        !validLlmEditorCandidate(message, request) ||
+        !validSubagentCandidate(message, request) ||
         message.turn !== expectedTurn
       ) {
         throw new Error("invalid llm-editor candidate");
@@ -177,7 +201,7 @@ export async function runSubagent(
         sentFinish = true;
         return { kind: "finish" };
       }
-      const candidate = message;
+      const candidate = message as SubagentCandidate;
       lastCandidate = candidate;
       const correction = opts.onCandidate?.(candidate);
       turns.push({ candidate, correction });
@@ -187,7 +211,7 @@ export async function runSubagent(
       }
       if (
         expectedTurn >= request.maxTurns ||
-        !validLlmEditorCorrectionPrompt(correction)
+        !validSubagentContinuationPrompt(correction)
       ) {
         throw new Error("invalid llm-editor correction decision");
       }

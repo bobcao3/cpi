@@ -8,7 +8,7 @@ node_modules/
 !bin/subagent-runner.js
 !bin/subagent-worker.js
 !bin/fork-probe-runner.js
-!bin/llm-editor-runner.js
+!bin/subagent-session.js
 *.js.map
 # Rails app JS sources are tracked (override global *.js)
 !benchmarks/tb_web_monitor/**/*.js

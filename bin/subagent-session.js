@@ -8,23 +8,6 @@ import {
   createAgentSession,
 } from "@earendil-works/pi-coding-agent";
 import { readFile, unlink } from "node:fs/promises";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
-
-const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
-const TRANSCRIPT_EXTENSION = join(
-  ROOT,
-  "extensions",
-  "subagent-transcript",
-  "index.ts",
-);
-const COST_EXTENSION = join(ROOT, "extensions", "cost-tree", "index.ts");
-const COMPLETION_EXTENSION = join(
-  ROOT,
-  "extensions",
-  "llm-editor",
-  "completion.ts",
-);
 
 function resolveSelection(modelRuntime, request) {
   const resolved = resolveCliModel({
@@ -45,17 +28,11 @@ function lastAssistant(messages) {
   return undefined;
 }
 
-async function readCompletion(path, role) {
+async function readCompletion(path, tool) {
   try {
     const completion = JSON.parse((await readFile(path, "utf8")).trim());
-    const expectedTool =
-      role === "viewer"
-        ? "view-complete"
-        : role === "editor"
-          ? "edit-complete"
-          : role;
     if (
-      completion?.tool !== expectedTool ||
+      completion?.tool !== tool ||
       !completion.args ||
       typeof completion.args !== "object" ||
       Array.isArray(completion.args)
@@ -78,7 +55,7 @@ function truncateUtf8(output, maxBytes) {
     text = text.slice(0, -1);
   }
   if (Buffer.byteLength(text, "utf8") > maxBytes) {
-    throw new Error("failed to bound llm-editor UTF-8 candidate");
+    throw new Error("failed to bound subagent UTF-8 candidate");
   }
   return text;
 }
@@ -88,7 +65,10 @@ async function turnCandidate(request, session, turn) {
     return {
       kind: "candidate",
       turn,
-      completion: await readCompletion(request.completionPath, request.role),
+      completion: await readCompletion(
+        request.completionPath,
+        request.completionTool,
+      ),
       text: "",
       outputOverflow: false,
     };
@@ -105,23 +85,20 @@ async function turnCandidate(request, session, turn) {
   };
 }
 
-export async function runLlmEditorSubagent(request, signal, exchangeCandidate) {
-  if (request.version !== 1 && request.version !== 2) {
-    throw new Error("unsupported llm-editor worker protocol");
+export async function runSubagentSession(request, signal, exchangeCandidate) {
+  if (request.version !== 1 || request.kind !== "session") {
+    throw new Error("unsupported subagent session protocol");
   }
   const agentDir = getAgentDir();
   const modelRuntime = await ModelRuntime.create();
   const selection = resolveSelection(modelRuntime, request);
   const settingsManager = SettingsManager.create(request.cwd, agentDir);
   settingsManager.applyOverrides({ compaction: { enabled: false } });
-  const extensionPaths = [TRANSCRIPT_EXTENSION, COST_EXTENSION];
-  if (request.outputMode === "tool-call")
-    extensionPaths.push(COMPLETION_EXTENSION);
   const loader = new DefaultResourceLoader({
     cwd: request.cwd,
     agentDir,
     settingsManager,
-    additionalExtensionPaths: extensionPaths,
+    additionalExtensionPaths: request.extensionPaths,
     noExtensions: true,
     noSkills: true,
     noContextFiles: true,
@@ -137,8 +114,20 @@ export async function runLlmEditorSubagent(request, signal, exchangeCandidate) {
     sessionManager: SessionManager.inMemory(request.cwd),
     model: selection.model,
     thinkingLevel: request.thinkingLevel || selection.thinkingLevel,
-    noTools: "builtin",
+    tools: request.tools,
+    noTools: request.tools === undefined ? "builtin" : undefined,
   });
+  // Automatic server caching may remain enabled.
+  if (request.cacheRetention !== undefined) {
+    const stream = session.agent.streamFunction;
+    session.agent.streamFunction = (model, context, options) =>
+      stream(model, context, {
+        ...options,
+        cacheRetention: request.cacheRetention,
+        sessionId:
+          request.cacheRetention === "none" ? undefined : options?.sessionId,
+      });
+  }
   let interrupted = signal?.aborted === true;
   let bound = false;
   let shutdown = false;
@@ -154,29 +143,19 @@ export async function runLlmEditorSubagent(request, signal, exchangeCandidate) {
         process.stderr.write(`Extension error (${extensionPath}): ${error}\n`),
     });
     bound = true;
-    if (request.version === 1) {
-      if (!interrupted) {
-        await session.prompt(request.task);
-        const text = session.getLastAssistantText();
-        if (request.outputMode === "text" && text) {
-          process.stdout.write(`${text}\n`);
-        }
+    let prompt = request.task;
+    for (let turn = 0; turn < request.maxTurns; turn++) {
+      if (interrupted) break;
+      if (request.outputMode === "tool-call") {
+        await unlink(request.completionPath).catch(() => {});
       }
-    } else {
-      let prompt = request.task;
-      for (let turn = 0; turn < request.maxTurns; turn++) {
-        if (interrupted) break;
-        if (request.outputMode === "tool-call") {
-          await unlink(request.completionPath).catch(() => {});
-        }
-        await session.prompt(prompt, { expandPromptTemplates: false });
-        if (interrupted) break;
-        const decision = await exchangeCandidate(
-          await turnCandidate(request, session, turn),
-        );
-        if (decision.kind !== "continue") break;
-        prompt = decision.prompt;
-      }
+      await session.prompt(prompt, { expandPromptTemplates: false });
+      if (interrupted) break;
+      const decision = await exchangeCandidate(
+        await turnCandidate(request, session, turn),
+      );
+      if (decision.kind !== "continue") break;
+      prompt = decision.prompt;
     }
     await session.extensionRunner.emit({
       type: "session_shutdown",

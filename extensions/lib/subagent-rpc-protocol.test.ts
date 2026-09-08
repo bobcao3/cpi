@@ -4,9 +4,9 @@ import { resolve } from "node:path";
 import {
   validCliSubagentRequest,
   validForkProbeSubagentRequest,
-  validLlmEditorCandidate,
-  validLlmEditorCorrectionPrompt,
-  validLlmEditorSubagentRequest,
+  validSubagentCandidate,
+  validSubagentContinuationPrompt,
+  validSessionSubagentRequest,
   validSubagentWorkerRequest,
 } from "./subagent-rpc-protocol.ts";
 
@@ -17,11 +17,11 @@ const common = {
   runId: "rpc-test",
 };
 
-const editor = {
+const session = {
   ...common,
-  version: 2 as const,
-  kind: "llm-editor" as const,
-  role: "editor" as const,
+  version: 1 as const,
+  kind: "session" as const,
+  extensionPaths: [] as string[],
   systemPrompt: "edit",
   task: "1|old",
   provider: "provider",
@@ -42,14 +42,12 @@ const forkProbe = {
 };
 
 describe("subagent RPC request boundary", () => {
-  test("keeps the external CLI shape separate from trusted editor requests", () => {
+  test("keeps the external CLI shape separate from trusted session requests", () => {
     const cli = { ...common, argv: [], task: "answer" };
     expect(validCliSubagentRequest(cli)).toBe(true);
-    expect(validCliSubagentRequest({ ...cli, kind: "llm-editor" })).toBe(false);
-    expect(validLlmEditorSubagentRequest(editor)).toBe(true);
-    expect(validLlmEditorSubagentRequest({ ...editor, version: 1 })).toBe(
-      false,
-    );
+    expect(validCliSubagentRequest({ ...cli, kind: "session" })).toBe(false);
+    expect(validSessionSubagentRequest(session)).toBe(true);
+    expect(validSessionSubagentRequest({ ...session, version: 2 })).toBe(false);
   });
 
   test("accepts trusted bounded fork requests only on the Worker boundary", () => {
@@ -87,29 +85,30 @@ describe("subagent RPC request boundary", () => {
 
   test("requires a bounded absolute completion path only in tool-call mode", () => {
     expect(
-      validLlmEditorSubagentRequest({
-        ...editor,
+      validSessionSubagentRequest({
+        ...session,
         outputMode: "tool-call",
+        completionTool: "report.finish",
         completionPath: resolve("completion.json"),
       }),
     ).toBe(true);
     expect(
-      validLlmEditorSubagentRequest({
-        ...editor,
+      validSessionSubagentRequest({
+        ...session,
         outputMode: "tool-call",
       }),
     ).toBe(false);
     expect(
-      validLlmEditorSubagentRequest({
-        ...editor,
+      validSessionSubagentRequest({
+        ...session,
         completionPath: resolve("completion.json"),
       }),
     ).toBe(false);
   });
 
-  test("allows numbered editor input beyond the smaller CLI task bound", () => {
+  test("allows numbered session input beyond the smaller CLI task bound", () => {
     const expanded = "x".repeat(2 * 1024 * 1024);
-    expect(validLlmEditorSubagentRequest({ ...editor, task: expanded })).toBe(
+    expect(validSessionSubagentRequest({ ...session, task: expanded })).toBe(
       true,
     );
     expect(
@@ -120,23 +119,21 @@ describe("subagent RPC request boundary", () => {
       }),
     ).toBe(false);
     expect(
-      validLlmEditorSubagentRequest({
-        ...editor,
+      validSessionSubagentRequest({
+        ...session,
         task: "x".repeat(4 * 1024 * 1024 + 1),
       }),
     ).toBe(false);
   });
 
   test("bounds continuation turns and output bytes", () => {
-    expect(validLlmEditorSubagentRequest({ ...editor, maxTurns: 9 })).toBe(
-      true,
-    );
-    expect(validLlmEditorSubagentRequest({ ...editor, maxTurns: 10 })).toBe(
+    expect(validSessionSubagentRequest({ ...session, maxTurns: 9 })).toBe(true);
+    expect(validSessionSubagentRequest({ ...session, maxTurns: 10 })).toBe(
       false,
     );
-    expect(
-      validLlmEditorSubagentRequest({ ...editor, maxOutputBytes: 0 }),
-    ).toBe(false);
+    expect(validSessionSubagentRequest({ ...session, maxOutputBytes: 0 })).toBe(
+      false,
+    );
   });
 
   test("validates candidate and correction feedback boundaries", () => {
@@ -147,35 +144,149 @@ describe("subagent RPC request boundary", () => {
       text: "patch",
       outputOverflow: false,
     };
-    expect(validLlmEditorCandidate(candidate, editor)).toBe(true);
-    expect(validLlmEditorCandidate({ ...candidate, turn: 1 }, editor)).toBe(
+    expect(validSubagentCandidate(candidate, session)).toBe(true);
+    expect(validSubagentCandidate({ ...candidate, turn: 1 }, session)).toBe(
       false,
     );
-    expect(validLlmEditorCorrectionPrompt("x".repeat(65536))).toBe(true);
-    expect(validLlmEditorCorrectionPrompt("x".repeat(65537))).toBe(false);
+    expect(validSubagentContinuationPrompt("x".repeat(65536))).toBe(true);
+    expect(validSubagentContinuationPrompt("x".repeat(65537))).toBe(false);
   });
 
-  test("accepts only edit-complete tool candidates for editors", () => {
-    const toolEditor = {
-      ...editor,
+  test("accepts only the requested arbitrary completion tool", () => {
+    const toolSession = {
+      ...session,
       outputMode: "tool-call" as const,
+      completionTool: "report.finish",
       completionPath: resolve("completion.json"),
     };
     const candidate = {
       kind: "candidate",
       turn: 0,
-      completion: { tool: "edit-complete", args: {} },
+      completion: { tool: "report.finish", args: {} },
       text: "",
       outputOverflow: false,
     };
-    expect(validLlmEditorCandidate(candidate, toolEditor)).toBe(true);
+    expect(validSubagentCandidate(candidate, toolSession)).toBe(true);
     expect(
-      validLlmEditorCandidate(
+      validSubagentCandidate(
         {
           ...candidate,
           completion: { tool: "view-complete", args: {} },
         },
-        toolEditor,
+        toolSession,
+      ),
+    ).toBe(false);
+  });
+
+  test("bounds extension paths and tool names as unique lists", () => {
+    const paths = Array.from({ length: 16 }, (_, i) =>
+      resolve(`extension-${i}.ts`),
+    );
+    expect(
+      validSessionSubagentRequest({ ...session, extensionPaths: paths }),
+    ).toBe(true);
+    for (const extensionPaths of [
+      undefined,
+      "bad",
+      [...paths, resolve("extra.ts")],
+      [paths[0], paths[0]],
+      ["relative.ts"],
+      ["/bad\0"],
+      ["/" + "é".repeat(2048)],
+      [42],
+    ]) {
+      expect(validSessionSubagentRequest({ ...session, extensionPaths })).toBe(
+        false,
+      );
+    }
+    const names = Array.from({ length: 64 }, (_, i) => `tool-${i}`);
+    expect(validSessionSubagentRequest({ ...session, tools: names })).toBe(
+      true,
+    );
+    expect(validSessionSubagentRequest({ ...session, tools: [] })).toBe(true);
+    expect(
+      validSessionSubagentRequest({ ...session, tools: ["é".repeat(64)] }),
+    ).toBe(true);
+    for (const tools of [
+      null,
+      "read",
+      [...names, "extra"],
+      ["read", "read"],
+      [""],
+      ["bad\0"],
+      ["é".repeat(65)],
+      [42],
+    ]) {
+      expect(validSessionSubagentRequest({ ...session, tools })).toBe(false);
+    }
+  });
+
+  test("validates cache retention and mode-specific completion identifiers", () => {
+    for (const cacheRetention of [undefined, "none", "short", "long"]) {
+      expect(validSessionSubagentRequest({ ...session, cacheRetention })).toBe(
+        true,
+      );
+    }
+    for (const cacheRetention of [null, "forever", 1]) {
+      expect(validSessionSubagentRequest({ ...session, cacheRetention })).toBe(
+        false,
+      );
+    }
+    const toolSession = {
+      ...session,
+      outputMode: "tool-call" as const,
+      completionPath: resolve("completion.json"),
+      completionTool: "arbitrary/tool.finish_1-v2",
+    };
+    expect(validSessionSubagentRequest(toolSession)).toBe(true);
+    expect(validSubagentWorkerRequest(toolSession)).toBe(true);
+    expect(
+      validSessionSubagentRequest({ ...session, completionTool: "finish" }),
+    ).toBe(false);
+    for (const completionTool of [
+      undefined,
+      "",
+      "bad tool",
+      "bad\0",
+      "é",
+      "x".repeat(129),
+    ]) {
+      expect(
+        validSessionSubagentRequest({ ...toolSession, completionTool }),
+      ).toBe(false);
+    }
+    expect(
+      validSessionSubagentRequest({
+        ...toolSession,
+        completionTool: "x".repeat(128),
+      }),
+    ).toBe(true);
+    for (const completionPath of [
+      undefined,
+      "relative.json",
+      "/bad\0",
+      "/" + "x".repeat(4096),
+    ]) {
+      expect(
+        validSessionSubagentRequest({ ...toolSession, completionPath }),
+      ).toBe(false);
+    }
+    const candidate = {
+      kind: "candidate",
+      turn: 0,
+      text: "",
+      outputOverflow: false,
+      completion: { tool: toolSession.completionTool, args: {} },
+    };
+    expect(validSubagentCandidate(candidate, toolSession)).toBe(true);
+    expect(validSubagentCandidate(candidate, session)).toBe(false);
+    expect(
+      validSubagentCandidate({ ...candidate, text: "unexpected" }, toolSession),
+    ).toBe(false);
+    expect(
+      validSubagentCandidate(
+        { ...candidate, outputOverflow: true },
+        toolSession,
       ),
     ).toBe(false);
   });
@@ -184,6 +295,6 @@ describe("subagent RPC request boundary", () => {
     const env = Object.fromEntries(
       Array.from({ length: 513 }, (_, index) => [`K${index}`, "v"]),
     );
-    expect(validLlmEditorSubagentRequest({ ...editor, env })).toBe(false);
+    expect(validSessionSubagentRequest({ ...session, env })).toBe(false);
   });
 });

@@ -2,10 +2,10 @@ import { isAbsolute } from "node:path";
 
 const MAX_ARGV = 64;
 const MAX_CLI_TASK_BYTES = 1024 * 1024;
-const MAX_EDITOR_TASK_BYTES = 4 * 1024 * 1024;
-const MAX_EDITOR_TURNS = 9;
-const MAX_EDITOR_OUTPUT_BYTES = 1024 * 1024;
-const MAX_EDITOR_COMPLETION_BYTES = 1024 * 1024;
+const MAX_SESSION_TASK_BYTES = 4 * 1024 * 1024;
+const MAX_SESSION_TURNS = 9;
+const MAX_SESSION_OUTPUT_BYTES = 1024 * 1024;
+const MAX_SESSION_COMPLETION_BYTES = 1024 * 1024;
 const MAX_CORRECTION_PROMPT_BYTES = 65536;
 const MAX_SYSTEM_PROMPT_BYTES = 262144;
 const MAX_ENV_ENTRIES = 512;
@@ -29,10 +29,13 @@ export interface CliSubagentRequest {
   runId: string;
 }
 
-export interface LlmEditorSubagentRequest {
-  version: 2;
-  kind: "llm-editor";
-  role: "viewer" | "editor";
+export interface SessionSubagentRequest {
+  version: 1;
+  kind: "session";
+  extensionPaths: string[];
+  tools?: string[];
+  cacheRetention?: "none" | "short" | "long";
+  completionTool?: string;
   systemPrompt: string;
   task: string;
   provider: string;
@@ -62,22 +65,22 @@ export interface ForkProbeSubagentRequest {
   runId: string;
 }
 
-export interface LlmEditorCompletion {
-  tool: "view-complete" | "edit-complete";
+export interface SubagentCompletion {
+  tool: string;
   args: Record<string, unknown>;
 }
 
-export interface LlmEditorCandidate {
+export interface SubagentCandidate {
   kind: "candidate";
   turn: number;
-  completion: LlmEditorCompletion | null;
+  completion: SubagentCompletion | null;
   text: string;
   outputOverflow: boolean;
 }
 
 export type SubagentWorkerRequest =
   | CliSubagentRequest
-  | LlmEditorSubagentRequest
+  | SessionSubagentRequest
   | ForkProbeSubagentRequest;
 
 function validCommonRequest(request: Record<string, unknown>): boolean {
@@ -175,30 +178,57 @@ export function validForkProbeSubagentRequest(
   );
 }
 
-export function validLlmEditorSubagentRequest(
+function validStringList(
   value: unknown,
-): value is LlmEditorSubagentRequest {
+  maxEntries: number,
+  maxBytes: number,
+  absolute: boolean,
+): boolean {
+  return (
+    Array.isArray(value) &&
+    value.length <= maxEntries &&
+    new Set(value).size === value.length &&
+    value.every(
+      (entry) =>
+        typeof entry === "string" &&
+        entry.length > 0 &&
+        Buffer.byteLength(entry) <= maxBytes &&
+        !entry.includes("\0") &&
+        (!absolute || isAbsolute(entry)),
+    )
+  );
+}
+
+export function validSessionSubagentRequest(
+  value: unknown,
+): value is SessionSubagentRequest {
   if (!value || typeof value !== "object") return false;
   const request = value as Record<string, unknown>;
   if (
-    request.version !== 2 ||
-    request.kind !== "llm-editor" ||
-    (request.role !== "viewer" && request.role !== "editor") ||
+    request.version !== 1 ||
+    request.kind !== "session" ||
+    !validStringList(request.extensionPaths, 16, 4096, true) ||
+    (request.tools !== undefined &&
+      !validStringList(request.tools, 64, 128, false)) ||
+    (request.cacheRetention !== undefined &&
+      request.cacheRetention !== "none" &&
+      request.cacheRetention !== "short" &&
+      request.cacheRetention !== "long") ||
     (request.outputMode !== "tool-call" && request.outputMode !== "text") ||
     typeof request.maxTurns !== "number" ||
     !Number.isInteger(request.maxTurns) ||
     request.maxTurns < 1 ||
-    request.maxTurns > MAX_EDITOR_TURNS ||
+    request.maxTurns > MAX_SESSION_TURNS ||
     typeof request.maxOutputBytes !== "number" ||
     !Number.isInteger(request.maxOutputBytes) ||
     request.maxOutputBytes < 1 ||
-    request.maxOutputBytes > MAX_EDITOR_OUTPUT_BYTES ||
+    request.maxOutputBytes > MAX_SESSION_OUTPUT_BYTES ||
     typeof request.systemPrompt !== "string" ||
     request.systemPrompt.length === 0 ||
     Buffer.byteLength(request.systemPrompt) > MAX_SYSTEM_PROMPT_BYTES ||
     typeof request.task !== "string" ||
     request.task.length === 0 ||
-    Buffer.byteLength(request.task) > MAX_EDITOR_TASK_BYTES ||
+    Buffer.byteLength(request.task) > MAX_SESSION_TASK_BYTES ||
     typeof request.provider !== "string" ||
     request.provider.length === 0 ||
     Buffer.byteLength(request.provider) > 256 ||
@@ -214,8 +244,14 @@ export function validLlmEditorSubagentRequest(
   )
     return false;
   if (request.outputMode === "text")
-    return request.completionPath === undefined;
+    return (
+      request.completionPath === undefined &&
+      request.completionTool === undefined
+    );
   return (
+    typeof request.completionTool === "string" &&
+    /^[A-Za-z0-9_./-]+$/.test(request.completionTool) &&
+    Buffer.byteLength(request.completionTool) <= 128 &&
     typeof request.completionPath === "string" &&
     isAbsolute(request.completionPath) &&
     Buffer.byteLength(request.completionPath) <= 4096 &&
@@ -229,17 +265,18 @@ export function validSubagentWorkerRequest(
   return (
     validCliSubagentRequest(value) ||
     validForkProbeSubagentRequest(value) ||
-    validLlmEditorSubagentRequest(value)
+    validSessionSubagentRequest(value)
   );
 }
 
 function validCompletion(
   value: unknown,
-  expectedTool: LlmEditorCompletion["tool"],
-): value is LlmEditorCompletion {
+  expectedTool: string | undefined,
+): value is SubagentCompletion {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const completion = value as Record<string, unknown>;
   if (
+    expectedTool === undefined ||
     completion.tool !== expectedTool ||
     !completion.args ||
     typeof completion.args !== "object" ||
@@ -250,17 +287,17 @@ function validCompletion(
     const serialized = JSON.stringify(completion.args);
     return (
       typeof serialized === "string" &&
-      Buffer.byteLength(serialized) <= MAX_EDITOR_COMPLETION_BYTES
+      Buffer.byteLength(serialized) <= MAX_SESSION_COMPLETION_BYTES
     );
   } catch {
     return false;
   }
 }
 
-export function validLlmEditorCandidate(
+export function validSubagentCandidate(
   value: unknown,
-  request: LlmEditorSubagentRequest,
-): value is LlmEditorCandidate {
+  request: SessionSubagentRequest,
+): value is SubagentCandidate {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const candidate = value as Record<string, unknown>;
   if (
@@ -279,14 +316,11 @@ export function validLlmEditorCandidate(
     candidate.text === "" &&
     candidate.outputOverflow === false &&
     (candidate.completion === null ||
-      validCompletion(
-        candidate.completion,
-        request.role === "viewer" ? "view-complete" : "edit-complete",
-      ))
+      validCompletion(candidate.completion, request.completionTool))
   );
 }
 
-export function validLlmEditorCorrectionPrompt(
+export function validSubagentContinuationPrompt(
   value: unknown,
 ): value is string {
   return (

@@ -1,12 +1,12 @@
 import { parentPort, workerData } from "node:worker_threads";
 import { runForkProbeSubagent } from "./fork-probe-runner.js";
-import { runLlmEditorSubagent } from "./llm-editor-runner.js";
+import { runSubagentSession } from "./subagent-session.js";
 import { runSubagent } from "./subagent-runner.js";
 
 if (!parentPort) throw new Error("subagent worker requires a parent port");
 
 const abortController = new AbortController();
-const MAX_CORRECTION_PROMPT_BYTES = 65536;
+const MAX_CONTINUATION_PROMPT_BYTES = 65536;
 let pendingDecision;
 
 function settleDecision(decision) {
@@ -17,7 +17,7 @@ function settleDecision(decision) {
 
 function exchangeCandidate(candidate) {
   if (pendingDecision) {
-    return Promise.reject(new Error("llm-editor decision already pending"));
+    return Promise.reject(new Error("subagent continuation already pending"));
   }
   if (abortController.signal.aborted) {
     return Promise.resolve({ kind: "finish" });
@@ -34,7 +34,7 @@ parentPort.on("message", (message) => {
     settleDecision({ kind: "finish" });
     return;
   }
-  if (workerData?.kind !== "llm-editor" || !pendingDecision) return;
+  if (workerData?.kind !== "session" || !pendingDecision) return;
   if (message?.kind === "finish") {
     settleDecision(message);
     return;
@@ -44,12 +44,12 @@ parentPort.on("message", (message) => {
     typeof message.prompt === "string" &&
     message.prompt.length > 0 &&
     !message.prompt.includes("\0") &&
-    Buffer.byteLength(message.prompt, "utf8") <= MAX_CORRECTION_PROMPT_BYTES
+    Buffer.byteLength(message.prompt, "utf8") <= MAX_CONTINUATION_PROMPT_BYTES
   ) {
     settleDecision(message);
     return;
   }
-  process.stderr.write("invalid llm-editor worker decision\n");
+  process.stderr.write("invalid subagent continuation decision\n");
   abortController.abort();
   settleDecision({ kind: "finish" });
 });
@@ -59,8 +59,8 @@ try {
   if (!workerData || typeof workerData !== "object") {
     throw new Error("unsupported subagent worker request");
   }
-  if (workerData.kind === "llm-editor") {
-    exitCode = await runLlmEditorSubagent(
+  if (workerData.kind === "session") {
+    exitCode = await runSubagentSession(
       workerData,
       abortController.signal,
       exchangeCandidate,

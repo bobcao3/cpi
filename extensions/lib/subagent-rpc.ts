@@ -15,8 +15,8 @@ import {
 
 export type {
   ForkProbeSubagentRequest,
-  LlmEditorCandidate,
-  LlmEditorSubagentRequest,
+  SubagentCandidate,
+  SessionSubagentRequest,
 } from "./subagent-rpc-protocol.ts";
 
 export const CPI_SUBAGENT_RPC = "CPI_SUBAGENT_RPC";
@@ -96,12 +96,6 @@ function workerEnvironment(request: SubagentWorkerRequest, endpoint: string) {
     [CPI_SUBAGENT_RPC]: endpoint,
     PI_SUBAGENT: "1",
   };
-  if ("kind" in request && request.kind === "llm-editor") {
-    env.PI_SUBAGENT_ROLE = request.role;
-    env.PI_SUBAGENT_CWD = request.cwd;
-    if (request.outputMode === "tool-call")
-      env.PI_SUBAGENT_COMPLETION = request.completionPath!;
-  }
   if ("kind" in request && request.kind === "fork-probe") {
     env.CPI_FORK_PROBE = "1";
     env.PI_SESSION_ID = request.parentSessionId;
@@ -198,7 +192,13 @@ function launch(
     }
   });
   worker.on("error", (error) => {
-    send(socket, { kind: "error", message: error.message.slice(0, 4096) });
+    send(socket, {
+      kind: "error",
+      message: (error instanceof Error ? error.message : String(error)).slice(
+        0,
+        4096,
+      ),
+    });
     run.exitCode = 1;
   });
   worker.on("exit", () => {
