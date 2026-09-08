@@ -112,31 +112,40 @@ export function signalHoldEvent(): void {
   if (resolve) resolve(true);
 }
 
-/** True means a real event; false means timeout—the caller doubles the interval and nudges. */
+/** True ends the wait (event or abort); false means timeout. */
 export async function awaitHoldInterval(
   sources: HoldSource[],
   intervalMs: number,
+  signal?: AbortSignal,
 ): Promise<boolean> {
+  if (signal?.aborted) return true;
   const pending = sources.filter((s) => s.hasPending());
   if (pending.length === 0) return true;
   const count = pending.length;
   const deadline = Date.now() + intervalMs;
   return new Promise<boolean>((resolve) => {
     let settled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const onAbort = () => done(true);
     const done = (value: boolean) => {
       if (settled) return;
       settled = true;
+      clearTimeout(timer);
+      signal?.removeEventListener("abort", onAbort);
       if (state().holdResolve === done) {
         state().holdResolve = null;
       }
       resolve(value);
     };
     state().holdResolve = done;
+    signal?.addEventListener("abort", onAbort, { once: true });
+    if (signal?.aborted) return onAbort();
     const tick = () => {
+      if (settled) return;
       if (Date.now() >= deadline) return done(false);
       const nowPending = sources.filter((s) => s.hasPending()).length;
       if (nowPending < count || nowPending === 0) return done(true);
-      setTimeout(tick, 100);
+      timer = setTimeout(tick, 100);
     };
     tick();
   });

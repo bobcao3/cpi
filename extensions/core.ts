@@ -113,6 +113,7 @@ export default function coreExtension(pi: ExtensionAPI): void {
         break;
       }
     }
+    if (!ctx.hasUI && ctx.signal?.aborted) setLastStopReason("aborted");
     const reason = getLastStopReason();
     if (reason === "error" || reason === "aborted") return;
     const sources = getHoldSources();
@@ -144,14 +145,17 @@ export default function coreExtension(pi: ExtensionAPI): void {
       armAntiStuckTimer(pi, ctx);
     }
     if (ctx.hasUI) return;
-    let fired = await awaitHoldInterval(sources, getHoldInterval());
-    while (!fired) {
-      doubleHoldInterval();
-      fired = await awaitHoldInterval(sources, getHoldInterval());
+    const signal = ctx.signal;
+    try {
+      while (!(await awaitHoldInterval(sources, getHoldInterval(), signal))) {
+        doubleHoldInterval();
+      }
+    } finally {
+      if (signal?.aborted) setLastStopReason("aborted");
+      resetHoldInterval();
+      disarmAntiStuckTimer();
+      resetAntiStuck();
     }
-    resetHoldInterval();
-    disarmAntiStuckTimer();
-    resetAntiStuck();
   });
 
   pi.on("session_shutdown", async (event: any, ctx: any) => {

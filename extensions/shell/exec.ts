@@ -140,6 +140,13 @@ export async function runShell(
   shell: ShellProfile = resolveShell("bash"),
   cwd: string = process.cwd(),
 ): Promise<ShResult> {
+  if (signal?.aborted)
+    return {
+      id: null,
+      status: "completed",
+      exitCode: -1,
+      text: "Aborted before start.",
+    };
   const pathId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const sessDir = env.PI_SESSION_DIR;
   const sessScope = env.PI_SESSION_ID;
@@ -257,7 +264,8 @@ export async function runShell(
   client.onClose(onSockClose);
 
   const onAbort = () => client.sendSignal("SIGKILL");
-  signal?.addEventListener("abort", onAbort);
+  signal?.addEventListener("abort", onAbort, { once: true });
+  if (signal?.aborted) onAbort();
 
   let timer: ReturnType<typeof setTimeout>;
   const completed = await Promise.race([
