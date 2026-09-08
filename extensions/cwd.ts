@@ -1,7 +1,6 @@
 /**
  * Keeps the model oriented to the working directory: set_cwd changes cpi's
- * logical context cwd and queues reminders after the tool result and at
- * context boundaries.
+ * logical context cwd and delivers reminders after the tool result or turn.
  *
  * cpi tools and prompts consume this logical cwd, making it safe for
  * worker-isolated subagents. Limitation: pi's immutable SDK cwd and resource
@@ -12,7 +11,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { Text } from "@earendil-works/pi-tui";
 import { statSync } from "node:fs";
-import { queueMessage } from "./lib/prepend-message.ts";
+import { discardQueuedMessages } from "./lib/prepend-message.ts";
 import { getCwd, resolveCwdPath, setCwd } from "./lib/cwd.ts";
 import {
   formatAgentsBlock,
@@ -35,9 +34,14 @@ const STATE_ENTRY = "cwd-state";
 const BOUNDARY_STEP = 25;
 const BOUNDARY_KEY = "__cpiCwdBoundary";
 
-function boundary(): { last: number } {
+interface BoundaryState {
+  last: number;
+  pending?: { cwd: string; reason: string };
+}
+
+function boundary(): BoundaryState {
   const g = globalThis as Record<string, unknown>;
-  const b = g[BOUNDARY_KEY] as { last: number } | undefined;
+  const b = g[BOUNDARY_KEY] as BoundaryState | undefined;
   if (b && typeof b === "object") return b;
   const fresh = { last: 0 };
   g[BOUNDARY_KEY] = fresh;
@@ -47,24 +51,19 @@ function boundary(): { last: number } {
 function applyCwd(pi: ExtensionAPI, target: string, reason: string): void {
   setCwd(target);
   pi.appendEntry(STATE_ENTRY, { cwd: target });
-  queueMessage({
-    customType: REMINDER_TYPE,
-    content: `system reminder | Current cwd: ${target} (${reason})`,
-    display: true,
-    details: { cwd: target, reason },
-    deliverAs: "afterToolResult",
-  });
+  boundary().pending = { cwd: target, reason };
 }
 
-function enqueueBoundaryReminder(pi: ExtensionAPI): void {
-  const cwd = getCwd();
-  queueMessage({
-    customType: REMINDER_TYPE,
-    content: `system reminder | Current cwd: ${cwd}`,
-    display: true,
-    details: { cwd },
-    deliverAs: "beforeUser",
-  });
+function deliverReminder(pi: ExtensionAPI, cwd: string, reason?: string): void {
+  pi.sendMessage(
+    {
+      customType: REMINDER_TYPE,
+      content: `system reminder | Current cwd: ${cwd}${reason ? ` (${reason})` : ""}`,
+      display: true,
+      details: { cwd, reason },
+    },
+    { triggerTurn: false },
+  );
 }
 
 function restoreFromSession(ctx: {
@@ -107,6 +106,7 @@ function registerReminderRenderer(pi: ExtensionAPI): void {
 }
 
 export default function (pi: ExtensionAPI): void {
+  discardQueuedMessages(REMINDER_TYPE);
   registerReminderRenderer(pi);
 
   const T = loadText<ToolText>("cwd", textPath("cwd"));
@@ -150,15 +150,23 @@ export default function (pi: ExtensionAPI): void {
     },
   });
 
-  pi.on("message_end", async (event, ctx) => {
-    if (event.message?.role !== "assistant") return;
+  pi.on("turn_end", async (_event, ctx) => {
     const usage = ctx.getContextUsage?.();
-    if (!usage || usage.percent == null) return;
     const b = boundary();
+    if (b.pending) {
+      const pending = b.pending;
+      delete b.pending;
+      if (usage?.percent != null) {
+        b.last = Math.max(b.last, Math.floor(usage.percent / BOUNDARY_STEP));
+      }
+      deliverReminder(pi, pending.cwd, pending.reason);
+      return;
+    }
+    if (!usage || usage.percent == null) return;
     const crossed = Math.floor(usage.percent / BOUNDARY_STEP);
     if (crossed > b.last && crossed >= 1) {
       b.last = crossed;
-      enqueueBoundaryReminder(pi);
+      deliverReminder(pi, getCwd());
     }
   });
 
@@ -171,6 +179,7 @@ export default function (pi: ExtensionAPI): void {
     restoreFromSession(ctx);
     seedAgentsContext(getCwd());
     boundary().last = 0;
+    delete boundary().pending;
     ensureToolActive(pi);
   });
 

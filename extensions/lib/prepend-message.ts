@@ -59,7 +59,7 @@ export function prependMessage(
 
     if (once && hasCustomMessage(ctx, customType)) return;
 
-    pi.sendMessage({ customType, content });
+    pi.sendMessage({ customType, content, display: true, details: undefined });
   });
 }
 
@@ -117,4 +117,13 @@ export function queueMessage(options: QueueMessageOptions): void {
   };
   if (deliverAs === "afterToolResult") queue(Q_AFTER_TOOL).push(m);
   else queue(Q_BEFORE_USER).push(m);
+}
+
+export function discardQueuedMessages(customType: string): void {
+  for (const key of [Q_BEFORE_USER, Q_AFTER_TOOL]) {
+    const items = queue(key);
+    for (let i = items.length - 1; i >= 0; i--) {
+      if (items[i].customType === customType) items.splice(i, 1);
+    }
+  }
 }
