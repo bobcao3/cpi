@@ -7,6 +7,7 @@ import {
   resolveCliModel,
   runPrintMode,
 } from "@earendil-works/pi-coding-agent";
+import { observeSession } from "./subagent-activity.mjs";
 
 function selectModel(request, services, diagnostics) {
   if (!request.model) return {};
@@ -115,6 +116,7 @@ export async function runForkProbeSubagent(request, signal) {
     await runtime.dispose();
     return 1;
   }
+  const unobserve = observeSession(runtime.session);
   started = true;
   try {
     return await runPrintMode(runtime, {
@@ -122,6 +124,7 @@ export async function runForkProbeSubagent(request, signal) {
       initialMessage: request.prompt,
     });
   } finally {
+    unobserve();
     signal?.removeEventListener("abort", stop);
   }
 }

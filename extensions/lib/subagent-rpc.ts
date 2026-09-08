@@ -12,6 +12,12 @@ import {
   removeSubagentRpcEndpoint,
   secureSubagentRpcEndpoint,
 } from "./subagent-rpc-endpoint.ts";
+import {
+  observeSubagent,
+  observeSubagentMessage,
+  subagentEnvironment,
+} from "./activity-subagent.ts";
+import { finishActivity, updateActivity } from "./activity.ts";
 
 export type {
   ForkProbeSubagentRequest,
@@ -46,6 +52,9 @@ export interface SubagentWorkerRunResult {
 }
 
 interface ActiveRun {
+  activityId: string;
+  cancelled?: boolean;
+  failed?: boolean;
   socket?: Socket;
   worker: Worker;
   done: boolean;
@@ -83,30 +92,13 @@ function fail(socket: Socket, message: string): void {
 
 function abortRun(run: ActiveRun): void {
   if (run.done || run.timer) return;
+  run.cancelled = true;
+  updateActivity(run.activityId, { status: "stopping" });
   try {
     run.worker.postMessage({ kind: "abort" });
   } catch {}
   run.timer = setTimeout(() => void run.worker.terminate(), ABORT_GRACE_MS);
   run.timer.unref?.();
-}
-
-function workerEnvironment(request: SubagentWorkerRequest, endpoint: string) {
-  const env: Record<string, string> = {
-    ...request.env,
-    [CPI_SUBAGENT_RPC]: endpoint,
-    PI_SUBAGENT: "1",
-  };
-  if ("kind" in request && request.kind === "fork-probe") {
-    env.CPI_FORK_PROBE = "1";
-    env.PI_SESSION_ID = request.parentSessionId;
-    env.PI_SESSION = request.parentSessionId.slice(0, 8);
-    env.PI_SESSION_DIR = request.sessionDir;
-    delete env.PI_SUBAGENT_COMPLETION;
-    delete env.PI_SUBAGENT_ROLE;
-    delete env.PI_SUBAGENT_CWD;
-    delete env.PI_SUBAGENT_SUMMARY;
-  }
-  return env;
 }
 
 function startRun(
@@ -120,12 +112,19 @@ function startRun(
   }
   const worker = new Worker(WORKER_PATH, {
     workerData: request,
-    env: workerEnvironment(request, endpoint),
+    env: subagentEnvironment(request, endpoint),
     stdout: true,
     stderr: true,
   });
-  const run: ActiveRun = { socket, worker, done: false, exitCode: null };
+  const run: ActiveRun = {
+    activityId: request.runId,
+    socket,
+    worker,
+    done: false,
+    exitCode: null,
+  };
   rpc.active.add(run);
+  observeSubagent(request, worker);
   return run;
 }
 
@@ -133,6 +132,17 @@ function finishRun(run: ActiveRun, rpc: RpcState): void {
   if (run.done) return;
   run.done = true;
   if (run.timer) clearTimeout(run.timer);
+  finishActivity(
+    run.activityId,
+    run.failed
+      ? "failed"
+      : run.cancelled
+        ? "cancelled"
+        : run.exitCode === 0
+          ? "completed"
+          : "failed",
+    { exit_code: run.exitCode ?? "unknown" },
+  );
   rpc.active.delete(run);
   if (run.socket) {
     send(run.socket, {
@@ -187,11 +197,13 @@ function launch(
   worker.stdout.on("data", (chunk: Buffer) => forward("stdout", chunk));
   worker.stderr.on("data", (chunk: Buffer) => forward("stderr", chunk));
   worker.on("message", (message) => {
+    if (observeSubagentMessage(run.activityId, message)) return;
     if (message?.kind === "done" && Number.isInteger(message.exitCode)) {
       run.exitCode = message.exitCode;
     }
   });
   worker.on("error", (error) => {
+    run.failed = true;
     send(socket, {
       kind: "error",
       message: (error instanceof Error ? error.message : String(error)).slice(
@@ -278,6 +290,7 @@ export async function runSubagentWorker(
   let error: Error | undefined;
   let receivedDone = false;
   const fail = (value: unknown): void => {
+    run.failed = true;
     if (!error)
       error =
         value instanceof Error ? value : new Error("subagent worker failed");
@@ -305,6 +318,7 @@ export async function runSubagentWorker(
     forward(options.stderr, chunk),
   );
   run.worker.on("message", (message) => {
+    if (observeSubagentMessage(run.activityId, message)) return;
     if (message?.kind === "done") {
       if (receivedDone) {
         fail(

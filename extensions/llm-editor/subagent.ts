@@ -11,6 +11,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { writeTranscript } from "./log.ts";
+import { getActivitySession, updateActivity } from "../lib/activity.ts";
 import { STREAM_UPDATE_MS } from "./render.ts";
 import { loadEditorText, fmt, type EditorText } from "./text.ts";
 import { parseSummaryUsage, type Usage } from "../lib/cost-ledger.ts";
@@ -123,6 +124,8 @@ export async function runSubagent(
     join(extensionRoot, "cost-tree/index.ts"),
   ];
   const env = inheritedEnvironment();
+  const ownerSession = getActivitySession();
+  if (ownerSession) env.PI_SESSION_ID = ownerSession;
   env.PI_SUBAGENT_ROLE = opts.role;
   env.PI_SUBAGENT_CWD = opts.cwd;
   if (completionPath) {
@@ -168,6 +171,7 @@ export async function runSubagent(
     opts.timeoutMs > 0
       ? setTimeout(() => {
           timedOut = true;
+          updateActivity(request.runId, { metrics: { timed_out: 1 } });
           controller.abort();
         }, opts.timeoutMs)
       : undefined;
@@ -257,7 +261,24 @@ export async function runSubagent(
       ? `\n${T.transcript.section_stderr}\n\n\`\`\`\n${stderr.trim()}\n\`\`\`\n`
       : "");
 
-  await writeTranscript(opts.transcriptDir, opts.id, head, opts.maxTranscripts);
+  const transcriptPath = await writeTranscript(
+    opts.transcriptDir,
+    opts.id,
+    head,
+    opts.maxTranscripts,
+  );
+  updateActivity(request.runId, {
+    log_path: transcriptPath,
+    metrics: {
+      elapsed_ms: elapsedMs,
+      turns: turns.length,
+      timed_out: timedOut ? 1 : 0,
+      aborted: aborted ? 1 : 0,
+      ...(usage
+        ? { input: usage.input, output: usage.output, cost: usage.cost }
+        : {}),
+    },
+  });
   return {
     stderr,
     text,

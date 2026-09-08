@@ -8,6 +8,7 @@ import {
   createAgentSession,
 } from "@earendil-works/pi-coding-agent";
 import { readFile, unlink } from "node:fs/promises";
+import { observeSession } from "./subagent-activity.mjs";
 
 function resolveSelection(modelRuntime, request) {
   const resolved = resolveCliModel({
@@ -117,6 +118,7 @@ export async function runSubagentSession(request, signal, exchangeCandidate) {
     tools: request.tools,
     noTools: request.tools === undefined ? "builtin" : undefined,
   });
+  const unobserve = observeSession(session);
   // Automatic server caching may remain enabled.
   if (request.cacheRetention !== undefined) {
     const stream = session.agent.streamFunction;
@@ -174,6 +176,7 @@ export async function runSubagentSession(request, signal, exchangeCandidate) {
         .catch(() => {});
     }
     signal?.removeEventListener("abort", stop);
+    unobserve();
     session.dispose();
   }
 }

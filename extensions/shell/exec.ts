@@ -8,9 +8,19 @@
 import { rm, readFile } from "node:fs/promises";
 import { StringDecoder } from "node:string_decoder";
 import {
-  truncateOutput,
+  buildOutputText,
+  accumulateOutput,
+  type ShellTunables,
+  type ShResult,
   type OutputTruncation,
-} from "../lib/output-truncate.ts";
+} from "./output.ts";
+export { buildOutputText } from "./output.ts";
+export type {
+  ShellTunables,
+  ShResult,
+  OutputCursor,
+  OutputTruncation,
+} from "./output.ts";
 import {
   getActiveRepeats,
   hasActiveRepeats,
@@ -29,56 +39,14 @@ import {
   removeResumeRecord,
 } from "./monitor.ts";
 import { resolveShell, type ShellProfile } from "./profile.ts";
-
-export type { OutputTruncation };
-
-export interface ShellTunables {
-  previewMaxBytes: number;
-  maxAcc: number;
-  updateMs: number;
-}
-
-interface BackgroundChild {
-  id: string;
-  pid: number;
-  command: string;
-  describe?: string;
-  client: MonitorClient | ResumeClient;
-  logPath: string;
-  acc: string;
-  decoder: StringDecoder;
-  exitCode: number | null;
-  done: boolean;
-  signaled?: boolean;
-  bytesEmitted: number;
-  linesEmitted: number;
-  colBytes: number;
-  sessDir?: string;
-  sessScope?: string;
-}
-
-export interface OutputCursor {
-  line: number;
-  column: number;
-  bytes: number;
-}
-
-export interface ShResult {
-  id: string | null;
-  status: "completed" | "running";
-  exitCode: number | null;
-  text: string;
-  fullOutputPath?: string;
-  cursor?: OutputCursor;
-}
-
-export type CompletionHook = (
-  id: string,
-  cmd: string,
-  code: number | null,
-  reason: "completed" | "stopped" | "breach",
-  log?: { path: string; startLine?: number; endLine?: number },
-) => void;
+import {
+  updateActivity,
+  finishActivity,
+  setActivitySession,
+} from "../lib/activity.ts";
+import { observeShell, finishShell } from "./activity.ts";
+import type { BackgroundChild, CompletionHook } from "./background-types.ts";
+export type { CompletionHook } from "./background-types.ts";
 
 const bg = new Map<string, BackgroundChild>();
 let completionHook: CompletionHook | undefined;
@@ -86,6 +54,7 @@ let completionHook: CompletionHook | undefined;
 let currentScope: string | undefined;
 export const setCurrentScope = (scope: string | undefined): void => {
   currentScope = scope;
+  setActivitySession(scope);
 };
 setRepeatScopeGetter(() => currentScope);
 
@@ -93,39 +62,6 @@ export const setCompletionHook = (fn: CompletionHook) => {
   completionHook = fn;
   setRepeatCompletionHook(fn);
 };
-
-export async function buildOutputText(
-  acc: string,
-  opts: {
-    persistIfTruncated?: boolean;
-    emptyText?: string;
-    logPath?: string;
-    truncation: OutputTruncation;
-    tunables: ShellTunables;
-  },
-): Promise<{ text: string; fullOutputPath?: string }> {
-  const {
-    persistIfTruncated = true,
-    emptyText = "(no output)",
-    logPath,
-    truncation,
-    tunables,
-  } = opts;
-  const out = truncateOutput(
-    acc,
-    truncation,
-    tunables.previewMaxBytes,
-    emptyText,
-  );
-  if (!out.truncated) return { text: out.body };
-  let full: string | undefined;
-  let text = out.body;
-  if (persistIfTruncated) {
-    full = logPath; // the monitor's log file already holds the complete output
-    text += ` full: ${full}`;
-  }
-  return { text: text + "]", fullOutputPath: full };
-}
 
 export async function runShell(
   command: string,
@@ -183,6 +119,8 @@ export async function runShell(
   let lastUpd = 0;
   const entry: BackgroundChild = {
     id,
+    activityId: `shell:${logPath}`,
+    startedAt: Date.now(),
     pid,
     command,
     describe,
@@ -209,23 +147,13 @@ export async function runShell(
       | { kind: "exit"; exitCode: number; bytes: number },
   ) => {
     if (ev.kind === "data") {
-      entry.acc += entry.decoder.write(ev.buf);
-      entry.bytesEmitted = ev.off + ev.buf.length;
-      const lastNl = ev.buf.lastIndexOf(0x0a);
-      if (lastNl === -1) entry.colBytes += ev.buf.length;
-      else {
-        entry.linesEmitted +=
-          ev.buf.subarray(0, lastNl).filter((b) => b === 0x0a).length + 1;
-        entry.colBytes = ev.buf.length - 1 - lastNl;
-      }
-      if (Buffer.byteLength(entry.acc) > tunables.maxAcc) {
-        while (Buffer.byteLength(entry.acc) > tunables.maxAcc)
-          entry.acc = entry.acc.slice(
-            Math.max(1, Math.ceil(entry.acc.length * 0.1)),
-          );
-        const c0 = entry.acc.charCodeAt(0);
-        if (c0 >= 0xdc00 && c0 <= 0xdfff) entry.acc = entry.acc.slice(1); // drop lone low surrogate
-      }
+      accumulateOutput(entry, ev.buf, ev.off, tunables.maxAcc);
+      updateActivity(entry.activityId, {
+        metrics: {
+          output_bytes: entry.bytesEmitted,
+          last_output_at: Date.now(),
+        },
+      });
       const now = Date.now();
       if (onPartial && now - lastUpd >= tunables.updateMs) {
         lastUpd = now;
@@ -236,6 +164,7 @@ export async function runShell(
         }).then((r) => onPartial(r.text));
       }
     } else {
+      finishShell(entry, ev.exitCode, ev.bytes);
       if (entry.done) return;
       entry.acc += entry.decoder.end();
       exitCode = ev.exitCode;
@@ -296,19 +225,23 @@ export async function runShell(
   }
   // still running → background it; the subscribe callback stays live for completion
   bg.set(id, entry);
+  observeShell(entry, cwd);
   if (sessDir && sessScope)
-    void client.bindResume().then((sp) => {
-      if (sp && bg.has(id))
-        void writeResumeRecord(
-          sessDir,
-          sessScope,
-          id,
-          sp,
-          command,
-          logPath,
-          describe,
-        );
-    });
+    void client
+      .bindResume()
+      .then((sp) => {
+        if (sp && bg.has(id))
+          void writeResumeRecord(
+            sessDir,
+            sessScope,
+            id,
+            sp,
+            command,
+            logPath,
+            describe,
+          );
+      })
+      .catch(() => {});
   const { text } = await buildOutputText(entry.acc, {
     logPath,
     truncation,
@@ -355,6 +288,11 @@ function completeBackground(entry: BackgroundChild, exitCode: number): void {
 
 /** sh-monitor connection dropped without an exit event (supervisor crashed). False if already done/signaled. */
 function stopBackground(entry: BackgroundChild): boolean {
+  finishActivity(
+    entry.activityId,
+    entry.cancelRequested ? "cancelled" : "failed",
+    { connection_lost: 1 },
+  );
   if (entry.done || entry.signaled) return false;
   entry.done = true;
   entry.exitCode = -1;
@@ -374,6 +312,13 @@ export function signalChild(id: string, sig: string): boolean {
   if (id.startsWith("rpt-")) return signalRepeat(id, sig);
   const e = bg.get(id);
   if (!e || e.done || e.sessScope !== currentScope) return false;
+  if (
+    process.platform === "win32" ||
+    ["SIGINT", "SIGTERM", "SIGKILL", "2", "15", "9"].includes(sig)
+  ) {
+    e.cancelRequested = true;
+    updateActivity(e.activityId, { status: "stopping" });
+  }
   e.client.sendSignal(sig);
   return true;
 }
@@ -395,6 +340,7 @@ export const detachChild = (id: string): string | null => {
   const e = bg.get(id);
   if (!e || e.done || e.sessScope !== currentScope) return null;
   e.signaled = true; // suppress any in-flight completion hook
+  finishActivity(e.activityId, "detached");
   if (e.sessDir && e.sessScope)
     void removeResumeRecord(e.sessDir, e.sessScope, id);
   e.client.orphan();
@@ -423,6 +369,8 @@ export const getActiveBackgrounds = () => [
 export function killAll(): void {
   for (const e of bg.values()) {
     if (e.sessScope !== currentScope || e.done) continue;
+    e.cancelRequested = true;
+    updateActivity(e.activityId, { status: "stopping" });
     e.done = true;
     e.client.kill("SIGKILL");
     bg.delete(e.id);
@@ -460,6 +408,8 @@ export async function resumeBackgroundShells(
     }
     const entry: BackgroundChild = {
       id: r.pid,
+      activityId: `shell:${r.logPath ?? r.sockPath}`,
+      startedAt: Date.now(),
       pid: Number(r.pid),
       command: r.cmd,
       describe: r.describe,
@@ -476,8 +426,12 @@ export async function resumeBackgroundShells(
       colBytes: 0,
     };
     bg.set(r.pid, entry);
+    observeShell(entry, undefined, true);
     c.subscribe((ev) => {
-      if (ev.kind === "exit") completeBackground(entry, ev.exitCode);
+      if (ev.kind === "exit") {
+        finishShell(entry, ev.exitCode, ev.bytes);
+        completeBackground(entry, ev.exitCode);
+      }
     });
     c.onClose(() => stopBackground(entry));
   }

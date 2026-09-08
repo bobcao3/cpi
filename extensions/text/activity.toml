@@ -1,0 +1,59 @@
+[command]
+description = "Browse shell, monitor, and subagent activity (read-only)."
+
+[footer]
+hint = "↓ from prompt · Enter opens activity"
+mouse_hint = "Click activity to browse"
+
+[panel]
+title = "Activity · read-only"
+help = "Esc close · Enter {{action}} · ←→ filter · ↑↓ move · Ctrl+↑↓/wheel scroll"
+expand = "expand"
+deeper = "more details"
+collapse = "collapse"
+more = "── More details ──"
+tail = "Recent output"
+started = "Started: {{value}}"
+ended = "Ended: {{value}}"
+id = "ID: {{value}}"
+empty = "No activity in this session."
+loading = "Loading output…"
+no_output = "No output yet."
+no_log = "No log available."
+missing_log = "Log missing or unreadable."
+not_tui = "Activity browser requires an interactive terminal."
+log = "Log: {{value}}"
+command = "Command: {{value}}"
+cwd = "Directory: {{value}}"
+elapsed = "Elapsed: {{value}}"
+metric = "{{key}}: {{value}}"
+position = "{{selected}}/{{total}}"
+
+[summary]
+output_bytes = "output {{value}}"
+exit_code = "exit {{value}}"
+interval_seconds = "every {{value}}s"
+invocation = "run #{{value}}"
+phase = "{{value}}"
+next_due_at = "next in {{value}}"
+last_exit = "last exit {{value}}"
+model = "{{value}}"
+effort = "{{value}}"
+turns = "{{value}} turns"
+input = "↑{{value}}"
+output = "↓{{value}}"
+cost = "{{value}}"
+
+[tabs]
+all = "All"
+shell = "Shell"
+monitor = "Monitor"
+subagent = "Agent"
+
+[status]
+running = "● running"
+stopping = "◐ stopping"
+completed = "✓ completed"
+failed = "✗ failed"
+cancelled = "⊘ cancelled"
+detached = "↗ detached"

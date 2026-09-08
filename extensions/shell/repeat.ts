@@ -6,8 +6,8 @@
  * line range.
  */
 
-import { spawn, type ChildProcess } from "node:child_process";
-import { createWriteStream, type WriteStream } from "node:fs";
+import { spawn } from "node:child_process";
+import { createWriteStream } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Type } from "typebox";
@@ -21,6 +21,7 @@ import {
 import { resolveShell, type ShellProfile } from "./profile.ts";
 import { analyzeCommand, unsupportedDialectMessage } from "./analyze.ts";
 import { signalProcessTree } from "../../tools/sh-monitor/process-tree.ts";
+import type { RepeatMonitor } from "./background-types.ts";
 import {
   loadText,
   render,
@@ -29,6 +30,11 @@ import {
   type ToolText,
 } from "../lib/text.ts";
 import { getCwd } from "../lib/cwd.ts";
+import {
+  beginActivity,
+  updateActivity,
+  finishActivity,
+} from "../lib/activity.ts";
 
 export interface RepeatLogRange {
   path: string;
@@ -43,28 +49,6 @@ export type RepeatCompletionHook = (
   reason: "completed" | "stopped" | "breach",
   log?: RepeatLogRange,
 ) => void;
-
-interface RepeatMonitor {
-  id: string;
-  command: string;
-  shell: ShellProfile;
-  sessScope?: string;
-  describe?: string;
-  intervalSec: number;
-  env: NodeJS.ProcessEnv;
-  cwd: string;
-  running: boolean;
-  breached: boolean;
-  child?: ChildProcess;
-  pid: number;
-  timeout?: ReturnType<typeof setTimeout>;
-  nextTimer?: ReturnType<typeof setTimeout>;
-  logPath: string;
-  logStream: WriteStream;
-  logLine: number;
-  invocation: number;
-  startLine?: number;
-}
 
 const rpt = new Map<string, RepeatMonitor>();
 let rptCounter = 0;
@@ -84,17 +68,30 @@ function writeLog(mon: RepeatMonitor, text: string): void {
   if (!text.length) return;
   mon.logStream.write(text);
   for (let i = 0; i < text.length; i++) if (text[i] === "\n") mon.logLine++;
+  mon.outputBytes = (mon.outputBytes ?? 0) + Buffer.byteLength(text);
+  updateActivity(`monitor:${mon.logPath}`, {
+    metrics: { output_bytes: mon.outputBytes, last_output_at: Date.now() },
+  });
 }
 
 function writeLogBuffer(mon: RepeatMonitor, chunk: Buffer): void {
   if (!chunk.length) return;
   mon.logStream.write(chunk);
   for (const b of chunk) if (b === 0x0a) mon.logLine++;
+  mon.outputBytes = (mon.outputBytes ?? 0) + chunk.length;
+  updateActivity(`monitor:${mon.logPath}`, {
+    metrics: { output_bytes: mon.outputBytes, last_output_at: Date.now() },
+  });
 }
 
 function stopRepeat(mon: RepeatMonitor): void {
   if (!mon.running) return;
   mon.running = false;
+  if (mon.observingChild) {
+    updateActivity(`monitor:${mon.logPath}`, { status: "stopping" });
+  } else {
+    finishActivity(`monitor:${mon.logPath}`, "cancelled");
+  }
   clearTimeout(mon.timeout);
   clearTimeout(mon.nextTimer);
   if (mon.child && !mon.child.killed && mon.pid > 0) {
@@ -120,6 +117,10 @@ function finalize(
   mon.running = false;
   clearTimeout(mon.timeout);
   mon.logStream.end();
+  finishActivity(`monitor:${mon.logPath}`, "failed", {
+    last_exit: code ?? "signal",
+    breach: outcome === "breach" ? 1 : 0,
+  });
   if (mon.sessScope === getScope()) {
     hook?.(mon.id, mon.command, code, outcome, {
       path: mon.logPath,
@@ -132,6 +133,13 @@ function finalize(
 
 function scheduleNext(mon: RepeatMonitor): void {
   if (!mon.running) return;
+  updateActivity(`monitor:${mon.logPath}`, {
+    metrics: {
+      phase: "waiting",
+      next_due_at: Date.now() + mon.intervalSec * 1000,
+      last_exit: 0,
+    },
+  });
   mon.nextTimer = setTimeout(() => runIteration(mon), mon.intervalSec * 1000);
 }
 
@@ -156,12 +164,25 @@ function runIteration(mon: RepeatMonitor): void {
   );
   mon.child = child;
   mon.pid = child.pid ?? -1;
+  mon.observingChild = true;
+  updateActivity(`monitor:${mon.logPath}`, {
+    metrics: {
+      phase: "executing",
+      pid: mon.pid,
+      invocation: mon.invocation,
+      next_due_at: 0,
+    },
+  });
 
   child.stdout?.on("data", (chunk: Buffer) => writeLogBuffer(mon, chunk));
   child.stderr?.on("data", (chunk: Buffer) => writeLogBuffer(mon, chunk));
 
   mon.timeout = setTimeout(() => {
     mon.breached = true;
+    updateActivity(`monitor:${mon.logPath}`, {
+      status: "stopping",
+      metrics: { breach: 1 },
+    });
     if (mon.child && !mon.child.killed && mon.pid > 0) {
       try {
         signalProcessTree(mon.pid, "SIGTERM");
@@ -170,6 +191,13 @@ function runIteration(mon: RepeatMonitor): void {
   }, mon.intervalSec * 1000);
 
   child.on("close", (code) => {
+    mon.observingChild = false;
+    updateActivity(`monitor:${mon.logPath}`, {
+      metrics: { last_exit: code ?? "signal" },
+    });
+    if (!mon.running) {
+      finishActivity(`monitor:${mon.logPath}`, "cancelled");
+    }
     clearTimeout(mon.timeout);
     if (!mon.running || mon.breached) {
       if (mon.breached) finalize(mon, null, "breach");
@@ -183,6 +211,7 @@ function runIteration(mon: RepeatMonitor): void {
   });
 
   child.on("error", () => {
+    finishActivity(`monitor:${mon.logPath}`, "failed", { spawn_error: 1 });
     clearTimeout(mon.timeout);
     if (!mon.running || mon.breached) return;
     finalize(mon, null, "stopped");
@@ -219,6 +248,18 @@ export function startRepeat(
     startLine: 1,
   };
   rpt.set(id, mon);
+  beginActivity({
+    id: `monitor:${logPath}`,
+    kind: "monitor",
+    status: "running",
+    session_id: mon.sessScope,
+    label: describe || command,
+    command,
+    cwd,
+    started_at: Date.now(),
+    log_path: logPath,
+    metrics: { interval_seconds: intervalSec, invocation: 0 },
+  });
   runIteration(mon);
   return id;
 }

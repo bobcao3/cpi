@@ -43,7 +43,7 @@ export function spawnMonitor(
     {
       detached: true,
       stdio: ["pipe", "pipe", "pipe"],
-      env,
+      env: { ...env, CPI_ACTIVITY_SHELL_LOG: logPath },
       cwd,
       windowsHide: true,
     },

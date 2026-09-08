@@ -11,11 +11,12 @@ import type {
   ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import type { Component } from "@earendil-works/pi-tui";
-import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import { FooterNavigation } from "./footer-navigation.ts";
+import type { FooterSection } from "./footer-rows.ts";
+import { openActivity } from "./activity-ui.ts";
 
 const REFRESH_MS = 2000;
 const GLOBAL_KEY = "__cpiFooter";
-const SEPARATOR_BACKGROUND_SCALE = 0.55;
 
 type Maybe<T> = T | null | undefined;
 type Producer = () => Maybe<string>;
@@ -34,6 +35,7 @@ interface FooterState {
   restoreFooter: (() => void) | undefined;
   activeStatusKeys: Set<string>;
   timer: ReturnType<typeof setInterval> | null;
+  focusActivity?: (returnFocus: (input?: string) => void) => boolean;
 }
 
 function state(): FooterState {
@@ -71,22 +73,9 @@ function hasRefreshContributor(): boolean {
   );
 }
 
-function renderSeparator(theme: ExtensionContext["ui"]["theme"]): string {
-  const bg = theme.getBgAnsi("customMessageBg");
-  const match = bg.match(/\x1b\[48;2;(\d+);(\d+);(\d+)m/);
-  if (!match) return theme.bg("toolPendingBg", " ");
-  const [, red, green, blue] = match;
-  const scale = (channel: string): number =>
-    Math.round(Number(channel) * SEPARATOR_BACKGROUND_SCALE);
-  return `\x1b[48;2;${scale(red)};${scale(green)};${scale(blue)}m \x1b[49m`;
-}
-
-function renderCpiRows(
-  width: number,
-  theme: ExtensionContext["ui"]["theme"],
-): string[] {
+function collectSections(): FooterSection[] {
   const s = state();
-  const sections: Array<{ name: string; value: string }> = [];
+  const sections: FooterSection[] = [];
   const branchContributor = s.branchResolver;
   const branch = branchContributor?.produce();
   if (branch && branchContributor) {
@@ -100,53 +89,7 @@ function renderCpiRows(
     const value = seg.produce();
     if (value) sections.push({ name: seg.name, value });
   }
-  const priority = (name: string): number => {
-    switch (name.toLowerCase()) {
-      case "jj":
-      case "branch":
-        return 0;
-      case "fast":
-        return 1;
-      case "codex":
-        return 2;
-      case "shell":
-        return 3;
-      case "subagent-cost":
-        return 4;
-      case "summary":
-        return 6;
-      default:
-        return 5;
-    }
-  };
-  sections.sort((a, b) => priority(a.name) - priority(b.name));
-  const styled = sections.map(({ value }) =>
-    theme.bg("customMessageBg", theme.fg("muted", ` ${value} `)),
-  );
-  const separator = renderSeparator(theme);
-  const rendered = styled.reduce(
-    (result, section, index) =>
-      index === 0 ? section : `${result}${separator}${section}`,
-    "",
-  );
-  if (!rendered) return [];
-  if (visibleWidth(rendered) <= width) return [rendered];
-
-  const summaryIndex = sections.findIndex(
-    ({ name }) => name.toLowerCase() === "summary",
-  );
-  if (summaryIndex < 0) return [truncateToWidth(rendered, width)];
-
-  const withoutSummary = styled.filter((_, index) => index !== summaryIndex);
-  const first = withoutSummary.reduce(
-    (result, section, index) =>
-      index === 0 ? section : `${result}${separator}${section}`,
-    "",
-  );
-  return [
-    ...(first ? [truncateToWidth(first, width)] : []),
-    truncateToWidth(styled[summaryIndex], width),
-  ];
+  return sections;
 }
 
 const MAX_FOOTER_CAPTURE_DEPTH = 4;
@@ -208,6 +151,12 @@ function stopTimer(): void {
 
 export function requestFooterRender(): void {
   syncStatuses();
+}
+
+export function focusFooterActivity(
+  returnFocus: (input?: string) => void,
+): boolean {
+  return state().focusActivity?.(returnFocus) ?? false;
 }
 
 /** Publish a custom branch/status value under the cpi status row. */
@@ -284,6 +233,7 @@ export function setupCpiFooter(_pi: ExtensionAPI, ctx: ExtensionContext): void {
   stopTimer();
   s.restoreFooter = undefined;
   s.requestRender = undefined;
+  s.focusActivity = undefined;
   ctx.ui.setFooter(undefined);
   clearLegacyStatuses((key, value) => ctx.ui.setStatus(key, value));
 
@@ -314,14 +264,19 @@ export function setupCpiFooter(_pi: ExtensionAPI, ctx: ExtensionContext): void {
   };
   ctx.ui.setFooter((tui, theme, _footerData) => {
     s.requestRender = () => tui.requestRender();
-    return {
-      render(width: number): string[] {
-        return [...footer.render(width), ...renderCpiRows(width, theme)];
+    const navigation = new FooterNavigation(
+      tui,
+      theme,
+      footer,
+      collectSections,
+      (kind) => {
+        void openActivity(ctx, kind).catch((error) =>
+          ctx.ui.notify(String(error), "error"),
+        );
       },
-      invalidate(): void {
-        footer.invalidate();
-      },
-    };
+    );
+    s.focusActivity = (returnFocus) => navigation.focus(returnFocus);
+    return navigation;
   });
   s.restoreFooter = restoreFooter;
   syncStatuses();
@@ -334,5 +289,6 @@ export function disposeCpiFooter(): void {
   stopTimer();
   s.activeStatusKeys.clear();
   s.requestRender = undefined;
+  s.focusActivity = undefined;
   s.restoreFooter = undefined;
 }

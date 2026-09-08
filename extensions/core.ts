@@ -16,7 +16,10 @@ import {
   setupCpiFooter,
   disposeCpiFooter,
   registerRightSegment,
+  focusFooterActivity,
 } from "./lib/footer.ts";
+import { registerActivityBrowser } from "./lib/activity-ui.ts";
+import { listActivities } from "./lib/activity.ts";
 import {
   setupStatusReports,
   disposeStatusReports,
@@ -57,7 +60,9 @@ export default function coreExtension(pi: ExtensionAPI): void {
     setupStatusReports(ctx);
     setSessionDir(ctx.sessionManager?.getSessionDir());
     resetSubagentUsage();
-    registerRightSegment("subagent-cost", costSegment);
+    registerRightSegment("subagent-cost", () =>
+      costSegment(ctx.sessionManager.getSessionId()),
+    );
     // A session switch (new/resume/fork/tree) ends any in-flight stuck wait.
     resetAntiStuck();
     disarmAntiStuckTimer();
@@ -65,7 +70,9 @@ export default function coreExtension(pi: ExtensionAPI): void {
   pi.on("session_tree", async (_event, ctx: ExtensionContext) => {
     setupCpiFooter(pi, ctx);
     setupStatusReports(ctx);
-    registerRightSegment("subagent-cost", costSegment);
+    registerRightSegment("subagent-cost", () =>
+      costSegment(ctx.sessionManager.getSessionId()),
+    );
   });
   pi.on("session_shutdown", async () => {
     disposeCpiFooter();
@@ -73,6 +80,7 @@ export default function coreExtension(pi: ExtensionAPI): void {
   });
 
   registerNotificationRenderer(pi);
+  registerActivityBrowser(pi, focusFooterActivity);
 
   pi.on("before_agent_start", () => drainBeforeUser(pi));
   pi.on("tool_execution_end", () => drainAfterTool(pi));
@@ -214,8 +222,14 @@ export default function coreExtension(pi: ExtensionAPI): void {
   });
 }
 
-function costSegment(): string | undefined {
+function costSegment(session_id: string): string | undefined {
   const u = getSubagentUsage();
-  if (u.count === 0) return undefined;
-  return `sub $${u.cost.toFixed(4)}·${u.count}`;
+  const entries = listActivities(session_id).filter(
+    (entry) => entry.kind === "subagent",
+  );
+  const live = entries.filter(
+    (entry) => entry.status === "running" || entry.status === "stopping",
+  ).length;
+  if (u.count === 0 && entries.length === 0) return undefined;
+  return `sub:${live} $${u.cost.toFixed(4)}·${u.count}`;
 }

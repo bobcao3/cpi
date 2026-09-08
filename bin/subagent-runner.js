@@ -20,6 +20,7 @@ import { mkdir, readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
+import { observeSession } from "./subagent-activity.mjs";
 
 const THINKING = new Set([
   "off",
@@ -211,6 +212,7 @@ export async function runSubagent(request, signal) {
     sessionManager: manager,
     ...selection,
   });
+  const unobserve = observeSession(session);
   let interrupted = signal?.aborted === true;
   const stop = () => {
     interrupted = true;
@@ -242,6 +244,7 @@ export async function runSubagent(request, signal) {
       : 0;
   } finally {
     signal?.removeEventListener("abort", stop);
+    unobserve();
     session.dispose();
     restoreEnv("PI_SUBAGENT", oldSubagent);
     restoreEnv("PI_SUBAGENT_SUMMARY", oldSummary);
