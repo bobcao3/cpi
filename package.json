@@ -1,6 +1,7 @@
 {
   "name": "cpi",
   "version": "0.1.0",
+  "license": "MIT",
   "description": "Cheng Cao's shared extensions and skills for the pi coding agent.",
   "type": "module",
   "keywords": [
