@@ -11,7 +11,7 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import type { Model, Api } from "@earendil-works/pi-ai";
 import { loadEditorConfig } from "../lib/config.ts";
-import { loadEditorText, fmt } from "./text.ts";
+import { loadEditorText, fmt, type EditorText } from "./text.ts";
 
 export interface EditorPick {
   provider: string;
@@ -63,21 +63,65 @@ function inferProvider(modelId: string): string | undefined {
   return undefined;
 }
 
-/** Exact id lookup: prefer `preferProvider`, else first authed match across all providers. */
+function warnConfig(
+  tpl: string | undefined,
+  vars: Record<string, string | number>,
+): void {
+  if (tpl) process.stderr.write(`${fmt(tpl, vars)}\n`);
+}
+
+/** Exact id lookup: prefer `preferProvider`; else first id match across all
+ * providers. Crossing providers is a fallback, so it warns. */
 function resolveExact(
   ctx: ExtensionContext,
   modelId: string,
-  preferProvider?: string,
+  preferProvider: string | undefined,
+  T: EditorText,
 ): Model<Api> | undefined {
   if (!modelId) return undefined;
   if (preferProvider) {
     const m = ctx.modelRegistry.find(preferProvider, modelId);
     if (m && ctx.modelRegistry.hasConfiguredAuth(m)) return m;
+    for (const alt of ctx.modelRegistry.getAvailable()) {
+      if (alt.id === modelId) {
+        warnConfig(T.errors.provider_fallback, {
+          requested: `${preferProvider}/${modelId}`,
+          resolved: `${alt.provider}/${alt.id}`,
+        });
+        return alt;
+      }
+    }
+    return undefined;
   }
   for (const m of ctx.modelRegistry.getAvailable()) {
     if (m.id === modelId) return m;
   }
   return undefined;
+}
+
+/** Resolve a chain rewrite output: "<provider>/<id>" (validated) or bare "<id>". */
+function resolveChainModel(
+  ctx: ExtensionContext,
+  T: EditorText,
+  modelPart: string,
+  mainProvider: string,
+  ruleIndex: number,
+  rule: { search: string },
+): Model<Api> | undefined {
+  if (!modelPart.includes("/"))
+    return resolveExact(ctx, modelPart, mainProvider, T);
+  const slashIdx = modelPart.indexOf("/");
+  const provider = modelPart.slice(0, slashIdx);
+  const modelId = modelPart.slice(slashIdx + 1);
+  if (!provider || !modelId || provider.includes(":")) {
+    warnConfig(T.errors.chain_malformed_selector, {
+      i: ruleIndex + 1,
+      pattern: rule.search,
+      selector: modelPart,
+    });
+    return undefined;
+  }
+  return resolveExact(ctx, modelId, provider, T);
 }
 
 function compileRule(
@@ -121,6 +165,7 @@ export function resolveEditorModel(ctx: ExtensionContext): EditorPick {
       ctx,
       cfg.model,
       cfg.provider ?? inferProvider(cfg.model),
+      T,
     );
     if (m) pick = { provider: m.provider, modelId: m.id };
     else
@@ -134,22 +179,24 @@ export function resolveEditorModel(ctx: ExtensionContext): EditorPick {
     for (let i = 0; i < cfg.chain.length; i++) {
       const rule = cfg.chain[i];
       const re = compileRule(T, rule, i);
-      if (!re || !re.test(combinedInput)) continue;
+      if (!re) continue;
+      const matched = re.exec(combinedInput);
+      if (!matched) continue;
+      if (matched[0].length === 0) {
+        warnConfig(T.errors.chain_zero_width, {
+          i: i + 1,
+          pattern: rule.search,
+          replace: rule.replace,
+        });
+        continue;
+      }
       const combinedOutput = combinedInput.replace(re, rule.replace);
       const lastColon = combinedOutput.lastIndexOf(":");
       const modelPart =
         lastColon === -1 ? combinedOutput : combinedOutput.slice(0, lastColon);
       const effortPart =
         lastColon === -1 ? undefined : combinedOutput.slice(lastColon + 1);
-      let m: Model<Api> | undefined;
-      if (modelPart.includes("/")) {
-        const slashIdx = modelPart.indexOf("/");
-        const provider = modelPart.slice(0, slashIdx);
-        const modelId = modelPart.slice(slashIdx + 1);
-        m = resolveExact(ctx, modelId, provider);
-      } else {
-        m = resolveExact(ctx, modelPart, main.provider);
-      }
+      const m = resolveChainModel(ctx, T, modelPart, main.provider, i, rule);
       if (m) {
         pick = {
           provider: m.provider,
@@ -160,6 +207,10 @@ export function resolveEditorModel(ctx: ExtensionContext): EditorPick {
       }
     }
     if (!pick) {
+      warnConfig(T.errors.chain_no_match, {
+        selector: combinedInput,
+        main: mainKey,
+      });
       pick = {
         provider: main.provider,
         modelId: main.id,

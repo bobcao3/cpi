@@ -296,6 +296,10 @@ edit_requires_instruction = "edit requires an instruction."
 no_editor_model = "editor: no editor model (no editor config and no main model)."
 invalid_chain_regex = '[editor] chain rule {{i}}: invalid regex "{{pattern}}"; skipping.'
 configured_unavailable = '[editor] configured editor.model "{{model}}" not available/authed; falling back to chain.'
+chain_zero_width = '[editor] chain rule {{i}}: regex "{{pattern}}" matches an empty string, which would prepend "{{replace}}" instead of replacing; skipping.'
+chain_malformed_selector = '[editor] chain rule {{i}}: rewrite of "{{pattern}}" produced malformed selector "{{selector}}"; skipping.'
+chain_no_match = '[editor] no chain rule matched "{{selector}}"; using main model {{main}}.'
+provider_fallback = '[editor] {{requested}} not found/authed; using id-only match {{resolved}}.'
 viewer_timeout = "Viewer subagent timed out after {{ms}}ms. Consider fewer query statements & use concrete keywords."
 editor_timeout = "Editor subagent timed out after {{ms}}ms. Consider reducing scope & increase specificity."
 editor_cancelled = "Editor subagent cancelled the edit (edit-complete cancel=true)."

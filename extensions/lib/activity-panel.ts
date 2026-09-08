@@ -15,7 +15,11 @@ import {
   type ActivityKind,
 } from "./activity.ts";
 import { loadText, render, textPath } from "./text.ts";
-import { frameActivity, activityHelp } from "./activity-panel-style.ts";
+import {
+  frameActivity,
+  activityHelp,
+  activityMetricValue,
+} from "./activity-panel-style.ts";
 import { activityDetail } from "./activity-panel-style.ts";
 import {
   activityDetails,
@@ -46,6 +50,16 @@ const age = (entry: ActivityEntry) => {
     : seconds < 3600
       ? `${Math.floor(seconds / 60)}m ${seconds % 60}s`
       : `${Math.floor(seconds / 3600)}h ${Math.floor(seconds / 60) % 60}m`;
+};
+const finishedCost = (entry: ActivityEntry) => {
+  const cost = entry.metrics?.cost;
+  return entry.kind === "subagent" &&
+    !live(entry) &&
+    entry.status !== "detached" &&
+    typeof cost === "number" &&
+    cost > 0
+    ? activityMetricValue("cost", cost)
+    : undefined;
 };
 
 export class ActivityPanel implements Component {
@@ -304,9 +318,11 @@ export class ActivityPanel implements Component {
             : entry.status === "cancelled"
               ? "warning"
               : "muted";
+      const cost = finishedCost(entry);
       const label = [
         theme.fg("accent", selected ? "›" : " "),
         theme.fg(color, clean(this.text.status[entry.status])),
+        ...(cost ? [theme.fg("muted", cost)] : []),
         theme.bold(theme.fg("text", clean(entry.label))),
         theme.fg("dim", "·"),
         theme.fg("muted", clean(this.text.tabs[entry.kind]!)),

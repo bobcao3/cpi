@@ -140,6 +140,7 @@ export async function maybeAntiStuckProbe(
       parentSessionFile: parentFile,
       cwd: ctx.cwd,
       signal: probeController.signal,
+      title: `Anti-stuck check (${pending.length} background shells, ${elapsedMin}m)`,
       timeoutMs: PROBE_TIMEOUT_MS,
       prompt,
       // A child may exit while its cancellation races SIGTERM — never let a stale answer wake the now-active session.

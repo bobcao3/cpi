@@ -17,7 +17,10 @@ import {
   resumeBackgroundShells,
 } from "../../extensions/shell/exec.ts";
 import { startRepeat, signalRepeat } from "../../extensions/shell/repeat.ts";
-import { launchMonitor, writeResumeRecord } from "../../extensions/shell/monitor.ts";
+import {
+  launchMonitor,
+  writeResumeRecord,
+} from "../../extensions/shell/monitor.ts";
 
 const scope = `activity-${Date.now()}`;
 const directory = await mkdtemp(join(tmpdir(), "cpi-activity-"));
@@ -82,11 +85,22 @@ try {
   assert.equal(shell(detached.id).status, "detached");
   assert.equal(signalChild(detached.id, "SIGKILL"), false);
 
-  const handle = await launchMonitor("sleep 0.3; echo resumed", env, `${Date.now()}-activity-resume`);
+  const handle = await launchMonitor(
+    "sleep 0.3; echo resumed",
+    env,
+    `${Date.now()}-activity-resume`,
+  );
   const resumedId = String((await handle.client.stat()).pid);
   const socket = await handle.client.bindResume();
   assert.ok(socket);
-  await writeResumeRecord(directory, scope, resumedId, socket, "resume", handle.logPath);
+  await writeResumeRecord(
+    directory,
+    scope,
+    resumedId,
+    socket,
+    "resume",
+    handle.logPath,
+  );
   handle.client.orphan();
   await resumeBackgroundShells(directory, scope);
   assert.equal(shell(resumedId).metrics?.resumed, 1);

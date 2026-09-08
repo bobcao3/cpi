@@ -4,18 +4,26 @@ import {
 } from "../lib/output-truncate.ts";
 export type { OutputTruncation };
 import type { BackgroundChild } from "./background-types.ts";
-export function accumulateOutput(entry: BackgroundChild, buf: Buffer, off: number, maxAcc: number): void {
+export function accumulateOutput(
+  entry: BackgroundChild,
+  buf: Buffer,
+  off: number,
+  maxAcc: number,
+): void {
   entry.acc += entry.decoder.write(buf);
   entry.bytesEmitted = off + buf.length;
   const lastNl = buf.lastIndexOf(0x0a);
   if (lastNl === -1) entry.colBytes += buf.length;
   else {
-    entry.linesEmitted += buf.subarray(0, lastNl).filter((b) => b === 0x0a).length + 1;
+    entry.linesEmitted +=
+      buf.subarray(0, lastNl).filter((b) => b === 0x0a).length + 1;
     entry.colBytes = buf.length - 1 - lastNl;
   }
   if (Buffer.byteLength(entry.acc) > maxAcc) {
     while (Buffer.byteLength(entry.acc) > maxAcc)
-      entry.acc = entry.acc.slice(Math.max(1, Math.ceil(entry.acc.length * 0.1)));
+      entry.acc = entry.acc.slice(
+        Math.max(1, Math.ceil(entry.acc.length * 0.1)),
+      );
     const c0 = entry.acc.charCodeAt(0);
     if (c0 >= 0xdc00 && c0 <= 0xdfff) entry.acc = entry.acc.slice(1);
   }

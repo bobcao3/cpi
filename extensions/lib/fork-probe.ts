@@ -39,6 +39,8 @@ export interface ForkSpawnOptions {
   model?: string;
   tools?: string;
   appendSystemPrompt?: string;
+  /** Human-readable label surfaced in the activity panel; falls back to a prompt excerpt. */
+  title?: string;
   timeoutMs?: number;
   signal?: AbortSignal;
   /** Unique temp session dir; removed on exit unless false, which retains it for post-mortem. */
@@ -218,6 +220,7 @@ export async function runForkProbe(
     parentSessionId,
     sessionDir: tmpSessionDir,
     prompt,
+    ...(opts.title ? { title: opts.title } : {}),
     cwd: opts.cwd ?? getCwd(),
     env: inheritedEnvironment(),
     runId: randomUUID(),

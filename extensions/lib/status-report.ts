@@ -54,6 +54,7 @@ interface ProbeRequest {
   ctx: ExtensionContext;
   epoch: number;
   parentSessionFile: string;
+  turn: number;
 }
 
 interface StatusReportState {
@@ -165,6 +166,7 @@ async function runStatusProbe(request: ProbeRequest): Promise<void> {
         parentSessionFile: request.parentSessionFile,
         cwd: request.ctx.cwd,
         signal,
+        title: `Status summary (turn ${request.turn})`,
         timeoutMs: PROBE_TIMEOUT_MS,
       },
       text.report.prompt,
@@ -216,5 +218,10 @@ export async function statusReportTurnEnded(
   s.turnCount = 0;
   const parentSessionFile = ctx.sessionManager.getSessionFile();
   if (!parentSessionFile || ctx.signal?.aborted) return;
-  await runStatusProbe({ ctx, epoch: s.epoch, parentSessionFile });
+  await runStatusProbe({
+    ctx,
+    epoch: s.epoch,
+    parentSessionFile,
+    turn: event.turnIndex + 1,
+  });
 }

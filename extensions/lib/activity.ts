@@ -57,7 +57,8 @@ function bounded(text: string, bytes = TAIL_BYTES): string {
 }
 function clean(entry: ActivityEntry): ActivityEntry {
   for (const value of [entry.id, entry.session_id, entry.cwd, entry.log_path]) {
-    if (value && value.length > 4096) throw new Error("activity metadata limit");
+    if (value && value.length > 4096)
+      throw new Error("activity metadata limit");
   }
   const metrics = Object.fromEntries(
     Object.entries(entry.metrics ?? {})
@@ -76,16 +77,19 @@ function clean(entry: ActivityEntry): ActivityEntry {
   };
 }
 function trimHistory(map: Map<string, ActivityEntry>): void {
-  const terminal = [...map.values()].filter((entry) => !live(entry)).sort(
-    (a, b) => (b.ended_at ?? b.started_at) - (a.ended_at ?? a.started_at),
-  );
+  const terminal = [...map.values()]
+    .filter((entry) => !live(entry))
+    .sort(
+      (a, b) => (b.ended_at ?? b.started_at) - (a.ended_at ?? a.started_at),
+    );
   for (const entry of terminal.slice(HISTORY_LIMIT)) map.delete(entry.id);
 }
 export function beginActivity(entry: ActivityEntry): void {
   try {
     const map = entries();
     if (map.has(entry.id)) return;
-    if (live(entry) && [...map.values()].filter(live).length >= ACTIVE_LIMIT) return;
+    if (live(entry) && [...map.values()].filter(live).length >= ACTIVE_LIMIT)
+      return;
     map.set(entry.id, clean(entry));
     if (!live(entry)) trimHistory(map);
   } catch {}

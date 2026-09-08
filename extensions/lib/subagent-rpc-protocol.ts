@@ -63,6 +63,7 @@ export interface ForkProbeSubagentRequest {
   parentSessionId: string;
   sessionDir: string;
   prompt: string;
+  title?: string;
   model?: string;
   tools?: string;
   appendSystemPrompt?: string;
@@ -168,6 +169,11 @@ export function validForkProbeSubagentRequest(
     request.prompt.length > 0 &&
     Buffer.byteLength(request.prompt) <= 256 * 1024 &&
     !request.prompt.includes("\0") &&
+    (request.title === undefined ||
+      (typeof request.title === "string" &&
+        request.title.length > 0 &&
+        Buffer.byteLength(request.title) <= 4096 &&
+        !request.title.includes("\0"))) &&
     (request.model === undefined ||
       (typeof request.model === "string" &&
         request.model.length > 0 &&

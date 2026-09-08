@@ -253,6 +253,7 @@ export async function evaluateGoal(
       parentSessionFile: parentFile,
       cwd: ctx.cwd,
       signal: ctx.signal,
+      title: `Goal check (turn ${s.turnCount + 1})`,
       timeoutMs: PROBE_TIMEOUT_MS,
     },
     render(T.evaluate.prompt, { objective: s.objective }),
