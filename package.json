@@ -39,7 +39,6 @@
     ]
   },
   "dependencies": {
-    "cpi": ".",
     "mustache": "^4.2.0",
     "smol-toml": "^1.6.1"
   },
