@@ -228,6 +228,14 @@ export default function (pi: ExtensionAPI) {
             name: params.name,
             subdoc: params.subdoc,
             path: target,
+            referenceDocuments: [
+              {
+                kind: "skill",
+                path: target,
+                name: params.name,
+                subdoc: params.subdoc?.trim() || undefined,
+              },
+            ],
             ...(guidePath ? { guidePath } : {}),
           },
         };

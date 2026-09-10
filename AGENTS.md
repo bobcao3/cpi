@@ -34,6 +34,8 @@ Hard rules:
    guidelines, schema field descriptions) must live in the dedicated
    `extensions/text/` folder as TOML templates (loaded via `loadText`/`render`),
    never inlined in extension `.ts` source.
+6. Document _never_ repeat values or behavior that's encoded in default config
+   or code. Refer reader to the actual source of truth.
 
 Guideline: When refactoring, aim for at least 30%-50% AST statements reduction
 (instead of line count).

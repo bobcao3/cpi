@@ -39,6 +39,18 @@ belong in `.pi/rules/*.md`. Provider fallback examples are in
 
 See `forkProbe` in [`cpi-config.default.json`](../cpi-config.default.json).
 
+## Compaction
+
+- [Lifecycle and summary request](../extensions/lib/compaction.ts)
+- [Checkpoint projection](../extensions/lib/compaction-checkpoint.ts)
+- [User-facing display](../extensions/lib/compaction-display.ts)
+- [Instruction selection and limits](../extensions/lib/compaction-references.ts)
+- [Runtime snapshot](../extensions/lib/compaction-state.ts)
+- [Summary/restoration templates](../extensions/text/compaction.toml) and
+  [document markers](../extensions/text/compaction-references.toml)
+- [Context integration coverage](../tools/sh-monitor/test-compaction-context.ts)
+  and [live-provider verification](../tools/sh-monitor/test-compaction-live.ts)
+
 ## Develop locally
 
 With pi and Bun installed, run `bun install`, then `pi install -l .` in this

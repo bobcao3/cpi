@@ -186,14 +186,29 @@ try {
   await session.navigateTree(manager.getEntries()[0].id, { summarize: false });
   await session.prompt("rewound before the origin entry");
   assert.equal(captures.at(-1).system, original);
-  assert.equal(
-    (notifications(session).at(-1) as any)?.details.payload.to,
-    `${provider}/base-fast`,
-  );
+  const repaired = captures
+    .at(-1)
+    .messages.filter((message: any) =>
+      JSON.stringify(message.content).includes(
+        'notification type=\\"model-change\\"',
+      ),
+    );
+  assert.equal(repaired.length, 1);
+  assert(JSON.stringify(repaired).includes(`${provider}/base-fast`));
   const repaired_count = notifications(session).length;
   await session.reload();
   await session.prompt("same rewound model after reload");
   assert.equal(notifications(session).length, repaired_count);
+  assert.equal(
+    captures
+      .at(-1)
+      .messages.filter((message: any) =>
+        JSON.stringify(message.content).includes(
+          'notification type=\\"model-change\\"',
+        ),
+      ).length,
+    1,
+  );
 
   const minimal = await open(SessionManager.inMemory(root), true);
   await minimal.setModel(base);

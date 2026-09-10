@@ -10,6 +10,7 @@ import type {
 import { applySystemPromptTransforms } from "./lib/system-prompt.ts";
 import { buildCpiSystemPrompt } from "./lib/system-prompt-build.ts";
 import { registerModelContext } from "./lib/model-context.ts";
+import { registerCompaction } from "./lib/compaction.ts";
 import { modelSupportsVision } from "./lib/media.ts";
 import { drainAfterTool, drainBeforeUser } from "./lib/prepend-message.ts";
 import { registerNotificationRenderer } from "./lib/notification.ts";
@@ -55,6 +56,7 @@ import {
 } from "./lib/goal.ts";
 
 export default function coreExtension(pi: ExtensionAPI): void {
+  registerCompaction(pi);
   const promptModel = registerModelContext(pi);
   pi.on("session_start", async (_event, ctx: ExtensionContext) => {
     if (!process.env.PI_SUBAGENT) await ensureSubagentRpc();

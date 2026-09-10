@@ -1,0 +1,17 @@
+[marker]
+managed = '[Reference body omitted: {{kind}} {{path}}. Current content is restored separately.]'
+unavailable = '[Reference body omitted: {{kind}} {{path}}. WARNING: current content is not in the restored bundle; it may be unavailable, outside the current project, or already in system context.]'
+
+[warning]
+missing = 'Reference unavailable: {{path}} ({{reason}}). No stale content was restored.'
+limit = 'Reference collection exceeded {{limit}}: {{path}}. Compaction must be cancelled.'
+not_file = 'not a regular file'
+
+[limits]
+document = '128 KiB/document'
+count = '64 documents'
+total = '512 KiB total'
+
+[syntax]
+project_header = "\n---\nsystem reminder | Project AGENTS.md loaded: {{path}}\n"
+project_end = "\n---"

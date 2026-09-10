@@ -63,32 +63,43 @@ export function registerModelContext(pi: ExtensionAPI) {
   pi.on("session_tree", (_event, ctx) => {
     origin = saved_origin(ctx);
   });
-  pi.on("before_agent_start", (_event, ctx) => {
+  pi.on("context", (event, ctx) => {
     if (!ctx.model) return;
     origin ??= saved_origin(ctx);
     const initial = remember(ctx.model);
     let represented = `${initial.provider}/${initial.modelId}`;
-    for (const entry of ctx.sessionManager.buildContextEntries()) {
-      if (
-        entry.type !== "custom_message" ||
-        entry.customType !== NOTIFICATION_TYPE
-      )
-        continue;
-      const details = entry.details as
+    for (const message of event.messages) {
+      if (message.role !== "custom") continue;
+      const details = message.details as
         | {
             kind?: unknown;
             payload?: { to?: unknown };
+            model?: ModelIdentity;
           }
         | undefined;
+      if (message.customType === "cpi-context-checkpoint" && details?.model)
+        represented = `${details.model.provider}/${details.model.modelId}`;
       if (
+        message.customType === NOTIFICATION_TYPE &&
         details?.kind === "model-change" &&
         typeof details.payload?.to === "string"
       )
         represented = details.payload.to;
     }
     const current = `${ctx.model.provider}/${ctx.model.id}`;
-    if (represented !== current)
-      return { message: notification(represented, current) };
+    if (represented !== current) {
+      const message = notification(represented, current);
+      return {
+        messages: [
+          ...event.messages,
+          {
+            ...message,
+            role: "custom" as const,
+            timestamp: event.messages.at(-1)?.timestamp ?? 0,
+          },
+        ],
+      };
+    }
   });
   pi.on("model_select", (event, ctx) => {
     const { model, previousModel, source } = event;

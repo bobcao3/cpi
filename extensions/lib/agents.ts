@@ -1,6 +1,6 @@
 /** AGENTS.md/CLAUDE.md discovery + global seen-tracking: pi loads project context files once at startup and never reloads, so cpi surfaces newly-entered trees' files. Seen-state lives on globalThis, surviving jiti reloads. */
 
-import { existsSync, readFileSync } from "node:fs";
+import { accessSync, constants, readFileSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
 
 const CANDIDATES = ["AGENTS.md", "AGENTS.MD", "CLAUDE.md", "CLAUDE.MD"];
@@ -25,47 +25,48 @@ function state(): AgentsState {
   return fresh;
 }
 
-function loadFromDir(dir: string): AgentsFile | null {
+function path_from_directory(directory: string): string | undefined {
   for (const name of CANDIDATES) {
-    const p = join(dir, name);
-    if (existsSync(p)) {
-      try {
-        return { path: p, content: readFileSync(p, "utf-8") };
-      } catch {
-        // unreadable — treat as absent, keep walking
-      }
+    const path = join(directory, name);
+    try {
+      if (!statSync(path).isFile()) continue;
+      accessSync(path, constants.R_OK);
+      return path;
+    } catch {
+      continue;
     }
   }
-  return null;
 }
 
 /** Walk cwd→root, first match per dir, deduped, root-first (matches pi). */
-export function discoverAgentsFiles(cwd: string): AgentsFile[] {
-  const root = resolve("/");
-  const seen = new Set<string>();
-  const stack: AgentsFile[] = [];
-  let dir = resolve(cwd);
+export function discoverAgentsPaths(cwd: string): string[] {
+  const paths: string[] = [];
+  let directory = resolve(cwd);
   for (;;) {
-    const f = loadFromDir(dir);
-    if (f && !seen.has(f.path)) {
-      seen.add(f.path);
-      stack.push(f);
-    }
-    if (dir === root) break;
-    const parent = resolve(dir, "..");
-    if (parent === dir) break;
-    dir = parent;
+    const path = path_from_directory(directory);
+    if (path) paths.push(path);
+    const parent = resolve(directory, "..");
+    if (parent === directory) break;
+    directory = parent;
   }
-  const ordered: AgentsFile[] = [];
-  for (let i = stack.length - 1; i >= 0; i--) ordered.push(stack[i]);
-  return ordered;
+  return paths.reverse();
+}
+
+export function discoverAgentsFiles(cwd: string): AgentsFile[] {
+  return discoverAgentsPaths(cwd).flatMap((path) => {
+    try {
+      return [{ path, content: readFileSync(path, "utf8") }];
+    } catch {
+      return [];
+    }
+  });
 }
 
 /** Mark the startup tree (pi's already-loaded context) as seen. Idempotent. */
 export function seedAgentsContext(cwd: string): void {
   const s = state();
   if (s.seeded) return;
-  for (const f of discoverAgentsFiles(cwd)) s.seen.add(f.path);
+  for (const path of discoverAgentsPaths(cwd)) s.seen.add(path);
   s.seeded = true;
 }
 

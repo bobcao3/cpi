@@ -78,10 +78,11 @@ export function findSubagentModelGuide(
   cwd: string,
   projectTrusted: boolean,
   agentDir: string = getAgentDir(),
+  read_guide: (path: string) => SubagentModelGuide | undefined = readGuide,
 ): SubagentModelGuide | undefined {
   if (projectTrusted) {
-    const project = readGuide(subagentGuidePath(cwd, "project", agentDir));
+    const project = read_guide(subagentGuidePath(cwd, "project", agentDir));
     if (project) return project;
   }
-  return readGuide(subagentGuidePath(cwd, "user", agentDir));
+  return read_guide(subagentGuidePath(cwd, "user", agentDir));
 }

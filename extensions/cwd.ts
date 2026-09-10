@@ -26,6 +26,8 @@ import {
   type ToolText,
 } from "./lib/text.ts";
 
+import { compactedNotificationFilter } from "./lib/compaction-display.ts";
+
 export { getCwd, resolveCwdPath } from "./lib/cwd.ts";
 
 const CWD_TOOL = "set_cwd";
@@ -54,11 +56,19 @@ function applyCwd(pi: ExtensionAPI, target: string, reason: string): void {
   boundary().pending = { cwd: target, reason };
 }
 
+function reminderContent(cwd: string, reason?: string): string {
+  const text = loadText<{ reminder: { content: string } }>(
+    "cwd",
+    textPath("cwd"),
+  );
+  return render(text.reminder.content, { cwd, reason });
+}
+
 function deliverReminder(pi: ExtensionAPI, cwd: string, reason?: string): void {
   pi.sendMessage(
     {
       customType: REMINDER_TYPE,
-      content: `system reminder | Current cwd: ${cwd}${reason ? ` (${reason})` : ""}`,
+      content: reminderContent(cwd, reason),
       display: true,
       details: { cwd, reason },
     },
@@ -94,7 +104,10 @@ function ensureToolActive(pi: ExtensionAPI): void {
 }
 
 function registerReminderRenderer(pi: ExtensionAPI): void {
+  const compacted = compactedNotificationFilter(pi);
   pi.registerMessageRenderer(REMINDER_TYPE, (message, _options, theme) => {
+    const hidden = compacted(message);
+    if (hidden) return hidden;
     const d = (message.details ?? {}) as { cwd?: string };
     const cwd = d.cwd ?? "";
     return new Text(
@@ -145,7 +158,14 @@ export default function (pi: ExtensionAPI): void {
       text += formatAgentsBlock(newAgents);
       return {
         content: [{ type: "text", text }],
-        details: { cwd: target, newAgentsFiles: newAgents.map((f) => f.path) },
+        details: {
+          cwd: target,
+          newAgentsFiles: newAgents.map((f) => f.path),
+          referenceDocuments: newAgents.map((file) => ({
+            kind: "project",
+            path: file.path,
+          })),
+        },
       };
     },
   });
@@ -173,6 +193,35 @@ export default function (pi: ExtensionAPI): void {
   // Compaction drops token count — reset so boundaries re-fire as it refills
   pi.on("session_compact", async () => {
     boundary().last = 0;
+  });
+
+  pi.on("context", (event, ctx) => {
+    let represented = ctx.cwd;
+    for (const message of event.messages) {
+      if (
+        message.role !== "custom" ||
+        (message.customType !== REMINDER_TYPE &&
+          message.customType !== "cpi-context-checkpoint")
+      )
+        continue;
+      const details = message.details as { cwd?: string } | undefined;
+      if (typeof details?.cwd === "string") represented = details.cwd;
+    }
+    const cwd = getCwd();
+    if (represented !== cwd)
+      return {
+        messages: [
+          ...event.messages,
+          {
+            role: "custom" as const,
+            customType: REMINDER_TYPE,
+            content: reminderContent(cwd),
+            display: false,
+            details: { cwd },
+            timestamp: event.messages.at(-1)?.timestamp ?? 0,
+          },
+        ],
+      };
   });
 
   pi.on("session_start", async (_event, ctx) => {

@@ -2,6 +2,7 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
+import { compactedNotificationFilter } from "./compaction-display.ts";
 
 export const NOTIFICATION_TYPE = "notification";
 
@@ -94,7 +95,10 @@ export function sendNotification(
 
 /** Re-register because renderers are transient per extension instance. */
 export function registerNotificationRenderer(pi: ExtensionAPI): void {
+  const compacted = compactedNotificationFilter(pi);
   pi.registerMessageRenderer(NOTIFICATION_TYPE, (message, _options, theme) => {
+    const hidden = compacted(message);
+    if (hidden) return hidden;
     const details = message.details as NotificationDetails | undefined;
     const kind = details?.kind ?? "unknown";
     const summary = details?.summary ?? message.content;
