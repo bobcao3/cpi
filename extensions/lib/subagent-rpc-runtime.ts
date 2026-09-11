@@ -8,6 +8,7 @@ import { updateActivity } from "./activity.ts";
 import { SubagentObservation } from "./subagent-observation.ts";
 
 export const MAX_ACTIVE = 16;
+const MAX_RUN_ID_CHARS = 96;
 const WORKER_PATH = join(
   dirname(fileURLToPath(import.meta.url)),
   "..",
@@ -51,6 +52,22 @@ export function abortRun(run: ActiveRun): void {
   run.timer = setTimeout(() => void run.worker.terminate(), 5000);
   run.timer.unref?.();
 }
+function claimRunId(rpc: RpcState, request: SubagentWorkerRequest): void {
+  const taken = new Set([...rpc.active].map((run) => run.activityId));
+  if (!taken.has(request.runId)) return;
+  const base = request.runId.slice(
+    0,
+    MAX_RUN_ID_CHARS - String(MAX_ACTIVE + 1).length - 1,
+  );
+  for (let n = 2; n <= MAX_ACTIVE + 1; n++) {
+    const id = `${base}-${n}`;
+    if (!taken.has(id)) {
+      request.runId = id;
+      return;
+    }
+  }
+  throw new Error("subagent run id space exhausted");
+}
 export function startRun(
   request: SubagentWorkerRequest,
   rpc: RpcState,
@@ -59,8 +76,7 @@ export function startRun(
 ): ActiveRun {
   if (rpc.active.size >= MAX_ACTIVE)
     throw new Error(`subagent concurrency limit reached (${MAX_ACTIVE})`);
-  if ([...rpc.active].some((run) => run.activityId === request.runId))
-    throw new Error("duplicate subagent run id");
+  claimRunId(rpc, request);
   const observation = new SubagentObservation(request);
   let worker: Worker;
   try {
