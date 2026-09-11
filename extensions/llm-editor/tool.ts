@@ -183,7 +183,15 @@ function surfaceAgentsBlock(dir: string): string {
 }
 
 async function readImageResult(abs: string, mime: string, id: string) {
-  const buffer = await readFile(abs);
+  let buffer = await readFile(abs);
+  if (mime === "image/avif") {
+    const { default: sharp } = await import("sharp");
+    buffer = await sharp(buffer, { limitInputPixels: 40_000_000 })
+      .timeout({ seconds: 15 })
+      .webp({ lossless: true })
+      .toBuffer();
+    mime = "image/webp";
+  }
   const resized = await resizeImage(buffer, mime);
   if (!resized) {
     return textResult(

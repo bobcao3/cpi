@@ -234,7 +234,7 @@ prompt_snippet = "Read files/dirs (AI-filtered)"
 guidelines = [
 	"`read` is for file and directory reads; prefer it over sh for reading (use sh for git, build, test, search, process control).",
 	"`read`: pass `query` to receive only the relevant line ranges (AI-filtered, with line numbers) instead of the whole file — less context, less noise.",
-	"{{#vision}}`read` on an image file (jpg/png/gif/webp) shows the image to the agent, never cat/sed/base64 images.{{/vision}}",
+	"{{#vision}}`read` on an image file (jpg/png/gif/webp/avif) shows the image to the agent, never cat/sed/base64 images.{{/vision}}",
 ]
 
 [tool.edit]

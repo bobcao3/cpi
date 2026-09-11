@@ -48,7 +48,24 @@ function isAnimatedPng(buf: Uint8Array): boolean {
   return false;
 }
 
+function isAvif(buf: Uint8Array): boolean {
+  if (!startsWithAscii(buf, 4, "ftyp")) return false;
+  const size = readUint32BE(buf, 0);
+  if (size < 16 || size % 4 !== 0) return false;
+  const end = Math.min(size, buf.length);
+  for (let offset = 8; offset + 4 <= end; offset += 4) {
+    if (offset === 12) continue;
+    if (
+      startsWithAscii(buf, offset, "avif") ||
+      startsWithAscii(buf, offset, "avis")
+    )
+      return true;
+  }
+  return false;
+}
+
 export function detectImageMimeType(buf: Uint8Array): string | null {
+  if (isAvif(buf)) return "image/avif";
   if (startsWith(buf, [0xff, 0xd8, 0xff])) {
     return buf[3] === 0xf7 ? null : "image/jpeg";
   }
@@ -91,7 +108,7 @@ function detectVideoMagic(buf: Uint8Array): boolean {
   return false;
 }
 
-const IMAGE_EXTENSIONS = new Set(["jpg", "jpeg", "png", "gif", "webp"]);
+const IMAGE_EXTENSIONS = new Set(["jpg", "jpeg", "png", "gif", "webp", "avif"]);
 const VIDEO_EXTENSIONS = new Set([
   "mp4",
   "webm",
