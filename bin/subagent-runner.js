@@ -17,6 +17,7 @@ import {
   initializeFastModels,
   resolveFastModel,
 } from "./fast-models.mjs";
+import { SUBAGENT_USAGE, parseSubagentArgs } from "./subagent-args.mjs";
 
 const THINKING = new Set([
   "off",
@@ -29,33 +30,6 @@ const THINKING = new Set([
 ]);
 const MAX_PARENT_TAIL = 1024 * 1024;
 const MAX_SESSION_FILES = 4096;
-const USAGE =
-  "usage: subagent [-p provider] [-m [provider/]model[:effort]] [-s session-id] [task]";
-
-function parseArgs(argv) {
-  const result = {
-    provider: "",
-    providerExplicit: false,
-    model: "",
-    sessionId: "",
-  };
-  for (let i = 0; i < argv.length; i++) {
-    const arg = argv[i];
-    if (arg === "--") break;
-    if (arg === "-p" || arg === "-m" || arg === "-s") {
-      const value = argv[++i];
-      if (!value) throw new Error(USAGE);
-      if (arg === "-p") {
-        result.provider = value;
-        result.providerExplicit = true;
-      } else if (arg === "-m") result.model = value;
-      else result.sessionId = value;
-      continue;
-    }
-    if (arg.startsWith("-")) throw new Error(USAGE);
-  }
-  return result;
-}
 
 function readTail(path) {
   let fd;
@@ -164,8 +138,8 @@ function restoreEnv(name, value) {
 }
 
 export async function runSubagent(request, signal) {
-  const args = parseArgs(request.argv);
-  if (!request.task) throw new Error(USAGE);
+  const args = parseSubagentArgs(request.argv);
+  if (!request.task) throw new Error(SUBAGENT_USAGE);
   const cwd = request.cwd;
   const env = request.env;
   const parent = parentSettings(env);

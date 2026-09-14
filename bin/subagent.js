@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { createConnection } from "node:net";
 import { randomUUID } from "node:crypto";
+import { SUBAGENT_USAGE, parseSubagentArgs } from "./subagent-args.mjs";
 
 const MAX_TASK_SIZE = 1024 * 1024;
 // Each frame is validated against MAX_FRAME_BYTES individually. The server may
@@ -8,25 +9,6 @@ const MAX_TASK_SIZE = 1024 * 1024;
 // bounded separately by the larger MAX_PENDING_BYTES.
 const MAX_FRAME_BYTES = 256 * 1024;
 const MAX_PENDING_BYTES = 8 * 1024 * 1024;
-const USAGE =
-  "usage: subagent [-p provider] [-m [provider/]model[:effort]] [-s session-id] [task]";
-
-function parseArgs(argv) {
-  const result = { task: [] };
-  for (let i = 0; i < argv.length; i++) {
-    const arg = argv[i];
-    if (arg === "--") return { ...result, task: argv.slice(i + 1) };
-    if (arg === "-p" || arg === "-m" || arg === "-s") {
-      const value = argv[++i];
-      if (!value) throw new Error(USAGE);
-      continue;
-    }
-    if (arg.startsWith("-")) throw new Error(USAGE);
-    result.task.push(arg);
-  }
-  return result;
-}
-
 function checkTaskSize(task) {
   if (Buffer.byteLength(task) > MAX_TASK_SIZE)
     throw new Error("task exceeds 1 MiB");
@@ -35,14 +17,14 @@ function checkTaskSize(task) {
 
 async function readTask(positional) {
   if (positional.length) return checkTaskSize(positional.join(" "));
-  if (process.stdin.isTTY) throw new Error(USAGE);
+  if (process.stdin.isTTY) throw new Error(SUBAGENT_USAGE);
   let task = "";
   process.stdin.setEncoding("utf8");
   for await (const chunk of process.stdin) {
     task += chunk;
     checkTaskSize(task);
   }
-  if (!task) throw new Error(USAGE);
+  if (!task) throw new Error(SUBAGENT_USAGE);
   return task;
 }
 
@@ -148,7 +130,7 @@ function runRpc(endpoint, request, signal) {
 
 async function run() {
   const argv = process.argv.slice(2);
-  const args = parseArgs(argv);
+  const args = parseSubagentArgs(argv);
   const task = await readTask(args.task);
   const env = Object.fromEntries(
     Object.entries(process.env).filter(
