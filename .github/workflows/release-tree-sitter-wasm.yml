@@ -39,8 +39,21 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
+          draft: false
+          fail_on_unmatched_files: true
           files: |
             tree-sitter-wasm/zig-out/bin/tree-sitter-wasm.wasm.br
             tree-sitter-wasm/zig-out/bin/tree-sitter-wasm.wasm.minisig
           name: tree-sitter-wasm ${{ github.ref_name }}
           generate_release_notes: true
+
+      - name: Verify public downloads
+        env:
+          RELEASE_BASE: https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}
+        run: |
+          for asset in tree-sitter-wasm.wasm.br tree-sitter-wasm.wasm.minisig; do
+            curl --fail --location --retry 3 --retry-all-errors \
+              --max-time 60 --retry-max-time 180 \
+              --output "$RUNNER_TEMP/$asset" "$RELEASE_BASE/$asset"
+            cmp "tree-sitter-wasm/zig-out/bin/$asset" "$RUNNER_TEMP/$asset"
+          done
