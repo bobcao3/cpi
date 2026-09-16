@@ -6,6 +6,8 @@ export interface HoldSource {
   noticeText: () => string;
   deadlineMs: number;
   onAbort: () => void;
+  passive?: boolean;
+  scope?: object;
 }
 
 interface HoldState {
@@ -15,6 +17,7 @@ interface HoldState {
   reminderDelivered: boolean;
   holdIntervalMs: number;
   holdResolve: ((value: boolean) => void) | null;
+  holdScope?: object;
 }
 
 const GLOBAL_KEY = "__cpiHold";
@@ -34,18 +37,26 @@ function state(): HoldState {
   return g[GLOBAL_KEY] as HoldState;
 }
 
-export function registerHoldSource(source: HoldSource): void {
+export function registerHoldSource(source: HoldSource): () => void {
   const s = state();
-  const idx = s.sources.findIndex((x) => x.id === source.id);
+  const idx = s.sources.findIndex(
+    (x) => x.id === source.id && x.scope === source.scope,
+  );
   if (idx === -1) {
     s.sources.push(source);
   } else {
     s.sources[idx] = source;
   }
+  return () => {
+    const index = s.sources.indexOf(source);
+    if (index !== -1) s.sources.splice(index, 1);
+  };
 }
 
-export function getHoldSources(): HoldSource[] {
-  return state().sources.slice();
+export function getHoldSources(scope?: object): HoldSource[] {
+  return state().sources.filter(
+    (source) => !scope || !source.scope || source.scope === scope,
+  );
 }
 
 export function resetHoldTracking(): void {
@@ -106,9 +117,12 @@ export function buildHoldReminderText(pending: HoldSource[]): string {
 }
 
 /** Resolves sends because hasPending() cannot observe extension sends. */
-export function signalHoldEvent(): void {
-  const resolve = state().holdResolve;
-  state().holdResolve = null;
+export function signalHoldEvent(scope?: object): void {
+  const s = state();
+  if (scope && s.holdScope !== scope) return;
+  const resolve = s.holdResolve;
+  s.holdResolve = null;
+  s.holdScope = undefined;
   if (resolve) resolve(true);
 }
 
@@ -117,8 +131,10 @@ export async function awaitHoldInterval(
   sources: HoldSource[],
   intervalMs: number,
   signal?: AbortSignal,
+  hasQueued: () => boolean = () => false,
+  scope?: object,
 ): Promise<boolean> {
-  if (signal?.aborted) return true;
+  if (signal?.aborted || hasQueued()) return true;
   const pending = sources.filter((s) => s.hasPending());
   if (pending.length === 0) return true;
   const count = pending.length;
@@ -134,14 +150,17 @@ export async function awaitHoldInterval(
       signal?.removeEventListener("abort", onAbort);
       if (state().holdResolve === done) {
         state().holdResolve = null;
+        state().holdScope = undefined;
       }
       resolve(value);
     };
     state().holdResolve = done;
+    state().holdScope = scope;
     signal?.addEventListener("abort", onAbort, { once: true });
     if (signal?.aborted) return onAbort();
     const tick = () => {
       if (settled) return;
+      if (hasQueued()) return done(true);
       if (Date.now() >= deadline) return done(false);
       const nowPending = sources.filter((s) => s.hasPending()).length;
       if (nowPending < count || nowPending === 0) return done(true);

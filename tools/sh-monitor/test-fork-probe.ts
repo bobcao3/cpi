@@ -17,6 +17,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { runForkProbe } from "../../extensions/lib/fork-probe.ts";
 import { stopSubagentRpc } from "../../extensions/lib/subagent-rpc.ts";
+import { openEventRuntime } from "../../extensions/lib/external-events-test-runtime.ts";
 
 const root = mkdtempSync(join(tmpdir(), "cpi-probe-test-"));
 const agentDir = join(root, "agent");
@@ -179,7 +180,14 @@ const options = {
   timeoutMs: 20000,
 };
 let session: any;
+let observation_runtime:
+  | Awaited<ReturnType<typeof openEventRuntime>>
+  | undefined;
 try {
+  observation_runtime = await openEventRuntime();
+  const observation = observation_runtime.watch("fork-parent");
+  delete process.env.PI_SUBAGENT;
+  delete process.env.CPI_FORK_PROBE;
   const text = await runForkProbe(options, "Recall your context.");
   assert.equal(text.ok, true, JSON.stringify(text));
   assert.equal(text.answer, "PROBE_OK");
@@ -187,6 +195,13 @@ try {
   assert.ok(requests[0].tools.length > 0);
   const probeTools = requests[0].tools;
   console.log("PASS real fork worker: one response, tools preserved");
+  assert.equal(observation.aborts, 0);
+  await observation_runtime.close();
+  observation_runtime = undefined;
+  assert.equal(observation.aborts, 1);
+  console.log(
+    "PASS pending parent external-event observer is isolated from fork worker",
+  );
   mkdirSync(join(root, ".pi"));
   const configPath = join(root, ".pi", "cpi-config.json");
   const rule = (to: string, from = "probe-test") => ({ from, to });
@@ -350,6 +365,7 @@ pi.on("turn_end", (event, ctx) => statusReportTurnEnded(event, ctx));
   }
 } finally {
   release?.();
+  await observation_runtime?.close();
   if (session) {
     await session.extensionRunner.emit({
       type: "session_shutdown",

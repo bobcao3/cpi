@@ -214,23 +214,29 @@ export function disarmAntiStuckTimer(): void {
 export function armAntiStuckTimer(
   pi: ExtensionAPI,
   ctx: ExtensionContext,
+  scope?: object,
 ): void {
   const s = state();
   clearTimer(s);
   if (s.waitSinceMs === null || s.nextProbeAtMs === null) return;
   let delay = s.nextProbeAtMs - Date.now();
   if (delay <= 0) delay = s.intervalMs; // one interval out — avoid busy-loop after an alarm-skip
-  s.timer = setTimeout(() => void tickAntiStuck(pi, ctx), delay);
+  s.timer = setTimeout(() => void tickAntiStuck(pi, ctx, scope), delay);
 }
 
 async function tickAntiStuck(
   pi: ExtensionAPI,
   ctx: ExtensionContext,
+  scope?: object,
 ): Promise<void> {
   const s = state();
   s.timer = null;
   if (s.waitSinceMs === null) return;
-  const freshPending = getHoldSources().filter((src) => src.hasPending());
+  const freshPending = getHoldSources(scope).filter((src) => src.hasPending());
+  if (freshPending.length > 0 && freshPending.every((src) => src.passive)) {
+    resetAntiStuck();
+    return;
+  }
   const probeCtx = {
     sessionManager: ctx.sessionManager,
     cwd: ctx.cwd,
@@ -241,7 +247,7 @@ async function tickAntiStuck(
     const result = await maybeAntiStuckProbe(pi, probeCtx, freshPending);
     if (result === "probed_abort") return;
     if (state().waitSinceMs === null) return;
-    armAntiStuckTimer(pi, ctx); // probed_wait already advanced nextProbeAtMs
+    armAntiStuckTimer(pi, ctx, scope); // probed_wait already advanced nextProbeAtMs
   } finally {
     if (ctx?.hasUI) ctx.ui.setWidget("anti-stuck", undefined);
   }

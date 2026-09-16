@@ -7,6 +7,7 @@ import { compactedNotificationFilter } from "./compaction-display.ts";
 export const NOTIFICATION_TYPE = "notification";
 
 export type NotificationKind =
+  | "external-event"
   | "alarm"
   | "shell-complete"
   | "shell-failed"

@@ -14,6 +14,7 @@ import { registerCompaction } from "./lib/compaction.ts";
 import { modelSupportsVision } from "./lib/media.ts";
 import { drainAfterTool, drainBeforeUser } from "./lib/prepend-message.ts";
 import { registerNotificationRenderer } from "./lib/notification.ts";
+import { registerExternalEvents } from "./lib/external-events.ts";
 import {
   setupCpiFooter,
   disposeCpiFooter,
@@ -56,6 +57,7 @@ import {
 } from "./lib/goal.ts";
 
 export default function coreExtension(pi: ExtensionAPI): void {
+  const external_events = registerExternalEvents(pi);
   registerCompaction(pi);
   const promptModel = registerModelContext(pi);
   pi.on("session_start", async (_event, ctx: ExtensionContext) => {
@@ -127,7 +129,8 @@ export default function coreExtension(pi: ExtensionAPI): void {
     if (!ctx.hasUI && ctx.signal?.aborted) setLastStopReason("aborted");
     const reason = getLastStopReason();
     if (reason === "error" || reason === "aborted") return;
-    const sources = getHoldSources();
+    if (external_events.hasQueued() || ctx.hasPendingMessages()) return;
+    const sources = getHoldSources(external_events.scope);
     const pending = sources.filter((s) => s.hasPending());
     if (isGoalActive() && pending.length === 0) {
       if (ctx.hasUI) ctx.ui.setWidget("goal-eval", ["🎯 Evaluating goal…"]);
@@ -149,16 +152,24 @@ export default function coreExtension(pi: ExtensionAPI): void {
     }
     if (pending.length === 0) return;
     const pendingAlarm = pending.some((s) => s.id === "alarm");
-    const pendingNonAlarm = pending.some((s) => s.id !== "alarm");
+    const pendingNonAlarm = pending.some((s) => s.id !== "alarm" && !s.passive);
     // An alarm is a deterministic wakeup, so don't arm the anti-stuck timer.
     if (pendingNonAlarm && !pendingAlarm) {
       markEventlessStart();
-      armAntiStuckTimer(pi, ctx);
+      armAntiStuckTimer(pi, ctx, external_events.scope);
     }
     if (ctx.hasUI) return;
     const signal = ctx.signal;
     try {
-      while (!(await awaitHoldInterval(sources, getHoldInterval(), signal))) {
+      while (
+        !(await awaitHoldInterval(
+          sources,
+          getHoldInterval(),
+          signal,
+          external_events.hasQueued,
+          external_events.scope,
+        ))
+      ) {
         doubleHoldInterval();
       }
     } finally {
@@ -171,8 +182,9 @@ export default function coreExtension(pi: ExtensionAPI): void {
 
   pi.on("session_shutdown", async (event: any, ctx: any) => {
     const reason = getLastStopReason();
-    const sources = getHoldSources();
+    const sources = getHoldSources(external_events.scope);
     const abortAll = () => {
+      external_events.close();
       for (const s of sources) {
         try {
           s.onAbort();
