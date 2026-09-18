@@ -115,6 +115,7 @@ export interface Highlight {
 interface Parser {
   alloc: CallableFunction;
   parse: CallableFunction;
+  parseLang: CallableFunction;
   highlight: CallableFunction;
   highlightLang: CallableFunction;
   langIdByName: CallableFunction;
@@ -153,6 +154,7 @@ function wrap(instance: WebAssembly.Instance): Parser {
   return {
     alloc: e.alloc as CallableFunction,
     parse: e.parse as CallableFunction,
+    parseLang: e.parse_lang as CallableFunction,
     highlight: e.highlight as CallableFunction,
     highlightLang: e.highlight_lang as CallableFunction,
     langIdByName: e.lang_id_by_name as CallableFunction,
@@ -211,14 +213,39 @@ export async function ensureTreeSitterReady(): Promise<boolean> {
 export async function parseCommand(command: string): Promise<ParseResult> {
   const parser = await instantiate();
   if (!parser) return { ast: null, node: null, available: false };
+  const encoded = new TextEncoder().encode(command);
+  return parseEncoded(0, encoded);
+}
+
+export async function parseLangCommand(
+  lang: string,
+  source: string,
+): Promise<ParseResult> {
+  const parser = await instantiate();
+  if (!parser) return { ast: null, node: null, available: false };
+  const name = new TextEncoder().encode(lang);
+  const namePtr = parser.alloc(name.length) as number;
+  if (!namePtr) return { ast: null, node: null, available: false };
+  new Uint8Array(parser.memory.buffer, namePtr, name.length).set(name);
+  const langId = parser.langIdByName(namePtr, name.length) as number;
+  if (langId < 0) return { ast: null, node: null, available: false };
+  const encoded = new TextEncoder().encode(source);
+  return parseEncoded(langId, encoded);
+}
+
+async function parseEncoded(
+  langId: number,
+  encoded: Uint8Array,
+): Promise<ParseResult> {
+  const parser = parserSync();
+  if (!parser) return { ast: null, node: null, available: false };
 
   try {
-    const encoded = new TextEncoder().encode(command);
     const ptr = parser.alloc(encoded.length) as number;
     if (!ptr) return { ast: null, node: null, available: false };
     new Uint8Array(parser.memory.buffer, ptr, encoded.length).set(encoded);
 
-    const resultPtr = parser.parse(ptr, encoded.length) as number;
+    const resultPtr = parser.parseLang(langId, ptr, encoded.length) as number;
     if (!resultPtr) return { ast: null, node: null, available: false };
 
     const len = parser.resultLen() as number;

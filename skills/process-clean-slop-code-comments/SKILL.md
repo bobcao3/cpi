@@ -1,16 +1,23 @@
 ---
 name: process-clean-slop-code-comments
-description: Use when pruning or validating a Python docstring or comment block — verifies which of its claims are recoverable from code alone by deleting the block and blind-probing a subagent, so only non-derivable facts survive. Covers module docstrings, nested docstrings, and comment runs. Search terms — comment probe, docstring pruning, slop comments, blind probe, recoverable from code.
+description:
+  Use when pruning or validating a docstring or comment block — verifies
+  which of its claims are recoverable from code alone by deleting the block and
+  blind-probing a subagent, so only non-derivable facts survive. Covers python
+  docstrings and comment runs in 13 tree-sitter languages (python, ts/js, go,
+  rust, c/cpp/cuda, zig, bash, toml, yaml). Search terms — comment probe,
+  docstring pruning, slop comments, blind probe, recoverable from code.
 ---
 
 # Comment Probe
 
-Validates that a comment block earns its place: strip it, ask a fresh
-subagent questions the block would have answered, and keep only the facts the
-subagent could not recover from code. Python files only (AST-based).
+Validates that a comment block earns its place: strip it, ask a fresh subagent
+questions the block would have answered, and keep only the facts the subagent
+could not recover from code. Tree-sitter parsed (cpi's wasm build); python
+docstrings, comment runs everywhere else.
 
-The probe subagent never loads this skill. Its task must be fully
-self-contained in the heredoc.
+The probe subagent never loads this skill. Its task must be fully self-contained
+in the heredoc.
 
 ## Steps
 
@@ -19,11 +26,15 @@ Run in order; never leave a file stripped.
 1. **Extract.** Show the block under test:
 
    ```sh
-   python3 ~/cpi/skills/process-clean-slop-code-comments/scripts/probe.py show FILE [--target T]
+   bun ~/cpi/skills/process-clean-slop-code-comments/scripts/probe.mts show FILE [--target T]
    ```
 
    Targets: `module` (default), a dotted def path (`Widget.render`), or a
    comment run (`comment:<anchor text>`).
+
+   Dotted def paths resolve through nesting (`Widget.render`); def targets in
+   non-python languages take the comment run immediately above the declaration.
+   Language comes from the file extension, overridable with `--lang`.
 
 2. **Question.** Turn every claim in the block into one question. Phrase
    questions so they do not leak the answer; ask "why" for every
@@ -33,7 +44,7 @@ Run in order; never leave a file stripped.
 3. **Strip.**
 
    ```sh
-   python3 ~/cpi/skills/process-clean-slop-code-comments/scripts/probe.py strip FILE [--target T]
+   bun ~/cpi/skills/process-clean-slop-code-comments/scripts/probe.mts strip FILE [--target T]
    ```
 
    Backs up to `FILE.probe-bak`; refuses to strip twice.
@@ -46,7 +57,7 @@ Run in order; never leave a file stripped.
 
    ```sh
    subagent -m "${MODEL:-meshy-sglang/zai-org/GLM-5.3-Flash:high}" -s <unique-id> <<'TASK'
-   You are probing a Python module whose <docstring|comment block> was
+   You are probing a source file whose <docstring|comment block> was
    deliberately removed. Answer the questions below PURELY from the remaining
    code, signatures, comments, tests, and callers. Do NOT rely on the removed
    block (it is gone). Cite file:line evidence for every answer. If a question
@@ -68,25 +79,27 @@ Run in order; never leave a file stripped.
 5. **Restore & verify.**
 
    ```sh
-   python3 ~/cpi/skills/process-clean-slop-code-comments/scripts/probe.py restore FILE
+   bun ~/cpi/skills/process-clean-slop-code-comments/scripts/probe.mts restore FILE
    ```
 
    Prints `RESTORED`; warns if the live file drifted mid-probe.
 
 6. **Prune.** Delete every sentence the probe recovered with line-cited
-   evidence. Keep only facts marked `NOT FINDABLE` or recoverable only
-   obliquely (scattered comments in other files, cross-referencing upstream
-   conventions). Then loop: re-strip, re-probe, re-prune until a probe run
-   recovers nothing the block uniquely carried (fixed point). If a kept fact
-   has a silent-failure mode (e.g. checkpoint incompatibility), prefer
-   defending it in code — an assert or a docstring at the point of use —
-   over prose in a distant block.
+   evidence. Keep only facts marked `NOT FINDABLE` or recoverable only obliquely
+   (scattered comments in other files, cross-referencing upstream conventions).
+   Then loop: re-strip, re-probe, re-prune until a probe run recovers nothing
+   the block uniquely carried (fixed point). If a kept fact has a silent-failure
+   mode (e.g. checkpoint incompatibility), prefer defending it in code — an
+   assert or a docstring at the point of use — over prose in a distant block.
 
 ## Boundaries
 
 - Read-only in effect: the block is always restored; never commit a stripped
   file or a leftover `.probe-bak`.
 - Does not rewrite prose for you — it decides what survives, you write it.
-- Not for non-Python files (no AST); hand-strip and hand-restore instead.
+- Requires a cpi tree-sitter-wasm build carrying `parse_lang` (zig 0.16+,
+  `zig build --release=small` in `tree-sitter-wasm/`; set `CPI_TS_WASM` to
+  point elsewhere). The skill resolves the wasm from
+  `~/cpi/tree-sitter-wasm/zig-out/bin/` or the pi shell-tools cache.
 - Launcher mechanics (session ids, heredocs, model picks): see the
   `subagents-in-pi` skill.
