@@ -1,5 +1,5 @@
 export const SUBAGENT_USAGE =
-  "usage: subagent [-p|--provider provider] [-m|--model [provider/]model[:effort]] [-s|--session-id session-id] [task]";
+  "usage: subagent [-p|--provider provider] [-m|--model [provider/]model[:effort]] [-s|--session-id session-id] [--disable-skill name[,name...]] [task]";
 
 const OPTIONS = new Map([
   ["-p", "provider"],
@@ -8,6 +8,7 @@ const OPTIONS = new Map([
   ["--model", "model"],
   ["-s", "sessionId"],
   ["--session-id", "sessionId"],
+  ["--disable-skill", "disabledSkills"],
 ]);
 
 export function parseSubagentArgs(argv) {
@@ -16,6 +17,7 @@ export function parseSubagentArgs(argv) {
     providerExplicit: false,
     model: "",
     sessionId: "",
+    disabledSkills: "",
     task: [],
   };
   for (let index = 0; index < argv.length; index++) {

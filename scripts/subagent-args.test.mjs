@@ -10,6 +10,7 @@ const expected = {
   providerExplicit: true,
   model: "gpt-5.6-sol:medium",
   sessionId: "review",
+  disabledSkills: "",
   task: ["inspect", "this"],
 };
 
@@ -48,12 +49,33 @@ test("double dash terminates subagent option parsing", () => {
     providerExplicit: false,
     model: "",
     sessionId: "",
+    disabledSkills: "",
     task: ["-m", "literal"],
   });
 });
 
+test("--disable-skill keeps its value out of the task", () => {
+  assert.deepEqual(
+    parseSubagentArgs([
+      "-s",
+      "review",
+      "--disable-skill",
+      "process-prune-docs,other",
+      "inspect",
+    ]),
+    {
+      provider: "",
+      providerExplicit: false,
+      model: "",
+      sessionId: "review",
+      disabledSkills: "process-prune-docs,other",
+      task: ["inspect"],
+    },
+  );
+});
+
 test("unknown and valueless options return usage", () => {
-  for (const argv of [["--unknown"], ["--provider"]]) {
+  for (const argv of [["--unknown"], ["--provider"], ["--disable-skill"]]) {
     assert.throws(() => parseSubagentArgs(argv), {
       message: SUBAGENT_USAGE,
     });

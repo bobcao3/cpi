@@ -56,10 +56,11 @@ Run in order; never leave a file stripped.
 3. **Strip.**
 
    ```sh
-   ~/cpi/skills/process-clean-slop-code-comments/scripts/probe strip FILE [--target T]
+   ~/cpi/skills/process-clean-slop-code-comments/scripts/probe strip FILE [--target T] [--lang L]
    ```
 
-   Backs up to `FILE.probe-bak`; refuses to strip twice.
+   Backs up to `FILE.probe-bak`; refuses while a backup exists — a leftover
+   backup means a prior run never restored: run step 5, then retry.
 
 4. **Probe.** Launch a fresh subagent (new session id every run — resuming a
    prior probe contaminates it). Model is configurable; default

@@ -18,6 +18,10 @@ import {
   resolveFastModel,
 } from "./fast-models.mjs";
 import { SUBAGENT_USAGE, parseSubagentArgs } from "./subagent-args.mjs";
+import {
+  filterDisabledSkills,
+  parseDisabledSkills,
+} from "./disabled-skills.mjs";
 
 const THINKING = new Set([
   "off",
@@ -140,6 +144,7 @@ function restoreEnv(name, value) {
 export async function runSubagent(request, signal) {
   const args = parseSubagentArgs(request.argv);
   if (!request.task) throw new Error(SUBAGENT_USAGE);
+  const disabledSkills = parseDisabledSkills(args.disabledSkills);
   const cwd = request.cwd;
   const env = request.env;
   const parent = parentSettings(env);
@@ -175,11 +180,25 @@ export async function runSubagent(request, signal) {
   const oldSubagent = process.env.PI_SUBAGENT;
   process.env.PI_SUBAGENT = "1";
   const settingsManager = SettingsManager.create(cwd, agentDir);
+  const skillsOverride = disabledSkills.length
+    ? (base) => {
+        const { visible, missing } = filterDisabledSkills(
+          base.skills,
+          disabledSkills,
+        );
+        if (missing.length)
+          throw new Error(
+            `--disable-skill matched no loaded skill: ${missing.join(", ")}`,
+          );
+        return { ...base, skills: visible };
+      }
+    : undefined;
   const loader = new DefaultResourceLoader({
     cwd,
     agentDir,
     settingsManager,
     appendSystemPrompt: [protocol],
+    skillsOverride,
   });
   await loader.reload();
   const { session } = await createAgentSession({

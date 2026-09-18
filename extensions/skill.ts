@@ -9,6 +9,11 @@ import { Text } from "@earendil-works/pi-tui";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { resolve, sep } from "node:path";
 import {
+  DISABLE_SKILL_FLAG,
+  filterDisabledSkills,
+  parseDisabledSkills,
+} from "../bin/disabled-skills.mjs";
+import {
   loadText,
   render,
   renderLines,
@@ -23,7 +28,8 @@ import {
 } from "./lib/subagent-model-guide.ts";
 
 const SKILL_TOOL = "skill";
-const SKILL_TEXT = loadText<ToolText>("skill", textPath("skill"));
+type SkillText = ToolText & { flag: { description: string } };
+const SKILL_TEXT = loadText<SkillText>("skill", textPath("skill"));
 type SubagentModelsText = { skill: { guide: string } };
 const SUBAGENT_MODELS_TEXT = loadText<SubagentModelsText>(
   "subagent-models",
@@ -38,11 +44,26 @@ interface SkillRef {
 let skillList: Skill[] = [];
 let skills = new Map<string, SkillRef>();
 let lastSkillSignature = "";
+let lastMissingSkills = "";
 
-function updateSkills(list: Skill[] | undefined) {
-  skillList = list ?? [];
+function disabledSkillNames(pi: ExtensionAPI): string[] {
+  const value = pi.getFlag(DISABLE_SKILL_FLAG);
+  return parseDisabledSkills(typeof value === "string" ? value : undefined);
+}
+
+function updateSkills(list: Skill[] | undefined, disabledNames: string[]) {
+  const { visible, missing } = filterDisabledSkills(list ?? [], disabledNames);
+  const missingSignature = [...missing].sort().join(",");
+  if (missingSignature !== lastMissingSkills) {
+    lastMissingSkills = missingSignature;
+    if (missingSignature)
+      process.stderr.write(
+        `[skill] --${DISABLE_SKILL_FLAG} matched no loaded skill: ${missingSignature}\n`,
+      );
+  }
+  skillList = visible;
   skills = new Map(
-    skillList.map((s) => [
+    visible.map((s) => [
       s.name,
       {
         filePath: s.filePath,
@@ -111,6 +132,11 @@ function skillBlurb(
 }
 
 export default function (pi: ExtensionAPI) {
+  pi.registerFlag(DISABLE_SKILL_FLAG, {
+    type: "string",
+    description: render(SKILL_TEXT.flag.description, {}),
+  });
+
   // Strip pi's auto-injected "Available skills" block from the system prompt.
   // Applied by the single system-prompt owner extension; order 100 runs first
   // so the skills block is stripped before later transforms append their content.
@@ -247,7 +273,10 @@ export default function (pi: ExtensionAPI) {
   // systemPrompt: the strip-skills transform (above) owns that, applied by
   // the system-prompt owner extension.
   pi.on("before_agent_start", async (event) => {
-    updateSkills(event.systemPromptOptions?.skills as Skill[] | undefined);
+    updateSkills(
+      event.systemPromptOptions?.skills as Skill[] | undefined,
+      disabledSkillNames(pi),
+    );
 
     const sig = visibleSkillsSignature(skillList);
     if (sig !== lastSkillSignature) {

@@ -1,5 +1,8 @@
 # Model-facing text for the skill tool.
 
+[flag]
+description = "Do not offer the named skills to the model (comma-separated)"
+
 [tool]
 description = '''
 Load the full SKILL.md of a discovered skill by exact name. Pass subdoc to load
