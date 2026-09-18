@@ -1,11 +1,12 @@
 ---
 name: process-clean-slop-code-comments
 description:
-  Use when pruning or validating a docstring or comment block — verifies
-  which of its claims are recoverable from code alone by deleting the block and
-  blind-probing a subagent, so only non-derivable facts survive. Covers python
-  docstrings and comment runs in 13 tree-sitter languages (python, ts/js, go,
-  rust, c/cpp/cuda, zig, bash, toml, yaml). Search terms — comment probe,
+  Use when pruning or validating a docstring or comment block — verifies which
+  of its claims are recoverable from code alone by deleting the block and
+  blind-probing a subagent, so only non-derivable facts survive. Enumerates
+  every docstring and comment block, then probes the chosen one; python
+  docstrings and comment runs across 13 tree-sitter languages (python, ts/js,
+  go, rust, c/cpp/cuda, zig, bash, toml, yaml). Search terms — comment probe,
   docstring pruning, slop comments, blind probe, recoverable from code.
 ---
 
@@ -23,18 +24,29 @@ in the heredoc.
 
 Run in order; never leave a file stripped.
 
-1. **Extract.** Show the block under test:
+1. **Extract.** Enumerate every extractable block — each line shows its span,
+   kind, the `--target` that addresses it (dotted def names for docstrings, def
+   names for doc comments), and a preview:
 
    ```sh
-   bun ~/cpi/skills/process-clean-slop-code-comments/scripts/probe.mts show FILE [--target T]
+   ~/cpi/skills/process-clean-slop-code-comments/scripts/probe list FILE [--lang L]
    ```
 
-   Targets: `module` (default), a dotted def path (`Widget.render`), or a
-   comment run (`comment:<anchor text>`).
+   Then `show` the block under test — every target printed by `list` works
+   verbatim:
 
-   Dotted def paths resolve through nesting (`Widget.render`); def targets in
-   non-python languages take the comment run immediately above the declaration.
-   Language comes from the file extension, overridable with `--lang`.
+   ```sh
+   ~/cpi/skills/process-clean-slop-code-comments/scripts/probe show FILE [--target T] [--lang L]
+   ```
+
+   Targets: `module` (default), a dotted def path (`Widget.render`) for
+   docstrings, a def name for doc comments, or `comment:<text>` for a comment
+   run — any substring unique to the run; it selects the first standalone
+   comment line containing it and expands to the whole run (trailing comments
+   are never matched). Dotted def paths resolve through nesting
+   (`Widget.render`); def targets in non-python languages take the comment run
+   immediately above the declaration. Language comes from the file extension,
+   overridable with `--lang`.
 
 2. **Question.** Turn every claim in the block into one question. Phrase
    questions so they do not leak the answer; ask "why" for every
@@ -44,7 +56,7 @@ Run in order; never leave a file stripped.
 3. **Strip.**
 
    ```sh
-   bun ~/cpi/skills/process-clean-slop-code-comments/scripts/probe.mts strip FILE [--target T]
+   ~/cpi/skills/process-clean-slop-code-comments/scripts/probe strip FILE [--target T]
    ```
 
    Backs up to `FILE.probe-bak`; refuses to strip twice.
@@ -79,10 +91,10 @@ Run in order; never leave a file stripped.
 5. **Restore & verify.**
 
    ```sh
-   bun ~/cpi/skills/process-clean-slop-code-comments/scripts/probe.mts restore FILE
+   ~/cpi/skills/process-clean-slop-code-comments/scripts/probe restore FILE
    ```
 
-   Prints `RESTORED`; warns if the live file drifted mid-probe.
+   Prints `RESTORED`.
 
 6. **Prune.** Delete every sentence the probe recovered with line-cited
    evidence. Keep only facts marked `NOT FINDABLE` or recoverable only obliquely
@@ -98,8 +110,12 @@ Run in order; never leave a file stripped.
   file or a leftover `.probe-bak`.
 - Does not rewrite prose for you — it decides what survives, you write it.
 - Requires a cpi tree-sitter-wasm build carrying `parse_lang` (zig 0.16+,
-  `zig build --release=small` in `tree-sitter-wasm/`; set `CPI_TS_WASM` to
-  point elsewhere). The skill resolves the wasm from
+  `zig build --release=small` in `tree-sitter-wasm/`; set `CPI_TS_WASM` to point
+  elsewhere). The skill resolves the wasm from
   `~/cpi/tree-sitter-wasm/zig-out/bin/` or the pi shell-tools cache.
+- Runtime: the `probe` wrapper execs the interpreter pi itself runs under
+  (`CPI_RUNTIME_KIND`/`CPI_RUNTIME_BIN` — node, bun, or deno), falling back to
+  `node` on PATH outside pi; node needs >= 23.6 for unflagged type stripping (22
+  with `--experimental-strip-types`). `probe.mts` is the module it runs.
 - Launcher mechanics (session ids, heredocs, model picks): see the
   `subagents-in-pi` skill.

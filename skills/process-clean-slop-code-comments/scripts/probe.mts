@@ -1,27 +1,15 @@
-#!/usr/bin/env bun
-/** Extract, strip, or restore a docstring or comment block, tree-sitter parsed.
+#!/usr/bin/env -S node --disable-warning=ExperimentalWarning
+/**
+ * Comment-probe CLI: extract, strip, or restore a docstring or comment block.
+ * Target semantics, guards, and prerequisites live in this skill's SKILL.md.
+ */
 
-Docstring targets resolve to python string-statement blocks; every other
-language resolves to comment runs (leading run for `module`, the run
-immediately above a declaration for def targets). Comment targets
-(`comment:<text>`) work everywhere as the standalone comment run containing
-the anchor.
-
-Commands:
-  show FILE [--target T] [--lang L]    print the block with line numbers
-  strip FILE [--target T] [--lang L]   remove the block; backup at FILE.probe-bak
-  restore FILE                         copy the backup back, verify, remove it
-
-`strip` refuses to run while a backup exists; `restore` warns if the live
-file drifted from the backup before overwriting it. Requires a
-tree-sitter-wasm build carrying the `parse_lang` export (see SKILL.md).
-*/
-
-import { initTreeSitterWasm, ensureTreeSitterReady, parseLangCommand } from "../../../extensions/lib/tree-sitter.ts";
 import { copyFileSync, existsSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import process from "node:process";
+
+const { initTreeSitterWasm, ensureTreeSitterReady, parseLangCommand } = await import("../../../extensions/lib/tree-sitter.ts");
 
 const BAK_SUFFIX = ".probe-bak";
 
@@ -44,6 +32,8 @@ const DEF_TYPES: Record<string, RegExp[]> = {
   cpp: [/^function_definition$|^(struct|class)_specifier$/],
   cuda: [/^function_definition$|^struct_specifier$/],
   bash: [/^function_definition$/],
+  javascript: [/function|class|method/, /^(lexical|variable)_declaration$/],
+  typescript: [/function|class|method/, /^(lexical|variable)_declaration$/],
 };
 
 const PY_DOC_TYPES = [/^(function|class)_definition$/, /^module$/];
@@ -166,6 +156,16 @@ function resolveDef(root: Node, lang: string, name: string): Node | null {
   return findDefs(outer, lang).find((n) => matchDef(n, lang, name.slice(dot + 1))) ?? null;
 }
 
+/** Comment run attached to a def: ends at the def or across blank/decorator
+ * lines immediately above it. */
+function docRunAbove(def: Node, runs: Span[], lines: string[]): Span | null {
+  const defRow = def.startPosition.row;
+  return runs.find((r) => {
+    if (r.end > defRow) return false;
+    return lines.slice(r.end, defRow).every((l) => l.trim() === "" || l.trim().startsWith("@"));
+  }) ?? null;
+}
+
 function resolveSpan(root: Node, source: string, lang: string, target: string): Span {
   if (target.startsWith("comment:")) {
     const anchor = target.slice("comment:".length);
@@ -192,10 +192,59 @@ function resolveSpan(root: Node, source: string, lang: string, target: string): 
     if (!span) die(`no docstring on target: ${target}`);
     return span;
   }
-  const runs = commentRuns(commentNodes(root, source));
-  const run = runs.find((r) => r.end === def.startPosition.row);
+  const run = docRunAbove(def, commentRuns(commentNodes(root, source)), source.split("\n"));
   if (!run) die(`no doc comment directly above: ${target}`);
   return run;
+}
+
+interface Block {
+  span: Span;
+  kind: string;
+  target: string | null;
+  preview: string;
+}
+
+function previewOf(lines: string[], span: Span): string {
+  const text = lines[span.start - 1].trim();
+  return text.length > 76 ? text.slice(0, 73) + "..." : text;
+}
+
+/** Every block a target could address: python docstrings (with dotted def
+ * names), non-python doc comments (with def names), and plain comment runs. */
+function listBlocks(root: Node, source: string, lang: string): Block[] {
+  const lines = source.split("\n");
+  const blocks: Block[] = [];
+  const runs = commentRuns(commentNodes(root, source));
+  const used = new Set<number>();
+  if (lang === "python") {
+    const span = docstringSpan(root, lang);
+    if (span) blocks.push({ span, kind: "docstring", target: "module", preview: previewOf(lines, span) });
+    const walk = (node: Node, prefix: string): void => {
+      for (const child of node.children) {
+        if (!PY_DOC_TYPES.some((re) => re.test(child.type)) || child.type === "module") {
+          walk(child, prefix);
+          continue;
+        }
+        const name = child.childForFieldName("name")?.text;
+        const span = name ? docstringSpan(child, lang) : null;
+        if (span) blocks.push({ span, kind: "docstring", target: prefix + name, preview: previewOf(lines, span) });
+        walk(child, name ? prefix + name + "." : prefix);
+      }
+    };
+    walk(root, "");
+  } else {
+    for (const def of findDefs(root, lang)) {
+      const run = docRunAbove(def, runs, lines);
+      if (!run) continue;
+      used.add(run.start);
+      const name = def.childForFieldName("name")?.text ?? def.text.split(/[^A-Za-z0-9_]/)[0];
+      blocks.push({ span: run, kind: "doc-comment", target: name, preview: previewOf(lines, run) });
+    }
+  }
+  for (const run of runs) {
+    if (!used.has(run.start)) blocks.push({ span: run, kind: "comments", target: null, preview: previewOf(lines, run) });
+  }
+  return blocks.sort((a, b) => a.span.start - b.span.start);
 }
 
 function collapseBlank(lines: string[], before: number): void {
@@ -224,10 +273,6 @@ function cmdStrip(file: string, lines: string[], span: Span): string {
 function cmdRestore(file: string): void {
   const backup = file + BAK_SUFFIX;
   if (!existsSync(backup)) die(`no backup: ${backup}`);
-  const original = readFileSync(backup, "utf8");
-  if (readFileSync(file, "utf8") !== original) {
-    console.error("comment-probe: live file drifted; restoring");
-  }
   copyFileSync(backup, file);
   unlinkSync(backup);
   console.log("RESTORED " + file);
@@ -240,8 +285,8 @@ async function main(): Promise<void> {
   const targetIdx = args.indexOf("--target");
   const langIdx = args.indexOf("--lang");
   const target = targetIdx >= 0 ? args[targetIdx + 1] : "module";
-  if (!fileArg || (cmd !== "show" && cmd !== "strip" && cmd !== "restore")) {
-    die("usage: probe.mts show|strip FILE [--target T] [--lang L] | restore FILE");
+  if (!fileArg || (cmd !== "list" && cmd !== "show" && cmd !== "strip" && cmd !== "restore")) {
+    die("usage: probe.mts list|show|strip FILE [--target T] [--lang L] | restore FILE");
   }
   if (cmd === "restore") return cmdRestore(fileArg);
   await ready();
@@ -252,6 +297,15 @@ async function main(): Promise<void> {
   const source = readFileSync(fileArg, "utf8");
   const parsed = await parseLangCommand(lang, source);
   if (!parsed.available || !parsed.node) die(`parse failed as ${lang}`);
+  if (cmd === "list") {
+    for (const b of listBlocks(parsed.node, source, lang)) {
+      const label = (b.target ?? "").padEnd(24);
+      console.log(
+        `${String(b.span.start).padStart(5)}-${String(b.span.end).padEnd(5)} ${b.kind.padEnd(11)} ${label} ${b.preview}`,
+      );
+    }
+    return;
+  }
   const span = resolveSpan(parsed.node, source, lang, target);
   const lines = source.split("\n");
   if (cmd === "show") return cmdShow(fileArg, lines, span);
