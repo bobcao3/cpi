@@ -12,6 +12,9 @@
 //!   parse(ptr, len) -> ptr      — parse source as bash, return JSON AST pointer
 //!   parse_lang(lang_id, ptr, len) -> ptr — parse source as LANGS[lang_id], return JSON AST pointer
 //!   result_len() -> u32         — length of last parse result
+//!
+//! The parse result is serialized into a heap-grown buffer and stays valid
+//! until the next parse/parse_lang call.
 //!   highlight(ptr, len) -> ptr  — run bash highlight query, return JSON captures
 //!   highlight_lang(lang_id, ptr, len) -> ptr — run highlight query for the given language
 //!   lang_count() -> u32         — number of bundled languages
@@ -28,6 +31,7 @@ const TSNode = c.TSNode;
 
 var result_buf: [256 * 1024]u8 = undefined;
 var result_len_val: u32 = 0;
+var parse_result: []u8 = &.{};
 
 export fn alloc(size: u32) ?[*]u8 {
     return @ptrCast(std.c.malloc(size));
@@ -60,14 +64,19 @@ fn parseWith(lang_id: u32, source_ptr: [*]const u8, source_len: u32) ?[*]const u
 
     const root = c.ts_tree_root_node(tree);
 
-    var w: Writer = .fixed(&result_buf);
-    serializeNode(&w, root, source, null) catch {
+    var aw: std.Io.Writer.Allocating = .init(std.heap.c_allocator);
+    serializeNode(&aw.writer, root, source, null) catch {
         result_len_val = 0;
         return null;
     };
-    result_len_val = @intCast(w.buffered().len);
+    if (parse_result.len > 0) std.heap.c_allocator.free(parse_result);
+    parse_result = aw.toOwnedSlice() catch {
+        result_len_val = 0;
+        return null;
+    };
+    result_len_val = @intCast(parse_result.len);
 
-    return &result_buf;
+    return parse_result.ptr;
 }
 
 export fn highlight(source_ptr: [*]const u8, source_len: u32) ?[*]const u8 {

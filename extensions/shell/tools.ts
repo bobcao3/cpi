@@ -37,10 +37,11 @@ const VENDOR_BIN = join(
 );
 const WASM_DIR = join(CACHE_DIR, "wasm");
 const WASM_PATH = join(WASM_DIR, "tree-sitter-wasm.wasm");
-const WASM_VERSION = "2026.06.20";
+const WASM_VERSION = "2026.09.18";
 const WASM_PUBKEY_B64 =
   "RWQWdcLzFjpLqtjewtcZo71AHJVUFws3irxz2ColvNW/r0m4tHyxzDX5";
 const WASM_SIG_PATH = join(WASM_DIR, "tree-sitter-wasm.wasm.minisig");
+const WASM_STAMP_PATH = join(WASM_DIR, "tree-sitter-wasm.version");
 const WASM_URL = `https://github.com/bobcao3/cpi/releases/download/${WASM_VERSION}/tree-sitter-wasm.wasm.br`;
 const WASM_SIG_URL = `https://github.com/bobcao3/cpi/releases/download/${WASM_VERSION}/tree-sitter-wasm.wasm.minisig`;
 const WASM_PUB = parsePubKey(WASM_PUBKEY_B64);
@@ -57,7 +58,7 @@ const CPI_CONTROL_ENV_KEYS = [
   "PI_SUBAGENT_SUMMARY",
 ] as const;
 
-function wasmVerifiedSync(): boolean {
+function wasmSignatureValid(): boolean {
   if (!existsSync(WASM_PATH) || !existsSync(WASM_SIG_PATH)) return false;
   try {
     return verifyMinisign(
@@ -69,6 +70,15 @@ function wasmVerifiedSync(): boolean {
     return false;
   }
 }
+
+function wasmVerifiedSync(): boolean {
+  return (
+    wasmSignatureValid() &&
+    existsSync(WASM_STAMP_PATH) &&
+    readFileSync(WASM_STAMP_PATH, "utf8").trim() === WASM_VERSION
+  );
+}
+
 const IS_WIN = process.platform === "win32";
 const PLATFORM_KEY = `${process.platform}-${process.arch}`;
 const binName = (n: string) => (IS_WIN ? `${n}.exe` : n);
@@ -260,10 +270,12 @@ async function doEnsureShellTools(): Promise<ToolAvailability> {
               } catch (err) {
                 /* sig fetch failed; verify will fail below */
               }
-              have = wasmVerifiedSync();
+              have = wasmSignatureValid();
+              if (have) await writeFile(WASM_STAMP_PATH, WASM_VERSION);
               if (!have) {
                 await rm(WASM_PATH, { force: true });
                 await rm(WASM_SIG_PATH, { force: true });
+                await rm(WASM_STAMP_PATH, { force: true });
                 console.warn(
                   "[shell-ext] tree-sitter-wasm signature verification failed; highlighting disabled",
                 );
