@@ -2,13 +2,15 @@
 //! source code using tree-sitter, compiled with Zig.
 //!
 //! Bundles multiple grammars (see src/languages.zig); index 0 is bash, so the
-//! default `parse`/`highlight` exports are bash-only conveniences, while
-//! `highlight_lang`/`lang_id_by_name`/`lang_count` expose the full set.
+//! default `parse`/`highlight` exports are bash-only conveniences — the general
+//! forms are `parse_lang`/`highlight_lang` — while
+//! `lang_id_by_name`/`lang_count` expose the full set.
 //!
 //! Exports:
 //!   alloc(size) -> ptr          — allocate memory (for source string input)
 //!   dealloc(ptr)                — free memory
 //!   parse(ptr, len) -> ptr      — parse source as bash, return JSON AST pointer
+//!   parse_lang(lang_id, ptr, len) -> ptr — parse source as LANGS[lang_id], return JSON AST pointer
 //!   result_len() -> u32         — length of last parse result
 //!   highlight(ptr, len) -> ptr  — run bash highlight query, return JSON captures
 //!   highlight_lang(lang_id, ptr, len) -> ptr — run highlight query for the given language
@@ -36,12 +38,22 @@ export fn dealloc(ptr: ?[*]u8) void {
 }
 
 export fn parse(source_ptr: [*]const u8, source_len: u32) ?[*]const u8 {
+    return parseWith(0, source_ptr, source_len);
+}
+
+export fn parse_lang(lang_id: u32, source_ptr: [*]const u8, source_len: u32) ?[*]const u8 {
+    return parseWith(lang_id, source_ptr, source_len);
+}
+
+fn parseWith(lang_id: u32, source_ptr: [*]const u8, source_len: u32) ?[*]const u8 {
     const source = source_ptr[0..source_len];
+
+    if (lang_id >= languages.LANGS.len) return null;
 
     const parser = c.ts_parser_new() orelse return null;
     defer c.ts_parser_delete(parser);
 
-    if (!c.ts_parser_set_language(parser, languages.LANGS[0].lang())) return null;
+    if (!c.ts_parser_set_language(parser, languages.LANGS[lang_id].lang())) return null;
 
     const tree = c.ts_parser_parse_string(parser, null, source.ptr, source_len) orelse return null;
     defer c.ts_tree_delete(tree);
