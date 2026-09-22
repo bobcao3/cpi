@@ -108,7 +108,8 @@ accepted, though one per element reads better):
   off-by-one count is harmless. Spend the attention on OLD_START and on the rows
   themselves.
 - Give each hunk at least one `+` or `-` row, plus enough unchanged context to
-  pin down where it goes.
+  pin down where it goes. Context-only hunks are rejected; they do not scope
+  later hunks. Keep distinguishing context in the same hunk as the change.
 - Context and removed rows refer to the original supplied file, not to the
   result of an earlier hunk.
 - Put separated changes in separate array elements, and keep them from
@@ -179,6 +180,8 @@ Hunk headers:
 Hunk body:
 - Include enough unchanged or removed source context to identify the intended
   location.
+- Every hunk must add or remove a line. Context-only hunks are rejected, not
+  used as anchors for later hunks; keep distinguishing context in the same hunk.
 - Use `\ No newline at end of file` only when changing final-newline state. Put
   every hunk inside the single {{open}} / {{close}} envelope and output nothing
   outside it.
@@ -248,7 +251,11 @@ guidelines = [
 ]
 
 [tool.apply_patch]
-description = "Apply a supplied unified diff directly to one existing file, without a subagent. The patch contains only `@@` or `@@ -OLD,COUNT +NEW,COUNT @@` hunks: prefix context with a space, removals with -, and additions with +. Bare @@ hunks require unique context. No envelopes, file headers, function anchors, or file create/delete/move operations. Uses edit's matching, per-path lock, atomic writes, and LSP checks."
+description = """
+Apply unified-diff hunks atomically to one existing file. Use `@@` or `@@ -OLD,COUNT +NEW,COUNT @@`; prefix context with a space, removals with -, additions with +.
+Each hunk must add or remove lines in one contiguous region of the original file. Context-only hunks cannot scope later edits and are rejected. Bare @@ hunks must match uniquely; use distinguishing context in the changed hunk, or accurate original-file line coordinates. Any failed hunk leaves the file unchanged.
+Patch wrappers/footers and Markdown fences are unnecessary but accepted. File headers must match path. Numbered-header function labels are accepted but do not define scope. File create/delete/move operations are unsupported.
+"""
 prompt_snippet = "Apply single-file diff hunks directly"
 guidelines = [
 	"Prefer `apply_patch` when you already know the exact change and have the current source; use `edit` to delegate producing the change. Re-read after a mismatch rather than guessing context.",
@@ -268,7 +275,7 @@ path = "Absolute path to a file or directory."
 query = "read: natural-language query for what to find; an LLM returns only the relevant line ranges with line numbers."
 instruction = "edit: natural-language change description; name the function/class/method to change."
 file_text = "write: full content of the new file."
-patch = "Single-file unified-diff hunks, without wrappers or file headers."
+patch = "Single-file unified-diff hunks against the original file. No wrapper or footer is needed."
 
 # ── Short result/inline message strings ──
 [messages]
@@ -321,13 +328,14 @@ viewer_truncated = "Viewer subagent never called view-complete (output truncated
 viewer_bad_output = "view-complete returned malformed ranges (not a JSON array of {start, end} objects).\nOutput: {{tail}}"
 write_failed = "Could not write {{path}}: {{reason}}"
 subagent_start_failed = "Could not start subagent worker: {{reason}}"
-patch_format = "apply_patch requires only single-file @@ or @@ -OLD,COUNT +NEW,COUNT @@ hunks with prefixed rows. Put the target in path; omit envelopes, file headers, and function anchors. Use write to create a file."
+apply_bad_framing = "Diff block {{i}}, patch line {{line}}: unsupported framing or extra file section. Supply hunks for one existing file; only outer patch wrappers, Markdown fences, and matching file headers are accepted. File create/delete/move operations are unsupported."
+apply_bad_target = "Diff block {{i}}, patch line {{line}}: file headers must name the target path on both sides. Do not include another file, a rename, or /dev/null."
 apply_no_diffs = "No diff hunks were supplied."
 apply_too_many = "Diff block {{i}} exceeds the bounded hunk-count limit."
 apply_too_large = "Diff block {{i}} exceeds the bounded patch-size limit."
 apply_bad_block = "Diff block {{i}} is not a non-empty unified-diff string."
-apply_bad_header = "Diff block {{i}} has no valid @@ hunk header."
-apply_no_changes = "The diff has no added or removed lines — every hunk was pure context."
+apply_bad_header = "Diff block {{i}}, patch line {{line}}: use a bare @@ or numbered @@ -OLD,COUNT +NEW,COUNT @@ header. Bare function/class anchors are unsupported; include distinguishing source context in the changed hunk."
+apply_no_changes = "Diff block {{i}}, hunk at patch line {{line}} has no added or removed lines. Context-only hunks do not scope later edits. Include distinguishing context in the same hunk as a change, or use an accurate line coordinate. No changes were applied."
 apply_bad_count = "Diff block {{i}} declares source lines but supplies none. Include the source context or use a zero-count header for an insertion."
 apply_bad_newline = "Diff block {{i}} has an invalid `No newline at end of file` marker or EOF location."
 apply_work_limit = "Diff block {{i}} exceeded the bounded matching-work limit. Add accurate line coordinates and more specific context."
@@ -373,6 +381,7 @@ guidelines = [
 	"Header counts are recomputed from the body for a normal hunk; only an elided (`...`) hunk needs OLD_COUNT to state its full source span.",
 	"Line-number annotations identify OLD_START but are not file content. Never copy the annotation prefix into hunk lines.",
 	"All context/removal rows refer to the original supplied file. Use separate array elements for separated, non-overlapping changes.",
+	"Each hunk must add or remove a line. Context-only hunks are rejected and do not scope later edits; put distinguishing context in the same hunk as the change.",
 	"The instruction may quote the file approximately; copy context and removed rows from the numbered file itself, character-for-character, one row per file line.",
 	"To rewrap a paragraph, remove all of its lines verbatim with `-` and add the new ones with `+`, rather than re-wrapping context rows.",
 	"Use the standard `\\ No newline at end of file` marker only to change final-newline state.",

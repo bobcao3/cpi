@@ -62,9 +62,10 @@ describe("udiff parser", () => {
   });
 
   test("drops wrappers and rescues prefix-less blank rows", () => {
-    const parsed = parseUdiffs([
-      "```diff\n--- a/f.ts\n+++ b/f.ts\n@@ -1,3 +1,3 @@\n a\n\n-b\n+B\n```",
-    ]);
+    const parsed = parseUdiffs(
+      ["```diff\n--- a/f.ts\n+++ b/f.ts\n@@ -1,3 +1,3 @@\n a\n\n-b\n+B\n```"],
+      { cwd: "/project", path: "f.ts" },
+    );
     expect(parsed).toMatchObject({ ok: true });
     if (parsed.ok)
       expect(parsed.hunks[0].rows.map((r) => r.operation)).toEqual([
@@ -98,19 +99,24 @@ describe("udiff parser", () => {
 
   test("drops the codex apply_patch envelope and its bare `***` separator", () => {
     expect(
-      parseUdiffs([
-        "*** Begin Patch\n*** Update File: f.ts\n@@ -1 +1 @@\n-a\n+A\n*** End Patch",
-      ]),
+      parseUdiffs(
+        [
+          "*** Begin Patch\n*** Update File: f.ts\n@@ -1 +1 @@\n-a\n+A\n*** End Patch",
+        ],
+        { cwd: "/project", path: "f.ts" },
+      ),
     ).toMatchObject({ ok: true });
     const split = parseUdiffs(["@@ -1 +1 @@\n-a\n+A\n***\n-c\n+C\n***"]);
     expect(split).toMatchObject({ ok: true });
     if (split.ok) expect(split.hunks).toHaveLength(2);
   });
 
-  test("drops no-op hunks but reports an entirely no-op completion", () => {
+  test("rejects context-only hunks even when another block changes lines", () => {
     const parsed = parseUdiffs(["@@ -1 +1 @@\n a", "@@ -3 +3 @@\n-c\n+C"]);
-    expect(parsed).toMatchObject({ ok: true });
-    if (parsed.ok) expect(parsed.hunks).toHaveLength(1);
+    expect(parsed).toMatchObject({
+      ok: false,
+      error: { code: "no_changes", block: 1, line: 1 },
+    });
     expect(parseUdiffs(["@@ -1 +1 @@\n a"])).toMatchObject({
       ok: false,
       error: { code: "no_changes" },

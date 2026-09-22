@@ -1,5 +1,11 @@
 /** Bounded, forgiving parser for llm-editor's single-file unified-diff dialect: normalize whatever has exactly one reading, reject whatever does not — a wrong patch is worse than a retry. */
 
+import {
+  patch_framing,
+  type PatchFramingError,
+  type PatchTarget,
+} from "./patch-framing.ts";
+
 export const MAX_DIFF_BLOCKS = 64;
 export const MAX_DIFF_BLOCK_BYTES = 262_144;
 export const MAX_DIFF_TOTAL_BYTES = 524_288;
@@ -27,6 +33,7 @@ export interface UdiffHunk {
 }
 
 export type UdiffParseErrorCode =
+  | PatchFramingError
   | "no_diffs"
   | "too_many"
   | "too_large"
@@ -47,13 +54,7 @@ export type UdiffParseResult =
   | { ok: false; error: UdiffParseError };
 
 const HEADER = /^@@+ *-(\d+)(?:,(\d+))? *\+(\d+)(?:,(\d+))? *@@+(?: .*)?$/;
-/** Coordinate-less hunk separator (`@@`, `@@ @@`, `@@ ... @@`, bare `***`):
- *  unanchored, empty trailing ones dropped. Tried after HEADER, which it would
- *  otherwise shadow. */
-const HEADER_LOOSE = /^(?:@@+(?: *(?:\.\.\.)? *@@+)?(?: .*)?|\*\*\*)$/;
-/** Envelope lines models wrap patches in (fences, `*** Begin/End Patch`);
- *  unprefixed only — file content carries a diff prefix and never matches. */
-const WRAPPER = /^(?:```|~~~|\*\*\* )/;
+const HEADER_LOOSE = /^(?:@@+(?: *(?:\.\.\.)? *@@+)?|\*\*\*)[ \t]*$/;
 const NO_NEWLINE = /^\\ No newline at end of (?:file|source|target)[ \t]*$/;
 
 function fail(
@@ -149,8 +150,7 @@ function parseHunk(
     if (row.operation !== "context") changed = true;
   }
 
-  // A no-op hunk is dropped, not fatal: one stray no-op must not sink its siblings.
-  if (!changed) return {};
+  if (!changed) return bad("no_changes", base);
 
   // Header counts are advisory; the body is authority — a header claiming source lines the body lacks stays fatal (context rows can't be recovered).
   if (sourceCount === 0 && headerOldCount > 0) return bad("bad_count", base);
@@ -184,28 +184,35 @@ function parseHunk(
   };
 }
 
-/** Parse one array element, which may hold several hunks. Content before the
- *  first `@@` and WRAPPER lines are dropped, as patch(1) drops them. */
-function parseBlock(diff: string, block: number): UdiffParseResult {
+function parseBlock(
+  diff: string,
+  block: number,
+  target?: PatchTarget,
+): UdiffParseResult {
   if (Buffer.byteLength(diff, "utf8") > MAX_DIFF_BLOCK_BYTES)
     return fail("too_large", block);
-  const lines = logicalLines(diff).filter((line) => !WRAPPER.test(line));
+  const lines = logicalLines(diff);
   if (lines.length === 0) return fail("bad_block", block, 1);
   if (lines.length > MAX_DIFF_LINES) return fail("too_large", block);
+  const framing = patch_framing(lines, target);
+  if (framing.ok === false) return fail(framing.code, block, framing.line);
 
   const headers: { match: RegExpExecArray | null; at: number }[] = [];
-  for (let index = 0; index < lines.length; index++) {
+  for (let index = framing.start; index < framing.end; index++) {
     const match = HEADER.exec(lines[index]);
     if (match) headers.push({ match, at: index });
     else if (HEADER_LOOSE.test(lines[index]))
       headers.push({ match: null, at: index });
+    else if (lines[index].startsWith("@@"))
+      return fail("bad_header", block, index + 1);
   }
   if (headers.length === 0) return fail("bad_header", block, 1);
 
   const hunks: UdiffHunk[] = [];
   for (let index = 0; index < headers.length; index++) {
     const start = headers[index].at;
-    const end = headers[index + 1]?.at ?? lines.length;
+    const end = headers[index + 1]?.at ?? framing.end;
+    if (lines[start] === "***" && start + 1 === end) continue;
     const parsed = parseHunk(
       headers[index].match,
       lines.slice(start + 1, end),
@@ -219,7 +226,10 @@ function parseBlock(diff: string, block: number): UdiffParseResult {
 }
 
 /** Parse every completion diff before any matching or file mutation occurs. */
-export function parseUdiffs(raw: unknown): UdiffParseResult {
+export function parseUdiffs(
+  raw: unknown,
+  target?: PatchTarget,
+): UdiffParseResult {
   if (!Array.isArray(raw) || raw.length === 0) return fail("no_diffs");
   if (raw.length > MAX_DIFF_BLOCKS) return fail("too_many");
   let total = 0;
@@ -228,7 +238,7 @@ export function parseUdiffs(raw: unknown): UdiffParseResult {
     if (typeof raw[index] !== "string") return fail("bad_block", index + 1);
     total += Buffer.byteLength(raw[index], "utf8");
     if (total > MAX_DIFF_TOTAL_BYTES) return fail("too_large", index + 1);
-    const parsed = parseBlock(raw[index], index + 1);
+    const parsed = parseBlock(raw[index], index + 1, target);
     if (!parsed.ok) return parsed;
     hunks.push(...parsed.hunks);
   }

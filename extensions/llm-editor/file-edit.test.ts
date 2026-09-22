@@ -2,6 +2,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import {
   chmod,
+  mkdir,
   mkdtemp,
   readFile,
   readdir,
@@ -10,7 +11,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { applyPatchFile } from "./file-edit.ts";
 import { withPathLock } from "./lock.ts";
 import {
@@ -26,6 +27,7 @@ async function fixture(content: string | Buffer, name = "sample.txt") {
   const cwd = await mkdtemp(join(tmpdir(), "cpi-file-edit-"));
   directories.push(cwd);
   const path = join(cwd, name);
+  await mkdir(dirname(path), { recursive: true });
   await writeFile(path, content);
   const apply = (
     patch: string,
@@ -50,9 +52,11 @@ async function rejected(
   const entries = await readdir(file.cwd);
   const result = await file.apply(patch, options);
   expect(result.ok).toBe(false);
-  if (result.ok === false) expect(result.error.length).toBeGreaterThan(0);
+  if (result.ok !== false) throw new Error("rejected patch applied");
+  expect(result.error.length).toBeGreaterThan(0);
   expect(await readFile(file.path)).toEqual(original);
   expect(await readdir(file.cwd)).toEqual(entries);
+  return result;
 }
 
 function gate() {
@@ -147,32 +151,149 @@ describe("applyPatchFile production filesystem integration", () => {
   for (const patch of [
     `--- a/sample.txt\n+++ b/sample.txt\n${hunk}`,
     `diff --git a/sample.txt b/sample.txt\n${hunk}`,
+    `diff --git a/sample.txt b/sample.txt\nindex abc123..def456 100644\n--- a/sample.txt\n+++ b/sample.txt\n${hunk}`,
     `*** Begin Patch\n*** Update File: sample.txt\n${hunk}*** End Patch\n`,
+    `${hunk}*** End Patch\n`,
+    `${hunk}*** End of patch\n`,
+    `\n\t\n\`\`\`diff\n*** Begin Patch\n${hunk}*** End of patch\n\n\`\`\`\n\t\n`,
+    `\`\`\`diff\n${hunk}\`\`\`\n`,
+    `~~~diff\n${hunk}~~~\n`,
+    "@@ -1,1 +1,1 @@ function sample\n-a\n+A\n",
+  ]) {
+    test(`normalizes framing on real files: ${JSON.stringify(patch)}`, async () => {
+      const file = await fixture("a\nb\n");
+      const result = await file.apply(patch);
+      expect(result.ok).toBe(true);
+      expect(await readFile(file.path, "utf8")).toBe("A\nb\n");
+    });
+  }
+
+  test("normalizes CRLF framing, blank context rows, and quoted target paths", async () => {
+    const file = await fixture("a\n\nb\n", "sample name.txt");
+    const result = await file.apply(
+      `\`\`\`patch\r\n--- "${file.path}"\r\n+++ "${file.path}"\r\n@@\r\na\r\n\r\n-b\r\n+B\r\n*** End of patch\r\n\`\`\`\r\n`,
+    );
+    expect(result.ok).toBe(true);
+    expect(await readFile(file.path, "utf8")).toBe("a\n\nB\n");
+    expect(
+      (
+        await file.apply(
+          "diff --git a/sample name.txt b/sample name.txt\n--- a/sample name.txt\t\n+++ b/sample name.txt\t\n@@\n-B\n+b\n",
+        )
+      ).ok,
+    ).toBe(true);
+    expect(await readFile(file.path, "utf8")).toBe("a\n\nb\n");
+  });
+
+  for (const patch of [
     `*** Add File: created.txt\n${hunk}`,
     `*** Delete File: sample.txt\n${hunk}`,
     `*** Move to: moved.txt\n${hunk}`,
-    `\`\`\`diff\n${hunk}\`\`\`\n`,
-    `~~~diff\n${hunk}~~~\n`,
+    `*** Update File: other.txt\n${hunk}`,
+    `*** Update File: sample.txt\tother.txt\n${hunk}`,
+    `--- a/sample.txt\n+++ b/other.txt\n${hunk}`,
+    `--- /dev/null\n+++ b/sample.txt\n${hunk}`,
+    `--- a/sample.txt\n+++ /dev/null\n${hunk}`,
+    `diff --git a/sample.txt b/sample.txt\nrename to other.txt\n${hunk}`,
+    `*** Begin Patch\n*** Update File: sample.txt\n*** Move to: moved.txt\n${hunk}*** End Patch`,
     `<patch>\n${hunk}</patch>\n`,
     `<diff>\n${hunk}</diff>\n`,
     `${hunk}--- a/other.txt\n+++ b/other.txt\n@@\n-b\n+B\n`,
     `${hunk}diff --git a/other.txt b/other.txt\n@@\n-b\n+B\n`,
     `${hunk}*** Update File: other.txt\n@@\n-b\n+B\n`,
+    `${hunk}*** End Patch\n*** Begin Patch\n@@\n-b\n+B\n*** End Patch`,
     "@@ function sample\n-a\n+A\n",
-    "@@ -1,1 +1,1 @@ function sample\n-a\n+A\n",
-    "@@\na\n-b\n+B\n",
     "@@\n\\ No newline at end of file\n-a\n+A\n",
     "@@ -oops +1 @@\n-a\n+A\n",
     "Here is the patch:\n@@\n-a\n+A\n",
     `${hunk}Done.\n`,
   ]) {
-    test(`rejects non-public syntax: ${JSON.stringify(patch)}`, async () => {
+    test(`rejects unsupported or conflicting patches: ${JSON.stringify(patch)}`, async () => {
       const file = await fixture("a\nb\n");
       await writeFile(join(file.cwd, "other.txt"), "b\n");
       await rejected(file, patch);
       expect(await readFile(join(file.cwd, "other.txt"), "utf8")).toBe("b\n");
     });
   }
+
+  test("file header prefixes cannot disguise a rename into an a/ directory", async () => {
+    const file = await fixture("a\n", "a/sample.txt");
+    await rejected(
+      file,
+      `diff --git a/sample.txt b/a/sample.txt\n--- a/sample.txt\n+++ b/a/sample.txt\n${hunk}`,
+    );
+    await rejected(file, `--- a/sample.txt\n+++ b/a/sample.txt\n${hunk}`);
+    const result = await file.apply(
+      `--- a/a/sample.txt\n+++ b/a/sample.txt\n${hunk}`,
+    );
+    expect(result.ok).toBe(true);
+    expect(await readFile(file.path, "utf8")).toBe("A\n");
+  });
+
+  test("accepts Git C-quoted UTF-8 paths without confusing escaped backslashes", async () => {
+    for (const [name, quoted] of [
+      ["café.txt", String.raw`caf\303\251.txt`],
+      [String.raw`literal\303.txt`, String.raw`literal\\303.txt`],
+    ]) {
+      const file = await fixture("a\n", name);
+      const result = await file.apply(
+        `diff --git "a/${quoted}" "b/${quoted}"\n--- "a/${quoted}"\n+++ "b/${quoted}"\n${hunk}`,
+      );
+      expect(result.ok).toBe(true);
+      expect(await readFile(file.path, "utf8")).toBe("A\n");
+    }
+  });
+
+  test("a quoted filename BOM is preserved, never stripped to another target", async () => {
+    const patch =
+      String.raw`--- "\357\273\277sample.txt"` +
+      "\n" +
+      String.raw`+++ "\357\273\277sample.txt"` +
+      "\n" +
+      hunk;
+    await rejected(await fixture("a\n"), patch);
+    const file = await fixture("a\n", "\uFEFFsample.txt");
+    expect((await file.apply(patch)).ok).toBe(true);
+    expect(await readFile(file.path, "utf8")).toBe("A\n");
+  });
+
+  test("context-only anchors cannot redirect an edit to another class", async () => {
+    const source =
+      "class Attention:\n    def forward(self, x):\n        pass\nclass Block:\n    def forward(self, x, batch=None):\n        pass\n";
+    const file = await fixture(source);
+    const context = "@@\n class Attention:\n";
+    const change =
+      "@@\n-    def forward(self, x, batch=None):\n+    def forward(self, x):\n";
+    for (const [patch, line] of [
+      [context + change, 1],
+      [change + context, 4],
+      ["@@\n" + change, 1],
+    ] as const) {
+      const result = await rejected(file, patch);
+      expect(result.error).toContain(
+        "Context-only hunks do not scope later edits",
+      );
+      expect(result.error).toContain(`hunk at patch line ${line}`);
+    }
+    expect((await file.apply(change.replace("@@", "@@ -5,1 +5,1 @@"))).ok).toBe(
+      true,
+    );
+  });
+
+  test("prefixed wrapper text remains literal file content", async () => {
+    const source = "*** End Patch\n```\n@@\n";
+    const file = await fixture(source);
+    expect(
+      (
+        await file.apply(
+          "@@\n *** End Patch\n ```\n-@@\n+literal\n*** End Patch\n",
+        )
+      ).ok,
+    ).toBe(true);
+    expect(await readFile(file.path, "utf8")).toBe(
+      "*** End Patch\n```\nliteral\n",
+    );
+  });
 
   test("missing files are not created", async () => {
     const file = await fixture("a\n");

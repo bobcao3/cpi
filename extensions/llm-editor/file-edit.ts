@@ -13,11 +13,8 @@ import {
   generateUnifiedPatch,
 } from "@earendil-works/pi-coding-agent";
 import { loadEditorText, fmt, type EditorText } from "./text.ts";
-import {
-  parseUdiffs,
-  MAX_DIFF_BLOCK_BYTES,
-  type UdiffParseError,
-} from "./udiff.ts";
+import { parseUdiffs, type UdiffParseError } from "./udiff.ts";
+import type { PatchTarget } from "./patch-framing.ts";
 import {
   applyUdiffs,
   type UdiffApplyError,
@@ -73,12 +70,12 @@ export function applyFileDiff(
   content: string,
   diffs: unknown,
   T: EditorText,
-  fuzzyMatch?: boolean,
+  opts: PatchTarget & { fuzzyMatch?: boolean },
 ): FileEditContentResult {
-  const parsed = parseUdiffs(diffs);
+  const parsed = parseUdiffs(diffs, opts);
   if (parsed.ok === false)
     return { ok: false, error: formatParseError(T, parsed.error) };
-  const result = applyUdiffs(content, parsed.hunks, { fuzzy: fuzzyMatch });
+  const result = applyUdiffs(content, parsed.hunks, { fuzzy: opts.fuzzyMatch });
   if (result.ok === false)
     return { ok: false, error: formatApplyError(T, result.error) };
   return result.content === content
@@ -165,26 +162,12 @@ export async function withFileEdit(
   });
 }
 
-const PATCH_HEADER = /^@@(?: -\d+(?:,\d+)? \+\d+(?:,\d+)? @@)?$/;
-
 export async function applyPatchFile(
   path: string,
   opts: FileEditOptions & { patch: string; fuzzyMatch?: boolean },
 ): Promise<EditFileResult> {
   const T = loadEditorText(opts.cwd);
-  if (Buffer.byteLength(opts.patch, "utf8") > MAX_DIFF_BLOCK_BYTES)
-    return {
-      ok: false,
-      error: formatParseError(T, { code: "too_large", block: 0 }),
-    };
-  const lines = opts.patch.replace(/\r\n/g, "\n").split("\n");
-  if (lines.at(-1) === "") lines.pop();
-  if (
-    !PATCH_HEADER.test(lines[0] ?? "") ||
-    lines.some((line) => !PATCH_HEADER.test(line) && !/^[ +\-\\]/.test(line))
-  )
-    return { ok: false, error: T.errors.patch_format };
   return withFileEdit(path, opts, async (content) =>
-    applyFileDiff(content, [opts.patch], T, opts.fuzzyMatch),
+    applyFileDiff(content, [opts.patch], T, { ...opts, path }),
   );
 }

@@ -68,7 +68,7 @@ export async function editFile(
       (opts.fuzzyMatch === false ? "" : T.system.editor_fuzzy);
 
     const validateDiffs = (diffs: unknown): Attempt => {
-      const result = applyFileDiff(content, diffs, T, opts.fuzzyMatch);
+      const result = applyFileDiff(content, diffs, T, { ...opts, path });
       if (result.ok === false) return { ok: "retryable", error: result.error };
       return { ok: "applied", result };
     };
