@@ -61,20 +61,17 @@ function summaryBudget(
     content: ctx.getSystemPrompt(),
     timestamp: 0,
   });
+  const summary_reserve = Math.max(preparation.settings.reserveTokens, 16_384);
   const available =
     model.contextWindow -
-    preparation.settings.reserveTokens -
+    summary_reserve -
     restoration -
     kept.reduce((total, message) => total + estimateTokens(message), 0) -
     system -
     tools_tokens -
     1024;
   const budget = Math.floor(
-    Math.min(
-      0.8 * preparation.settings.reserveTokens,
-      model.maxTokens || Infinity,
-      available,
-    ),
+    Math.min(0.8 * summary_reserve, model.maxTokens || Infinity, available),
   );
   if (budget < 128) throw new Error(text.errors.budget);
   return budget;

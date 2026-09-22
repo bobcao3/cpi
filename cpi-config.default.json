@@ -12,20 +12,13 @@
   },
   "fast": {
     "providers": ["openai", "openai-codex"],
-    "models": [
-      "gpt-5.4",
-      "gpt-5.5",
-      "gpt-5.6",
-      "gpt-5.6-sol",
-      "gpt-5.6-terra",
-      "gpt-5.6-luna",
-      "gpt-6-astra"
-    ]
+    "models": ["gpt-6-luna", "gpt-6-sol", "gpt-6-astra"]
   },
   "forkProbe": {
     "substitutions": [
-      { "from": "gpt-5.6-sol", "to": "gpt-5.6-luna:medium" },
-      { "from": "gpt-6-astra", "to": "gpt-5.6-luna:medium" },
+      { "from": "gpt-5.6-sol", "to": "gpt-6-luna:medium" },
+      { "from": "gpt-6-sol", "to": "gpt-6-luna:medium" },
+      { "from": "gpt-6-astra", "to": "gpt-6-luna:medium" },
       { "from": "claude-opus-5", "to": "claude-sonnet-5:medium" },
       { "from": "claude-fable-5", "to": "claude-sonnet-5:medium" },
       { "from": "claude-fable-5-1", "to": "claude-sonnet-5:medium" }
@@ -49,9 +42,9 @@
       },
       {
         "search": "gpt-[^:/]*-(terra|sol|astra)[^:]*:[^:]*",
-        "replace": "gpt-5.6-luna:xhigh"
+        "replace": "gpt-6-luna:medium"
       },
-      { "search": "gpt-[^:]*:[^:]*", "replace": "gpt-5.6-luna:high" },
+      { "search": "gpt-[^:]*:[^:]*", "replace": "gpt-6-luna:medium" },
       {
         "search": "gemini-[^:]*:(high|xhigh|max)",
         "replace": "gemini-3.5-flash-lite:high"
