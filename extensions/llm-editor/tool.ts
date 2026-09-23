@@ -11,16 +11,11 @@
  */
 
 import { Type } from "typebox";
-import { readFile, stat, writeFile, mkdir, readdir } from "node:fs/promises";
-import type { Dirent } from "node:fs";
-import { dirname, relative, join } from "node:path";
+import { writeFile, mkdir } from "node:fs/promises";
+import { dirname } from "node:path";
 import type {
   ExtensionContext,
   ToolDefinition,
-} from "@earendil-works/pi-coding-agent";
-import {
-  resizeImage,
-  formatDimensionNote,
 } from "@earendil-works/pi-coding-agent";
 import { loadEditorConfig } from "../lib/config.ts";
 import { resolveCwdPath, getCwd } from "../lib/cwd.ts";
@@ -29,7 +24,7 @@ import { requestFooterRender } from "../lib/footer.ts";
 import { resolveTranscriptDir } from "./log.ts";
 import { resolveEditorModel } from "./model-select.ts";
 import { loadEditorText, fmt } from "./text.ts";
-import { viewFile } from "./viewer.ts";
+import { executeRead } from "./read-tool.ts";
 import { editFile } from "./editor.ts";
 import { applyPatchFile } from "./file-edit.ts";
 import { MAX_DIFF_BLOCK_BYTES } from "./udiff.ts";
@@ -38,7 +33,7 @@ import { shortSha } from "./id.ts";
 import { resultXml, field } from "./result-xml.ts";
 import { lspFields } from "./lsp.ts";
 import { renderEditorCall, renderEditorResult } from "./render.ts";
-import { sniffMediaType, modelSupportsVision } from "../lib/media.ts";
+import { renderReadCall, renderReadResult } from "./read-render.ts";
 
 export type Command = "read" | "write" | "edit" | "apply_patch";
 
@@ -113,210 +108,6 @@ function errorResult(
   };
 }
 
-/** Plain text result (no XML wrapper) for media paths (image/video notes). */
-function textResult(
-  id: string,
-  kind: string,
-  text: string,
-  details?: Record<string, unknown>,
-) {
-  return {
-    content: [{ type: "text" as const, text }],
-    details: { id, kind, ...details },
-  };
-}
-
-/** `read` success: raw payload (no XML, no escaping — the model sees exact bytes); the call `id` lives only in `details` and the transcript, never in the result text. */
-function readResult(payload: string, details: unknown, suffix?: string) {
-  let text = payload;
-  if (suffix) text = text ? `${text}\n${suffix}` : suffix;
-  return { content: [{ type: "text" as const, text }], details };
-}
-
-/** `read` error: the message is the whole result text; `id` stays in `details`. */
-function readErrorResult(id: string, message: string) {
-  return {
-    content: [{ type: "text" as const, text: message }],
-    isError: true,
-    details: { id, kind: "error" as const, message },
-  };
-}
-
-async function listTree(root: string, cwd: string): Promise<string> {
-  const T = loadEditorText(cwd);
-  const lines: string[] = [];
-  const walk = async (dir: string, depth: number): Promise<void> => {
-    if (depth > 2) return;
-    let entries: Dirent[];
-    try {
-      entries = await readdir(dir, { withFileTypes: true });
-    } catch {
-      return;
-    }
-    for (const e of entries) {
-      if (e.name.startsWith(".")) continue;
-      const rel = relative(cwd, join(dir, e.name)) || e.name;
-      lines.push(
-        `${"  ".repeat(depth - 1)}${e.isDirectory() ? "📁" : "📄"} ${rel}${e.isDirectory() ? "/" : ""}`,
-      );
-      if (e.isDirectory()) await walk(join(dir, e.name), depth + 1);
-    }
-  };
-  await walk(root, 1);
-  return lines.length ? lines.join("\n") : T.messages.empty_dir;
-}
-
-/** Plain full-file head read (no line numbers) — cheap fallback when no Viewer query is given. */
-async function headRead(abs: string, cwd: string, max = 200): Promise<string> {
-  const T = loadEditorText(cwd);
-  const content = await readFile(abs, "utf-8");
-  const all = content.split("\n");
-  const lines = all.slice(0, max);
-  const body = lines.join("\n");
-  return all.length > max
-    ? `${body}\n${fmt(T.messages.head_more, { n: all.length - max })}`
-    : body;
-}
-
-function surfaceAgentsBlock(dir: string): string {
-  return formatAgentsBlock(surfaceNewAgents(dir));
-}
-
-async function readImageResult(abs: string, mime: string, id: string) {
-  let buffer = await readFile(abs);
-  if (mime === "image/avif") {
-    const { default: sharp } = await import("sharp");
-    buffer = await sharp(buffer, { limitInputPixels: 40_000_000 })
-      .timeout({ seconds: 15 })
-      .webp({ lossless: true })
-      .toBuffer();
-    mime = "image/webp";
-  }
-  const resized = await resizeImage(buffer, mime);
-  if (!resized) {
-    return textResult(
-      id,
-      "image",
-      `Read image file [${mime}]\n[Image omitted: could not be resized below the inline image size limit.]`,
-    );
-  }
-  const dimNote = formatDimensionNote(resized);
-  let note = `Read image file [${resized.mimeType}]`;
-  if (dimNote) note += `\n${dimNote}`;
-  return {
-    content: [
-      { type: "text" as const, text: note },
-      {
-        type: "image" as const,
-        data: resized.data,
-        mimeType: resized.mimeType,
-      },
-    ],
-    details: {
-      id,
-      kind: "image" as const,
-      mimeType: resized.mimeType,
-      width: resized.width,
-      height: resized.height,
-      note,
-    },
-  };
-}
-
-/** `read` on a video: pi has no video content type; return an actionable note. */
-function videoResult(abs: string, id: string) {
-  const note =
-    `Video file [${abs}]. pi has no native video content type, so it cannot be inlined. ` +
-    `Extract frames via sh, e.g. \`ffmpeg -i "${abs}" -vf fps=1 frame_%03d.png\`, then read the frames.`;
-  return textResult(id, "video", note, { path: abs });
-}
-
-type EditorUpdateCb = NonNullable<Parameters<ToolDefinition["execute"]>[3]>;
-
-async function executeRead(
-  params: ReadParams,
-  signal: AbortSignal | undefined,
-  onUpdate: EditorUpdateCb | undefined,
-  ctx: ExtensionContext,
-  id: string,
-  abs: string,
-) {
-  const cwd = getCwd();
-  const T = loadEditorText(cwd);
-  let isDir = false;
-  try {
-    isDir = (await stat(abs)).isDirectory();
-  } catch {
-    return readErrorResult(id, fmt(T.errors.not_found, { path: abs }));
-  }
-  if (isDir) {
-    const tree = await listTree(abs, cwd);
-    const agents = surfaceAgentsBlock(abs);
-    return readResult(tree, { id, kind: "tree", text: tree }, agents);
-  }
-
-  // Media = known extension AND matching magic bytes: `.ts` source is text
-  // unless its bytes are an MPEG-TS stream. Sniffed before text reading so
-  // binary is never dumped; video never inlines, image only for vision models.
-  const media = await sniffMediaType(abs).catch(() => null);
-  if (media && media.kind === "video") return videoResult(abs, id);
-  if (media && media.kind === "image") {
-    const mime = media.mime;
-    if (!modelSupportsVision(ctx.model)) {
-      return textResult(
-        id,
-        "image",
-        `Image file [${mime}]: ${abs}. The current model does not support images.`,
-      );
-    }
-    return readImageResult(abs, mime, id);
-  }
-
-  if (!params.query) {
-    try {
-      const content = await headRead(abs, cwd);
-      const agents = surfaceAgentsBlock(dirname(abs));
-      return readResult(
-        content,
-        { id, kind: "content", text: content },
-        agents,
-      );
-    } catch (e) {
-      return readErrorResult(
-        id,
-        fmt(T.errors.cannot_read, { path: abs, reason: (e as Error).message }),
-      );
-    }
-  }
-
-  onUpdate?.({ content: [], details: { id } });
-  const cfg = loadEditorConfig(cwd);
-  const pick = resolveEditorModel(ctx);
-  const r = await viewFile(params.path, {
-    id,
-    onStream: (text) =>
-      onUpdate?.({ content: [{ type: "text", text }], details: { id } }),
-    query: params.query,
-    provider: pick.provider,
-    modelId: pick.modelId,
-    cwd,
-    signal,
-    timeoutMs: cfg.subagentTimeoutMs,
-    transcriptDir: resolveTranscriptDir(cfg.transcriptDir, cwd),
-    maxTranscripts: cfg.maxTranscripts,
-    maxFileBytes: cfg.maxFileBytes,
-    thinkingLevel: pick.thinkingLevel,
-  });
-  if (r.error) return readErrorResult(id, r.error);
-  requestFooterRender();
-  const agents = surfaceAgentsBlock(dirname(abs));
-  return readResult(
-    r.text,
-    { id, kind: "view", text: r.text, usage: r.usage },
-    agents,
-  );
-}
-
 async function executeWrite(params: WriteParams, id: string, abs: string) {
   const T = loadEditorText(getCwd());
   const fileText = params.file_text;
@@ -359,6 +150,12 @@ async function executeWrite(params: WriteParams, id: string, abs: string) {
       agents,
     );
   });
+}
+
+type EditorUpdateCb = NonNullable<Parameters<ToolDefinition["execute"]>[3]>;
+
+function surfaceAgentsBlock(dir: string): string {
+  return formatAgentsBlock(surfaceNewAgents(dir));
 }
 
 async function executeEdit(
@@ -439,7 +236,7 @@ async function execute(
   if (signal?.aborted) return errorResult(id, command, abs, T.errors.aborted);
 
   if (command === "read")
-    return executeRead(params as ReadParams, signal, onUpdate, ctx, id, abs);
+    return executeRead(params as ReadParams, signal, ctx, id, abs);
   if (command === "write") return executeWrite(params as WriteParams, id, abs);
   return executeEdit(
     command,
@@ -461,9 +258,11 @@ function defineTool(command: Command, schema: object) {
     promptSnippet: meta.prompt_snippet,
     promptGuidelines: meta.guidelines,
     parameters: schema,
-    renderShell: "default" as const,
+    renderShell: command === "read" ? ("self" as const) : ("default" as const),
     renderCall(args: any, theme: any, context: any) {
-      return renderEditorCall(command, args, theme, context);
+      return command === "read"
+        ? renderReadCall(args, theme, context)
+        : renderEditorCall(command, args, theme, context);
     },
     renderResult(
       result: any,
@@ -471,7 +270,9 @@ function defineTool(command: Command, schema: object) {
       theme: any,
       context: any,
     ) {
-      return renderEditorResult(result, opts, theme, context);
+      return command === "read"
+        ? renderReadResult(result, opts, theme, context)
+        : renderEditorResult(result, opts, theme, context);
     },
     async execute(
       _toolCallId: string,

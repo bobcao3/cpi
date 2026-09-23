@@ -34,6 +34,12 @@ export default function (pi: ExtensionAPI): void {
 
   if (!role || role === "viewer") {
     const parameters = Type.Object({
+      one_line_summary: Type.String({
+        minLength: 1,
+        maxLength: 240,
+        pattern: "^[^\\r\\n]*\\S[^\\r\\n]*$",
+        description: T.completion.schema.one_line_summary,
+      }),
       ranges: Type.Array(
         Type.Object(
           {

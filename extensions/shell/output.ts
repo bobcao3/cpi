@@ -43,6 +43,7 @@ export interface ShResult {
   status: "completed" | "running";
   exitCode: number | null;
   text: string;
+  outputLines?: number;
   fullOutputPath?: string;
   cursor?: OutputCursor;
 }

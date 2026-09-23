@@ -41,6 +41,7 @@ export interface EditorText {
     edit_complete: ToolMeta;
     schema: {
       ranges: string;
+      one_line_summary: string;
       range_start: string;
       range_end: string;
       diffs: string;

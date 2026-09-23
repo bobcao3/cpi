@@ -43,8 +43,8 @@ function tokens(section: FooterSection) {
       },
     ];
   if (section.name !== "shell") return [];
-  return [...section.value.matchAll(/\b(bg|mon):(\d+)\b/g)].map((match) => ({
-    kind: match[1] === "bg" ? ("shell" as const) : ("monitor" as const),
+  return [...section.value.matchAll(/\b(shell|mon):(\d+)\b/g)].map((match) => ({
+    kind: match[1] === "shell" ? ("shell" as const) : ("monitor" as const),
     index: match.index!,
     text: match[0],
     active: Number(match[2]) > 0,

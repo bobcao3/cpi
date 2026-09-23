@@ -245,6 +245,6 @@ function costSegment(session_id: string): string | undefined {
   const live = entries.filter(
     (entry) => entry.status === "running" || entry.status === "stopping",
   ).length;
-  if (u.count === 0 && entries.length === 0) return undefined;
+  if (entries.length === 0) return undefined;
   return `sub:${live} $${u.cost.toFixed(4)}·${u.count}`;
 }

@@ -72,6 +72,7 @@ export async function viewFile(
   opts: ViewFileOptions,
 ): Promise<{
   text: string;
+  summary?: string;
   error?: string;
   usage?: { input: number; output: number };
 }> {
@@ -139,17 +140,29 @@ export async function viewFile(
     return { text: "", error: T.errors.viewer_truncated };
   }
   const ranges = normalizeRanges(c.args.ranges);
-  if (!ranges) {
+  const summary = c.args.one_line_summary;
+  if (
+    !ranges ||
+    typeof summary !== "string" ||
+    !summary.trim() ||
+    summary.length > 240 ||
+    /[\r\n]/.test(summary)
+  )
     return {
       text: "",
       error: fmt(T.errors.viewer_bad_output, {
         tail: JSON.stringify(c.args).slice(0, 400),
       }),
     };
-  }
-  if (ranges.length === 0) return { text: T.messages.view_no_ranges };
+  if (ranges.length === 0)
+    return {
+      text: T.messages.view_no_ranges,
+      summary: summary.trim(),
+      usage: res.usage,
+    };
   return {
     text: renderRanges(lines, ranges, T.messages.lines_omitted),
+    summary: summary.trim(),
     usage: res.usage,
   };
 }

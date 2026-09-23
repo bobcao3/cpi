@@ -22,7 +22,7 @@ function shellStatusValue(session_id?: string): string | undefined {
   const live = history.filter(
     (entry) => entry.status === "running" || entry.status === "stopping",
   );
-  const bg = Math.max(
+  const shells = Math.max(
     getBackgroundCount(),
     live.filter((entry) => entry.kind === "shell").length,
   );
@@ -30,8 +30,8 @@ function shellStatusValue(session_id?: string): string | undefined {
     getRepeatCount(),
     live.filter((entry) => entry.kind === "monitor").length,
   );
-  if (bg > 0 || history.some((entry) => entry.kind === "shell"))
-    parts.push(`bg:${bg}`);
+  if (shells > 0 || history.some((entry) => entry.kind === "shell"))
+    parts.push(`shell:${shells}`);
   if (rpt > 0 || history.some((entry) => entry.kind === "monitor"))
     parts.push(`mon:${rpt}`);
   return parts.length > 0 ? parts.join(" ") : undefined;

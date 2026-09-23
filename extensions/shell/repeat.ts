@@ -320,7 +320,11 @@ export function createRepeatTool(
       maximum: 60,
       description: T.schema!.interval,
     }),
-    description: Type.String({ description: T.schema!.description }),
+    description: Type.String({
+      minLength: 1,
+      pattern: "\\S",
+      description: T.schema!.description,
+    }),
     env: Type.Optional(Type.String({ description: T.schema!.env })),
   });
 

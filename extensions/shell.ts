@@ -6,7 +6,10 @@
  */
 
 import { Type } from "typebox";
-import { renderShCall, renderShResult } from "./shell/render.ts";
+import {
+  renderCompactShellCall,
+  renderCompactShellResult,
+} from "./shell/compact-render.ts";
 import type {
   ExtensionAPI,
   ExtensionContext,
@@ -165,7 +168,11 @@ export default async function (pi: ExtensionAPI) {
   const commonGuidelines = renderLines(T.guidelines.sh, switches);
 
   const shSchema = Type.Object({
-    description: Type.String({ description: T.schema.sh.description }),
+    description: Type.String({
+      minLength: 1,
+      pattern: "\\S",
+      description: T.schema.sh.description,
+    }),
     waitfor: Type.Optional(
       Type.Number({ description: render(T.schema.sh.waitfor, switches) }),
     ),
@@ -180,6 +187,7 @@ export default async function (pi: ExtensionAPI) {
     promptSnippet: T.sh.prompt_snippet,
     promptGuidelines: commonGuidelines,
     parameters: shSchema,
+    renderShell: "self",
     async execute(_toolCallId, params, signal, onUpdate, ctx) {
       if (signal?.aborted)
         return {
@@ -305,6 +313,7 @@ export default async function (pi: ExtensionAPI) {
         details: {
           id: res.id,
           exitCode: res.exitCode,
+          outputLines: res.outputLines,
           status: res.status,
           fullOutputPath: res.fullOutputPath,
           cursor: res.cursor,
@@ -320,10 +329,10 @@ export default async function (pi: ExtensionAPI) {
       };
     },
     renderCall(args, theme, context) {
-      return renderShCall(args, theme, context, DEFAULT_WAITFOR, TAIL_LINES);
+      return renderCompactShellCall(args, theme, context);
     },
-    renderResult(result, { expanded, isPartial }, theme) {
-      return renderShResult(result, { expanded, isPartial }, theme, TAIL_LINES);
+    renderResult(result, options, theme, context) {
+      return renderCompactShellResult(result, options, theme, context);
     },
   });
 

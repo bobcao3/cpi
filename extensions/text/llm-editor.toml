@@ -15,11 +15,11 @@ imports, comments, and any code blocks that implement functionality related to
 the query.
 
 OUTPUT: call the `view-complete` tool with `ranges` = a JSON array of line
-ranges. Each range is {"start": start_line, "end": end_line} (inclusive,
-1-indexed). Do not print the ranges as text.
+ranges and `one_line_summary` = a single-line summary of the relevant file
+content (not the query). Each range is {"start": start_line, "end": end_line}
+(inclusive, 1-indexed). Do not print the ranges as text.
 
-Example: view-complete({ ranges: [{"start": 10, "end": 25}, {"start": 45,
-  "end": 60}, {"start": 100, "end": 115}] })
+Example: view-complete({ one_line_summary: "Defines authentication checks and token refresh", ranges: [{"start": 10, "end": 25}, {"start": 45, "end": 60}] })
 
 RULES:
 1. `ranges` is a JSON array of {"start": start_line, "end": end_line} objects,
@@ -27,23 +27,23 @@ RULES:
 2. Each range must include complete logical blocks (do not split functions/
   classes).
 3. Include a few lines of context before and after each relevant section.
-4. If nothing is relevant, call with `ranges = []`.
+4. If nothing is relevant, call with `ranges = []` and summarize what the file contains.
 5. Sort ranges by start line; merge overlapping or adjacent ranges.
 6. Do not include entire files unless the query asks for everything.
 7. Call `view-complete` exactly once; this ends your turn.
 
 Example 1 - Finding a specific function:
 Query: "Where is the calculate_total function defined?"
-view-complete({ ranges: [{"start": 15, "end": 28}] })
+view-complete({ one_line_summary: "Defines calculate_total", ranges: [{"start": 15, "end": 28}] })
 
 Example 2 - Finding multiple related sections:
 Query: "How is user authentication handled?"
-view-complete({ ranges: [{"start": 5, "end": 8}, {"start": 23, "end": 45},
+view-complete({ one_line_summary: "Implements authentication and sessions", ranges: [{"start": 5, "end": 8}, {"start": 23, "end": 45},
   {"start": 102, "end": 130}] })
 
 Example 3 - Nothing relevant found:
 Query: "Where is the database connection configured?"
-view-complete({ ranges: [] })
+view-complete({ one_line_summary: "File defines application routes and middleware", ranges: [] })
 '''
 editor = '''
 You are an expert code editor. Analyze the numbered file and return the
@@ -361,7 +361,7 @@ section_stderr = "## stderr"
 #    parent, which parses, matches, and applies all hunks with cpi's in-house
 #    atomic engine. Plain text (no HTML escaping). ──
 [completion.view_complete]
-description = "Return the relevant line ranges from the file and end your turn. Call this exactly once with `ranges` = a JSON array of line-range objects, each with numeric `start` and `end` fields (inclusive, 1-indexed). Do not print the ranges as text."
+description = "Return the relevant line ranges and a one-line summary of the file content, then end your turn. Call this exactly once. Do not print the ranges as text."
 prompt_snippet = "Return relevant line ranges"
 guidelines = [
 	"Output ONLY by calling this tool — never print the ranges as text.",
@@ -369,6 +369,7 @@ guidelines = [
 	"Each range must include complete logical blocks with a few lines of context before and after.",
 	"Sort ranges by start line; merge overlapping or adjacent ranges.",
 	"If nothing is relevant, call with `ranges = []`.",
+	"`one_line_summary` describes the file content in a single line, even if no ranges match.",
 	"Call this tool exactly once; this ends your turn.",
 ]
 
@@ -392,6 +393,7 @@ guidelines = [
 
 [completion.schema]
 ranges = "JSON array of line-range objects, each with numeric `start` and `end` fields (inclusive, 1-indexed), relevant to the query."
+one_line_summary = "Single-line summary of the relevant file content (not a restatement of the query)."
 range_start = "Start line of this range, 1-indexed and inclusive."
 range_end = "End line of this range, 1-indexed and inclusive."
 diffs = "One or more bounded single-file unified-diff hunks. Each array element contains exactly one hunk against the original supplied file. Required unless cancel is true."

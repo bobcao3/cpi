@@ -136,6 +136,7 @@ export async function runShell(
     linesEmitted: 0,
     colBytes: 0,
   };
+  observeShell(entry, cwd);
 
   let exitResolve!: () => void;
   const exitP = new Promise<void>((resolve) => {
@@ -176,6 +177,7 @@ export async function runShell(
     await client.subscribe(onEvent);
   } catch (e) {
     if (!entry.done) {
+      finishActivity(entry.activityId, "failed", { connection_lost: 1 });
       client.close();
       return {
         id: null,
@@ -212,20 +214,32 @@ export async function runShell(
   if (completed) {
     client.close();
     let content = "";
+    let outputLines: number | undefined;
     try {
       content = (await readFile(logPath)).toString("utf8"); // monitor flushed before sending exit
+      outputLines = 0;
+      for (let i = 0; i < content.length; i++)
+        if (content.charCodeAt(i) === 10) outputLines++;
+      if (content && !content.endsWith("\n")) outputLines++;
     } catch {}
+    if (content) updateActivity(entry.activityId, { tail: content });
     const { text, fullOutputPath } = await buildOutputText(content, {
       logPath,
       truncation,
       tunables,
     });
     if (!fullOutputPath) await rm(logPath, { force: true }).catch(() => {});
-    return { id: null, status: "completed", exitCode, text, fullOutputPath };
+    return {
+      id: null,
+      status: "completed",
+      exitCode,
+      text,
+      outputLines,
+      fullOutputPath,
+    };
   }
   // still running → background it; the subscribe callback stays live for completion
   bg.set(id, entry);
-  observeShell(entry, cwd);
   if (sessDir && sessScope)
     void client
       .bindResume()
