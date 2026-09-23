@@ -1,7 +1,5 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { clampThinkingLevel } from "@earendil-works/pi-ai";
-import { buildBaseOptions } from "@earendil-works/pi-ai/api/simple-options";
 
 const OWNER = Symbol.for("cpi.fast.model");
 const INSTALLATION = Symbol.for("cpi.fast.runtime");
@@ -116,17 +114,7 @@ function decorate(provider, config) {
       baseUrl: model.baseUrl,
       headers: model.headers,
     };
-    const level = options?.reasoning
-      ? clampThinkingLevel(canonical, options.reasoning)
-      : undefined;
-    const request = simple
-      ? {
-          ...buildBaseOptions(canonical, context, options, options?.apiKey),
-          toolChoice: options?.toolChoice,
-          reasoningEffort: level === "off" ? undefined : level,
-        }
-      : { ...options };
-    request.serviceTier = "priority";
+    const request = { ...options, serviceTier: "priority" };
     request.onPayload = async (payload, backend) => {
       const transformed = await options?.onPayload?.(payload, backend);
       return {
@@ -149,7 +137,11 @@ function decorate(provider, config) {
       }),
     };
     return logicalStream(
-      provider.stream(canonical, backendContext, request),
+      provider[simple ? "streamSimple" : "stream"](
+        canonical,
+        backendContext,
+        request,
+      ),
       model.id,
     );
   };
