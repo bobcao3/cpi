@@ -22,6 +22,7 @@ import {
   focusFooterActivity,
 } from "./lib/footer.ts";
 import { registerActivityBrowser } from "./lib/activity-ui.ts";
+import { startKittyProbe, stopKittyProbe } from "./lib/kitty-probe.ts";
 import { listActivities } from "./lib/activity.ts";
 import {
   setupStatusReports,
@@ -61,6 +62,7 @@ export default function coreExtension(pi: ExtensionAPI): void {
   registerCompaction(pi);
   const promptModel = registerModelContext(pi);
   pi.on("session_start", async (_event, ctx: ExtensionContext) => {
+    startKittyProbe(ctx);
     if (!process.env.PI_SUBAGENT) await ensureSubagentRpc();
     setupCpiFooter(pi, ctx);
     setupStatusReports(ctx);
@@ -81,6 +83,7 @@ export default function coreExtension(pi: ExtensionAPI): void {
     );
   });
   pi.on("session_shutdown", async () => {
+    stopKittyProbe();
     disposeCpiFooter();
     disposeStatusReports();
   });

@@ -2,10 +2,6 @@ import { readFile, stat, readdir } from "node:fs/promises";
 import type { Dirent } from "node:fs";
 import { dirname, relative, join } from "node:path";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import {
-  resizeImage,
-  formatDimensionNote,
-} from "@earendil-works/pi-coding-agent";
 import { loadEditorConfig } from "../lib/config.ts";
 import { getCwd } from "../lib/cwd.ts";
 import { surfaceNewAgents, formatAgentsBlock } from "../lib/agents.ts";
@@ -15,20 +11,9 @@ import { resolveTranscriptDir } from "./log.ts";
 import { resolveEditorModel } from "./model-select.ts";
 import { loadEditorText, fmt } from "./text.ts";
 import { viewFile } from "./viewer.ts";
+import { readImageResult, textResult, videoResult } from "./media-result.ts";
 
 type ReadParams = { path: string; query?: string };
-
-function textResult(
-  id: string,
-  kind: string,
-  text: string,
-  details?: Record<string, unknown>,
-) {
-  return {
-    content: [{ type: "text" as const, text }],
-    details: { id, kind, ...details },
-  };
-}
 
 function readResult(payload: string, details: unknown, suffix?: string) {
   let text = payload;
@@ -83,54 +68,6 @@ function surfaceAgentsBlock(dir: string): string {
   return formatAgentsBlock(surfaceNewAgents(dir));
 }
 
-async function readImageResult(abs: string, mime: string, id: string) {
-  let buffer = await readFile(abs);
-  if (mime === "image/avif") {
-    const { default: sharp } = await import("sharp");
-    buffer = await sharp(buffer, { limitInputPixels: 40_000_000 })
-      .timeout({ seconds: 15 })
-      .webp({ lossless: true })
-      .toBuffer();
-    mime = "image/webp";
-  }
-  const resized = await resizeImage(buffer, mime);
-  if (!resized) {
-    return textResult(
-      id,
-      "image",
-      `Read image file [${mime}]\n[Image omitted: could not be resized below the inline image size limit.]`,
-    );
-  }
-  const dimNote = formatDimensionNote(resized);
-  let note = `Read image file [${resized.mimeType}]`;
-  if (dimNote) note += `\n${dimNote}`;
-  return {
-    content: [
-      { type: "text" as const, text: note },
-      {
-        type: "image" as const,
-        data: resized.data,
-        mimeType: resized.mimeType,
-      },
-    ],
-    details: {
-      id,
-      kind: "image" as const,
-      mimeType: resized.mimeType,
-      width: resized.width,
-      height: resized.height,
-      note,
-    },
-  };
-}
-
-function videoResult(abs: string, id: string) {
-  const note =
-    `Video file [${abs}]. pi has no native video content type, so it cannot be inlined. ` +
-    `Extract frames via sh, e.g. \`ffmpeg -i "${abs}" -vf fps=1 frame_%03d.png\`, then read the frames.`;
-  return textResult(id, "video", note, { path: abs });
-}
-
 export async function executeRead(
   params: ReadParams,
   signal: AbortSignal | undefined,
@@ -160,7 +97,7 @@ export async function executeRead(
       return textResult(
         id,
         "image",
-        `Image file [${mime}]: ${abs}. The current model does not support images.`,
+        fmt(T.messages.image_unsupported, { mime, path: abs }),
       );
     }
     return readImageResult(abs, mime, id);

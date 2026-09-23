@@ -284,6 +284,10 @@ empty_dir = "(empty)"
 no_output = "(no output)"
 head_more = "... ({{n}} more lines; pass a query to view relevant ranges)"
 lines_omitted = "... ({{n}} lines omitted) ..."
+image_read = "Read image file [{{mime}}]"
+image_omitted = "Read image file [{{mime}}]\n[Image omitted: could not be resized below the inline image size limit.]"
+image_unsupported = "Image file [{{mime}}]: {{path}}. The current model does not support images."
+video_note = '''Video file [{{path}}]. pi has no native video content type, so it cannot be inlined. Extract frames via sh, e.g. `ffmpeg -i "{{path}}" -vf fps=1 frame_%03d.png`, then read the frames.'''
 
 # ── LSP result-field strings (design §9; {{placeholder}} substituted via fmt) ──
 [lsp]

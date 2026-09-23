@@ -8,6 +8,8 @@ import {
   truncateToWidth,
 } from "@earendil-works/pi-tui";
 import { sanitizeActivityText } from "../lib/activity.ts";
+import { kittyProbeSucceeded } from "../lib/kitty-probe.ts";
+import { renderKittyReadImage } from "./kitty-image.ts";
 
 interface ReadDetails {
   kind?: string;
@@ -62,11 +64,23 @@ export function renderReadCall(
 export function renderReadResult(
   result: {
     details?: ReadDetails;
-    content?: { type: string; text?: string }[];
+    content?: {
+      type: string;
+      text?: string;
+      data?: string;
+      mimeType?: string;
+    }[];
   },
   options: { isPartial: boolean },
   theme: Theme,
-  context: { args?: unknown; isError: boolean; cwd?: string },
+  context: {
+    args?: unknown;
+    isError: boolean;
+    cwd?: string;
+    showImages: boolean;
+    state: { kittyImage?: Parameters<typeof renderKittyReadImage>[3] };
+    invalidate: () => void;
+  },
 ) {
   if (options.isPartial) return new Container();
   const args = context.args as { path?: string } | undefined;
@@ -86,6 +100,28 @@ export function renderReadResult(
   }
   if (details?.kind === "content")
     return compactLine(theme.fg("success", "✓ Read ") + file);
+  if (
+    details?.kind === "image" &&
+    context.showImages &&
+    kittyProbeSucceeded()
+  ) {
+    const image = result.content?.find(
+      (part) => part.type === "image" && part.data && part.mimeType,
+    );
+    if (image?.data && image.mimeType) {
+      const notes =
+        result.content
+          ?.filter((part) => part.type === "text")
+          .flatMap((part) => (part.text ?? "").split("\n")) ?? [];
+      return renderKittyReadImage(
+        { data: image.data, mimeType: image.mimeType },
+        notes.map((line) => theme.fg("toolOutput", line)),
+        theme.fg("success", "✓ Read ") + file,
+        (context.state.kittyImage ??= {}),
+        context.invalidate,
+      );
+    }
+  }
   const summary = oneLine(
     details?.summary ||
       ({

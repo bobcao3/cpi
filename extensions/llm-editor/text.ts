@@ -56,6 +56,10 @@ export interface EditorText {
     no_output: string;
     head_more: string;
     lines_omitted: string;
+    image_read: string;
+    image_omitted: string;
+    image_unsupported: string;
+    video_note: string;
   };
   lsp: {
     diagnostics_none: string;
