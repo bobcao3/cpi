@@ -1,17 +1,15 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { ModelRuntime } from "@earendil-works/pi-coding-agent";
-import { calculateCost } from "@earendil-works/pi-ai";
-import { installFastModels } from "../bin/fast-models.mjs";
+import { hostAi } from "../bin/host-pi.mjs";
 import { fixture } from "./fast-fixture.mjs";
 
-installFastModels(ModelRuntime);
+const { calculateCost } = await hostAi();
 
 test("full streaming preserves generated identity and native priority pricing across context tiers", async () => {
   for (const input_tokens of [100, 300000]) {
     await fixture(async ({ runtime, requests }) => {
       for (const provider of ["openai", "openai-codex"]) {
-        for (const id of ["gpt-5.4", "gpt-5.5"]) {
+        for (const id of ["gpt-5.5", "gpt-6-sol"]) {
           const model = runtime.getModel(provider, `${id}-fast`);
           const stream = runtime.stream(
             model,

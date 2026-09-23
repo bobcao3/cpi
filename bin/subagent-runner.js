@@ -1,4 +1,17 @@
+import { hostCodingAgent } from "./host-pi.mjs";
+import { closeSync, openSync, readSync, readdirSync, statSync } from "node:fs";
+import { mkdir, readFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { observeSession } from "./subagent-activity.mjs";
+import { createFastRuntime, resolveFastModel } from "./fast-models.mjs";
+import { SUBAGENT_USAGE, parseSubagentArgs } from "./subagent-args.mjs";
 import {
+  filterDisabledSkills,
+  parseDisabledSkills,
+} from "./disabled-skills.mjs";
+
+const {
   DefaultResourceLoader,
   getAgentDir,
   ModelRuntime,
@@ -6,22 +19,7 @@ import {
   SessionManager,
   SettingsManager,
   createAgentSession,
-} from "@earendil-works/pi-coding-agent";
-import { closeSync, openSync, readSync, readdirSync, statSync } from "node:fs";
-import { mkdir, readFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
-import { observeSession } from "./subagent-activity.mjs";
-import {
-  installFastModels,
-  initializeFastModels,
-  resolveFastModel,
-} from "./fast-models.mjs";
-import { SUBAGENT_USAGE, parseSubagentArgs } from "./subagent-args.mjs";
-import {
-  filterDisabledSkills,
-  parseDisabledSkills,
-} from "./disabled-skills.mjs";
+} = await hostCodingAgent();
 
 const THINKING = new Set([
   "off",
@@ -150,9 +148,7 @@ export async function runSubagent(request, signal) {
   const parent = parentSettings(env);
   const selected = selector(args, parent);
   const agentDir = getAgentDir();
-  installFastModels(ModelRuntime);
-  const modelRuntime = await ModelRuntime.create();
-  await initializeFastModels(modelRuntime, cwd);
+  const modelRuntime = await createFastRuntime(ModelRuntime, cwd);
   const selection = resolveSelection(modelRuntime, selected);
   const dir = subagentDir(env);
   const id =

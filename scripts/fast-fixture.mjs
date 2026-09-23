@@ -1,9 +1,17 @@
 import { createServer } from "node:http";
 import { zstdDecompressSync } from "node:zlib";
-import { mkdtemp, writeFile, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { ModelRuntime } from "@earendil-works/pi-coding-agent";
+import "./fast-host-fixture.mjs";
+import { hostCodingAgent } from "../bin/host-pi.mjs";
+import {
+  initializeFastModels,
+  installFastModels,
+} from "../bin/fast-models.mjs";
+
+const { ModelRuntime } = await hostCodingAgent();
+installFastModels(ModelRuntime);
 
 export async function fixture(run, inputTokens = 100) {
   const directory = await mkdtemp(join(tmpdir(), "cpi-fast-"));
@@ -78,6 +86,16 @@ export async function fixture(run, inputTokens = 100) {
   const baseUrl = `http://127.0.0.1:${server.address().port}`;
   const apiKey = `e30.${Buffer.from(JSON.stringify({ "https://api.openai.com/auth": { chatgpt_account_id: "test-account" } })).toString("base64url")}.signature`;
   const modelsPath = join(directory, "models.json");
+  await mkdir(join(directory, ".pi"));
+  await writeFile(
+    join(directory, ".pi/cpi-config.json"),
+    JSON.stringify({
+      fast: {
+        providers: ["openai", "openai-codex"],
+        models: ["gpt-5.5", "gpt-6-sol", "gpt-6-luna"],
+      },
+    }),
+  );
   const config = {
     providers: Object.fromEntries(
       ["openai", "openai-codex"].map((id) => [id, { baseUrl, apiKey }]),
@@ -88,6 +106,7 @@ export async function fixture(run, inputTokens = 100) {
     modelsPath,
     authPath: join(directory, "auth.json"),
   });
+  await initializeFastModels(runtime, directory);
   try {
     await run({
       runtime,

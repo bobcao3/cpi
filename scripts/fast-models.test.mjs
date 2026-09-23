@@ -2,26 +2,19 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { writeFile } from "node:fs/promises";
 import { fixture } from "./fast-fixture.mjs";
+import { runFastWorker } from "./fast-worker.mjs";
 import { join } from "node:path";
-import {
-  ModelRuntime,
+import { hostCodingAgent, hostAi } from "../bin/host-pi.mjs";
+import { selectForkProbeSubstitute } from "../bin/fork-probe-model.mjs";
+import { isGeneratedFastModel, resolveFastModel } from "../bin/fast-models.mjs";
+
+const {
   resolveCliModel,
   createAgentSessionServices,
   createAgentSessionFromServices,
   SessionManager,
-} from "@earendil-works/pi-coding-agent";
-import { calculateCost } from "@earendil-works/pi-ai";
-import { runSubagentSession } from "../bin/subagent-session.js";
-import { runSubagent } from "../bin/subagent-runner.js";
-import { runForkProbeSubagent } from "../bin/fork-probe-runner.js";
-import { selectForkProbeSubstitute } from "../bin/fork-probe-model.mjs";
-import {
-  installFastModels,
-  isGeneratedFastModel,
-  resolveFastModel,
-} from "../bin/fast-models.mjs";
-
-installFastModels(ModelRuntime);
+} = await hostCodingAgent();
+const { calculateCost } = await hostAi();
 
 test("probe substitution rules match only generated variants by canonical ID", async () => {
   await fixture(async ({ runtime }) => {
@@ -86,16 +79,13 @@ test("CLI and fork runners initialize variants before resolution", async () => {
     process.env.PI_CODING_AGENT_DIR = directory;
     try {
       for (const model of ["openai/gpt-5.5-fast:low", "openai/gpt-5.5:low"]) {
-        const result = await runSubagent(
-          {
-            argv: ["-m", model],
-            cwd: directory,
-            env: {},
-            task: "Reply OK",
-            runId: model.includes("-fast") ? "fast-test" : "base-test",
-          },
-          AbortSignal.timeout(10000),
-        );
+        const result = await runFastWorker({
+          argv: ["-m", model],
+          cwd: directory,
+          env: {},
+          task: "Reply OK",
+          runId: model.includes("-fast") ? "fast-test" : "base-test",
+        });
         assert.equal(result, 0);
         assert.equal(requests.at(-1).body.model, "gpt-5.5");
         assert.equal(
@@ -130,18 +120,16 @@ test("CLI and fork runners initialize variants before resolution", async () => {
         stopReason: "stop",
         timestamp: Date.now(),
       });
-      const result = await runForkProbeSubagent(
-        {
-          parentSessionFile: parent.getSessionFile(),
-          parentSessionId: parent.getSessionId(),
-          sessionDir: join(directory, "fork"),
-          cwd: directory,
-          prompt: "Reply OK",
-          model: "openai/gpt-5.5-fast:low",
-          tools: "",
-        },
-        AbortSignal.timeout(10000),
-      );
+      const result = await runFastWorker({
+        kind: "fork-probe",
+        parentSessionFile: parent.getSessionFile(),
+        parentSessionId: parent.getSessionId(),
+        sessionDir: join(directory, "fork"),
+        cwd: directory,
+        prompt: "Reply OK",
+        model: "openai/gpt-5.5-fast:low",
+        tools: "",
+      });
       assert.equal(result, 0);
       assert.equal(requests.at(-1).body.model, "gpt-5.5");
       assert.equal(requests.at(-1).body.service_tier, "priority");
@@ -158,24 +146,20 @@ test("noExtensions session workers resolve and execute explicit base and fast mo
     process.env.PI_CODING_AGENT_DIR = directory;
     try {
       for (const modelId of ["gpt-5.5-fast", "gpt-5.5"]) {
-        const result = await runSubagentSession(
-          {
-            version: 1,
-            kind: "session",
-            provider: "openai",
-            modelId,
-            thinkingLevel: "low",
-            cwd: directory,
-            systemPrompt: "",
-            extensionPaths: [],
-            tools: [],
-            task: "Say OK",
-            maxTurns: 1,
-            maxOutputBytes: 1024,
-          },
-          AbortSignal.timeout(10000),
-          async () => ({ kind: "stop" }),
-        );
+        const result = await runFastWorker({
+          version: 1,
+          kind: "session",
+          provider: "openai",
+          modelId,
+          thinkingLevel: "low",
+          cwd: directory,
+          systemPrompt: "",
+          extensionPaths: [],
+          tools: [],
+          task: "Say OK",
+          maxTurns: 1,
+          maxOutputBytes: 1024,
+        });
         assert.equal(result, 0);
         assert.equal(requests.at(-1).body.model, "gpt-5.5");
         assert.equal(
@@ -251,6 +235,14 @@ test("refresh observes models.json; explicit registration takes ownership withou
       assert.equal(isGeneratedFastModel(owned), false);
       assert.equal(owned.name, custom.name);
       assert.equal(owned.cost.input, 1);
+      const selection = resolveFastModel(resolveCliModel, {
+        cliProvider: "openai",
+        cliModel: custom.id,
+        modelRuntime: runtime,
+      });
+      assert.equal(selection.model.id, custom.id);
+      assert.equal(selection.model.cost.input, 1);
+      assert.equal(isGeneratedFastModel(selection.model), false);
       const result = await runtime.completeSimple(
         stale,
         { messages: [{ role: "user", content: "OK", timestamp: Date.now() }] },

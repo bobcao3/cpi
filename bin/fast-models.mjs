@@ -1,10 +1,13 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import {
+  decorateFastProvider,
+  isGeneratedFastModel,
+} from "./fast-provider.mjs";
+export { canonicalFastModel, isGeneratedFastModel } from "./fast-provider.mjs";
 
-const OWNER = Symbol.for("cpi.fast.model");
 const INSTALLATION = Symbol.for("cpi.fast.runtime");
 const CONFIG = Symbol.for("cpi.fast.config");
-const APIS = new Set(["openai-responses", "openai-codex-responses"]);
 const EFFORT = /:(off|minimal|low|medium|high|xhigh|max)$/;
 
 export function loadFastConfig(cwd = process.cwd()) {
@@ -38,121 +41,6 @@ export function loadFastConfig(cwd = process.cwd()) {
   return config;
 }
 
-export function canonicalFastModel(model) {
-  return model?.[OWNER]?.id ?? model?.id;
-}
-
-export function isGeneratedFastModel(model) {
-  return Boolean(model?.[OWNER]);
-}
-
-function priorityCost(model) {
-  const multiplier = model.id === "gpt-5.5" ? 2.5 : 2;
-  const scale = (rates) =>
-    Object.fromEntries(
-      Object.entries(rates).map(([key, value]) => [
-        key,
-        ["input", "output", "cacheRead", "cacheWrite"].includes(key)
-          ? value * multiplier
-          : value,
-      ]),
-    );
-  return {
-    ...scale(model.cost),
-    ...(model.cost.tiers ? { tiers: model.cost.tiers.map(scale) } : {}),
-  };
-}
-
-function logicalStream(stream, identity) {
-  const restore = (message) => {
-    if (message) message.model = identity;
-    return message;
-  };
-  return {
-    async *[Symbol.asyncIterator]() {
-      for await (const event of stream) {
-        restore(event.partial ?? event.message ?? event.error);
-        yield event;
-      }
-    },
-    result: async () => restore(await stream.result()),
-  };
-}
-
-function decorate(provider, config) {
-  const getModels = () => {
-    const models = provider.getModels();
-    const ids = new Set(models.map((model) => model.id));
-    const variants = models
-      .filter(
-        (model) =>
-          config.models.includes(model.id) &&
-          APIS.has(model.api) &&
-          !ids.has(`${model.id}-fast`),
-      )
-      .map((model) => ({
-        ...model,
-        id: `${model.id}-fast`,
-        name: `${model.name} Fast`,
-        cost: priorityCost(model),
-        [OWNER]: model,
-      }));
-    return [...models, ...variants];
-  };
-  const stream = (model, context, options, simple) => {
-    const current = getModels().find((entry) => entry.id === model.id);
-    if (model[OWNER] && !current)
-      throw new Error(`Fast model unavailable: ${model.provider}/${model.id}`);
-    if (!current?.[OWNER])
-      return provider[simple ? "streamSimple" : "stream"](
-        model[OWNER] ? current : model,
-        context,
-        options,
-      );
-    const canonical = {
-      ...current[OWNER],
-      baseUrl: model.baseUrl,
-      headers: model.headers,
-    };
-    const request = { ...options, serviceTier: "priority" };
-    request.onPayload = async (payload, backend) => {
-      const transformed = await options?.onPayload?.(payload, backend);
-      return {
-        ...(transformed ?? payload),
-        model: canonical.id,
-        service_tier: "priority",
-      };
-    };
-    const catalog = getModels();
-    const backendContext = {
-      ...context,
-      messages: context.messages.map((message) => {
-        const source =
-          message.role === "assistant" && message.provider === model.provider
-            ? catalog.find((entry) => entry.id === message.model)
-            : undefined;
-        return source?.[OWNER]
-          ? { ...message, model: source[OWNER].id }
-          : message;
-      }),
-    };
-    return logicalStream(
-      provider[simple ? "streamSimple" : "stream"](
-        canonical,
-        backendContext,
-        request,
-      ),
-      model.id,
-    );
-  };
-  return {
-    ...provider,
-    getModels,
-    stream: (m, c, o) => stream(m, c, o, false),
-    streamSimple: (m, c, o) => stream(m, c, o, true),
-  };
-}
-
 export function installFastModels(
   ModelRuntime,
   config = () => loadFastConfig(),
@@ -175,11 +63,11 @@ export function installFastModels(
     const selected = this[CONFIG] ?? installation.config();
     const provider = this.models.getProvider(id);
     if (provider && selected.providers.includes(id))
-      this.models.setProvider(decorate(provider, selected));
+      this.models.setProvider(decorateFastProvider(provider, selected));
   };
   prototype.prepareRequest = async function (model, options) {
     if (
-      (model[OWNER] || model.id.endsWith("-fast")) &&
+      (isGeneratedFastModel(model) || model.id.endsWith("-fast")) &&
       !this.getModel(model.provider, model.id)
     ) {
       throw new Error(`Fast model unavailable: ${model.provider}/${model.id}`);
@@ -191,6 +79,13 @@ export function installFastModels(
 export async function initializeFastModels(runtime, cwd) {
   runtime[CONFIG] = loadFastConfig(cwd);
   await runtime.refresh({ allowNetwork: false });
+}
+
+export async function createFastRuntime(ModelRuntime, cwd) {
+  installFastModels(ModelRuntime);
+  const runtime = await ModelRuntime.create();
+  await initializeFastModels(runtime, cwd);
+  return runtime;
 }
 
 export function resolveFastModel(resolve, options) {
@@ -213,14 +108,20 @@ export function resolveFastModel(resolve, options) {
           : target[key],
   });
   const result = resolve({ ...options, modelRuntime: view });
-  if (
-    selector.endsWith("-fast") &&
-    result.model &&
-    !runtime.getModel(result.model.provider, result.model.id)
-  ) {
-    throw new Error(
-      `Fast model unavailable: ${result.model.provider}/${result.model.id}`,
-    );
+  if (selector.endsWith("-fast")) {
+    const slash = selector.lastIndexOf("/");
+    const requestedId = selector.slice(slash + 1);
+    const requestedProvider =
+      slash < 0 ? options.cliProvider?.toLowerCase() : selector.slice(0, slash);
+    if (
+      !result.model ||
+      result.model.id.toLowerCase() !== requestedId ||
+      (requestedProvider &&
+        result.model.provider.toLowerCase() !== requestedProvider) ||
+      !runtime.getModel(result.model.provider, result.model.id)
+    ) {
+      throw new Error(`Fast model unavailable: ${selector}`);
+    }
   }
   return result;
 }

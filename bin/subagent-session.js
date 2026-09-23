@@ -1,4 +1,10 @@
-import {
+import { hostCodingAgent } from "./host-pi.mjs";
+import { readFile, unlink } from "node:fs/promises";
+import { fileURLToPath } from "node:url";
+import { observeSession } from "./subagent-activity.mjs";
+import { createFastRuntime, resolveFastModel } from "./fast-models.mjs";
+
+const {
   DefaultResourceLoader,
   getAgentDir,
   ModelRuntime,
@@ -6,15 +12,7 @@ import {
   SessionManager,
   SettingsManager,
   createAgentSession,
-} from "@earendil-works/pi-coding-agent";
-import { readFile, unlink } from "node:fs/promises";
-import { fileURLToPath } from "node:url";
-import { observeSession } from "./subagent-activity.mjs";
-import {
-  installFastModels,
-  initializeFastModels,
-  resolveFastModel,
-} from "./fast-models.mjs";
+} = await hostCodingAgent();
 
 function resolveSelection(modelRuntime, request) {
   const resolved = resolveFastModel(resolveCliModel, {
@@ -97,9 +95,7 @@ export async function runSubagentSession(request, signal, exchangeCandidate) {
     throw new Error("unsupported subagent session protocol");
   }
   const agentDir = getAgentDir();
-  installFastModels(ModelRuntime);
-  const modelRuntime = await ModelRuntime.create();
-  await initializeFastModels(modelRuntime, request.cwd);
+  const modelRuntime = await createFastRuntime(ModelRuntime, request.cwd);
   const selection = resolveSelection(modelRuntime, request);
   const settingsManager = SettingsManager.create(request.cwd, agentDir);
   settingsManager.applyOverrides({ compaction: { enabled: false } });

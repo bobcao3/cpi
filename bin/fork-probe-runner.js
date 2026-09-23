@@ -1,12 +1,4 @@
-import {
-  ModelRuntime,
-  SessionManager,
-  createAgentSessionFromServices,
-  createAgentSessionRuntime,
-  createAgentSessionServices,
-  getAgentDir,
-  resolveCliModel,
-} from "@earendil-works/pi-coding-agent";
+import { hostCodingAgent } from "./host-pi.mjs";
 import { observeSession } from "./subagent-activity.mjs";
 import {
   installFastModels,
@@ -14,6 +6,16 @@ import {
   resolveFastModel,
 } from "./fast-models.mjs";
 import { selectForkProbeSubstitute } from "./fork-probe-model.mjs";
+
+const {
+  ModelRuntime,
+  SessionManager,
+  createAgentSessionFromServices,
+  createAgentSessionRuntime,
+  createAgentSessionServices,
+  getAgentDir,
+  resolveCliModel,
+} = await hostCodingAgent();
 
 const MAX_PROBE_TURNS = 4;
 const MAX_OUTPUT_TOKENS_CEILING = 65536;
