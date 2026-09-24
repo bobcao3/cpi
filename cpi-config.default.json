@@ -76,7 +76,16 @@
         "tsVersion": "6.0.3"
       },
       "python": { "package": "pyrefly", "version": "1.0.0" },
-      "shell": { "enabled": true }
+      "shell": { "enabled": true },
+      "go": {
+        "package": "golang.org/x/tools/gopls",
+        "version": "v0.23.0"
+      },
+      "zig": {
+        "releases": "https://releases.zigtools.org",
+        "version": "0.16.0",
+        "pubkey": "RWR+9B91GBZ0zOjh6Lr17+zKf5BoSuFvrx2xSeDE57uIYvnKBGmMjOex"
+      }
     },
     "tools": {
       "uv": {

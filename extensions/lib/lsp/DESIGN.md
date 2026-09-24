@@ -5,7 +5,10 @@
 - Lifecycle: [`manager.ts`](manager.ts), [`session.ts`](session.ts).
 - Discovery and language support: [`discover.ts`](discover.ts),
   [`registry.ts`](registry.ts).
-- Provisioning: [`provision.ts`](provision.ts).
+- Provisioning: [`provision.ts`](provision.ts) (resolution policy),
+  [`install.ts`](install.ts) (per-language installers), [`zls.ts`](zls.ts) (zls
+  release matching), [`release.ts`](release.ts) (release fetch, verification,
+  extraction).
 - Transport: [`worker.mjs`](worker.mjs).
 - Diagnostics: [`diagnostics.ts`](diagnostics.ts),
   [`diagnostics-overflow.ts`](diagnostics-overflow.ts).
@@ -31,3 +34,7 @@
   and provisioning layers, not duplicated transports.
 - **Verified provisioning.** Download verification policy belongs beside the
   downloader so the enforcement and fallback cannot drift apart.
+- **zls version matching.** zls embeds one Zig version, so the build is selected
+  from the project's Zig pin (`.zigversion`, else `build.zig.zon`'s
+  `.minimum_zig_version`), then the local `zig`, then config, and the version
+  query is answered by the zigtools release worker rather than by tag matching.

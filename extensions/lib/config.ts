@@ -67,10 +67,21 @@ export interface LspPythonServerConfig {
 export interface LspShellServerConfig {
   enabled: boolean;
 }
+export interface LspGoServerConfig {
+  package: string;
+  version: string;
+}
+export interface LspZigServerConfig {
+  releases: string;
+  version: string;
+  pubkey: string;
+}
 export interface LspServersConfig {
   typescript: LspTypescriptServerConfig;
   python: LspPythonServerConfig;
   shell: LspShellServerConfig;
+  go: LspGoServerConfig;
+  zig: LspZigServerConfig;
 }
 export interface LspUvToolConfig {
   version: string;
@@ -271,10 +282,14 @@ export function loadLspConfig(cwd: string = getCwd()): LspConfig {
   const dt = d.servers.typescript;
   const dp = d.servers.python;
   const ds = d.servers.shell;
+  const dgo = d.servers.go;
+  const dz = d.servers.zig;
   const du = d.tools.uv;
   const mt = merged.servers?.typescript;
   const mp = merged.servers?.python;
   const ms = merged.servers?.shell;
+  const mgo = merged.servers?.go;
+  const mz = merged.servers?.zig;
   const mu = merged.tools?.uv;
   return {
     startupTimeoutMs: intInRange(
@@ -312,6 +327,15 @@ export function loadLspConfig(cwd: string = getCwd()): LspConfig {
         version: str(mp?.version) || dp.version,
       },
       shell: { enabled: bool(ms?.enabled, ds.enabled) },
+      go: {
+        package: str(mgo?.package) || dgo.package,
+        version: str(mgo?.version) || dgo.version,
+      },
+      zig: {
+        releases: str(mz?.releases) || dz.releases,
+        version: str(mz?.version) || dz.version,
+        pubkey: str(mz?.pubkey) || dz.pubkey,
+      },
     },
     tools: {
       uv: {

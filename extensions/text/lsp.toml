@@ -16,4 +16,6 @@ bullets = [
   "After env-capture, you can restart lsp in that env by running `lsp start file=<path> env=<dotenv>`.",
   "`lsp list_sessions` lists active sessions; `lsp stop file=<path>` stops one.",
   "write/edit/apply_patch writes will auto-start an LSP session in the discovered project root. Without a running LSP session diagnostics (including `lsp check`) are not available.",
+  "zls is matched to the project's Zig version pin (`.zigversion`, else `build.zig.zon` `minimum_zig_version`, else the `zig` on `PATH`). To switch servers after changing the pin, run `lsp stop` then `lsp start`.",
+  "zls surfaces syntax diagnostics only; run `zig build` to check for type errors (zls build-on-save is opt-in).",
 ]

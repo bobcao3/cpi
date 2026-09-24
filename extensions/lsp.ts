@@ -111,12 +111,13 @@ function doListSupportedServers() {
   const lines = LSP_LANGUAGES.map((lang) => {
     const s = specs[lang];
     const exts = s.extensions.join(", ");
+    const version = s.install.pin ?? s.install.version;
     const install =
       s.install.method === "env-only"
         ? "env-only (never auto-installed)"
         : s.install.method === "reuse"
           ? "reused (global)"
-          : `${s.install.method}, auto-installed`;
+          : `${s.install.method}, auto-installed${version ? ` (${version})` : ""}`;
     return `${lang} (${exts}): ${s.binName} — ${install}`;
   });
   return textResult(lines.join("\n"));
@@ -131,7 +132,7 @@ async function doStart(p: LspParams) {
   const envNote = p.env ? `\nenv=${p.env}` : "";
   if (session.state === "install-failed") {
     return errResult(
-      `install failed for ${language} (root ${root}). Fix the toolchain or pass \`env=\` with the server on PATH, then re-run \`lsp start\`.${envNote}`,
+      `install failed for ${language} (root ${root})${session.error ? `: ${session.error}` : ""}. Fix the toolchain or pass \`env=\` with the server on PATH, then re-run \`lsp start\`.${envNote}`,
     );
   }
   return textResult(
@@ -183,7 +184,7 @@ async function doCheck(p: LspParams) {
   }
   if (session.state === "install-failed") {
     return errResult(
-      `install failed for ${lang} (root ${root}). Run \`lsp start file=${p.file} env=<dotenv>\` to provision with the right env.`,
+      `install failed for ${lang} (root ${root})${session.error ? `: ${session.error}` : ""}. Run \`lsp start file=${p.file} env=<dotenv>\` to provision with the right env.`,
     );
   }
   const diags = await checkFile(abs);

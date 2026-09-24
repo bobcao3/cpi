@@ -18,7 +18,6 @@ import { resolveBin } from "./provision.ts";
 import { loadLspConfig } from "../config.ts";
 import {
   awaitReady,
-  extForLanguage,
   makeSession,
   mergeSpawnEnv,
   sessionId,
@@ -98,14 +97,14 @@ async function provisionSession(
     stopSession(existing);
   }
   const cfg = loadLspConfig();
-  const spec = getLspServerSpec(language);
+  const spec = getLspServerSpec(language, root);
   const env = mergeSpawnEnv(opts.envPath);
   const resolved = await resolveBin(spec, env, {
     installTimeoutMs: cfg.installTimeoutMs,
     uv: cfg.tools.uv,
   });
-  const installFailed = (): LspSession =>
-    makeSession(
+  const installFailed = (): LspSession => {
+    const failed = makeSession(
       id,
       language,
       root,
@@ -116,6 +115,9 @@ async function provisionSession(
       resolved.pathDir,
       "install-failed",
     );
+    failed.error = resolved.error;
+    return failed;
+  };
   if (resolved.source === "install-failed") {
     const failed = installFailed();
     st.sessions.set(id, failed);
@@ -154,7 +156,7 @@ export async function checkFile(absPath: string): Promise<Diagnostic[]> {
   if (session.state !== "ready")
     await awaitReady(session, cfg.startupTimeoutMs);
   if (session.state !== "ready") return [];
-  const spec = getLspServerSpec(language);
+  const spec = getLspServerSpec(language, root);
   let text: string;
   try {
     text = readFileSync(absPath, "utf8");
@@ -186,10 +188,7 @@ export async function lintText(
   if (session.state !== "ready") return [];
   const spec = getLspServerSpec(language);
   const seq = session.nextSeq++;
-  const extension = (opts.extension ?? extForLanguage(language)).replace(
-    /^\./,
-    "",
-  );
+  const extension = (opts.extension ?? spec.extensions[0]).replace(/^\./, "");
   const uri = `file:///tmp/cpi-lsp-${seq}.${extension}`;
   return sessionLint(
     session,

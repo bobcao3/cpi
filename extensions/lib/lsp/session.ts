@@ -38,6 +38,7 @@ export interface LspSession {
   bin: string;
   binArgs: string[];
   source: string;
+  error?: string;
   pathDir?: string;
   worker: Worker | null;
   ready: Promise<boolean>;
@@ -57,6 +58,7 @@ export interface SessionInfo {
   source: string;
   bin: string;
   envPath?: string;
+  error?: string;
 }
 
 export type WorkerMsg =
@@ -70,26 +72,6 @@ function assert(cond: unknown, msg: string): asserts cond {
 
 export function sessionId(language: Language, root: string): string {
   return `${language}:${root}`;
-}
-
-export function sourceName(language: Language): string {
-  return language === "typescript"
-    ? "tsserver"
-    : language === "python"
-      ? "pyrefly"
-      : language === "ruby"
-        ? "ruby-lsp"
-        : "shuck";
-}
-
-export function extForLanguage(language: Language): string {
-  return language === "typescript"
-    ? "ts"
-    : language === "python"
-      ? "py"
-      : language === "ruby"
-        ? "rb"
-        : "sh";
 }
 
 export function mergeSpawnEnv(envPath?: string): NodeJS.ProcessEnv {
@@ -222,7 +204,7 @@ export function spawnSession(
       },
       initOptions: spec.initOptions,
       diagnosticMode: spec.diagnosticMode ?? "push",
-      source: sourceName(session.language),
+      source: spec.source,
       startupTimeoutMs: cfg.startupTimeoutMs,
       lintTimeoutMs: cfg.lintTimeoutMs,
       rootUri,
@@ -326,5 +308,6 @@ export function toInfo(s: LspSession): SessionInfo {
     source: s.source,
     bin: s.bin,
     envPath: s.envPath,
+    error: s.error,
   };
 }

@@ -4,17 +4,27 @@
  * starting directory.
  */
 
-import { existsSync, statSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { dirname, extname, join } from "node:path";
 import { resolveCwdPath } from "../cwd.ts";
 
-export type Language = "typescript" | "python" | "shell" | "ruby";
+export const ZIG_VERSION_FILE = ".zigversion";
+
+export type Language =
+  | "typescript"
+  | "python"
+  | "shell"
+  | "ruby"
+  | "go"
+  | "zig";
 
 export const LSP_LANGUAGES: readonly Language[] = [
   "typescript",
   "python",
   "shell",
   "ruby",
+  "go",
+  "zig",
 ];
 
 export const LANGUAGE_EXTENSIONS: Record<Language, string[]> = {
@@ -22,6 +32,8 @@ export const LANGUAGE_EXTENSIONS: Record<Language, string[]> = {
   python: [".py"],
   shell: [".sh", ".bash", ".zsh", ".mksh", ".ksh", ".dash", ".ash", ".bats"],
   ruby: [".rb", ".rake"],
+  go: [".go"],
+  zig: [".zig", ".zon"],
 };
 
 export const LANGUAGE_MARKERS: Record<Language, string[]> = {
@@ -37,7 +49,35 @@ export const LANGUAGE_MARKERS: Record<Language, string[]> = {
   ],
   shell: [".git"],
   ruby: ["Gemfile", "Gemfile.lock", ".ruby-version", "Rakefile"],
+  go: ["go.mod", "go.work"],
+  zig: ["build.zig.zon", "build.zig", ZIG_VERSION_FILE],
 };
+
+function readText(path: string): string | null {
+  try {
+    return readFileSync(path, "utf8");
+  } catch {
+    return null;
+  }
+}
+
+export const ZIG_VERSION_RE = /^\d+\.\d+(?:\.\d+)?(?:[-+][0-9A-Za-z.+-]*)?$/;
+
+function minimumZigVersion(zon: string): string | null {
+  const body = zon.replaceAll(/\/\/[^\n]*/g, "");
+  const found = body.match(/\.minimum_zig_version\s*=\s*"([^"]+)"/)?.[1];
+  const version = found?.trim();
+  return version && ZIG_VERSION_RE.test(version) ? version : null;
+}
+
+/** Project Zig version pin: a `.zigversion` file wins over build.zig.zon's `.minimum_zig_version`. */
+export function zigVersionPin(root: string): string | null {
+  if (!root) return null;
+  const exact = readText(join(root, ZIG_VERSION_FILE))?.trim().split(/\s+/)[0];
+  if (exact && ZIG_VERSION_RE.test(exact)) return exact;
+  const zon = readText(join(root, "build.zig.zon"));
+  return zon ? minimumZigVersion(zon) : null;
+}
 
 const GENERIC_MARKERS: string[] = [".git", ".hg"];
 
