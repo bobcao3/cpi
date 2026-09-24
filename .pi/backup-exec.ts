@@ -9,8 +9,8 @@
  * Dev-only — NOT part of the shipped cpi package:
  *   - Registered as a single extension FILE via ~/cpi/.pi/settings.json
  *     (project scope), so it loads only when pi runs inside the cpi repo.
- *   - The cpi package manifest (`pi.extensions: ["./extensions"]`) never
- *     sweeps .pi/, and .pi/ is absent from the npm `files` set, so
+ *   - The cpi package manifest (`pi.extensions: ["./extensions/index.ts"]`)
+ *     does not include .pi/, and .pi/ is absent from the npm `files` set, so
  *     `pi install npm:cpi` / `pi install -l .` consumers never see this tool.
  *
  * Guideline (see text/backup-exec.toml): use ONLY when the `sh` tool
