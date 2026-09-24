@@ -8,10 +8,11 @@ out of this. </EXTREMELY-IMPORTANT>
 
 ## How to Access Skills
 
-Use the `skill` tool. When you invoke a skill, its content is loaded and
-presented to you—follow it directly. Skill files are loaded only via the `skill`
-tool; do not shell-read them.
+Pi advertises discovered skills by name, description, and file path. When one
+applies, use `read` on its advertised SKILL.md path (without a query) and follow
+the full instructions. Resolve referenced files relative to that skill's
+directory. `/skill:name` also explicitly loads a skill when requested by a user.
 
-If a skill is already loaded, no need to re-invoke it. When compacting, direct
-the agent to immediately re-invoke relevant skills in the summary, don't put
-skill content into summary.
+If a skill is already loaded in the current context, do not reread it. After
+compaction, reload only the skills still relevant to the outstanding task;
+never copy skill contents into the summary.

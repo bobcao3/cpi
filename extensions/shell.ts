@@ -225,6 +225,7 @@ export default async function (pi: ExtensionAPI) {
           isError: true,
         };
 
+      const startedAt = Date.now();
       const describe = params.description?.trim();
       const shuckPath = availability.shuck ? getShuckBinPath() : null;
       const analysis = await analyzeCommand({
@@ -315,6 +316,7 @@ export default async function (pi: ExtensionAPI) {
           exitCode: res.exitCode,
           outputLines: res.outputLines,
           status: res.status,
+          elapsedMs: Date.now() - startedAt,
           fullOutputPath: res.fullOutputPath,
           cursor: res.cursor,
           describe,
@@ -329,7 +331,7 @@ export default async function (pi: ExtensionAPI) {
       };
     },
     renderCall(args, theme, context) {
-      return renderCompactShellCall(args, theme, context);
+      return renderCompactShellCall(args, theme, context, DEFAULT_WAITFOR);
     },
     renderResult(result, options, theme, context) {
       return renderCompactShellResult(result, options, theme, context);

@@ -1,11 +1,10 @@
 /** Omits redundant generated sections and uses the live cwd. */
 import {
-  getDocsPath,
-  getExamplesPath,
-  getReadmePath,
+  formatSkillsForPrompt,
   type BuildSystemPromptOptions,
 } from "@earendil-works/pi-coding-agent";
 import { getCwd } from "./cwd.ts";
+import { displaySkillPath, injectSourcePaths } from "./skill-paths.ts";
 import { loadText, render, textPath } from "./text.ts";
 
 export interface CpiSystemPromptContext extends Record<string, unknown> {
@@ -47,9 +46,6 @@ function defaultPrompt(
     ...renderCtx,
     identity,
     guidelines: guidelines.map((x) => `- ${x}`).join("\n"),
-    readmePath: getReadmePath(),
-    docsPath: getDocsPath(),
-    examplesPath: getExamplesPath(),
   }).trim();
 }
 
@@ -57,6 +53,7 @@ export function buildCpiSystemPrompt(
   options: BuildSystemPromptOptions,
   renderCtx: CpiSystemPromptContext,
 ): string {
+  injectSourcePaths();
   const text = loadText<SystemPromptText>(
     "system-prompt",
     textPath("system-prompt"),
@@ -82,6 +79,19 @@ export function buildCpiSystemPrompt(
   let prompt = base;
   if (appendSystemPrompt) prompt += `\n\n${appendSystemPrompt}`;
   prompt += contextBlock(text.context.prompt, contextFiles);
+  const readTool = (["read", "bash"] as const).find((tool) =>
+    options.selectedTools?.includes(tool),
+  );
+  if (readTool && options.skills?.length) {
+    const nativeSkills = formatSkillsForPrompt(
+      options.skills.map((skill) => ({
+        ...skill,
+        filePath: displaySkillPath(skill),
+      })),
+      readTool,
+    ).trim();
+    if (nativeSkills) prompt += `\n\n${nativeSkills}`;
+  }
   prompt += `\n\n${render(text.status.prompt, {
     date: dateStr(),
     cwd: getCwd().replace(/\\/g, "/"),

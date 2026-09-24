@@ -8,6 +8,7 @@ import {
   type ExtensionAPI,
   type ExtensionContext,
   type SessionBeforeCompactEvent,
+  type Skill,
 } from "@earendil-works/pi-coding-agent";
 import { discoverAgentsPaths } from "./agents.ts";
 import { getCwd } from "./cwd.ts";
@@ -26,9 +27,50 @@ import {
 import { loadText, render, textPath } from "./text.ts";
 
 type CompactionText = {
-  summary: { system: string; prompt: string; file_lists: string };
-  errors: { failed: string; budget: string; empty: string; changed: string };
+  summary: {
+    system: string;
+    prompt: string;
+    file_lists: string;
+    selected_skills: string;
+  };
+  errors: {
+    failed: string;
+    budget: string;
+    empty: string;
+    invalid: string;
+    changed: string;
+  };
 };
+
+export function parseSkillSummary(
+  output: string,
+  skills: readonly Skill[],
+  invalid: string,
+): { summary: string; relevant_skills: string[] } {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(output);
+  } catch {
+    throw new Error(invalid);
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed))
+    throw new Error(invalid);
+  const result = parsed as Record<string, unknown>;
+  const names = new Set(skills.map((skill) => skill.name));
+  if (
+    Object.keys(result).sort().join(",") !== "relevant_skills,summary" ||
+    typeof result.summary !== "string" ||
+    !result.summary.trim() ||
+    !Array.isArray(result.relevant_skills) ||
+    result.relevant_skills.length > skills.length ||
+    result.relevant_skills.some(
+      (name) => typeof name !== "string" || !names.has(name),
+    ) ||
+    new Set(result.relevant_skills).size !== result.relevant_skills.length
+  )
+    throw new Error(invalid);
+  return result as { summary: string; relevant_skills: string[] };
+}
 
 function summaryBudget(
   event: SessionBeforeCompactEvent,
@@ -98,6 +140,7 @@ async function summarizeTask(
   event: SessionBeforeCompactEvent,
   ctx: ExtensionContext,
   references: ReferenceBundle,
+  skills: Skill[],
   maxTokens: number,
   text: CompactionText,
 ) {
@@ -108,6 +151,8 @@ async function summarizeTask(
       stripReferenceBodies(
         preparation.messagesToSummarize,
         references.documents,
+        true,
+        skills,
       ),
     ),
   );
@@ -116,6 +161,8 @@ async function summarizeTask(
       stripReferenceBodies(
         preparation.turnPrefixMessages,
         references.documents,
+        true,
+        skills,
       ),
     ),
   );
@@ -124,6 +171,9 @@ async function summarizeTask(
     history,
     prefix,
     focus: event.customInstructions ?? "",
+    skills: JSON.stringify(
+      skills.map(({ name, description }) => ({ name, description })),
+    ),
   });
   const signal = AbortSignal.any([event.signal, AbortSignal.timeout(300_000)]);
   const sessionId = uuidv7();
@@ -157,15 +207,20 @@ async function summarizeTask(
     retry,
     signal,
   );
-  const summary = contentText(response.content);
+  const output = contentText(response.content);
   if (signal.aborted) throw signal.reason;
   if (
     response.stopReason !== "stop" ||
-    !summary.trim() ||
+    !output.trim() ||
     response.content.some((block) => block.type === "toolCall")
   ) {
     throw new Error(response.errorMessage || text.errors.empty);
   }
+  const { summary, relevant_skills } = parseSkillSummary(
+    output,
+    skills,
+    text.errors.invalid,
+  );
   const modifiedFiles = [
     ...new Set([...preparation.fileOps.written, ...preparation.fileOps.edited]),
   ].sort();
@@ -175,6 +230,11 @@ async function summarizeTask(
   return {
     summary:
       summary +
+      (relevant_skills.length
+        ? render(text.summary.selected_skills, {
+            names: relevant_skills.join(", "),
+          })
+        : "") +
       render(text.summary.file_lists, {
         read: readFiles.join("\n"),
         modified: modifiedFiles.join("\n"),
@@ -189,12 +249,16 @@ async function summarizeTask(
 export function registerCompaction(pi: ExtensionAPI): void {
   registerCompactionDisplay(pi);
   let system_files: string[] = [];
+  let available_skills: Skill[] = [];
   pi.on("session_start", (_event, ctx) => {
     system_files = discoverAgentsPaths(ctx.cwd);
   });
   pi.on("before_agent_start", (event) => {
     system_files = (event.systemPromptOptions.contextFiles ?? []).map(
       (file) => file.path,
+    );
+    available_skills = (event.systemPromptOptions.skills ?? []).filter(
+      (skill: Skill) => !skill.disableModelInvocation,
     );
   });
   pi.on("session_before_compact", async (event, ctx) => {
@@ -214,6 +278,7 @@ export function registerCompaction(pi: ExtensionAPI): void {
         event,
         ctx,
         references,
+        available_skills,
         summaryBudget(event, ctx, checkpoint, text, toolTokens(pi)),
         text,
       );

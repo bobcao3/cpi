@@ -116,6 +116,7 @@ export async function executeRead(
         {
           id,
           kind: "content",
+          path: abs,
           text: content.text,
           lineCount: content.lineCount,
         },
@@ -152,6 +153,7 @@ export async function executeRead(
     {
       id,
       kind: "view",
+      path: abs,
       text: r.text,
       summary: r.summary,
       ranges: r.ranges,

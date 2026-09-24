@@ -1,5 +1,3 @@
-export const DISABLE_SKILL_FLAG = "disable-skill";
-
 /** Parse a comma-separated skill-name list into a trimmed, deduped array. */
 export function parseDisabledSkills(value) {
   if (typeof value !== "string") return [];

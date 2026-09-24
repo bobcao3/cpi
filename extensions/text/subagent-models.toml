@@ -13,20 +13,6 @@ scope_title = "Save model guide"
 scope_user = "User settings (all projects)"
 scope_project = "Project settings (this project)"
 
-[skill]
-guide = '''
-{{skill}}
-
----
-
-# Active subagent model-selection guide
-
-Loaded dynamically from `{{path}}`. Treat its exact `provider/model:effort`
-selectors as recommendations, not as availability guarantees.
-
-{{guide}}
-'''
-
 [workflow]
 guide_template = '''
 # Subagent model picks
@@ -51,8 +37,7 @@ Set up the subagent model-selection guide for this harness. This is an
 agent-driven research and recommendation task; do not implement Pareto or model
 selection logic in extension source.
 
-Write the finished guide to `{{targetPath}}`. It will be loaded dynamically the
-next time the `subagents-in-pi` skill is invoked, without a reload.
+Write the finished guide to `{{targetPath}}`.
 
 Selected enabled providers:
 {{#providers}}

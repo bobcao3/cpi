@@ -262,9 +262,7 @@ dedicated owner extension.
 `registerSystemPromptTransform` (`lib/system-prompt.ts`) rewrites the system
 prompt every turn. Use it only sparingly for **dynamic agent behavior that
 affects correctness or effectiveness** — runtime state that can change and must
-reach the agent. `skill` is a legitimate use: it registers a transform so the
-agent is informed when skills are added or removed, and that list is both
-dynamic and load-bearing for effectiveness.
+reach the agent.
 
 Do **not** use it to inject static reference text — command cheat-sheets,
 descriptions, fixed docs. Static text belongs in the tool's

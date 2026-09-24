@@ -5,18 +5,26 @@ import { join, resolve } from "node:path";
 import {
   createAgentSession,
   DefaultResourceLoader,
+  loadSkillsFromDir,
   ModelRuntime,
   SessionManager,
   SettingsManager,
 } from "@earendil-works/pi-coding-agent";
 import { setCwd } from "../../extensions/lib/cwd.ts";
+import { buildCpiSystemPrompt } from "../../extensions/lib/system-prompt-build.ts";
 import { COMPACTION_FEEDBACK } from "../../extensions/lib/compaction-display.ts";
 
 const root = mkdtempSync(join(tmpdir(), "cpi-compaction-live-"));
 const skill_dir = join(root, "skill");
+const project_skill = join(root, ".pi", "skills", "project-skill");
 const target = join(root, "target");
 mkdirSync(skill_dir);
+mkdirSync(project_skill, { recursive: true });
 mkdirSync(target);
+writeFileSync(
+  join(project_skill, "SKILL.md"),
+  "---\nname: project-skill\ndescription: Project-only workflow.\n---\nProject workflow.\n",
+);
 const skill_marker = "REFERENCE_SKILL_COBALT_7391";
 const project_marker = "REFERENCE_PROJECT_UMBER_8264";
 writeFileSync(
@@ -54,7 +62,7 @@ const loader = new DefaultResourceLoader({
   additionalExtensionPaths: [
     "extensions/lib/compaction.ts",
     "extensions/lib/model-context.ts",
-    "extensions/skill.ts",
+    "extensions/llm-editor/index.ts",
     "extensions/cwd.ts",
   ].map((path) => resolve(path)),
   extensionFactories: [
@@ -81,6 +89,31 @@ const loader = new DefaultResourceLoader({
 });
 await loader.reload();
 assert.deepEqual(loader.getExtensions().errors, []);
+assert(
+  loader.getSkills().skills.some((skill) => skill.name === "checkpoint-live"),
+);
+const cpiPrompt = buildCpiSystemPrompt(
+  {
+    cwd: root,
+    selectedTools: ["read"],
+    skills: [
+      ...loader.getSkills().skills,
+      ...loadSkillsFromDir({
+        dir: resolve("skills/subagents-in-pi"),
+        source: "path",
+      }).skills,
+    ],
+  },
+  { provider, modelId: id },
+);
+assert(
+  cpiPrompt.includes(`<location>${join(skill_dir, "SKILL.md")}</location>`),
+);
+assert(cpiPrompt.includes("Use the read tool to load a skill's file"));
+assert(cpiPrompt.includes("$CPI_HARNESS_SRC/skills/subagents-in-pi/SKILL.md"));
+assert(
+  cpiPrompt.includes(`<location>${join(project_skill, "SKILL.md")}</location>`),
+);
 const manager = SessionManager.create(root, join(root, "sessions"));
 const { session } = await createAgentSession({
   cwd: root,
@@ -91,17 +124,29 @@ const { session } = await createAgentSession({
   modelRuntime: runtime,
   model,
   thinkingLevel: "off",
-  tools: ["skill", "set_cwd"],
+  tools: ["read", "set_cwd"],
 });
 await session.bindExtensions({
   mode: "print",
   onError: (event) => errors.push(event.error),
 });
 try {
+  const read = session.extensionRunner.getToolDefinition("read")!;
+  const loaded = await read.execute(
+    "alias-test",
+    { path: "$CPI_HARNESS_SRC/skills/subagents-in-pi/SKILL.md" },
+    undefined as any,
+    undefined as any,
+    session.extensionRunner.createContext(),
+  );
+  assert.equal(
+    (loaded.details as { path: string }).path,
+    resolve("skills/subagents-in-pi/SKILL.md"),
+  );
   const padding =
     "Archived progress detail: the test workspace is temporary.\n".repeat(1800);
   await session.prompt(
-    `This is a compaction integration task. The task fact to preserve is TASK_FACT_AMBER_9137. Load the checkpoint-live skill using the skill tool, then answer only READY. Do not call any other tool. The following repetitive historical notes need not be repeated:\n${padding}`,
+    `This is a compaction integration task. The task fact to preserve is TASK_FACT_AMBER_9137. Read the checkpoint-live skill file at ${join(skill_dir, "SKILL.md")} using read, then answer only READY. Later I will ask for the skill verification marker; the checkpoint-live skill remains relevant until that follow-up is answered. Do not call any other tool during this turn. The following repetitive historical notes need not be repeated:\n${padding}`,
   );
   assert(
     manager
@@ -110,7 +155,7 @@ try {
         (entry) =>
           entry.type === "message" &&
           entry.message.role === "toolResult" &&
-          entry.message.toolName === "skill" &&
+          entry.message.toolName === "read" &&
           !entry.message.isError,
       ),
     JSON.stringify({
@@ -119,7 +164,7 @@ try {
     }),
   );
   await session.prompt(
-    `Call set_cwd with path ${target}. After the tool finishes, answer with the skill verification marker and project verification marker from your context. Do not load the skill again, do not call other tools, and do not repeat the historical notes.`,
+    `Call set_cwd with path ${target}. After the tool finishes, answer with the skill verification marker and project verification marker. If compaction removed the skill instructions, reread its advertised file before answering. Do not repeat the historical notes.`,
   );
   assert.equal(
     compactions,
@@ -133,7 +178,7 @@ try {
   assert(checkpoint?.type === "compaction");
   const details = checkpoint.details as any;
   assert.equal(details.cpiContext.version, 1);
-  assert(details.cpiContext.content.includes(skill_marker));
+  assert(!details.cpiContext.content.includes(skill_marker));
   assert(details.cpiContext.content.includes(project_marker));
   assert(
     !checkpoint.summary.includes(skill_marker),
@@ -144,6 +189,10 @@ try {
     "Project reference leaked into task summary",
   );
   assert(checkpoint.summary.includes("TASK_FACT_AMBER_9137"));
+  assert.match(
+    checkpoint.summary,
+    /<relevant-skills-to-reload>[\s\S]*checkpoint-live[\s\S]*<\/relevant-skills-to-reload>/,
+  );
   const feedback_entries = () =>
     manager
       .getBranch()
@@ -153,23 +202,31 @@ try {
       );
   assert.equal(feedback_entries().length, 1);
   const feedback = JSON.stringify(feedback_entries()[0]);
-  assert(feedback.includes("Restored skills: checkpoint-live"));
+  assert(!feedback.includes("Restored skills:"));
   assert(feedback.includes(`Restored CWD at ${target}`));
   assert(feedback.includes(`Loaded project instructions: ${target}/AGENTS.md`));
   const continued = payloads.find((payload) => payload.compactions === 1);
   assert(continued, "No live post-compaction request captured");
   assert.equal(continued.starts, 2, "Restoration waited for a new user turn");
-  assert.equal(
-    continued.text.split("Reference background, not task history.").length - 1,
-    90,
-  );
+  assert(!continued.text.includes(skill_marker));
   assert.equal(
     continued.text.split(`Project verification marker: ${project_marker}.`)
       .length - 1,
     1,
   );
-  assert(continued.text.includes(skill_marker));
   assert(continued.text.includes("context-restored"));
+  assert(
+    manager
+      .getBranch()
+      .filter(
+        (entry) =>
+          entry.type === "message" &&
+          entry.message.role === "toolResult" &&
+          entry.message.toolName === "read" &&
+          !entry.message.isError,
+      ).length >= 2,
+    "The continuing agent did not reread its selected skill",
+  );
   const final = session.messages
     .slice()
     .reverse()
@@ -184,12 +241,12 @@ try {
     "Preserve the exact task fact and completed verification outcome.",
   );
   assert.equal(compactions, 2);
-  assert.equal((manual.details as any).cpiContext.documents.length, 2);
+  assert.equal((manual.details as any).cpiContext.documents.length, 1);
   await session.prompt(
     "The integration task is complete. Answer only READY. " +
       "Archived context. ".repeat(100),
   );
-  writeFileSync(join(skill_dir, "SKILL.md"), "x".repeat(128 * 1024 + 1));
+  writeFileSync(join(target, "AGENTS.md"), "x".repeat(128 * 1024 + 1));
   const before_failure = manager.getLeafId();
   await assert.rejects(session.compact(), /Compaction cancelled/);
   assert.equal(manager.getLeafId(), before_failure);

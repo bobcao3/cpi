@@ -87,18 +87,10 @@ export function registerCompactionDisplay(pi: ExtensionAPI): void {
       "compaction",
       textPath("compaction"),
     ).feedback;
-    const skills = checkpoint.documents
-      .filter((document) => document.kind === "skill")
-      .map((document) =>
-        document.name
-          ? `${document.name}${document.subdoc ? ` (${document.subdoc})` : ""}`
-          : document.path,
-      );
     const projects = checkpoint.documents
       .filter((document) => document.kind === "project")
       .map((document) => document.path);
     const feedback = render(text.restored, {
-      skills: skills.join(", ") || text.none,
       cwd: checkpoint.state.cwd,
       projects: projects.join(", ") || text.none,
       warnings: checkpoint.warnings.join("\n"),

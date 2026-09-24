@@ -1,4 +1,4 @@
-import type { SessionEntry } from "@earendil-works/pi-coding-agent";
+import type { SessionEntry, Skill } from "@earendil-works/pi-coding-agent";
 import {
   accessSync,
   closeSync,
@@ -11,19 +11,13 @@ import {
 } from "node:fs";
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import { discoverAgentsPaths } from "./agents.ts";
-import {
-  findSubagentModelGuide,
-  SUBAGENT_SKILL_NAME,
-} from "./subagent-model-guide.ts";
 import { loadText, render, textPath } from "./text.ts";
 
 type AgentMessage = Extract<SessionEntry, { type: "message" }>["message"];
 
 export interface ReferenceDocument {
-  kind: "skill" | "project";
+  kind: "project";
   path: string;
-  name?: string;
-  subdoc?: string;
   content: string;
 }
 
@@ -32,9 +26,11 @@ export interface ReferenceBundle {
   warnings: string[];
 }
 
-type ReferenceMetadata = Omit<ReferenceDocument, "content">;
+type ReferenceMetadata =
+  | Omit<ReferenceDocument, "content">
+  | { kind: "skill"; path: string; name: string; subdoc?: string };
 type ReferenceText = {
-  marker: { managed: string; unavailable: string };
+  marker: { managed: string; unavailable: string; skill: string };
   warning: { missing: string; limit: string; not_file: string };
   limits: { document: string; count: string; total: string };
   syntax: { project_header: string; project_end: string };
@@ -70,6 +66,7 @@ function result_references(message: AgentMessage): ReferenceMetadata[] {
   const native = native_skill(message);
   if (native && isAbsolute(native[2]))
     return [{ kind: "skill", name: native[1], path: native[2] }];
+  // Existing sessions may contain results from the removed cpi skill tool.
   if (message.role !== "toolResult" || message.isError) return [];
   if (message.toolName !== "skill" && message.toolName !== "set_cwd") return [];
   const details = message.details as Record<string, unknown> | undefined;
@@ -125,9 +122,7 @@ export async function collectReferences(
 ): Promise<ReferenceBundle> {
   const documents: ReferenceDocument[] = [];
   const warnings: string[] = [];
-  const latest = new Map<string, ReferenceMetadata>();
   const historical_projects = new Set<string>();
-  const historical_guides = new Set<string>();
   const contents = new Map<string, string | undefined>();
   const charged = new Set<string>();
   let total_bytes = 0;
@@ -140,10 +135,7 @@ export async function collectReferences(
     if (total_bytes + bytes > max_total_bytes)
       limit_error(path, reference_text.limits.total);
   }
-  function bounded_read(
-    source: string,
-    optional_guide = false,
-  ): string | undefined {
+  function bounded_read(source: string): string | undefined {
     const path = canonical_path(source);
     if (!contents.has(path)) {
       contents.set(path, undefined);
@@ -176,19 +168,13 @@ export async function collectReferences(
       } catch (error) {
         const code = (error as NodeJS.ErrnoException).code;
         if (!code) throw error;
-        if (
-          !optional_guide ||
-          historical_guides.has(path) ||
-          (code !== "ENOENT" && code !== "ENOTDIR")
-        )
-          warn(path, code);
+        warn(path, code);
       } finally {
         if (descriptor !== undefined) closeSync(descriptor);
       }
     }
     const content = contents.get(path);
-    if (content === undefined || (optional_guide && !content.trim()))
-      return undefined;
+    if (content === undefined) return undefined;
     if (!charged.has(path)) {
       if (charged.size >= max_documents)
         limit_error(path, reference_text.limits.count);
@@ -202,26 +188,11 @@ export async function collectReferences(
   for (const entry of branch) {
     if (entry.type !== "message") continue;
     for (const reference of result_references(entry.message)) {
-      if (reference.kind !== "skill") {
+      if (reference.kind === "project") {
         historical_projects.add(reference.path);
-        continue;
-      }
-      const path = canonical_path(reference.path);
-      latest.delete(path);
-      latest.set(path, { ...reference, path });
-      if (reference.name === SUBAGENT_SKILL_NAME && !reference.subdoc?.trim()) {
-        const details = (entry.message as { details?: { guidePath?: unknown } })
-          .details;
-        if (
-          typeof details?.guidePath === "string" &&
-          isAbsolute(details.guidePath)
-        )
-          historical_guides.add(canonical_path(details.guidePath));
       }
     }
   }
-  if (latest.size > max_documents)
-    limit_error(options.cwd, reference_text.limits.count);
   if (options.trusted) {
     const system_paths = new Set(options.systemFiles.map(canonical_path));
     for (const source of discoverAgentsPaths(options.cwd)) {
@@ -253,45 +224,6 @@ export async function collectReferences(
       }
     }
   }
-  let guide: ReturnType<typeof findSubagentModelGuide>;
-  let guide_loaded = false;
-  for (const reference of latest.values()) {
-    let content = bounded_read(reference.path);
-    if (content === undefined) continue;
-    if (reference.name === SUBAGENT_SKILL_NAME && !reference.subdoc?.trim()) {
-      if (!guide_loaded) {
-        guide_loaded = true;
-        guide = findSubagentModelGuide(
-          options.cwd,
-          options.trusted,
-          undefined,
-          (path) => {
-            const text = bounded_read(path, true)?.trim();
-            return text ? { path, text } : undefined;
-          },
-        );
-      }
-      if (guide) {
-        const guide_text = loadText<{ skill: { guide: string } }>(
-          "subagent-models",
-          textPath("subagent-models"),
-          options.cwd,
-        );
-        content = render(guide_text.skill.guide, {
-          skill: content,
-          path: guide.path,
-          guide: guide.text,
-        });
-      }
-    }
-    if (Buffer.byteLength(content) > max_document_bytes)
-      limit_error(reference.path, reference_text.limits.document);
-    const existing = documents.findIndex(
-      (document) => document.path === reference.path,
-    );
-    if (existing !== -1) documents.splice(existing, 1);
-    documents.push({ ...reference, content });
-  }
   if (documents.length > max_documents)
     limit_error(options.cwd, reference_text.limits.count);
   if (
@@ -308,15 +240,25 @@ export async function collectReferences(
 export function stripReferenceBodies(
   messages: AgentMessage[],
   documents: readonly Pick<ReferenceDocument, "path">[],
+  stripSkills = false,
+  skills: readonly Skill[] = [],
 ): AgentMessage[] {
   const managed_paths = new Set(
     documents.map((document) => canonical_path(document.path)),
   );
+  const skill_paths = skills.map((skill) => ({
+    name: skill.name,
+    file: canonical_path(skill.filePath),
+    dir: canonical_path(skill.baseDir),
+  }));
+  const read_calls = new Map<string, string>();
   function marker(reference: ReferenceMetadata): string {
     return render(
-      managed_paths.has(canonical_path(reference.path))
-        ? reference_text.marker.managed
-        : reference_text.marker.unavailable,
+      reference.kind === "skill"
+        ? reference_text.marker.skill
+        : managed_paths.has(canonical_path(reference.path))
+          ? reference_text.marker.managed
+          : reference_text.marker.unavailable,
       reference,
     );
   }
@@ -326,9 +268,21 @@ export function stripReferenceBodies(
       message.customType === "cpi-context-checkpoint"
     )
       return [];
+    if (stripSkills && message.role === "assistant") {
+      for (const block of message.content) {
+        if (
+          block.type === "toolCall" &&
+          block.name === "read" &&
+          typeof block.arguments?.path === "string" &&
+          isAbsolute(block.arguments.path)
+        )
+          read_calls.set(block.id, block.arguments.path);
+      }
+    }
     const references = result_references(message);
     const native = native_skill(message);
     if (message.role === "user" && native && references.length) {
+      if (!stripSkills) return [message];
       const replacement = marker(references[0]) + native[3];
       return [
         {
@@ -344,9 +298,46 @@ export function stripReferenceBodies(
         } as AgentMessage,
       ];
     }
-    if (message.role !== "toolResult" || references.length === 0)
+    if (message.role !== "toolResult" || references.length === 0) {
+      if (
+        stripSkills &&
+        message.role === "toolResult" &&
+        message.toolName === "read" &&
+        !message.isError
+      ) {
+        const details = message.details as { path?: unknown } | undefined;
+        const path =
+          typeof details?.path === "string"
+            ? details.path
+            : read_calls.get(message.toolCallId);
+        if (path && isAbsolute(path)) {
+          const file = canonical_path(path);
+          const skill = skill_paths.find(
+            (item) =>
+              file === item.file || file.startsWith(`${item.dir}${sep}`),
+          );
+          if (skill)
+            return [
+              {
+                ...message,
+                content: [
+                  {
+                    type: "text",
+                    text: marker({
+                      kind: "skill",
+                      name: skill.name,
+                      path: file,
+                    }),
+                  },
+                ],
+              },
+            ];
+        }
+      }
       return [message];
+    }
     if (message.toolName === "skill") {
+      if (!stripSkills) return [message];
       return [
         {
           ...message,

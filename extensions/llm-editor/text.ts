@@ -31,6 +31,7 @@ export interface EditorText {
   };
   schema: {
     path: string;
+    read_path: string;
     query: string;
     instruction: string;
     file_text: string;

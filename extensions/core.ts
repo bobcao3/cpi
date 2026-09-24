@@ -7,8 +7,14 @@ import type {
   ExtensionAPI,
   ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
-import { applySystemPromptTransforms } from "./lib/system-prompt.ts";
+import {
+  applySystemPromptTransforms,
+  unregisterSystemPromptTransform,
+} from "./lib/system-prompt.ts";
 import { buildCpiSystemPrompt } from "./lib/system-prompt-build.ts";
+import { getCwd } from "./lib/cwd.ts";
+import { withRulesContext } from "./lib/rules-context.ts";
+import { injectSourcePaths } from "./lib/skill-paths.ts";
 import { registerModelContext } from "./lib/model-context.ts";
 import { registerCompaction } from "./lib/compaction.ts";
 import { modelSupportsVision } from "./lib/media.ts";
@@ -58,7 +64,15 @@ import {
 } from "./lib/goal.ts";
 
 export default function coreExtension(pi: ExtensionAPI): void {
+  injectSourcePaths();
+  unregisterSystemPromptTransform("cpi-rules");
   const external_events = registerExternalEvents(pi);
+  pi.on("before_agent_start", (event) => {
+    event.systemPromptOptions.contextFiles = withRulesContext(
+      event.systemPromptOptions.contextFiles,
+      getCwd(),
+    );
+  });
   registerCompaction(pi);
   const promptModel = registerModelContext(pi);
   pi.on("session_start", async (_event, ctx: ExtensionContext) => {

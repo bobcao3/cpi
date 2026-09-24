@@ -132,11 +132,14 @@ export async function native_skill_recovery(root: string) {
     systemFiles: [],
     trusted: false,
   });
-  assert.equal(references.documents.length, 1);
-  assert.equal(references.documents[0].content, "CURRENT_NATIVE_DOCUMENT");
+  assert.equal(references.documents.length, 0);
   const original = manager.buildSessionContext().messages;
-  const filtered = stripReferenceBodies(original, references.documents);
+  const filtered = stripReferenceBodies(original, references.documents, true);
   absent(filtered, "OLD_NATIVE_DOCUMENT");
   contains(filtered, "Do not use subagents; continue the requested fix.");
   contains(original, "OLD_NATIVE_DOCUMENT");
+  contains(
+    stripReferenceBodies(original, references.documents),
+    "OLD_NATIVE_DOCUMENT",
+  );
 }

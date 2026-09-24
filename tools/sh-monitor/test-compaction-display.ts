@@ -91,19 +91,6 @@ async function compact_fixture(summary: string, keep: string, empty = false) {
         ? []
         : [
             {
-              kind: "skill",
-              name: "review",
-              path: file(join(root, "SKILL.md"), "skill body"),
-              content: "skill body",
-            },
-            {
-              kind: "skill",
-              name: "review",
-              subdoc: "details.md",
-              path: file(join(root, "details.md"), "subdoc body"),
-              content: "subdoc body",
-            },
-            {
               kind: "project",
               path: file(join(root, "AGENTS.md"), "project body"),
               content: "project body",
@@ -147,7 +134,7 @@ try {
   const feedback = await compact_fixture("task summary", rewind);
   const first_leaf = manager.getLeafId()!;
   const visual = rendered_feedback(feedback);
-  assert(visual.includes("Restored skills: review, review (details.md)"));
+  assert(!visual.includes("Restored skills:"));
   assert(visual.includes(`Restored CWD at ${root}`));
   assert(visual.includes(`Loaded project instructions: ${root}/AGENTS.md`));
   assert(!rendered_notice(old_shell).includes("OLD_SHELL_FINISHED"));
@@ -167,18 +154,18 @@ try {
   const new_notice = notice("NEW_SHELL_FINISHED");
   assert(rendered_notice(new_notice).includes("NEW_SHELL_FINISHED"));
   await session.reload();
-  assert(rendered_feedback(feedback).includes("Restored skills:"));
+  assert(rendered_feedback(feedback).includes("Restored CWD at"));
   assert(!rendered_notice(old_shell).includes("OLD_SHELL_FINISHED"));
   assert(rendered_notice(new_notice).includes("NEW_SHELL_FINISHED"));
   manager.branch(old_cwd);
   assert(rendered_notice(old_shell).includes("OLD_SHELL_FINISHED"));
   assert(rendered_notice(old_cwd).includes("OLD_CWD"));
-  assert(!rendered_feedback(feedback).includes("Restored skills:"));
+  assert(!rendered_feedback(feedback).includes("Restored CWD at"));
   manager.branch(first_leaf);
   assert(!rendered_notice(old_shell).includes("OLD_SHELL_FINISHED"));
   const second = await compact_fixture("next summary", rewind, true);
-  assert(!rendered_feedback(feedback).includes("Restored skills:"));
-  assert(rendered_feedback(second).includes("Restored skills: none"));
+  assert(!rendered_feedback(feedback).includes("Restored CWD at"));
+  assert(rendered_feedback(second).includes("Restored CWD at"));
   assert(
     rendered_feedback(second).includes("Loaded project instructions: none"),
   );

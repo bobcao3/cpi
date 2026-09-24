@@ -1,6 +1,7 @@
 [marker]
 managed = '[Reference body omitted: {{kind}} {{path}}. Current content is restored separately.]'
 unavailable = '[Reference body omitted: {{kind}} {{path}}. WARNING: current content is not in the restored bundle; it may be unavailable, outside the current project, or already in system context.]'
+skill = '[Skill body omitted: {{name}} {{path}}. Skill files are not restored; reload via skill discovery only if still relevant.]'
 
 [warning]
 missing = 'Reference unavailable: {{path}} ({{reason}}). No stale content was restored.'

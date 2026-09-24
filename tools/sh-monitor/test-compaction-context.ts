@@ -30,7 +30,6 @@ import {
   projectCheckpoint,
 } from "../../extensions/lib/compaction-checkpoint.ts";
 import { surfaceNewAgents } from "../../extensions/lib/agents.ts";
-import { subagentGuidePath } from "../../extensions/lib/subagent-model-guide.ts";
 import type { RuntimeSnapshot } from "../../extensions/lib/compaction-state.ts";
 
 const root = mkdtempSync(join(tmpdir(), "cpi-compaction-context-"));
@@ -141,19 +140,15 @@ try {
   const refs = await collectReferences(manager.getBranch(), options);
   assert.deepEqual(
     refs.documents.map((doc) => doc.path).sort(),
-    [main, subdoc, projectDoc, currentDoc].sort(),
+    [projectDoc, currentDoc].sort(),
   );
   assert.equal(
     new Set(refs.documents.map((doc) => doc.path)).size,
     refs.documents.length,
   );
-  contains(refs.documents, "MAIN_CURRENT_BODY");
-  contains(refs.documents, "SUBDOC_CURRENT_BODY");
-  assert.equal(
-    refs.documents.find((doc) => doc.path === subdoc)?.subdoc,
-    "usage.md",
-  );
-  assert(refs.warnings.some((warning) => warning.includes(deleted)));
+  absent(refs.documents, "MAIN_CURRENT_BODY");
+  absent(refs.documents, "SUBDOC_CURRENT_BODY");
+  assert(!refs.warnings.some((warning) => warning.includes(deleted)));
   absent(refs, "MUST_NOT_RESTORE_FAILED");
   assert.deepEqual(
     (
@@ -164,11 +159,11 @@ try {
     ).documents
       .map((doc) => doc.path)
       .sort(),
-    [main, subdoc].sort(),
+    [],
   );
   const history = manager.getBranch().flatMap(sessionEntryToContextMessages);
   const historyCopy = structuredClone(history);
-  const stripped = stripReferenceBodies(history, refs.documents);
+  const stripped = stripReferenceBodies(history, refs.documents, true);
   assert.deepEqual(
     history,
     historyCopy,
@@ -184,20 +179,21 @@ try {
     absent(stripped, body);
   for (const path of [main, alias, subdoc, deleted]) contains(stripped, path);
   contains(stripped, "failed load diagnostic");
+  contains(
+    stripReferenceBodies(history, refs.documents),
+    "SUBDOC_OLD_RETAINED_BODY",
+  );
   const projectResult = project_result(projectDoc, "OLD_PROJECT_TOOL_BODY");
   const projectStripped = stripReferenceBodies([projectResult], refs.documents);
   absent(projectStripped, "OLD_PROJECT_TOOL_BODY");
   contains(projectStripped, "changed cwd");
   contains(projectStripped, projectDoc);
-  const huge = file(
-    join(root, "skills", "huge.md"),
-    "x".repeat(128 * 1024 + 1),
-  );
+  const hugeCwd = join(root, "huge-project");
+  file(join(hugeCwd, "AGENTS.md"), "x".repeat(128 * 1024 + 1));
   const limits = SessionManager.inMemory(cwd);
   user(limits, "limit fixture");
-  skill(limits, huge, "original small result");
   await assert.rejects(
-    collectReferences(limits.getBranch(), options),
+    collectReferences(limits.getBranch(), { ...options, cwd: hugeCwd }),
     /128|limit|exceed/i,
   );
   const state: RuntimeSnapshot = {
@@ -213,14 +209,16 @@ try {
   assert.equal(checkpoint.version, 1);
   contains(checkpoint.content, "CURRENT_PROJECT_BODY");
   contains(checkpoint.content, "CURRENT_NESTED_BODY");
-  contains(checkpoint.content, deleted);
+  absent(checkpoint.content, "MAIN_CURRENT_BODY");
+  absent(checkpoint.content, "SUBDOC_CURRENT_BODY");
+  absent(checkpoint.content, deleted);
   absent(checkpoint.content, "SYSTEM_ALREADY_PRESENT");
   assert.throws(
     () =>
       buildCheckpoint(
         {
           documents: [
-            { kind: "skill", path: main, content: "x".repeat(768 * 1024) },
+            { kind: "project", path: main, content: "x".repeat(768 * 1024) },
           ],
           warnings: [],
         },
@@ -269,7 +267,7 @@ try {
         message.content === "subsequent user after checkpoint",
     ) > index,
   );
-  absent(emitted, "SUBDOC_OLD_RETAINED_BODY");
+  contains(emitted, "SUBDOC_OLD_RETAINED_BODY");
   contains(emitted.at(-1), "NEW_FULL_SKILL_RESULT_AFTER_CHECKPOINT");
   assert.deepEqual(pairing(emitted), pairing(raw));
   assert.deepEqual(await session.extensionRunner.emitContext(raw), emitted);
@@ -316,7 +314,7 @@ try {
     second.content,
   );
   absent(twice, "fixture task summary, not a model-generated summary");
-  absent(twice, "NEW_FULL_SKILL_RESULT_AFTER_CHECKPOINT");
+  contains(twice, "NEW_FULL_SKILL_RESULT_AFTER_CHECKPOINT");
   assert.deepEqual(await session.extensionRunner.emitContext(twice), twice);
   manager.branch(checkpointId);
   const mismatch = buildCheckpoint(refs, {
@@ -355,33 +353,9 @@ try {
     ).length,
     1,
   );
-  const guideManager = SessionManager.inMemory(cwd);
-  user(guideManager, "dynamic guide fixture");
-  skill(guideManager, main, "historical stale guide", {
-    name: "subagents-in-pi",
-  });
-  const guidePath = file(
-    subagentGuidePath(cwd, "project", agentDir),
-    "LIVE_PROJECT_MODEL_GUIDE",
-  );
-  file(subagentGuidePath(cwd, "user", agentDir), "LIVE_USER_MODEL_GUIDE");
-  const guided = await collectReferences(guideManager.getBranch(), options);
-  contains(guided.documents, "LIVE_PROJECT_MODEL_GUIDE");
-  absent(guided.documents, "LIVE_USER_MODEL_GUIDE");
-  file(guidePath, "UPDATED_PROJECT_MODEL_GUIDE");
-  contains(
-    (await collectReferences(guideManager.getBranch(), options)).documents,
-    "UPDATED_PROJECT_MODEL_GUIDE",
-  );
-  const untrusted = await collectReferences(guideManager.getBranch(), {
-    ...options,
-    trusted: false,
-  });
-  contains(untrusted.documents, "LIVE_USER_MODEL_GUIDE");
-  absent(untrusted.documents, "UPDATED_PROJECT_MODEL_GUIDE");
   assert.deepEqual(errors, []);
   console.log(
-    "compaction context integration: reference recovery, limits, stripping, persisted projection, reload, rewind, model context, dynamic guides passed",
+    "compaction context integration: project references, skill stripping, limits, persisted projection, reload, rewind, model context passed",
   );
 } finally {
   for (const session of sessions) session.dispose();

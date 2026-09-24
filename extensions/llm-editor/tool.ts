@@ -19,6 +19,7 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import { loadEditorConfig } from "../lib/config.ts";
 import { resolveCwdPath, getCwd } from "../lib/cwd.ts";
+import { expandSourcePath } from "../lib/skill-paths.ts";
 import { surfaceNewAgents, formatAgentsBlock } from "../lib/agents.ts";
 import { requestFooterRender } from "../lib/footer.ts";
 import { resolveTranscriptDir } from "./log.ts";
@@ -41,7 +42,7 @@ export type Command = "read" | "write" | "edit" | "apply_patch";
 const T0 = loadEditorText();
 
 const readSchema = Type.Object({
-  path: Type.String({ description: T0.schema.path }),
+  path: Type.String({ description: T0.schema.read_path }),
   query: Type.Optional(Type.String({ description: T0.schema.query })),
 });
 const editSchema = Type.Object({
@@ -232,11 +233,19 @@ async function execute(
 ) {
   const T = loadEditorText(getCwd());
   const id = shortSha({ command, ...params });
-  const abs = resolveCwdPath(params.path);
+  const abs = resolveCwdPath(
+    command === "read" ? expandSourcePath(params.path) : params.path,
+  );
   if (signal?.aborted) return errorResult(id, command, abs, T.errors.aborted);
 
   if (command === "read")
-    return executeRead(params as ReadParams, signal, ctx, id, abs);
+    return executeRead(
+      { ...(params as ReadParams), path: abs },
+      signal,
+      ctx,
+      id,
+      abs,
+    );
   if (command === "write") return executeWrite(params as WriteParams, id, abs);
   return executeEdit(
     command,

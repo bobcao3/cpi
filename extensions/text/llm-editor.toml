@@ -272,6 +272,7 @@ guidelines = [
 # ── Schema field descriptions (injected into the TypeBox tool schemas) ──
 [schema]
 path = "Absolute path to a file or directory."
+read_path = "Absolute path to a file or directory; $PI_AGENT_SRC/, $CPI_HARNESS_SRC/, and $HOME/ prefixes are also accepted."
 query = "read: natural-language query for what to find; an LLM returns only the relevant line ranges with line numbers."
 instruction = "edit: natural-language change description; name the function/class/method to change."
 file_text = "write: full content of the new file."
