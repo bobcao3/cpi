@@ -12,6 +12,7 @@ import { resolveEditorModel } from "./model-select.ts";
 import { loadEditorText, fmt } from "./text.ts";
 import { viewFile } from "./viewer.ts";
 import { readImageResult, textResult, videoResult } from "./media-result.ts";
+import { lineBodies } from "./lines.ts";
 
 type ReadParams = { path: string; query?: string };
 
@@ -53,15 +54,18 @@ async function listTree(root: string, cwd: string): Promise<string> {
   return lines.length ? lines.join("\n") : T.messages.empty_dir;
 }
 
-async function headRead(abs: string, cwd: string, max = 200): Promise<string> {
+async function headRead(abs: string, cwd: string, max = 200) {
   const T = loadEditorText(cwd);
   const content = await readFile(abs, "utf-8");
   const all = content.split("\n");
-  const lines = all.slice(0, max);
-  const body = lines.join("\n");
-  return all.length > max
-    ? `${body}\n${fmt(T.messages.head_more, { n: all.length - max })}`
-    : body;
+  const totalLines = lineBodies(content).length;
+  return {
+    text:
+      totalLines > max
+        ? `${all.slice(0, max).join("\n")}\n${fmt(T.messages.head_more, { n: totalLines - max })}`
+        : content,
+    lineCount: Math.min(totalLines, max),
+  };
 }
 
 function surfaceAgentsBlock(dir: string): string {
@@ -108,8 +112,13 @@ export async function executeRead(
       const content = await headRead(abs, cwd);
       const agents = surfaceAgentsBlock(dirname(abs));
       return readResult(
-        content,
-        { id, kind: "content", text: content },
+        content.text,
+        {
+          id,
+          kind: "content",
+          text: content.text,
+          lineCount: content.lineCount,
+        },
         agents,
       );
     } catch (e) {
@@ -140,7 +149,14 @@ export async function executeRead(
   const agents = surfaceAgentsBlock(dirname(abs));
   return readResult(
     r.text,
-    { id, kind: "view", text: r.text, summary: r.summary, usage: r.usage },
+    {
+      id,
+      kind: "view",
+      text: r.text,
+      summary: r.summary,
+      ranges: r.ranges,
+      usage: r.usage,
+    },
     agents,
   );
 }

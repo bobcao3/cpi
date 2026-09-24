@@ -59,7 +59,8 @@ test("read tool keeps file content in result but not the blockless TUI", async (
         context,
       ),
     );
-    assert.equal(done, "✓ Read sample.txt");
+    assert.equal(done, "✓ Read sample.txt:1 lines");
+    assert.equal((result.details as { lineCount: number }).lineCount, 1);
     assert.ok(!done.includes("secret file contents"));
     assert.equal(
       visible(
@@ -74,7 +75,16 @@ test("read tool keeps file content in result but not the blockless TUI", async (
     );
     const viewer = {
       ...result,
-      details: { kind: "view", summary: "Defines an exported parser" },
+      details: {
+        kind: "view",
+        summary: "Defines an exported parser",
+        ranges: [
+          [1, 10],
+          [2, 2],
+          [3, 3],
+          [6, 200],
+        ],
+      },
     };
     assert.equal(
       visible(
@@ -85,7 +95,7 @@ test("read tool keeps file content in result but not the blockless TUI", async (
           context,
         ),
       ),
-      "✓ Read sample.txt: Defines an exported parser",
+      "✓ Read sample.txt:L1-10,2,3,6-200 Defines an exported parser",
     );
     assert.equal(
       visible(
@@ -156,5 +166,72 @@ test("read path is underlined and linked only in hyperlink-capable terminals", (
     assert.ok(stripVTControlCharacters(plain).includes("read with spaces.ts"));
   } finally {
     setCapabilityOverrides({});
+  }
+});
+
+test("read result highlights the range/count separately from the description", () => {
+  const context = { args: { path: "/tmp/sample.txt" }, isError: false } as any;
+  const render = (details: object) =>
+    readTool
+      .renderResult(
+        { content: [], details },
+        { isPartial: false, expanded: false },
+        theme,
+        context,
+      )
+      .render(120)
+      .join("\n");
+  const lines = render({ kind: "content", lineCount: 10 });
+  assert.ok(lines.includes(theme.fg("warning", "10 lines")));
+  const ranges = render({
+    kind: "view",
+    ranges: [
+      [1, 10],
+      [12, 12],
+    ],
+    summary: "Relevant description",
+  });
+  assert.ok(ranges.includes(theme.fg("warning", "L1-10,12")));
+  assert.ok(ranges.includes(theme.fg("text", " Relevant description")));
+});
+
+test("read line count covers empty, unterminated, and capped file reads", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "read-lines-"));
+  const path = join(dir, "sample.txt");
+  try {
+    for (const [body, expected] of [
+      ["", 0],
+      ["one\ntwo", 2],
+      ["line\n".repeat(200), 200],
+      ["line\n".repeat(250), 200],
+    ] as const) {
+      await writeFile(path, body);
+      const result = await readTool.execute(
+        "test",
+        { path },
+        undefined,
+        undefined,
+        { cwd: dir } as any,
+      );
+      assert.equal(
+        (result.details as { lineCount: number }).lineCount,
+        expected,
+      );
+      if (body === "line\n".repeat(200))
+        assert.equal(result.content[0]?.text, body);
+      assert.equal(
+        visible(
+          readTool.renderResult(
+            result,
+            { isPartial: false, expanded: false },
+            theme,
+            { args: { path }, isError: false } as any,
+          ),
+        ),
+        `✓ Read sample.txt:${expected} lines`,
+      );
+    }
+  } finally {
+    await rm(dir, { recursive: true, force: true });
   }
 });

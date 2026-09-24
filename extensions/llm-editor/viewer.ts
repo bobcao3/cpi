@@ -73,6 +73,7 @@ export async function viewFile(
 ): Promise<{
   text: string;
   summary?: string;
+  ranges?: number[][];
   error?: string;
   usage?: { input: number; output: number };
 }> {
@@ -158,11 +159,16 @@ export async function viewFile(
     return {
       text: T.messages.view_no_ranges,
       summary: summary.trim(),
+      ranges: [],
       usage: res.usage,
     };
+  const visibleRanges = ranges
+    .map(([start, end]) => [Math.max(1, start), Math.min(lines.length, end)])
+    .filter(([start, end]) => end >= start);
   return {
     text: renderRanges(lines, ranges, T.messages.lines_omitted),
     summary: summary.trim(),
+    ranges: visibleRanges,
     usage: res.usage,
   };
 }
