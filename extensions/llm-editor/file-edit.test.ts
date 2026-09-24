@@ -257,26 +257,18 @@ describe("applyPatchFile production filesystem integration", () => {
     expect(await readFile(file.path, "utf8")).toBe("A\n");
   });
 
-  test("context-only anchors cannot redirect an edit to another class", async () => {
+  test("context-only anchors constrain subsequent edits atomically", async () => {
     const source =
       "class Attention:\n    def forward(self, x):\n        pass\nclass Block:\n    def forward(self, x, batch=None):\n        pass\n";
     const file = await fixture(source);
-    const context = "@@\n class Attention:\n";
+    const context = "@@\n class Block:\n";
     const change =
       "@@\n-    def forward(self, x, batch=None):\n+    def forward(self, x):\n";
-    for (const [patch, line] of [
-      [context + change, 1],
-      [change + context, 4],
-      ["@@\n" + change, 1],
-    ] as const) {
-      const result = await rejected(file, patch);
-      expect(result.error).toContain(
-        "Context-only hunks do not scope later edits",
-      );
-      expect(result.error).toContain(`hunk at patch line ${line}`);
-    }
-    expect((await file.apply(change.replace("@@", "@@ -5,1 +5,1 @@"))).ok).toBe(
-      true,
+    expect((await file.apply(context + "@@\n-WRONG\n+right\n")).ok).toBe(false);
+    expect(await readFile(file.path, "utf8")).toBe(source);
+    expect((await file.apply(context + change)).ok).toBe(true);
+    expect(await readFile(file.path, "utf8")).toContain(
+      "class Block:\n    def forward(self, x):",
     );
   });
 

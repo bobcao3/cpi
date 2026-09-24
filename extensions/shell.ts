@@ -28,19 +28,19 @@ import {
 import {
   buildOutputText,
   getActiveBackgrounds,
-  getShellBackgrounds,
   hasActiveBackground,
   killAll,
   runShell,
   resumeBackgroundShells,
   setCurrentScope,
   setCompletionHook,
-  signalChild,
-  silenceChild,
-  detachChild,
   type OutputTruncation,
 } from "./shell/exec.ts";
-import { createRepeatTool, getActiveRepeats } from "./shell/repeat.ts";
+import { createRepeatTool } from "./shell/repeat.ts";
+import {
+  registerBackgroundControlTools,
+  registerBackgroundListTool,
+} from "./shell/background-tools.ts";
 import { resolveShell, type ShellProfile } from "./shell/profile.ts";
 import { registerShellTranscriptRenderers } from "./shell/transcript.ts";
 import {
@@ -58,7 +58,6 @@ import {
 } from "./shell/orphan.ts";
 const SH_TOOL = "sh",
   SH_SIGNAL_TOOL = "sh_signal",
-  SH_DETACH_TOOL = "sh_detach",
   SH_REPEAT_TOOL = "sh_repeat_until",
   SH_BACKGROUND_PS_TOOL = "sh_background_ps";
 interface ShellText {
@@ -320,6 +319,7 @@ export default async function (pi: ExtensionAPI) {
           fullOutputPath: res.fullOutputPath,
           cursor: res.cursor,
           describe,
+          shellName: shell.displayName,
           shuckWarnings,
           tsAst: parse.ast,
           cdAgentsFiles: cdAgents.map((f) => f.path),
@@ -331,98 +331,26 @@ export default async function (pi: ExtensionAPI) {
       };
     },
     renderCall(args, theme, context) {
-      return renderCompactShellCall(args, theme, context, DEFAULT_WAITFOR);
+      return renderCompactShellCall(
+        args,
+        theme,
+        context,
+        DEFAULT_WAITFOR,
+        shell.displayName,
+      );
     },
     renderResult(result, options, theme, context) {
-      return renderCompactShellResult(result, options, theme, context);
+      return renderCompactShellResult(
+        result,
+        options,
+        theme,
+        context,
+        shell.displayName,
+      );
     },
   });
 
-  pi.registerTool({
-    name: SH_SIGNAL_TOOL,
-    label: "sh_signal",
-    description: render(T.sh_signal.description, switches),
-    promptSnippet: T.sh_signal.prompt_snippet,
-    promptGuidelines: renderLines(T.guidelines.sh_signal, switches),
-    parameters: Type.Object({
-      id: Type.String({ description: T.schema.sh_signal.id }),
-      signal: Type.Optional(
-        Type.String({ description: T.schema.sh_signal.signal }),
-      ),
-    }),
-    async execute(_toolCallId, params) {
-      const signal = params.signal ?? "SIGINT";
-      if (!signalChild(params.id, signal))
-        return {
-          content: [
-            { type: "text", text: `Background ${params.id} not active.` },
-          ],
-          isError: true,
-        };
-      // Only SIGKILL terminates the process group (guaranteed exit) so only
-      // SIGKILL waives the completion notice; non-terminating signals may be
-      // caught/ignored so the notice must still fire. See core.ts hold design:
-      // "wait_any to yield, or sh_signal SIGKILL to return control".
-      const isKill = signal === "SIGKILL" || signal === "9";
-      const isShell = !params.id.startsWith("rpt-");
-      const isWindows = process.platform === "win32";
-      const isTerminating = isKill || isWindows;
-      if (isShell && isTerminating) silenceChild(params.id);
-      const text =
-        isShell && isWindows
-          ? render(T.results.sh_signal.windows_terminated, {
-              id: params.id,
-              signal,
-            })
-          : isShell && isKill
-            ? render(T.results.sh_signal.posix_killed, {
-                id: params.id,
-                signal,
-              })
-            : render(T.results.sh_signal.posix_sent, {
-                id: params.id,
-                signal,
-              });
-      return {
-        content: [{ type: "text", text }],
-        details: {
-          id: params.id,
-          signal,
-          completionNoticeSuppressed: isShell && isTerminating,
-        },
-      };
-    },
-  });
-
-  pi.registerTool({
-    name: SH_DETACH_TOOL,
-    label: "sh_detach",
-    description: render(T.sh_detach.description, switches),
-    promptSnippet: T.sh_detach.prompt_snippet,
-    promptGuidelines: renderLines(T.guidelines.sh_detach, switches),
-    parameters: Type.Object({
-      id: Type.String({ description: T.schema.sh_detach.id }),
-    }),
-    async execute(_toolCallId, params) {
-      const logPath = detachChild(params.id);
-      if (!logPath)
-        return {
-          content: [
-            { type: "text", text: `Background ${params.id} not active.` },
-          ],
-          isError: true,
-        };
-      return {
-        content: [
-          {
-            type: "text",
-            text: `Detached ${params.id}: runs untracked, survives this pi process; no completion notification fires. Output continues to drain to ${logPath}.`,
-          },
-        ],
-        details: { id: params.id, detached: true, logPath },
-      };
-    },
-  });
+  registerBackgroundControlTools(pi, T, switches);
 
   pi.registerTool(
     createRepeatTool(
@@ -437,43 +365,7 @@ export default async function (pi: ExtensionAPI) {
   );
   registerShellTranscriptRenderers();
 
-  pi.registerTool({
-    name: SH_BACKGROUND_PS_TOOL,
-    label: "sh_background_ps",
-    description: render(T.sh_background_ps.description, switches),
-    promptSnippet: T.sh_background_ps.prompt_snippet,
-    promptGuidelines: renderLines(T.guidelines.sh_background_ps, switches),
-    parameters: Type.Object({}),
-    async execute() {
-      const bgs = getShellBackgrounds();
-      const rpts = getActiveRepeats();
-      const total = bgs.length + rpts.length;
-      if (total === 0) {
-        return {
-          content: [
-            { type: "text", text: "no active background shells or monitors" },
-          ],
-          isError: false,
-        };
-      }
-      const parts: string[] = [];
-      if (bgs.length)
-        parts.push(`${bgs.length} bg shell${bgs.length !== 1 ? "s" : ""}`);
-      if (rpts.length)
-        parts.push(`${rpts.length} monitor${rpts.length !== 1 ? "s" : ""}`);
-      const entries = [...bgs, ...rpts]
-        .map(
-          (e) =>
-            `[${e.id}${e.describe ? " " + truncateDescribe(e.describe) : ""}]`,
-        )
-        .join(" ");
-      return {
-        content: [{ type: "text", text: `${parts.join(", ")}: ${entries}` }],
-        details: { backgrounds: bgs, repeats: rpts },
-        isError: false,
-      };
-    },
-  });
+  registerBackgroundListTool(pi, T, switches, truncateDescribe);
 
   pi.on("session_start", async (event, ctx) => {
     shellStatus?.dispose();

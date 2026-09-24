@@ -26,7 +26,6 @@ const session = {
   task: "1|old",
   provider: "provider",
   modelId: "model",
-  outputMode: "text" as const,
   maxTurns: 1,
   maxOutputBytes: 524288,
 };
@@ -91,29 +90,6 @@ describe("subagent RPC request boundary", () => {
     ).toBe(false);
   });
 
-  test("requires a bounded absolute completion path only in tool-call mode", () => {
-    expect(
-      validSessionSubagentRequest({
-        ...session,
-        outputMode: "tool-call",
-        completionTool: "report.finish",
-        completionPath: resolve("completion.json"),
-      }),
-    ).toBe(true);
-    expect(
-      validSessionSubagentRequest({
-        ...session,
-        outputMode: "tool-call",
-      }),
-    ).toBe(false);
-    expect(
-      validSessionSubagentRequest({
-        ...session,
-        completionPath: resolve("completion.json"),
-      }),
-    ).toBe(false);
-  });
-
   test("allows numbered session input beyond the smaller CLI task bound", () => {
     const expanded = "x".repeat(2 * 1024 * 1024);
     expect(validSessionSubagentRequest({ ...session, task: expanded })).toBe(
@@ -148,7 +124,6 @@ describe("subagent RPC request boundary", () => {
     const candidate = {
       kind: "candidate",
       turn: 0,
-      completion: null,
       text: "patch",
       outputOverflow: false,
     };
@@ -158,32 +133,6 @@ describe("subagent RPC request boundary", () => {
     );
     expect(validSubagentContinuationPrompt("x".repeat(65536))).toBe(true);
     expect(validSubagentContinuationPrompt("x".repeat(65537))).toBe(false);
-  });
-
-  test("accepts only the requested arbitrary completion tool", () => {
-    const toolSession = {
-      ...session,
-      outputMode: "tool-call" as const,
-      completionTool: "report.finish",
-      completionPath: resolve("completion.json"),
-    };
-    const candidate = {
-      kind: "candidate",
-      turn: 0,
-      completion: { tool: "report.finish", args: {} },
-      text: "",
-      outputOverflow: false,
-    };
-    expect(validSubagentCandidate(candidate, toolSession)).toBe(true);
-    expect(
-      validSubagentCandidate(
-        {
-          ...candidate,
-          completion: { tool: "view-complete", args: {} },
-        },
-        toolSession,
-      ),
-    ).toBe(false);
   });
 
   test("bounds extension paths and tool names as unique lists", () => {
@@ -229,7 +178,7 @@ describe("subagent RPC request boundary", () => {
     }
   });
 
-  test("validates cache retention and mode-specific completion identifiers", () => {
+  test("validates cache retention and rejects unexpected candidate fields", () => {
     for (const cacheRetention of [undefined, "none", "short", "long"]) {
       expect(validSessionSubagentRequest({ ...session, cacheRetention })).toBe(
         true,
@@ -240,61 +189,16 @@ describe("subagent RPC request boundary", () => {
         false,
       );
     }
-    const toolSession = {
-      ...session,
-      outputMode: "tool-call" as const,
-      completionPath: resolve("completion.json"),
-      completionTool: "arbitrary/tool.finish_1-v2",
-    };
-    expect(validSessionSubagentRequest(toolSession)).toBe(true);
-    expect(validSubagentWorkerRequest(toolSession)).toBe(true);
-    expect(
-      validSessionSubagentRequest({ ...session, completionTool: "finish" }),
-    ).toBe(false);
-    for (const completionTool of [
-      undefined,
-      "",
-      "bad tool",
-      "bad\0",
-      "é",
-      "x".repeat(129),
-    ]) {
-      expect(
-        validSessionSubagentRequest({ ...toolSession, completionTool }),
-      ).toBe(false);
-    }
-    expect(
-      validSessionSubagentRequest({
-        ...toolSession,
-        completionTool: "x".repeat(128),
-      }),
-    ).toBe(true);
-    for (const completionPath of [
-      undefined,
-      "relative.json",
-      "/bad\0",
-      "/" + "x".repeat(4096),
-    ]) {
-      expect(
-        validSessionSubagentRequest({ ...toolSession, completionPath }),
-      ).toBe(false);
-    }
-    const candidate = {
-      kind: "candidate",
-      turn: 0,
-      text: "",
-      outputOverflow: false,
-      completion: { tool: toolSession.completionTool, args: {} },
-    };
-    expect(validSubagentCandidate(candidate, toolSession)).toBe(true);
-    expect(validSubagentCandidate(candidate, session)).toBe(false);
-    expect(
-      validSubagentCandidate({ ...candidate, text: "unexpected" }, toolSession),
-    ).toBe(false);
     expect(
       validSubagentCandidate(
-        { ...candidate, outputOverflow: true },
-        toolSession,
+        {
+          kind: "candidate",
+          turn: 0,
+          text: "{}",
+          outputOverflow: false,
+          unexpected: true,
+        },
+        session,
       ),
     ).toBe(false);
   });

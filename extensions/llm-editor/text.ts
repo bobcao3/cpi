@@ -13,14 +13,11 @@ export interface EditorText {
   system: {
     viewer: string;
     editor: string;
-    editor_direct: string;
     editor_fuzzy: string;
   };
   tasks: {
     viewer: string;
     editor: string;
-    editor_direct: string;
-    editor_direct_correction: string;
     editor_correction: string;
   };
   tool: {
@@ -36,20 +33,6 @@ export interface EditorText {
     instruction: string;
     file_text: string;
     patch: string;
-  };
-  completion: {
-    view_complete: ToolMeta;
-    edit_complete: ToolMeta;
-    schema: {
-      ranges: string;
-      one_line_summary: string;
-      range_start: string;
-      range_end: string;
-      diffs: string;
-      diff: string;
-      content: string;
-      cancel: string;
-    };
   };
   messages: {
     view_no_ranges: string;

@@ -9,7 +9,6 @@ const MAX_CLI_TASK_BYTES = 1024 * 1024;
 const MAX_SESSION_TASK_BYTES = 4 * 1024 * 1024;
 const MAX_SESSION_TURNS = 9;
 const MAX_SESSION_OUTPUT_BYTES = 1024 * 1024;
-const MAX_SESSION_COMPLETION_BYTES = 1024 * 1024;
 const MAX_CORRECTION_PROMPT_BYTES = 65536;
 const MAX_SYSTEM_PROMPT_BYTES = 262144;
 const MAX_ENV_ENTRIES = 512;
@@ -39,15 +38,12 @@ export interface SessionSubagentRequest {
   extensionPaths: string[];
   tools?: string[];
   cacheRetention?: "none" | "short" | "long";
-  completionTool?: string;
   systemPrompt: string;
   task: string;
   title?: string;
   provider: string;
   modelId: string;
   thinkingLevel?: string;
-  outputMode: "tool-call" | "text";
-  completionPath?: string;
   maxTurns: number;
   maxOutputBytes: number;
   cwd: string;
@@ -74,15 +70,9 @@ export interface ForkProbeSubagentRequest {
   runId: string;
 }
 
-export interface SubagentCompletion {
-  tool: string;
-  args: Record<string, unknown>;
-}
-
 export interface SubagentCandidate {
   kind: "candidate";
   turn: number;
-  completion: SubagentCompletion | null;
   text: string;
   outputOverflow: boolean;
 }
@@ -238,7 +228,6 @@ export function validSessionSubagentRequest(
       request.cacheRetention !== "none" &&
       request.cacheRetention !== "short" &&
       request.cacheRetention !== "long") ||
-    (request.outputMode !== "tool-call" && request.outputMode !== "text") ||
     typeof request.maxTurns !== "number" ||
     !Number.isInteger(request.maxTurns) ||
     request.maxTurns < 1 ||
@@ -272,20 +261,7 @@ export function validSessionSubagentRequest(
     !validCommonRequest(request)
   )
     return false;
-  if (request.outputMode === "text")
-    return (
-      request.completionPath === undefined &&
-      request.completionTool === undefined
-    );
-  return (
-    typeof request.completionTool === "string" &&
-    /^[A-Za-z0-9_./-]+$/.test(request.completionTool) &&
-    Buffer.byteLength(request.completionTool) <= 128 &&
-    typeof request.completionPath === "string" &&
-    isAbsolute(request.completionPath) &&
-    Buffer.byteLength(request.completionPath) <= 4096 &&
-    !request.completionPath.includes("\0")
-  );
+  return true;
 }
 
 export function validSubagentWorkerRequest(
@@ -296,31 +272,6 @@ export function validSubagentWorkerRequest(
     validForkProbeSubagentRequest(value) ||
     validSessionSubagentRequest(value)
   );
-}
-
-function validCompletion(
-  value: unknown,
-  expectedTool: string | undefined,
-): value is SubagentCompletion {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
-  const completion = value as Record<string, unknown>;
-  if (
-    expectedTool === undefined ||
-    completion.tool !== expectedTool ||
-    !completion.args ||
-    typeof completion.args !== "object" ||
-    Array.isArray(completion.args)
-  )
-    return false;
-  try {
-    const serialized = JSON.stringify(completion.args);
-    return (
-      typeof serialized === "string" &&
-      Buffer.byteLength(serialized) <= MAX_SESSION_COMPLETION_BYTES
-    );
-  } catch {
-    return false;
-  }
 }
 
 export function validSubagentCandidate(
@@ -340,12 +291,8 @@ export function validSubagentCandidate(
     typeof candidate.outputOverflow !== "boolean"
   )
     return false;
-  if (request.outputMode === "text") return candidate.completion === null;
-  return (
-    candidate.text === "" &&
-    candidate.outputOverflow === false &&
-    (candidate.completion === null ||
-      validCompletion(candidate.completion, request.completionTool))
+  return Object.keys(candidate).every((key) =>
+    ["kind", "turn", "text", "outputOverflow"].includes(key),
   );
 }
 

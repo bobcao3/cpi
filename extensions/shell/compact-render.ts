@@ -4,6 +4,7 @@ import { cleanActivityDisplay } from "../lib/activity-details.ts";
 
 interface CompactDetails {
   describe?: string;
+  shellName?: string;
   status?: string;
   exitCode?: number | null;
   outputLines?: number;
@@ -48,6 +49,7 @@ export function renderCompactShellCall(
   theme: Theme,
   context: ShellRenderContext,
   defaultWaitfor: number,
+  shellName: string,
 ) {
   const state = context.state;
   if (!context.isPartial) {
@@ -62,7 +64,7 @@ export function renderCompactShellCall(
   }
   const description = cleanActivityDisplay(args.description?.trim() || "shell");
   return new Text(
-    theme.fg("warning", "⏳ Running shell: ") +
+    theme.fg("warning", `⏳ ${shellName}: `) +
       theme.fg("text", description) +
       elapsedSuffix(
         state?.startedAt === undefined
@@ -81,17 +83,20 @@ export function renderCompactShellResult(
   options: { isPartial: boolean },
   theme: Theme,
   context: ShellRenderContext,
+  shellName: string,
 ) {
   if (options.isPartial) return new Container();
   const details = result.details;
   const args = context.args;
+  const name = details?.shellName ?? shellName;
   const description = cleanActivityDisplay(
     details?.describe?.trim() || args?.description?.trim() || "shell",
   );
   const suffix = elapsedSuffix(details?.elapsedMs, undefined, theme);
   if (details?.status === "running")
     return new Text(
-      theme.fg("text", `⏳ Backgrounded shell: ${description}`) +
+      theme.fg("warning", `⏳ backgrounded ${name}: `) +
+        theme.fg("text", description) +
         (details.elapsedMs === undefined
           ? ""
           : theme.fg(
@@ -106,10 +111,8 @@ export function renderCompactShellResult(
     result.isError ||
     (details?.exitCode != null && details.exitCode !== 0);
   const heading =
-    theme.fg(
-      failed ? "error" : "success",
-      failed ? "✗ Ran shell: " : "✓ Ran shell: ",
-    ) + theme.fg("text", description);
+    theme.fg(failed ? "error" : "success", `${failed ? "✗" : "✓"} ${name}: `) +
+    theme.fg("text", description);
   if (!failed && details?.exitCode === 0)
     return new Text(heading + suffix, 0, 0);
   const code = details?.exitCode == null ? "—" : String(details.exitCode);

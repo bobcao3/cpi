@@ -31,9 +31,10 @@ test("shell durations use milliseconds below 1.5 seconds", () => {
           { isPartial: false },
           theme,
           context,
+          "bash",
         ),
       ),
-      `✓ Ran shell: Timing (${duration})`,
+      `✓ bash: Timing (${duration})`,
     );
     assert.equal(
       plain(
@@ -42,9 +43,10 @@ test("shell durations use milliseconds below 1.5 seconds", () => {
           { isPartial: false },
           theme,
           context,
+          "bash",
         ),
       ),
-      `⏳ Backgrounded shell: Timing (backgrounded after ${duration})`,
+      `⏳ backgrounded bash: Timing (backgrounded after ${duration})`,
     );
   }
   const pending = renderCompactShellCall(
@@ -52,11 +54,9 @@ test("shell durations use milliseconds below 1.5 seconds", () => {
     theme,
     { isPartial: true, isError: false, state: { startedAt: Date.now() - 100 } },
     30,
+    "bash",
   );
-  assert.match(
-    plain(pending),
-    /^⏳ Running shell: Timing \(1\d\dms, wait for 30s\)$/,
-  );
+  assert.match(plain(pending), /^⏳ bash: Timing \(1\d\dms, wait for 30s\)$/);
 });
 
 test("shell TUI shows only description and execution summary", async () => {
@@ -73,10 +73,11 @@ test("shell TUI shows only description and execution summary", async () => {
     theme,
     { isPartial: true, isError: false, state },
     30,
+    "bash",
   );
   assert.equal(
     plain(pending),
-    "⏳ Running shell: Check shell summary (5s, wait for 30s)",
+    "⏳ bash: Check shell summary (5s, wait for 30s)",
   );
   assert.ok(
     pending
@@ -89,8 +90,7 @@ test("shell TUI shows only description and execution summary", async () => {
       .render(100)
       .join("\n")
       .includes(
-        theme.fg("warning", "⏳ Running shell: ") +
-          theme.fg("text", args.description),
+        theme.fg("warning", "⏳ bash: ") + theme.fg("text", args.description),
       ),
   );
   assert.equal(
@@ -100,6 +100,7 @@ test("shell TUI shows only description and execution summary", async () => {
         theme,
         { isPartial: false, isError: false, state },
         30,
+        "bash",
       ),
     ),
     "",
@@ -120,6 +121,7 @@ test("shell TUI shows only description and execution summary", async () => {
   assert.equal(result.outputLines, 2);
   const details = {
     describe: args.description,
+    shellName: "bash",
     status: result.status,
     exitCode: result.exitCode,
     outputLines: result.outputLines,
@@ -133,34 +135,64 @@ test("shell TUI shows only description and execution summary", async () => {
         { isPartial: true },
         theme,
         context,
+        "bash",
       ),
     ),
     "",
   );
   const rendered = plain(
-    renderCompactShellResult({ details }, { isPartial: false }, theme, context),
+    renderCompactShellResult(
+      { details },
+      { isPartial: false },
+      theme,
+      context,
+      "bash",
+    ),
   );
   const duration =
     details.elapsedMs < 1500
       ? `${Math.round(details.elapsedMs)}ms`
       : `${Math.round(details.elapsedMs / 1000)}s`;
   const suffix = ` (${duration})`;
-  assert.equal(rendered, `✓ Ran shell: Check shell summary${suffix}`);
+  assert.equal(rendered, `✓ bash: Check shell summary${suffix}`);
+  assert.equal(
+    plain(
+      renderCompactShellResult(
+        { details: { ...details, shellName: "zsh" } },
+        { isPartial: false },
+        theme,
+        context,
+        "bash",
+      ),
+    ),
+    `✓ zsh: Check shell summary${suffix}`,
+  );
   assert.ok(!rendered.includes("secret-output"));
   assert.ok(!rendered.includes(args.command));
   assert.ok(
-    renderCompactShellResult({ details }, { isPartial: false }, theme, context)
+    renderCompactShellResult(
+      { details },
+      { isPartial: false },
+      theme,
+      context,
+      "bash",
+    )
       .render(100)
       .join("\n")
       .includes(theme.fg("muted", suffix)),
   );
   assert.ok(
-    renderCompactShellResult({ details }, { isPartial: false }, theme, context)
+    renderCompactShellResult(
+      { details },
+      { isPartial: false },
+      theme,
+      context,
+      "bash",
+    )
       .render(100)
       .join("\n")
       .includes(
-        theme.fg("success", "✓ Ran shell: ") +
-          theme.fg("text", args.description),
+        theme.fg("success", "✓ bash: ") + theme.fg("text", args.description),
       ),
   );
   assert.equal(
@@ -170,9 +202,22 @@ test("shell TUI shows only description and execution summary", async () => {
         { isPartial: false },
         theme,
         context,
+        "bash",
       ),
     ),
-    `⏳ Backgrounded shell: Check shell summary (backgrounded after ${duration})`,
+    `⏳ backgrounded bash: Check shell summary (backgrounded after ${duration})`,
+  );
+  assert.equal(
+    plain(
+      renderCompactShellResult(
+        { details: { ...details, shellName: "zsh", status: "running" } },
+        { isPartial: false },
+        theme,
+        context,
+        "bash",
+      ),
+    ),
+    `⏳ backgrounded zsh: Check shell summary (backgrounded after ${duration})`,
   );
   const failed = plain(
     renderCompactShellResult(
@@ -180,11 +225,12 @@ test("shell TUI shows only description and execution summary", async () => {
       { isPartial: false },
       theme,
       { ...context, isError: true },
+      "bash",
     ),
   );
   assert.equal(
     failed,
-    `✗ Ran shell: Check shell summary\n  Exit 7 · 2 lines${suffix}`,
+    `✗ bash: Check shell summary\n  Exit 7 · 2 lines${suffix}`,
   );
   assert.ok(
     renderCompactShellResult(
@@ -192,11 +238,12 @@ test("shell TUI shows only description and execution summary", async () => {
       { isPartial: false },
       theme,
       { ...context, isError: true },
+      "bash",
     )
       .render(100)
       .join("\n")
       .includes(
-        theme.fg("error", "✗ Ran shell: ") + theme.fg("text", args.description),
+        theme.fg("error", "✗ bash: ") + theme.fg("text", args.description),
       ),
   );
   assert.ok(
@@ -205,6 +252,7 @@ test("shell TUI shows only description and execution summary", async () => {
       { isPartial: false },
       theme,
       { ...context, isError: true },
+      "bash",
     )
       .render(100)
       .join("\n")
@@ -227,7 +275,7 @@ test("backgrounded shell shows time until backgrounding", async () => {
     state,
     invalidate: () => redraws++,
   };
-  renderCompactShellCall(args, theme, context, 30);
+  renderCompactShellCall(args, theme, context, 30, "bash");
   assert.ok(state.startedAt);
   assert.ok(state.timer);
   const startedAt = Date.now();
@@ -247,23 +295,37 @@ test("backgrounded shell shows time until backgrounding", async () => {
     const details = {
       ...result,
       describe: args.description,
+      shellName: "bash",
       elapsedMs: Date.now() - startedAt,
     };
     const duration =
       details.elapsedMs < 1500
         ? `${Math.round(details.elapsedMs)}ms`
         : `${Math.round(details.elapsedMs / 1000)}s`;
-    renderCompactShellCall(args, theme, { ...context, isPartial: false }, 30);
+    renderCompactShellCall(
+      args,
+      theme,
+      { ...context, isPartial: false },
+      30,
+      "bash",
+    );
     assert.equal(state.timer, undefined);
     const rendered = renderCompactShellResult(
       { details },
       { isPartial: false },
       theme,
       context,
+      "bash",
     );
     assert.equal(
       plain(rendered),
-      `⏳ Backgrounded shell: Slow shell (backgrounded after ${duration})`,
+      `⏳ backgrounded bash: Slow shell (backgrounded after ${duration})`,
+    );
+    assert.ok(
+      rendered
+        .render(100)
+        .join("\n")
+        .includes(theme.fg("warning", "⏳ backgrounded bash: ")),
     );
     assert.ok(
       rendered

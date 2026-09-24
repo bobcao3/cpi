@@ -111,13 +111,18 @@ describe("udiff parser", () => {
     if (split.ok) expect(split.hunks).toHaveLength(2);
   });
 
-  test("rejects context-only hunks even when another block changes lines", () => {
-    const parsed = parseUdiffs(["@@ -1 +1 @@\n a", "@@ -3 +3 @@\n-c\n+C"]);
-    expect(parsed).toMatchObject({
-      ok: false,
-      error: { code: "no_changes", block: 1, line: 1 },
-    });
+  test("accepts context-only and Codex-style scope headers alongside a change", () => {
+    const parsed = parseUdiffs(["@@ -1 +1 @@\n a", "@@ class B:\n-c\n+C"]);
+    expect(parsed).toMatchObject({ ok: true });
+    if (parsed.ok) expect(parsed.hunks[1].scope).toBe("class B:");
     expect(parseUdiffs(["@@ -1 +1 @@\n a"])).toMatchObject({
+      ok: false,
+      error: { code: "no_changes" },
+    });
+    expect(parseUdiffs(["@@ class B:\n@@\n-c\n+C"])).toMatchObject({
+      ok: true,
+    });
+    expect(parseUdiffs(["@@ -1 +1 @@\n@@\n-c\n+C"])).toMatchObject({
       ok: false,
       error: { code: "no_changes" },
     });
@@ -135,6 +140,55 @@ describe("udiff parser", () => {
 });
 
 describe("udiff application", () => {
+  test("context-only sections scope later changes, including across diff blocks", () => {
+    const source = "class A:\n    value = 1\nclass B:\n    value = 1\n";
+    const prefix = "@@\n class B:\n";
+    const change = "@@\n-    value = 1\n+    value = 2";
+    expect(output(source, [prefix, change])).toBe(
+      "class A:\n    value = 1\nclass B:\n    value = 2\n",
+    );
+    expect(output(source, ["@@ class B:\n" + change])).toBe(
+      "class A:\n    value = 1\nclass B:\n    value = 2\n",
+    );
+    expect(output(source, ["@@ class B:\n+    inserted = True"])).toBe(
+      "class A:\n    value = 1\nclass B:\n    inserted = True\n    value = 1\n",
+    );
+    expect(output(source, ["@@ class B:\n@@\n+    inserted = True"])).toBe(
+      "class A:\n    value = 1\nclass B:\n    inserted = True\n    value = 1\n",
+    );
+    expect(output(source, [prefix, "@@\n+    inserted = True"])).toBe(
+      "class A:\n    value = 1\nclass B:\n    inserted = True\n    value = 1\n",
+    );
+  });
+
+  test("scoped matching fails closed on wrong direction, duplicates and missing anchors", () => {
+    const source = "class A:\n    value = 1\nclass B:\n    value = 1\n";
+    expect(
+      apply(source, ["@@\n class B:\n@@\n-class A:\n+class C:"]),
+    ).toMatchObject({
+      ok: false,
+      error: { code: "not_found" },
+    });
+    expect(
+      apply("class B:\n    x\n    x\n", ["@@ class B:\n@@\n-    x\n+    X"]),
+    ).toMatchObject({
+      ok: false,
+      error: { code: "ambiguous" },
+    });
+    expect(
+      apply(source, ["@@ class Missing:\n@@\n-    value = 1\n+    value = 2"]),
+    ).toMatchObject({
+      ok: false,
+      error: { code: "not_found" },
+    });
+    expect(
+      apply("class B:\nclass B:\n", ["@@ class B:\n@@\n-class B:\n+class C:"]),
+    ).toMatchObject({
+      ok: false,
+      error: { code: "ambiguous" },
+    });
+  });
+
   test("uses the declared anchor without requiring global uniqueness", () => {
     const source = "same\nother\nsame\n";
     expect(output(source, ["@@ -3,1 +3,1 @@\n-same\n+changed"])).toBe(

@@ -25,6 +25,7 @@ export interface UdiffHunk {
   block: number;
   /** False when the header carried no coordinates; `oldStart` is then unusable. */
   anchored: boolean;
+  scope?: string;
   oldStart: number;
   oldCount: number;
   newStart: number;
@@ -55,6 +56,7 @@ export type UdiffParseResult =
 
 const HEADER = /^@@+ *-(\d+)(?:,(\d+))? *\+(\d+)(?:,(\d+))? *@@+(?: .*)?$/;
 const HEADER_LOOSE = /^(?:@@+(?: *(?:\.\.\.)? *@@+)?|\*\*\*)[ \t]*$/;
+const HEADER_SCOPE = /^@@ (.+)$/;
 const NO_NEWLINE = /^\\ No newline at end of (?:file|source|target)[ \t]*$/;
 
 function fail(
@@ -92,6 +94,7 @@ interface HunkParse {
  *  yields an unanchored hunk the applier locates by unique match. */
 function parseHunk(
   header: RegExpExecArray | null,
+  scope: string | undefined,
   body: string[],
   block: number,
   base: number,
@@ -150,7 +153,7 @@ function parseHunk(
     if (row.operation !== "context") changed = true;
   }
 
-  if (!changed) return bad("no_changes", base);
+  if (!changed && rows.length === 0 && !scope) return bad("no_changes", base);
 
   // Header counts are advisory; the body is authority — a header claiming source lines the body lacks stays fatal (context rows can't be recovered).
   if (sourceCount === 0 && headerOldCount > 0) return bad("bad_count", base);
@@ -175,6 +178,7 @@ function parseHunk(
     hunk: {
       block,
       anchored,
+      scope,
       oldStart,
       oldCount: sourceCount,
       newStart,
@@ -197,12 +201,18 @@ function parseBlock(
   const framing = patch_framing(lines, target);
   if (framing.ok === false) return fail(framing.code, block, framing.line);
 
-  const headers: { match: RegExpExecArray | null; at: number }[] = [];
+  const headers: {
+    match: RegExpExecArray | null;
+    scope?: string;
+    at: number;
+  }[] = [];
   for (let index = framing.start; index < framing.end; index++) {
     const match = HEADER.exec(lines[index]);
     if (match) headers.push({ match, at: index });
     else if (HEADER_LOOSE.test(lines[index]))
       headers.push({ match: null, at: index });
+    else if (HEADER_SCOPE.test(lines[index]) && !/^@@ -\d/.test(lines[index]))
+      headers.push({ match: null, scope: lines[index].slice(3), at: index });
     else if (lines[index].startsWith("@@"))
       return fail("bad_header", block, index + 1);
   }
@@ -215,6 +225,7 @@ function parseBlock(
     if (lines[start] === "***" && start + 1 === end) continue;
     const parsed = parseHunk(
       headers[index].match,
+      headers[index].scope,
       lines.slice(start + 1, end),
       block,
       start + 1,
@@ -244,5 +255,9 @@ export function parseUdiffs(
   }
   if (hunks.length === 0) return fail("no_changes", 1);
   if (hunks.length > MAX_DIFF_BLOCKS) return fail("too_many", 1);
+  if (
+    !hunks.some((hunk) => hunk.rows.some((row) => row.operation !== "context"))
+  )
+    return fail("no_changes", 1);
   return { ok: true, hunks };
 }

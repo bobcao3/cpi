@@ -25,7 +25,6 @@
     ]
   },
   "editor": {
-    "mode": "direct-diff",
     "maxFileBytes": 262144,
     "subagentTimeoutMs": 120000,
     "maxCorrectionTurns": 2,

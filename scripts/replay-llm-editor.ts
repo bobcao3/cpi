@@ -14,7 +14,6 @@ import {
   type EditFileResult,
 } from "../extensions/llm-editor/editor.ts";
 import type { DirectDiffMarkers } from "../extensions/llm-editor/direct-diff.ts";
-import type { EditorMode } from "../extensions/lib/config.ts";
 
 interface ReplayCase {
   file: string;
@@ -25,7 +24,6 @@ interface ReplayCase {
 
 interface Trial {
   case: string;
-  mode: EditorMode;
   sourceBytes: number;
   ok: boolean;
   error?: string;
@@ -75,10 +73,9 @@ function parseTranscript(file: string, body: string): ReplayCase | null {
   const instructionStart = user.indexOf(instructionTag, contentStart + 2);
   if (contentStart < 0 || instructionStart < 0) return null;
   const numbered = user.slice(contentStart + 2, instructionStart);
-  const instructionTail = user.slice(instructionStart + instructionTag.length);
-  const callStart = instructionTail.lastIndexOf("\n\nCall edit-complete");
-  if (callStart < 0) return null;
-  const instruction = instructionTail.slice(0, callStart).trim();
+  const instruction = user
+    .slice(instructionStart + instructionTag.length)
+    .trim();
   const rows = numbered.split("\n");
   const source: string[] = [];
   for (let index = 0; index < rows.length; index++) {
@@ -126,7 +123,6 @@ function sampleCases(cases: ReplayCase[], limit: number): ReplayCase[] {
 async function runTrial(
   root: string,
   replay: ReplayCase,
-  mode: EditorMode,
   index: number,
   timeoutMs: number,
   directMarkers: DirectDiffMarkers,
@@ -138,12 +134,11 @@ async function runTrial(
   await writeFile(path, replay.source, "utf8");
   const start = Date.now();
   const result: EditFileResult = await editFile(path, {
-    id: `replay-${index}-${mode}-${hash(JSON.stringify(directMarkers))}`,
+    id: `replay-${index}-${hash(JSON.stringify(directMarkers))}`,
     instruction: replay.instruction,
     provider,
     modelId,
     thinkingLevel,
-    mode,
     cwd: root,
     timeoutMs,
     directMarkers,
@@ -155,13 +150,12 @@ async function runTrial(
   const elapsedMs = Date.now() - start;
   const base = {
     case: basename(replay.file, ".md"),
-    mode,
     sourceBytes: Buffer.byteLength(replay.source),
     ok: result.ok,
     inputTokens: result.usage?.input,
     outputTokens: result.usage?.output,
     elapsedMs,
-    markers: mode === "direct-diff" ? directMarkers : undefined,
+    markers: directMarkers,
   };
   if (!result.ok) return { ...base, error: result.error };
   const output = await readFile(path, "utf8");
@@ -174,8 +168,8 @@ async function runTrial(
   };
 }
 
-function summarize(trials: Trial[], mode: EditorMode) {
-  const rows = trials.filter((trial) => trial.mode === mode);
+function summarize(trials: Trial[]) {
+  const rows = trials;
   const measured = rows.filter(
     (trial) =>
       trial.inputTokens !== undefined && trial.outputTokens !== undefined,
@@ -183,7 +177,6 @@ function summarize(trials: Trial[], mode: EditorMode) {
   const sum = (field: "inputTokens" | "outputTokens" | "elapsedMs") =>
     measured.reduce((total, trial) => total + (trial[field] ?? 0), 0);
   return {
-    mode,
     trials: rows.length,
     successes: rows.filter((trial) => trial.ok).length,
     successRate: rows.length
@@ -210,7 +203,6 @@ async function main(): Promise<void> {
   const timeoutMs = positiveInt("--timeout-ms", 120000);
   const outputPath = argValue("--output", "");
   const caseFilter = argValue("--case", "");
-  const modeArg = argValue("--mode", "both");
   const provider = argValue("--provider", "openai-codex");
   const modelId = argValue("--model", "gpt-5.6-luna");
   const thinkingLevel = argValue("--thinking", "medium");
@@ -219,12 +211,6 @@ async function main(): Promise<void> {
     throw new Error("--markers must be angle or patch");
   const directMarkers: DirectDiffMarkers = markersArg;
   const keepTemp = process.argv.includes("--keep-temp");
-  if (
-    modeArg !== "tool-call" &&
-    modeArg !== "direct-diff" &&
-    modeArg !== "both"
-  )
-    throw new Error("--mode must be tool-call, direct-diff, or both");
   await stat(transcriptDir);
   let available = await loadCases(transcriptDir, maxBytes);
   if (caseFilter) {
@@ -248,34 +234,23 @@ async function main(): Promise<void> {
   try {
     for (let index = 0; index < selected.length; index++) {
       const replay = selected[index];
-      const modes: EditorMode[] =
-        modeArg === "tool-call"
-          ? ["tool-call"]
-          : modeArg === "direct-diff"
-            ? ["direct-diff"]
-            : index % 2 === 0
-              ? ["tool-call", "direct-diff"]
-              : ["direct-diff", "tool-call"];
-      for (const mode of modes) {
-        process.stderr.write(
-          `[${index + 1}/${selected.length}] ${replay.file} ${mode}\n`,
-        );
-        const trial = await runTrial(
-          root,
-          replay,
-          mode,
-          index,
-          timeoutMs,
-          directMarkers,
-          provider,
-          modelId,
-          thinkingLevel,
-        );
-        trials.push(trial);
-        process.stderr.write(
-          `  ${trial.ok ? "ok" : "FAIL"} in=${trial.inputTokens ?? "?"} out=${trial.outputTokens ?? "?"} ms=${trial.elapsedMs}\n`,
-        );
-      }
+      process.stderr.write(
+        `[${index + 1}/${selected.length}] ${replay.file}\n`,
+      );
+      const trial = await runTrial(
+        root,
+        replay,
+        index,
+        timeoutMs,
+        directMarkers,
+        provider,
+        modelId,
+        thinkingLevel,
+      );
+      trials.push(trial);
+      process.stderr.write(
+        `  ${trial.ok ? "ok" : "FAIL"} in=${trial.inputTokens ?? "?"} out=${trial.outputTokens ?? "?"} ms=${trial.elapsedMs}\n`,
+      );
     }
     const report = {
       generatedAt: new Date().toISOString(),
@@ -287,10 +262,7 @@ async function main(): Promise<void> {
       available: available.length,
       selected: selected.length,
       ...(keepTemp ? { tempRoot: root } : {}),
-      summary: [
-        summarize(trials, "tool-call"),
-        summarize(trials, "direct-diff"),
-      ],
+      summary: summarize(trials),
       trials,
     };
     const json = JSON.stringify(report, null, 2) + "\n";

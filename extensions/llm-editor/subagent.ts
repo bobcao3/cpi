@@ -2,12 +2,10 @@
  * Run a minimized SDK AgentSession in the root-owned subagent RPC worker (no
  * nested Pi CLI/process), which may continue with bounded correction turns in
  * the same conversation, with no builtins, persisted session, context files, or skills.
- * Role-gated completion uses a handoff file; direct mode returns text.
+ * Viewer and editor return bounded text, with optional correction turns.
  */
 
 import { randomUUID } from "node:crypto";
-import { unlink } from "node:fs/promises";
-import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { writeTranscript } from "./log.ts";
@@ -33,7 +31,6 @@ export interface SubagentOptions {
   provider: string;
   modelId: string;
   thinkingLevel?: string;
-  outputMode?: "tool-call" | "text";
   maxOutputBytes?: number;
   maxCorrectionTurns?: number;
   /** Return a correction to continue the same session; undefined finishes. */
@@ -47,15 +44,7 @@ export interface SubagentOptions {
   onStream?: (accumulated: string) => void;
 }
 
-/** The completion tool call the subagent ended on; null = it never called it (truncated). */
-export interface SubagentCompletion {
-  tool: "view-complete" | "edit-complete";
-  args: Record<string, unknown>;
-}
-
-export interface SubagentCandidate extends SessionCandidate {
-  completion: SubagentCompletion | null;
-}
+export type SubagentCandidate = SessionCandidate;
 
 export interface SubagentResult {
   stderr: string;
@@ -64,7 +53,6 @@ export interface SubagentResult {
   spawnError?: string;
   elapsedMs: number;
   usage?: Usage;
-  completion: SubagentCompletion | null;
   text: string;
   outputOverflow: boolean;
   aborted: boolean;
@@ -76,22 +64,17 @@ interface RecordedTurn {
   correction?: string;
 }
 
-function renderTurn(T: EditorText, record: RecordedTurn): string {
+function renderTurn(
+  T: EditorText,
+  record: RecordedTurn,
+  role: "viewer" | "editor",
+): string {
   const { candidate } = record;
   let rendered =
     `${fmt(T.transcript.section_completion_turn, { turn: candidate.turn + 1 })}\n\n` +
-    (candidate.completion
-      ? `\`\`\`json\n${JSON.stringify(
-          {
-            tool: candidate.completion.tool,
-            args: candidate.completion.args,
-          },
-          null,
-          2,
-        )}\n\`\`\`\n`
-      : candidate.text.trim()
-        ? `\`\`\`diff\n${candidate.text.trim()}\n\`\`\`\n`
-        : `${T.messages.no_output}\n`);
+    (candidate.text.trim()
+      ? `\`\`\`${role === "viewer" ? "json" : "diff"}\n${candidate.text.trim()}\n\`\`\`\n`
+      : `${T.messages.no_output}\n`);
   if (record.correction !== undefined) {
     rendered += `\n${fmt(T.transcript.section_correction_turn, {
       turn: candidate.turn + 1,
@@ -112,13 +95,8 @@ export async function runSubagent(
   opts: SubagentOptions,
 ): Promise<SubagentResult> {
   const T = loadEditorText(opts.cwd);
-  const outputMode = opts.outputMode ?? "tool-call";
   const maxOutputBytes = opts.maxOutputBytes ?? 524288;
   const maxCorrectionTurns = opts.maxCorrectionTurns ?? 0;
-  const completionPath =
-    outputMode === "tool-call"
-      ? join(tmpdir(), `cpi-editor-${process.pid}-${randomUUID()}.json`)
-      : undefined;
   const extensionRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
   const extensionPaths = [
     join(extensionRoot, "subagent-transcript/index.ts"),
@@ -129,23 +107,11 @@ export async function runSubagent(
   if (ownerSession) env.PI_SESSION_ID = ownerSession;
   env.PI_SUBAGENT_ROLE = opts.role;
   env.PI_SUBAGENT_CWD = opts.cwd;
-  if (completionPath) {
-    extensionPaths.push(join(extensionRoot, "llm-editor/completion.ts"));
-    env.PI_SUBAGENT_COMPLETION = completionPath;
-  } else {
-    delete env.PI_SUBAGENT_COMPLETION;
-  }
   const request: SessionSubagentRequest = {
     version: 1,
     kind: "session",
     cacheRetention: "none",
     extensionPaths,
-    completionTool:
-      outputMode === "tool-call"
-        ? opts.role === "viewer"
-          ? "view-complete"
-          : "edit-complete"
-        : undefined,
     runId: randomUUID(),
     systemPrompt: opts.systemPrompt,
     task: opts.task,
@@ -154,8 +120,6 @@ export async function runSubagent(
     modelId: opts.modelId,
     thinkingLevel: opts.thinkingLevel,
     cwd: opts.cwd,
-    outputMode,
-    completionPath,
     maxTurns: maxCorrectionTurns + 1,
     maxOutputBytes,
     env,
@@ -235,12 +199,8 @@ export async function runSubagent(
   const elapsedMs = Date.now() - start;
 
   const text = lastCandidate?.text ?? "";
-  const completion = lastCandidate?.completion ?? null;
   const outputOverflow = lastCandidate?.outputOverflow ?? false;
   const aborted = opts.signal?.aborted === true && !timedOut;
-  if (completionPath) {
-    await unlink(completionPath).catch(() => {});
-  }
   const usage = result.observation?.usage;
 
   const head =
@@ -255,13 +215,12 @@ export async function runSubagent(
     `- aborted: ${aborted}\n` +
     `- turns: ${turns.length}\n` +
     `- correction_turns: ${turns.filter((turn) => turn.correction !== undefined).length}\n` +
-    `- output_mode: ${outputMode}\n` +
     `- output_overflow: ${outputOverflow}\n` +
     (spawnError ? `- spawn_error: ${spawnError}\n` : "") +
     `\n${T.transcript.section_system}\n\n${opts.systemPrompt}\n\n` +
     `${T.transcript.section_user}\n\n${opts.task}\n\n` +
     (turns.length > 0
-      ? turns.map((turn) => renderTurn(T, turn)).join("\n")
+      ? turns.map((turn) => renderTurn(T, turn, opts.role)).join("\n")
       : `${T.transcript.section_completion}\n\n${T.messages.no_output}\n`) +
     (stderr.trim()
       ? `\n${T.transcript.section_stderr}\n\n\`\`\`\n${stderr.trim()}\n\`\`\`\n`
@@ -293,7 +252,6 @@ export async function runSubagent(
     spawnError,
     elapsedMs,
     usage,
-    completion,
     outputOverflow,
     aborted,
     turns: turns.length,

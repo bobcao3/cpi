@@ -17,7 +17,6 @@ export function subagentEnvironment(
     env.PI_SESSION_ID = request.parentSessionId;
     env.PI_SESSION = request.parentSessionId.slice(0, 8);
     env.PI_SESSION_DIR = request.sessionDir;
-    delete env.PI_SUBAGENT_COMPLETION;
     delete env.PI_SUBAGENT_ROLE;
     delete env.PI_SUBAGENT_CWD;
     delete env.PI_SUBAGENT_SUMMARY;

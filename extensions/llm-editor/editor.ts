@@ -1,7 +1,7 @@
 /** Applies editor changes atomically under a per-path lock. */
 
 import { basename, resolve } from "node:path";
-import { loadEditorConfig, type EditorMode } from "../lib/config.ts";
+import { loadEditorConfig } from "../lib/config.ts";
 import { runSubagent, type SubagentCandidate } from "./subagent.ts";
 import { loadEditorText, fmt } from "./text.ts";
 import {
@@ -37,7 +37,6 @@ export interface EditFileOptions {
   fuzzyMatch?: boolean;
   onStream?: (accumulated: string) => void;
   thinkingLevel?: string;
-  mode?: EditorMode;
   /** Direct-diff envelope markers (default "patch"). */
   directMarkers?: DirectDiffMarkers;
 }
@@ -56,15 +55,12 @@ export async function editFile(
   return withFileEdit(path, opts, async (content) => {
     let usage: { input: number; output: number } | undefined;
     const numbered = numberLines(content);
-    const direct = (opts.mode ?? editorConfig.mode) === "direct-diff";
     const maxCorrectionTurns =
       opts.maxCorrectionTurns ?? editorConfig.maxCorrectionTurns;
     const directMarkers = opts.directMarkers ?? "patch";
     const envelopeMarkers = directDiffEnvelope(directMarkers);
     const baseSystem =
-      (direct
-        ? fmt(T.system.editor_direct, envelopeMarkers)
-        : T.system.editor) +
+      fmt(T.system.editor, envelopeMarkers) +
       (opts.fuzzyMatch === false ? "" : T.system.editor_fuzzy);
 
     const validateDiffs = (diffs: unknown): Attempt => {
@@ -74,45 +70,17 @@ export async function editFile(
     };
 
     const validateCandidate = (candidate: SubagentCandidate): Attempt => {
-      if (direct) {
-        if (candidate.outputOverflow)
-          return { ok: "retryable", error: T.errors.direct_output_overflow };
-        const envelope = parseDirectDiff(candidate.text, directMarkers);
-        if (envelope.ok === false)
-          return {
-            ok: "retryable",
-            error: fmt(T.errors["direct_" + envelope.error], envelopeMarkers),
-          };
-        if ("cancel" in envelope)
-          return { ok: "fatal", error: T.errors.direct_editor_cancelled };
-        return validateDiffs([envelope.diff]);
-      }
-
-      const c = candidate.completion;
-      if (!c || c.tool !== "edit-complete")
-        return { ok: "retryable", error: T.errors.editor_truncated };
-      if (c.args.cancel === true)
-        return { ok: "fatal", error: T.errors.editor_cancelled };
-
-      const rewrite =
-        typeof c.args.content === "string" ? c.args.content : undefined;
-      if (rewrite !== undefined) {
-        if (rewrite.trim() === "" && content.trim() !== "")
-          return { ok: "retryable", error: T.errors.rewrite_empty };
-        if (rewrite === content)
-          return { ok: "retryable", error: T.errors.no_change };
+      if (candidate.outputOverflow)
+        return { ok: "retryable", error: T.errors.direct_output_overflow };
+      const envelope = parseDirectDiff(candidate.text, directMarkers);
+      if (envelope.ok === false)
         return {
-          ok: "applied",
-          result: {
-            ok: true,
-            content: rewrite,
-            applied: 1,
-            wholeFileRewrite: true,
-            match: "exact",
-          },
+          ok: "retryable",
+          error: fmt(T.errors["direct_" + envelope.error], envelopeMarkers),
         };
-      }
-      return validateDiffs(c.args.diffs);
+      if ("cancel" in envelope)
+        return { ok: "fatal", error: T.errors.direct_editor_cancelled };
+      return validateDiffs([envelope.diff]);
     };
 
     let outcome: Attempt | undefined;
@@ -121,7 +89,7 @@ export async function editFile(
       role: "editor",
       title: basename(resolve(opts.cwd, path)),
       systemPrompt: baseSystem,
-      task: fmt(direct ? T.tasks.editor_direct : T.tasks.editor, {
+      task: fmt(T.tasks.editor, {
         content: numbered,
         instruction: opts.instruction,
         ...envelopeMarkers,
@@ -136,7 +104,6 @@ export async function editFile(
       maxTranscripts: opts.maxTranscripts,
       onStream: opts.onStream,
       thinkingLevel: opts.thinkingLevel,
-      outputMode: direct ? "text" : "tool-call",
       maxOutputBytes: MAX_DIRECT_OUTPUT_BYTES,
       maxCorrectionTurns,
       onCandidate: (candidate) => {
@@ -146,12 +113,10 @@ export async function editFile(
           correctionsSent < maxCorrectionTurns
         ) {
           correctionsSent++;
-          return fmt(
-            direct
-              ? T.tasks.editor_direct_correction
-              : T.tasks.editor_correction,
-            { failure: outcome.error, ...envelopeMarkers },
-          );
+          return fmt(T.tasks.editor_correction, {
+            failure: outcome.error,
+            ...envelopeMarkers,
+          });
         }
         return undefined;
       },
@@ -170,9 +135,10 @@ export async function editFile(
         error: fmt(T.errors.subagent_start_failed, { reason: res.spawnError }),
         usage,
       };
-    if (!outcome) return { ok: false, error: T.errors.editor_truncated, usage };
+    if (!outcome)
+      return { ok: false, error: T.errors.direct_missing_envelope, usage };
     if (correctionsSent >= res.turns)
-      return { ok: false, error: T.errors.editor_truncated, usage };
+      return { ok: false, error: T.errors.direct_missing_envelope, usage };
     if (
       outcome.ok === "retryable" &&
       maxCorrectionTurns > 0 &&

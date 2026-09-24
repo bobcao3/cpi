@@ -1,8 +1,7 @@
 /**
  * `view` on a file: delegate to the Viewer subagent. Mirrors SWE-Edit §3.1 —
  * query-conditioned snippet extraction beats raw dumps on recall + context.
- * The `view-complete` ranges arg is read back from the $PI_SUBAGENT_COMPLETION
- * handoff file by runSubagent.
+ * The viewer returns a bounded JSON object, validated before rendering.
  */
 
 import { readFile, stat } from "node:fs/promises";
@@ -26,26 +25,53 @@ export interface ViewFileOptions {
   thinkingLevel?: string;
 }
 
-/** Validate the view-complete `ranges` arg into [start, end] pairs; invalid elements are dropped, non-array is bad output, empty is legitimate. */
-function normalizeRanges(raw: unknown): number[][] | null {
-  if (!Array.isArray(raw)) return null;
-  const ranges: number[][] = [];
-  for (const r of raw) {
-    let s = NaN;
-    let e = NaN;
-    if (Array.isArray(r) && r.length === 2) {
-      s = Number(r[0]);
-      e = Number(r[1]);
-    } else if (r && typeof r === "object") {
-      const o = r as Record<string, unknown>;
-      s = Number(o.start);
-      e = Number(o.end);
-    }
-    if (!Number.isInteger(s) || !Number.isInteger(e) || s < 1 || e < s)
-      continue;
-    ranges.push([s, e]);
+export function parseViewerJson(text: string): {
+  summary: string;
+  ranges: number[][];
+} | null {
+  if (Buffer.byteLength(text, "utf8") > 65536) return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text.trim());
+  } catch {
+    return null;
   }
-  return ranges;
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed))
+    return null;
+  const { one_line_summary: summary, ranges } = parsed as Record<
+    string,
+    unknown
+  >;
+  if (
+    typeof summary !== "string" ||
+    !summary.trim() ||
+    summary.length > 240 ||
+    /[\r\n]/.test(summary) ||
+    !Array.isArray(ranges) ||
+    ranges.length > 128
+  )
+    return null;
+  const result: number[][] = [];
+  for (const item of ranges) {
+    if (!item || typeof item !== "object" || Array.isArray(item)) return null;
+    const { start, end } = item as Record<string, unknown>;
+    if (
+      !Number.isSafeInteger(start) ||
+      !Number.isSafeInteger(end) ||
+      (start as number) < 1 ||
+      (end as number) < (start as number)
+    )
+      return null;
+    result.push([start as number, end as number]);
+  }
+  result.sort((a, b) => a[0] - b[0]);
+  const merged: number[][] = [];
+  for (const [start, end] of result) {
+    const last = merged.at(-1);
+    if (last && start <= last[1] + 1) last[1] = Math.max(last[1], end);
+    else merged.push([start, end]);
+  }
+  return { summary: summary.trim(), ranges: merged };
 }
 
 export function renderRanges(
@@ -122,6 +148,7 @@ export async function viewFile(
     maxTranscripts: opts.maxTranscripts,
     onStream: opts.onStream,
     thinkingLevel: opts.thinkingLevel,
+    maxOutputBytes: 65536,
   });
 
   if (res.timedOut)
@@ -135,26 +162,18 @@ export async function viewFile(
       text: "",
       error: fmt(T.errors.subagent_start_failed, { reason: res.spawnError }),
     };
-  // The view-complete tool call IS the signal: missing/wrong tool => truncation.
-  const c = res.completion;
-  if (!c || c.tool !== "view-complete") {
+  if (res.outputOverflow) {
     return { text: "", error: T.errors.viewer_truncated };
   }
-  const ranges = normalizeRanges(c.args.ranges);
-  const summary = c.args.one_line_summary;
-  if (
-    !ranges ||
-    typeof summary !== "string" ||
-    !summary.trim() ||
-    summary.length > 240 ||
-    /[\r\n]/.test(summary)
-  )
+  const view = parseViewerJson(res.text);
+  if (!view)
     return {
       text: "",
       error: fmt(T.errors.viewer_bad_output, {
-        tail: JSON.stringify(c.args).slice(0, 400),
+        tail: res.text.slice(0, 400),
       }),
     };
+  const { ranges, summary } = view;
   if (ranges.length === 0)
     return {
       text: T.messages.view_no_ranges,

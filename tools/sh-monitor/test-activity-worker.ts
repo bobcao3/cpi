@@ -30,7 +30,6 @@ const request = (modelId: string): SessionSubagentRequest => ({
   modelId,
   systemPrompt: "Reply concisely.",
   task: "Reply only ACTIVITY_OK.",
-  outputMode: "text",
   maxOutputBytes: 4096,
   maxTurns: 1,
   cwd: process.cwd(),

@@ -224,9 +224,10 @@ function searchAll(
   hunk: UdiffHunk,
   mode: "exact" | "fuzzy",
   budget: MatchBudget,
+  from = 0,
 ): MatchAttempt {
   let found: HunkMatch | undefined;
-  for (let start = 0; start + hunk.oldCount <= lines.length; start++) {
+  for (let start = from; start + hunk.oldCount <= lines.length; start++) {
     const attempt = matchAt(lines, hunk, start, mode, budget);
     if (attempt.kind === "ambiguous" || attempt.kind === "limit")
       return attempt;
@@ -244,17 +245,20 @@ function resolveExact(
   hunk: UdiffHunk,
   fuzzy: boolean,
   budget: MatchBudget,
+  from: number,
 ): Resolution {
   const sourceRows = hunk.rows.filter((row) => row.operation !== "add");
   if (sourceRows.length === 0) {
-    // A pure insertion is placed solely by its coordinate — without an anchor it cannot be placed at all.
-    if (!hunk.anchored || hunk.oldStart < 0 || hunk.oldStart > lines.length)
+    // A scoped insertion goes immediately after its resolved context line.
+    if ((!hunk.anchored && from === 0) || from > lines.length)
       return { kind: "bad_anchor" };
+    const at = hunk.anchored ? hunk.oldStart : from;
+    if (at < from || at < 0 || at > lines.length) return { kind: "bad_anchor" };
     return {
       kind: "match",
       value: {
-        startLine: hunk.oldStart,
-        endLine: hunk.oldStart,
+        startLine: at,
+        endLine: at,
         rows: new Map(),
         indentAdd: "",
         mode: "exact",
@@ -263,7 +267,7 @@ function resolveExact(
   }
 
   const anchor = hunk.oldStart - 1;
-  if (hunk.anchored && anchor >= 0 && anchor < lines.length) {
+  if (hunk.anchored && anchor >= from && anchor < lines.length) {
     const exact = matchAt(lines, hunk, anchor, "exact", budget);
     if (exact.kind !== "miss") return exact;
     if (fuzzy) {
@@ -271,9 +275,9 @@ function resolveExact(
       if (fuzzyMatch.kind !== "miss") return fuzzyMatch;
     }
   }
-  const exact = searchAll(lines, hunk, "exact", budget);
+  const exact = searchAll(lines, hunk, "exact", budget, from);
   if (exact.kind !== "miss" || !fuzzy) return exact;
-  return searchAll(lines, hunk, "fuzzy", budget);
+  return searchAll(lines, hunk, "fuzzy", budget, from);
 }
 
 /** Escalate through the fuzz ladder on a total miss; splice from the hunk that actually matched. */
@@ -282,13 +286,14 @@ function resolveHunk(
   hunk: UdiffHunk,
   fuzzy: boolean,
   budget: MatchBudget,
+  from: number,
 ): { attempt: Resolution; hunk: UdiffHunk } {
-  const attempt = resolveExact(lines, hunk, fuzzy, budget);
+  const attempt = resolveExact(lines, hunk, fuzzy, budget, from);
   if (attempt.kind !== "miss" || !fuzzy) return { attempt, hunk };
   for (const [lead, tail] of FUZZ_LEVELS) {
     const candidate = fuzzHunk(hunk, lead, tail);
     if (!candidate) continue;
-    const retry = resolveExact(lines, candidate, fuzzy, budget);
+    const retry = resolveExact(lines, candidate, fuzzy, budget, from + lead);
     if (retry.kind === "miss") continue;
     if (
       retry.kind === "match" &&
@@ -298,6 +303,22 @@ function resolveHunk(
     return { attempt: retry, hunk: candidate };
   }
   return { attempt, hunk };
+}
+
+function scopeStart(
+  lines: SourceLine[],
+  text: string,
+  from: number,
+  budget: MatchBudget,
+): number | "ambiguous" | "limit" {
+  let found = -1;
+  for (let index = from; index < lines.length; index++) {
+    if (budget.remaining-- <= 0) return "limit";
+    if (lines[index].text !== text) continue;
+    if (found >= 0) return "ambiguous";
+    found = index;
+  }
+  return found < 0 ? -1 : found + 1;
 }
 
 /** Resolve every hunk against the immutable original, then apply all or none. */
@@ -313,8 +334,36 @@ export function applyUdiffs(
   let anyFuzzy = false;
   let newline: NewlineIntent | undefined;
   const budget: MatchBudget = { remaining: MAX_MATCH_WORK, exhausted: false };
+  let cursor = 0;
+  let scoped = false;
   for (const original of hunks) {
-    const { attempt, hunk } = resolveHunk(lines, original, fuzzy, budget);
+    if (original.scope) {
+      const scope = scopeStart(lines, original.scope, cursor, budget);
+      if (scope === "ambiguous")
+        return {
+          ok: false,
+          error: { code: "ambiguous", block: original.block },
+        };
+      if (scope === "limit")
+        return {
+          ok: false,
+          error: { code: "work_limit", block: original.block },
+        };
+      if (scope < 0)
+        return {
+          ok: false,
+          error: { code: "not_found", block: original.block, fuzzy },
+        };
+      cursor = scope;
+      scoped = true;
+    }
+    const { attempt, hunk } = resolveHunk(
+      lines,
+      original,
+      fuzzy,
+      budget,
+      scoped ? cursor : 0,
+    );
     if (attempt.kind === "bad_anchor")
       return { ok: false, error: { code: "bad_anchor", block: hunk.block } };
     if (attempt.kind === "ambiguous")
@@ -332,6 +381,8 @@ export function applyUdiffs(
     if (intent) newline = intent;
     anyFuzzy ||= attempt.value.mode === "fuzzy" || hunk !== original;
     splices.push(...changeSplices(content, lines, hunk, attempt.value, eol));
+    if (hunk.rows.every((row) => row.operation === "context")) scoped = true;
+    if (scoped) cursor = attempt.value.endLine;
   }
 
   splices.sort(
@@ -360,7 +411,9 @@ export function applyUdiffs(
   return {
     ok: true,
     content: output,
-    applied: hunks.length,
+    applied: hunks.filter((hunk) =>
+      hunk.rows.some((row) => row.operation !== "context"),
+    ).length,
     wholeFileRewrite:
       splices.length === 1 &&
       splices[0].start === 0 &&

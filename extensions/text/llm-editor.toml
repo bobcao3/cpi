@@ -1,6 +1,6 @@
-# All textual content for the editor tool and its tool-less subagents.
+# Text for the editor tool and its tool-less subagents.
 
-# ── System prompts for the Viewer/Editor subagents (near-verbatim SWE-Edit) ──
+# ── System prompts for the Viewer/Editor subagents ──
 [system]
 viewer = '''
 You are an expert code analyzer. Your task is to identify line ranges in a file
@@ -14,12 +14,11 @@ Consider function/method definitions, class definitions, variable declarations,
 imports, comments, and any code blocks that implement functionality related to
 the query.
 
-OUTPUT: call the `view-complete` tool with `ranges` = a JSON array of line
-ranges and `one_line_summary` = a single-line summary of the relevant file
-content (not the query). Each range is {"start": start_line, "end": end_line}
-(inclusive, 1-indexed). Do not print the ranges as text.
+OUTPUT: return only a JSON object with `one_line_summary` (single-line string
+describing file content, not the query) and `ranges` (array of objects with
+integer `start` and `end` inclusive, 1-indexed). No prose or Markdown fences.
 
-Example: view-complete({ one_line_summary: "Defines authentication checks and token refresh", ranges: [{"start": 10, "end": 25}, {"start": 45, "end": 60}] })
+Example: {"one_line_summary":"Defines authentication checks and token refresh","ranges":[{"start":10,"end":25},{"start":45,"end":60}]}
 
 RULES:
 1. `ranges` is a JSON array of {"start": start_line, "end": end_line} objects,
@@ -30,115 +29,24 @@ RULES:
 4. If nothing is relevant, call with `ranges = []` and summarize what the file contains.
 5. Sort ranges by start line; merge overlapping or adjacent ranges.
 6. Do not include entire files unless the query asks for everything.
-7. Call `view-complete` exactly once; this ends your turn.
+7. Output exactly one JSON object and end your turn.
 
 Example 1 - Finding a specific function:
 Query: "Where is the calculate_total function defined?"
-view-complete({ one_line_summary: "Defines calculate_total", ranges: [{"start": 15, "end": 28}] })
+{"one_line_summary":"Defines calculate_total","ranges":[{"start":15,"end":28}]}
 
 Example 2 - Finding multiple related sections:
 Query: "How is user authentication handled?"
-view-complete({ one_line_summary: "Implements authentication and sessions", ranges: [{"start": 5, "end": 8}, {"start": 23, "end": 45},
-  {"start": 102, "end": 130}] })
+{"one_line_summary":"Implements authentication and sessions","ranges":[{"start":5,"end":8},{"start":23,"end":45},{"start":102,"end":130}]}
 
 Example 3 - Nothing relevant found:
 Query: "Where is the database connection configured?"
-view-complete({ one_line_summary: "File defines application routes and middleware", ranges: [] })
+{"one_line_summary":"File defines application routes and middleware","ranges":[]}
 '''
 editor = '''
 You are an expert code editor. Analyze the numbered file and return the
-requested changes by calling `edit-complete` with a `diffs` array.
-
-The file is the source of truth. If the instruction provides exact quoted text,
-apply that exact change. Otherwise, its wording may be fuzzy; locate the
-intended region in the file and work from what is actually there. Where the
-instruction and file disagree, the file wins.
-
-When multiple edits satisfy the instruction, preserve unmentioned code and
-choose the smallest faithful change.
-
-Only edit when the requested result is determined by the instruction and file.
-If it requires inventing or choosing novel implementation details that they do
-not specify, call edit-complete with only cancel=true instead of designing the
-implementation.
-
-Context and removed rows are how the applier locates the region, so they work
-best copied character-for-character from the numbered file, one diff row per
-file line: same words, same punctuation, same line breaks, same indentation. It
-is worth resisting the urge to improve a line while copying it. Correcting its
-grammar, re-wrapping it, merging or splitting lines, or leaving a space after
-the diff prefix all produce a row that matches nothing in the file, and the
-patch is then rejected. Added rows are yours to write freely — only the rows
-that describe existing content need to be exact.
-
-Two ways to answer, and choosing well matters more than diff craftsmanship:
-
-- `diffs` — unified-diff hunks. The default. Cheap, reviewable, and right for a
-change that touches a few lines you can reproduce exactly.
-- `content` — the complete new file, start to finish. Nothing is matched against
-the original, so nothing can fail to match.
-
-Reach for `content` whenever a diff would be awkward or risky: re-wrapping or
-restructuring a hard-wrapped paragraph, re-indenting a block, a change touching
-many scattered lines, a region whose lines are long prose you would have to
-reproduce word-perfectly, or any moment where you find yourself unsure whether
-your context rows match the file exactly. Formatting the result is your job, and
-`content` is how you do it without fighting the diff format. Send the whole
-file, changed and unchanged parts alike. Keep it semantically identical outside
-the requested change, while freely re-wrapping or re-indenting neighbouring text
-so the file's formatting conventions stay consistent.
-
-If you do stay with `diffs` for a rewrap, remove all of the paragraph's lines
-with `-` exactly as they appear, then add the replacement lines with `+`.
-Adjusting line breaks inside context rows to fit the new text is what makes such
-edits fail.
-
-Hunk format — each array element holds one hunk (several in one element are
-accepted, though one per element reads better):
-- Open with `@@ -OLD_START,OLD_COUNT +NEW_START,NEW_COUNT @@`. Give every hunk
-  its own header with real coordinates; a bare `@@` separator leaves the applier
-  guessing the location from content alone.
-- Prefix unchanged context with one space, removed lines with `-`, added lines
-  with `+`. A blank context line is a single space, not an empty string.
-- Leave out file headers, Markdown fences, prose, and timestamps.
-- OLD_START refers to the 1-indexed annotations in the supplied file. The
-  annotations are not file content, so the `LINE_NUMBER|` prefix never
-  belongs in a diff body.
-- The body is authoritative: counts are recomputed from your rows, so an
-  off-by-one count is harmless. Spend the attention on OLD_START and on the rows
-  themselves.
-- Give each hunk at least one `+` or `-` row, plus enough unchanged context to
-  pin down where it goes. Context-only hunks are rejected; they do not scope
-  later hunks. Keep distinguishing context in the same hunk as the change.
-- Context and removed rows refer to the original supplied file, not to the
-  result of an earlier hunk.
-- Put separated changes in separate array elements, and keep them from
-  overlapping.
-- To add or remove the final newline, place `\ No newline at end of file`
-  immediately after the affected final source or target row, per standard
-  unified-diff syntax.
-- To insert into an empty file, use `@@ -0,0 +1,N @@`. In a non-empty file,
-  prefer anchoring an insertion with context.
-- Call `edit-complete` exactly once, with either `diffs` or `content`, never
-  both. Omit `cancel` or set it false to apply; call with only `cancel: true`
-  to abort. Do not print the result as text.
-
-Example 1 - replace one line with two lines:
-edit-complete({ diffs: [
-  "@@ -10,1 +10,2 @@\n-return n\n+log(n)\n+return n"
-] })
-
-Example 2 - two separated hunks:
-edit-complete({ diffs: [
-  "@@ -1,1 +1,2 @@\n import os\n+import sys",
-  "@@ -20,2 +20,2 @@\n def main():\n-    pass\n+    greet()"
-] })
-'''
-
-editor_direct = '''
-You are an expert code editor. Analyze the numbered file and return the
 requested changes as one direct unified-diff envelope. Output only this format,
-with one or more hunks inside and no prose, Markdown fences, or tool call:
+with one or more hunks inside and no prose or Markdown fences:
 
 {{open}}
 @@
@@ -165,7 +73,7 @@ cancel the edit by outputting exactly `*** EDIT CANCELED ***`.
 
 2. Formatting the diff:
 
-We use the `udiff` format.
+We use a single-file diff format with optional Codex-style anchors.
 - Unchanged context: prefix one space
 - Removed lines: prefix one `-`
 - Added lines: prefix one `+`
@@ -176,12 +84,14 @@ Hunk headers:
 - Hunk coordinates and counts may be approximate; the applier uses the hunk body
   as the source of truth and can relocate a uniquely matching hunk.
 - A bare `@@` header is also accepted.
+- `@@ exact source line` seeks that line before matching the hunk. Context-only
+  hunks similarly anchor subsequent hunks to lines after their matched context.
 
 Hunk body:
 - Include enough unchanged or removed source context to identify the intended
   location.
-- Every hunk must add or remove a line. Context-only hunks are rejected, not
-  used as anchors for later hunks; keep distinguishing context in the same hunk.
+- At least one hunk must add or remove a line. Unnumbered anchors must match uniquely;
+  subsequent hunks must occur after them in source order.
 - Use `\ No newline at end of file` only when changing final-newline state. Put
   every hunk inside the single {{open}} / {{close}} envelope and output nothing
   outside it.
@@ -200,29 +110,14 @@ viewer = '''
 
 Query: {{query}}
 
-Respond with `view-complete` and a JSON array of ranges relevant to the query.
-'''
-editor_correction = '''
-Validation rejected your previous edit-complete submission:
-
-{{failure}}
-
-The file is unchanged. The original numbered file, instruction, and previous
-tool call remain in the conversation; do not restate or ask for them. Call
-edit-complete exactly once with a corrected submission. If diff parsing or
-matching caused the rejection, use `content`.
+Respond with only a JSON object containing `one_line_summary` and `ranges` relevant to the query.
 '''
 editor = '''
 {{content}}
 
 Instruction: {{instruction}}
 '''
-editor_direct = '''
-{{content}}
-
-Instruction: {{instruction}}
-'''
-editor_direct_correction = '''
+editor_correction = '''
 Validation rejected your previous direct diff:
 {{failure}}
 
@@ -252,9 +147,9 @@ guidelines = [
 
 [tool.apply_patch]
 description = """
-Apply unified-diff hunks atomically to one existing file. Use `@@` or `@@ -OLD,COUNT +NEW,COUNT @@`; prefix context with a space, removals with -, additions with +.
-Each hunk must add or remove lines in one contiguous region of the original file. Context-only hunks cannot scope later edits and are rejected. Bare @@ hunks must match uniquely; use distinguishing context in the changed hunk, or accurate original-file line coordinates. Any failed hunk leaves the file unchanged.
-Patch wrappers/footers and Markdown fences are unnecessary but accepted. File headers must match path. Numbered-header function labels are accepted but do not define scope. File create/delete/move operations are unsupported.
+Apply single-file diff hunks atomically. Headers: `@@`, `@@ exact source line`, or `@@ -OLD,COUNT +NEW,COUNT @@`. Prefix context with a space, removals with -, additions with +.
+Context-only hunks anchor subsequent hunks after their matched lines; unnumbered scoped matches must be unique and proceed forward. At least one hunk must change lines. Any failed hunk leaves the file unchanged.
+Patch wrappers/footers and Markdown fences are unnecessary but accepted. File headers must match path. Numbered-header function labels remain decorative. File create/delete/move operations are unsupported.
 """
 prompt_snippet = "Apply single-file diff hunks directly"
 guidelines = [
@@ -316,10 +211,7 @@ chain_no_match = '[editor] no chain rule matched "{{selector}}"; using main mode
 provider_fallback = '[editor] {{requested}} not found/authed; using id-only match {{resolved}}.'
 viewer_timeout = "Viewer subagent timed out after {{ms}}ms. Consider fewer query statements & use concrete keywords."
 editor_timeout = "Editor subagent timed out after {{ms}}ms. Consider reducing scope & increase specificity."
-editor_cancelled = "Editor subagent cancelled the edit (edit-complete cancel=true)."
-rewrite_empty = "edit-complete returned empty `content` for a non-empty file. Send the complete new file, or use `diffs` for a targeted change."
 no_change = "The edit produced no change to the file. Re-check the change against the current file content."
-editor_truncated = "Editor subagent did not call edit-complete; its response cannot be applied."
 editor_corrections_exhausted = "Editor correction limit reached after {{turns}} correction turns. Last validation error: {{failure}}"
 direct_output_overflow = "Editor direct output exceeded the bounded response-size limit."
 direct_too_large = "The direct diff exceeds the bounded patch-size limit."
@@ -329,8 +221,8 @@ direct_bad_envelope = "The direct DIFF envelope markers are out of order."
 direct_outside_text = "Direct output contains text outside the DIFF envelope."
 direct_empty_diff = "The direct DIFF envelope is empty."
 direct_editor_cancelled = "Editor cancelled: the instruction requires open-ended implementation choices. Use write or provide an exact replacement."
-viewer_truncated = "Viewer subagent never called view-complete (output truncated). Re-run the read."
-viewer_bad_output = "view-complete returned malformed ranges (not a JSON array of {start, end} objects).\nOutput: {{tail}}"
+viewer_truncated = "Viewer response exceeded the output-size limit. Re-run with a narrower query."
+viewer_bad_output = "Viewer returned invalid JSON or invalid one_line_summary/ranges.\nOutput: {{tail}}"
 write_failed = "Could not write {{path}}: {{reason}}"
 subagent_start_failed = "Could not start subagent worker: {{reason}}"
 apply_bad_framing = "Diff block {{i}}, patch line {{line}}: unsupported framing or extra file section. Supply hunks for one existing file; only outer patch wrappers, Markdown fences, and matching file headers are accepted. File create/delete/move operations are unsupported."
@@ -339,12 +231,12 @@ apply_no_diffs = "No diff hunks were supplied."
 apply_too_many = "Diff block {{i}} exceeds the bounded hunk-count limit."
 apply_too_large = "Diff block {{i}} exceeds the bounded patch-size limit."
 apply_bad_block = "Diff block {{i}} is not a non-empty unified-diff string."
-apply_bad_header = "Diff block {{i}}, patch line {{line}}: use a bare @@ or numbered @@ -OLD,COUNT +NEW,COUNT @@ header. Bare function/class anchors are unsupported; include distinguishing source context in the changed hunk."
-apply_no_changes = "Diff block {{i}}, hunk at patch line {{line}} has no added or removed lines. Context-only hunks do not scope later edits. Include distinguishing context in the same hunk as a change, or use an accurate line coordinate. No changes were applied."
+apply_bad_header = "Diff block {{i}}, patch line {{line}}: use @@, @@ exact source line, or numbered @@ -OLD,COUNT +NEW,COUNT @@."
+apply_no_changes = "Diff block {{i}} has no changes (or an empty unscoped hunk at patch line {{line}}). Include at least one + or - row. No changes were applied."
 apply_bad_count = "Diff block {{i}} declares source lines but supplies none. Include the source context or use a zero-count header for an insertion."
 apply_bad_newline = "Diff block {{i}} has an invalid `No newline at end of file` marker or EOF location."
 apply_work_limit = "Diff block {{i}} exceeded the bounded matching-work limit. Add accurate line coordinates and more specific context."
-apply_bad_anchor = "Diff block {{i}} is a pure insertion whose `@@` header has no usable OLD_START, so there is nowhere to place it. Give real header coordinates, or include a context line to insert next to."
+apply_bad_anchor = "Diff block {{i}} is a pure insertion without a usable position. Give real header coordinates, a preceding context-only anchor, or a `@@ exact source line` header."
 apply_not_found = "Diff block {{i}} does not match the file at its line anchor or at one unambiguous exact relocation. Re-read the numbered file and copy its context and removed rows exactly."
 apply_not_found_fuzzy = "Diff block {{i}} matched nothing in the file, exactly or with the whitespace-fuzzy fallback. Its context or removed rows differ from the real file lines — re-read the numbered file and copy them exactly rather than from the instruction."
 apply_ambiguous = "Diff block {{i}} has multiple possible application locations. Add context or correct its line header."
@@ -360,48 +252,3 @@ section_completion_turn = "## Completion {{turn}}"
 section_correction_turn = "## Correction {{turn}}"
 section_stderr = "## stderr"
 
-# ── Completion tools for the Viewer/Editor subagents (registered by
-#    extensions/llm-editor/completion.ts in the child, role-gated by
-#    PI_SUBAGENT_ROLE). edit-complete hands bounded unified-diff hunks to the
-#    parent, which parses, matches, and applies all hunks with cpi's in-house
-#    atomic engine. Plain text (no HTML escaping). ──
-[completion.view_complete]
-description = "Return the relevant line ranges and a one-line summary of the file content, then end your turn. Call this exactly once. Do not print the ranges as text."
-prompt_snippet = "Return relevant line ranges"
-guidelines = [
-	"Output ONLY by calling this tool — never print the ranges as text.",
-	"`ranges` is a JSON array of objects, each with numeric `start` and `end` fields, 1-indexed and inclusive.",
-	"Each range must include complete logical blocks with a few lines of context before and after.",
-	"Sort ranges by start line; merge overlapping or adjacent ranges.",
-	"If nothing is relevant, call with `ranges = []`.",
-	"`one_line_summary` describes the file content in a single line, even if no ranges match.",
-	"Call this tool exactly once; this ends your turn.",
-]
-
-[completion.edit_complete]
-description = "Return the edit and end your turn, either as unified-diff hunks in `diffs` or as the complete rewritten file in `content`. Prefer `content` whenever a diff would need re-wrapped, re-indented, or hard-to-reproduce context rows — it is matched against nothing and cannot fail to apply. Set cancel=true to abort without applying anything."
-prompt_snippet = "Return file edits as unified-diff hunks or a full rewrite"
-guidelines = [
-	"Each `diffs` element starts with `@@ -OLD_START,OLD_COUNT +NEW_START,NEW_COUNT @@`; prefer one hunk per element.",
-	"Prefix context with one space (blank context lines too), removals with `-`, and additions with `+`; do not include file headers, fences, or prose.",
-	"Header counts are recomputed from the body for a normal hunk; only an elided (`...`) hunk needs OLD_COUNT to state its full source span.",
-	"Line-number annotations identify OLD_START but are not file content. Never copy the annotation prefix into hunk lines.",
-	"All context/removal rows refer to the original supplied file. Use separate array elements for separated, non-overlapping changes.",
-	"Each hunk must add or remove a line. Context-only hunks are rejected and do not scope later edits; put distinguishing context in the same hunk as the change.",
-	"The instruction may quote the file approximately; copy context and removed rows from the numbered file itself, character-for-character, one row per file line.",
-	"To rewrap a paragraph, remove all of its lines verbatim with `-` and add the new ones with `+`, rather than re-wrapping context rows.",
-	"Use the standard `\\ No newline at end of file` marker only to change final-newline state.",
-	"Set cancel=true and omit `diffs` to abort without applying anything. Otherwise leave `cancel` unset.",
-	"Alternatively pass `content` with the complete new file instead of `diffs`; nothing is matched, so re-wrapping, re-indenting, and large restructurings cannot fail. Prefer it whenever exact context rows would be hard to reproduce.",
-	"Pass either `diffs` or `content`, never both. Call this tool exactly once; this ends your turn. Do not print the result as text.",
-]
-
-[completion.schema]
-ranges = "JSON array of line-range objects, each with numeric `start` and `end` fields (inclusive, 1-indexed), relevant to the query."
-one_line_summary = "Single-line summary of the relevant file content (not a restatement of the query)."
-range_start = "Start line of this range, 1-indexed and inclusive."
-range_end = "End line of this range, 1-indexed and inclusive."
-diffs = "One or more bounded single-file unified-diff hunks. Each array element contains exactly one hunk against the original supplied file. Required unless cancel is true."
-diff = "One unified-diff hunk beginning with an `@@ -OLD_START,OLD_COUNT +NEW_START,NEW_COUNT @@` header, followed by space/plus/minus-prefixed body lines."
-content = "The complete rewritten file, start to finish, replacing it wholesale. Nothing is matched against the original, so this is the reliable choice when a diff would need re-wrapped or hard-to-reproduce context rows. Mutually exclusive with diffs."
-cancel = "Set to true to abort the edit without applying anything. Defaults to false."

@@ -26,11 +26,8 @@ export interface EditorChainRule {
   replace: string;
 }
 
-export type EditorMode = "tool-call" | "direct-diff";
-
 export interface EditorConfig {
   model?: string;
-  mode?: EditorMode;
   provider?: string;
   maxFileBytes?: number;
   subagentTimeoutMs?: number;
@@ -43,7 +40,6 @@ export interface EditorConfig {
 
 export interface ResolvedEditorConfig {
   model?: string;
-  mode: EditorMode;
   provider?: string;
   maxFileBytes: number;
   subagentTimeoutMs: number;
@@ -245,7 +241,6 @@ export function loadEditorConfig(cwd: string = getCwd()): ResolvedEditorConfig {
     : [];
   return {
     model: typeof e.model === "string" ? e.model : undefined,
-    mode: e.mode === "direct-diff" ? "direct-diff" : "tool-call",
     provider: typeof e.provider === "string" ? e.provider : undefined,
     maxFileBytes:
       Number.isFinite(maxFileBytes) && maxFileBytes > 0 ? maxFileBytes : 262144,

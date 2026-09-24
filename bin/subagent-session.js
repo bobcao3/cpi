@@ -1,5 +1,4 @@
 import { hostCodingAgent } from "./host-pi.mjs";
-import { readFile, unlink } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { observeSession } from "./subagent-activity.mjs";
 import { createFastRuntime, resolveFastModel } from "./fast-models.mjs";
@@ -33,23 +32,6 @@ function lastAssistant(messages) {
   return undefined;
 }
 
-async function readCompletion(path, tool) {
-  try {
-    const completion = JSON.parse((await readFile(path, "utf8")).trim());
-    if (
-      completion?.tool !== tool ||
-      !completion.args ||
-      typeof completion.args !== "object" ||
-      Array.isArray(completion.args)
-    ) {
-      return null;
-    }
-    return completion;
-  } catch {
-    return null;
-  }
-}
-
 function truncateUtf8(output, maxBytes) {
   let text = output.subarray(0, maxBytes).toString("utf8");
   for (
@@ -65,26 +47,13 @@ function truncateUtf8(output, maxBytes) {
   return text;
 }
 
-async function turnCandidate(request, session, turn) {
-  if (request.outputMode === "tool-call") {
-    return {
-      kind: "candidate",
-      turn,
-      completion: await readCompletion(
-        request.completionPath,
-        request.completionTool,
-      ),
-      text: "",
-      outputOverflow: false,
-    };
-  }
+function turnCandidate(request, session, turn) {
   const text = session.getLastAssistantText() || "";
   const output = Buffer.from(text, "utf8");
   const outputOverflow = output.length > request.maxOutputBytes;
   return {
     kind: "candidate",
     turn,
-    completion: null,
     text: outputOverflow ? truncateUtf8(output, request.maxOutputBytes) : text,
     outputOverflow,
   };
@@ -159,13 +128,10 @@ export async function runSubagentSession(request, signal, exchangeCandidate) {
     let prompt = request.task;
     for (let turn = 0; turn < request.maxTurns; turn++) {
       if (interrupted) break;
-      if (request.outputMode === "tool-call") {
-        await unlink(request.completionPath).catch(() => {});
-      }
       await session.prompt(prompt, { expandPromptTemplates: false });
       if (interrupted) break;
       const decision = await exchangeCandidate(
-        await turnCandidate(request, session, turn),
+        turnCandidate(request, session, turn),
       );
       if (decision.kind !== "continue") break;
       prompt = decision.prompt;

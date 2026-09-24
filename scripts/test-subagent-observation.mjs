@@ -23,12 +23,7 @@ const provider = process.env.CPI_TEST_PROVIDER || "openai-codex";
 const modelId = process.env.CPI_TEST_MODEL || "gpt-5.6-luna";
 delete process.env.CPI_SUBAGENT_RPC;
 const env = { ...process.env, PI_SESSION_DIR: directory };
-for (const key of [
-  "PI_SUBAGENT_ROLE",
-  "PI_SUBAGENT_COMPLETION",
-  "CPI_FORK_PROBE",
-  "PI_SUBAGENT_SUMMARY",
-])
+for (const key of ["PI_SUBAGENT_ROLE", "CPI_FORK_PROBE", "PI_SUBAGENT_SUMMARY"])
   delete env[key];
 const fixture = join(directory, "fixture.txt");
 writeFileSync(fixture, "OBSERVATION_CONTENT\n\n\nsecond line\n");
@@ -45,7 +40,6 @@ const request = () => ({
   provider,
   modelId,
   thinkingLevel: "off",
-  outputMode: "text",
   maxTurns: 2,
   maxOutputBytes: 4096,
 });
@@ -212,16 +206,15 @@ try {
       systemPrompt: "Reply concisely.",
       task:
         mode === "viewer"
-          ? "Reply exactly VIEWER_OBSERVATION_OK."
-          : "Call edit-complete with content EDITOR_COMPLETION_OK.",
+          ? 'Reply exactly {"one_line_summary":"VIEWER_OBSERVATION_OK","ranges":[]} without tools.'
+          : "Reply exactly this patch without tools:\n*** Begin Patch\n@@\n-old\n+EDITOR_COMPLETION_OK\n*** End Patch",
       provider,
       modelId,
       thinkingLevel: "off",
-      outputMode: mode === "viewer" ? "text" : "tool-call",
       maxCorrectionTurns: mode === "editor" ? 1 : 0,
       onCandidate: (candidate) =>
         mode === "editor" && candidate.turn === 0
-          ? "Call edit-complete again, now with content EDITOR_CORRECTED_OK."
+          ? "Reply exactly this patch without tools:\n*** Begin Patch\n@@\n-old\n+EDITOR_CORRECTED_OK\n*** End Patch"
           : undefined,
       cwd: process.cwd(),
       timeoutMs: 120000,
@@ -231,8 +224,11 @@ try {
     });
     assert.equal(result.exitCode, 0, JSON.stringify(result));
     if (mode === "viewer")
-      assert.equal(result.text.trim(), "VIEWER_OBSERVATION_OK");
-    else assert.equal(result.completion.args.content, "EDITOR_CORRECTED_OK");
+      assert.deepEqual(JSON.parse(result.text), {
+        one_line_summary: "VIEWER_OBSERVATION_OK",
+        ranges: [],
+      });
+    else assert(result.text.includes("+EDITOR_CORRECTED_OK"));
     assert(result.usage.output > 0);
     const activity = listActivities().find(
       (entry) => entry.metrics.role === mode,
