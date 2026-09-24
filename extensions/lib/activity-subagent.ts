@@ -1,4 +1,6 @@
 import type { Worker } from "node:worker_threads";
+import { join } from "node:path";
+import { activePiRoot } from "../../bin/host-pi.mjs";
 import type { SubagentWorkerRequest } from "./subagent-rpc-protocol.ts";
 import { beginActivity } from "./activity.ts";
 
@@ -8,6 +10,7 @@ export function subagentEnvironment(
 ) {
   const env: Record<string, string> = {
     ...request.env,
+    CPI_PI_HOST_ENTRY: join(activePiRoot(), "dist/bundle/cli.js"),
     CPI_SUBAGENT_RPC: endpoint,
     PI_SUBAGENT: "1",
     CPI_ACTIVITY_TELEMETRY: "1",

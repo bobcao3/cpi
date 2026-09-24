@@ -1,5 +1,7 @@
-import { initTheme } from "@earendil-works/pi-coding-agent";
+import { hostCodingAgent } from "./host-pi.mjs";
 import { stripVTControlCharacters } from "node:util";
+
+const { initTheme } = await hostCodingAgent();
 
 export function createToolDisplay(session, diagnostic) {
   initTheme(session.settingsManager.getTheme());

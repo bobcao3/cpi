@@ -192,6 +192,17 @@ for a crisp mental model.
 
 # Developing extensions
 
+## Pi peer packages are not worker dependencies
+
+Do not rely on cpi's local `node_modules` copy of Pi's peer packages at
+runtime. `pi install git:...` loads extensions through Pi, but native Node
+workers and scripts resolve imports from cpi's installed directory, where
+those peers may not exist. In workers and other standalone entry points, avoid
+bare runtime imports of Pi peer packages; load the **active host Pi** through
+[`bin/host-pi.mjs`](bin/host-pi.mjs) instead. Type-only imports are fine.
+Verify changes against an installed-package layout without local Pi peers,
+not only a development checkout after `bun install`.
+
 cpi extensions run inside pi, which loads each via jiti with
 `moduleCache: false` and can hot-reload a single extension file mid-session. Two
 facts shape every extension design decision:
