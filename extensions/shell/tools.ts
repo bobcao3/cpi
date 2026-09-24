@@ -37,7 +37,7 @@ const VENDOR_BIN = join(
 );
 const WASM_DIR = join(CACHE_DIR, "wasm");
 const WASM_PATH = join(WASM_DIR, "tree-sitter-wasm.wasm");
-const WASM_VERSION = "2026.09.18";
+const WASM_VERSION = "2026.09.24";
 const WASM_PUBKEY_B64 =
   "RWQWdcLzFjpLqtjewtcZo71AHJVUFws3irxz2ColvNW/r0m4tHyxzDX5";
 const WASM_SIG_PATH = join(WASM_DIR, "tree-sitter-wasm.wasm.minisig");
