@@ -51,7 +51,7 @@ function providers(): Map<string, ProviderState> {
 function compile(source: string, field: string): RegExp | null {
   if (!source || source.length > MAX_PATTERN_LENGTH) {
     process.stderr.write(
-      `[provider-strip] ignoring invalid ${field} pattern length\n`,
+      `[model-strip] ignoring invalid ${field} pattern length\n`,
     );
     return null;
   }
@@ -59,7 +59,7 @@ function compile(source: string, field: string): RegExp | null {
     return new RegExp(source, "u");
   } catch (error) {
     process.stderr.write(
-      `[provider-strip] ignoring invalid ${field} pattern: ${error}\n`,
+      `[model-strip] ignoring invalid ${field} pattern: ${error}\n`,
     );
     return null;
   }
@@ -90,7 +90,7 @@ function compileRules(rules: ModelStripRule[]): CompiledRule[] {
   }
   if (rules.length > MAX_RULES) {
     process.stderr.write(
-      `[provider-strip] using first ${MAX_RULES} model strip rules\n`,
+      `[model-strip] using first ${MAX_RULES} model strip rules\n`,
     );
   }
   return compiled;

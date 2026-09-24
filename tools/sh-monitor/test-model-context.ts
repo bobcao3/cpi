@@ -17,7 +17,7 @@ process.env.PI_CODING_AGENT_DIR = agentDir;
 process.env.PI_SUBAGENT = "1";
 process.env.CPI_FORK_PROBE = "1";
 const provider = "model-context-test";
-const models = ["base", "base-fast"].map((id) => ({
+const models = ["base", "base-fast", "mid-a", "mid-b"].map((id) => ({
   id,
   reasoning: false,
   input: ["text"],
@@ -44,7 +44,9 @@ const runtime = await ModelRuntime.create({
 });
 const base = runtime.getModel(provider, "base")!;
 const fast = runtime.getModel(provider, "base-fast")!;
-assert(base && fast);
+const mid_a = runtime.getModel(provider, "mid-a")!;
+const mid_b = runtime.getModel(provider, "mid-b")!;
+assert(base && fast && mid_a && mid_b);
 const captures: any[] = [];
 const errors: string[] = [];
 const sessions: Awaited<ReturnType<typeof createAgentSession>>["session"][] =
@@ -112,6 +114,24 @@ function notifications(session: (typeof sessions)[number]) {
   );
 }
 
+/** The `from → to` pairs of the model-change notices the last request sent. */
+function payload_model_changes(captures: { messages: any[] }[]): string[] {
+  const pairs: string[] = [];
+  for (const message of captures.at(-1)?.messages ?? []) {
+    const parts = Array.isArray(message.content)
+      ? message.content
+      : [message.content];
+    for (const part of parts) {
+      const text = typeof part === "string" ? part : (part?.text ?? "");
+      for (const match of text.matchAll(
+        /<from>([^<]+)<\/from>\s*<to>([^<]+)<\/to>/g,
+      ))
+        pairs.push(`${match[1]} → ${match[2]}`);
+    }
+  }
+  return pairs;
+}
+
 try {
   const manager = SessionManager.create(root, join(root, "sessions"));
   const session = await open(manager);
@@ -119,18 +139,14 @@ try {
   const initial_count = notifications(session).length;
   await session.prompt("initial capture");
   const original = captures.at(-1).system;
-  assert(
-    original.includes(
-      `initial model for this session is **\`${provider}/base\`**`,
-    ),
-  );
+  assert(original.includes(`currently powered by **\`${provider}/base\`**`));
   const first_leaf = manager.getLeafId()!;
   await session.setModel(fast);
-  assert.equal(notifications(session).length, initial_count + 1);
-  assert.equal(session.isStreaming, false);
   await session.setModel(fast);
-  assert.equal(notifications(session).length, initial_count + 1);
+  assert.equal(session.isStreaming, false);
+  assert.equal(notifications(session).length, initial_count);
   await session.prompt("after model switch");
+  assert.equal(notifications(session).length, initial_count + 1);
   assert.equal(captures.at(-1).system, original);
   assert.equal(captures.at(-1).payload.model, "base-fast");
   assert(
@@ -141,10 +157,15 @@ try {
   assert(
     JSON.stringify(captures.at(-1).messages).includes(`${provider}/base-fast`),
   );
+  assert.equal((notifications(session).at(-1) as any).display, false);
+
+  await session.prompt("settled notice is not repeated");
+  assert.equal(notifications(session).length, initial_count + 1);
 
   await session.reload();
   assert.equal(notifications(session).length, initial_count + 1);
   await session.prompt("after extension reload");
+  assert.equal(notifications(session).length, initial_count + 1);
   assert.equal(captures.at(-1).system, original);
   const reopened = await open(SessionManager.open(manager.getSessionFile()!));
   assert.equal(reopened.model?.id, "base-fast");
@@ -152,14 +173,59 @@ try {
   await reopened.prompt("after resume");
   assert.equal(captures.at(-1).system, original);
 
+  const settled = notifications(session).length;
+  for (const model of [base, mid_a, mid_b, base, mid_a])
+    await session.setModel(model);
+  assert.equal(notifications(session).length, settled);
+  await session.prompt("burst settling elsewhere");
+  assert.equal(notifications(session).length, settled + 1);
+  assert.deepEqual((notifications(session).at(-1) as any).details.payload, {
+    from: `${provider}/base-fast`,
+    to: `${provider}/mid-a`,
+  });
+  assert.deepEqual(payload_model_changes(captures), [
+    `${provider}/base → ${provider}/base-fast`,
+    `${provider}/base-fast → ${provider}/mid-a`,
+  ]);
+
+  for (const model of [
+    mid_b,
+    base,
+    mid_a,
+    mid_b,
+    base,
+    mid_a,
+    mid_b,
+    base,
+    mid_b,
+  ])
+    await session.setModel(model);
+  await session.prompt("burst cycling past the represented model");
+  assert.equal(notifications(session).length, settled + 2);
+  assert.deepEqual((notifications(session).at(-1) as any).details.payload, {
+    from: `${provider}/mid-a`,
+    to: `${provider}/mid-b`,
+  });
+  assert.deepEqual(payload_model_changes(captures), [
+    `${provider}/base → ${provider}/base-fast`,
+    `${provider}/base-fast → ${provider}/mid-a`,
+    `${provider}/mid-a → ${provider}/mid-b`,
+  ]);
+
+  for (const model of [base, mid_a, mid_b]) await session.setModel(model);
+  await session.prompt("burst returning to the represented model");
+  assert.equal(notifications(session).length, settled + 2);
+  assert.equal(payload_model_changes(captures).length, 3);
+
   await session.navigateTree(first_leaf, { summarize: false });
-  assert.equal(session.model?.id, "base-fast");
   assert.equal(notifications(session).length, initial_count);
   await session.setModel(base);
   await session.prompt("on restored branch");
   assert.equal(captures.at(-1).system, original);
+  assert.equal(notifications(session).length, initial_count);
   await session.setModel(fast);
-  assert.equal(notifications(session).length, initial_count + 2);
+  await session.prompt("switch on restored branch");
+  assert.equal(notifications(session).length, initial_count + 1);
 
   let release!: () => void;
   payload_release = new Promise<void>((resolve) => {
@@ -171,16 +237,20 @@ try {
   const pending = session.prompt("switch during streaming");
   await ready;
   await session.setModel(base);
-  assert.equal(notifications(session).length, initial_count + 2);
+  assert.equal(notifications(session).length, initial_count + 1);
   release();
   await pending;
   payload_release = undefined;
   payload_ready = undefined;
-  assert.equal(notifications(session).length, initial_count + 3);
   assert.equal(session.isStreaming, false);
+  assert.equal(notifications(session).length, initial_count + 1);
   await session.prompt("after streaming switch");
   assert.equal(captures.at(-1).system, original);
-  assert(JSON.stringify(captures.at(-1).messages).includes(`${provider}/base`));
+  assert.equal(notifications(session).length, initial_count + 2);
+  assert.deepEqual(payload_model_changes(captures), [
+    `${provider}/base → ${provider}/base-fast`,
+    `${provider}/base-fast → ${provider}/base`,
+  ]);
 
   await session.setModel(fast);
   await session.navigateTree(manager.getEntries()[0].id, { summarize: false });
@@ -214,14 +284,15 @@ try {
   await minimal.setModel(base);
   const minimal_count = notifications(minimal).length;
   await minimal.setModel(fast);
-  assert.equal(notifications(minimal).length, minimal_count + 1);
+  assert.equal(notifications(minimal).length, minimal_count);
   await minimal.prompt("minimal session notification");
+  assert.equal(notifications(minimal).length, minimal_count + 1);
   assert(
     JSON.stringify(captures.at(-1).messages).includes(`${provider}/base-fast`),
   );
   assert.deepEqual(errors, []);
   console.log(
-    "model context: stable prompt, persisted notifications, no-ops, reload, resume, branch, streaming, minimal session passed",
+    "model context: request-time notices, burst coalescing, no-ops, reload, resume, branch, streaming, minimal session passed",
   );
 } finally {
   for (const session of sessions) {

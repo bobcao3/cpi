@@ -30,6 +30,37 @@ function saved_origin(ctx: ExtensionContext): ModelIdentity | undefined {
   return undefined;
 }
 
+/** The model the transcript last told the agent about. */
+function represented_model(
+  messages: readonly {
+    role?: string;
+    customType?: string;
+    details?: unknown;
+  }[],
+  fallback: ModelIdentity,
+): string {
+  let represented = `${fallback.provider}/${fallback.modelId}`;
+  for (const message of messages) {
+    if (message.role !== "custom") continue;
+    const details = message.details as
+      | {
+          kind?: unknown;
+          payload?: { to?: unknown };
+          model?: ModelIdentity;
+        }
+      | undefined;
+    if (message.customType === "cpi-context-checkpoint" && details?.model)
+      represented = `${details.model.provider}/${details.model.modelId}`;
+    if (
+      message.customType === NOTIFICATION_TYPE &&
+      details?.kind === "model-change" &&
+      typeof details.payload?.to === "string"
+    )
+      represented = details.payload.to;
+  }
+  return represented;
+}
+
 export function registerModelContext(pi: ExtensionAPI) {
   let origin: ModelIdentity | undefined;
   const notification = (from: string, to: string) => {
@@ -45,7 +76,7 @@ export function registerModelContext(pi: ExtensionAPI) {
     return {
       customType: NOTIFICATION_TYPE,
       content: wrapNotification(details),
-      display: true,
+      display: false,
       details,
     };
   };
@@ -67,41 +98,25 @@ export function registerModelContext(pi: ExtensionAPI) {
     if (!ctx.model) return;
     origin ??= saved_origin(ctx);
     const initial = remember(ctx.model);
-    let represented = `${initial.provider}/${initial.modelId}`;
-    for (const message of event.messages) {
-      if (message.role !== "custom") continue;
-      const details = message.details as
-        | {
-            kind?: unknown;
-            payload?: { to?: unknown };
-            model?: ModelIdentity;
-          }
-        | undefined;
-      if (message.customType === "cpi-context-checkpoint" && details?.model)
-        represented = `${details.model.provider}/${details.model.modelId}`;
-      if (
-        message.customType === NOTIFICATION_TYPE &&
-        details?.kind === "model-change" &&
-        typeof details.payload?.to === "string"
-      )
-        represented = details.payload.to;
-    }
+    const represented = represented_model(event.messages, initial);
     const current = `${ctx.model.provider}/${ctx.model.id}`;
-    if (represented !== current) {
-      const message = notification(represented, current);
-      return {
-        messages: [
-          ...event.messages,
-          {
-            ...message,
-            role: "custom" as const,
-            timestamp: event.messages.at(-1)?.timestamp ?? 0,
-          },
-        ],
-      };
-    }
+    if (represented === current) return;
+    const message = notification(represented, current);
+    pi.sendMessage(message, { triggerTurn: false });
+    return {
+      messages: [
+        ...event.messages,
+        {
+          ...message,
+          role: "custom" as const,
+          timestamp: event.messages.at(-1)?.timestamp ?? 0,
+        },
+      ],
+    };
   });
   pi.on("model_select", (event, ctx) => {
+    // Bookkeeping only; the notice is delivered at the next request (see
+    // `context`), so switches that settle elsewhere never reach the agent.
     const { model, previousModel, source } = event;
     if (
       source === "restore" ||
@@ -112,9 +127,6 @@ export function registerModelContext(pi: ExtensionAPI) {
       return;
     origin ??= saved_origin(ctx);
     remember(previousModel);
-    const from = `${previousModel.provider}/${previousModel.id}`;
-    const to = `${model.provider}/${model.id}`;
-    pi.sendMessage(notification(from, to), { triggerTurn: false });
   });
 
   return (ctx: ExtensionContext): ModelIdentity => {

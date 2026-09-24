@@ -6,7 +6,6 @@ import alarm from "./alarm.ts";
 import core from "./core.ts";
 import costTree from "./cost-tree/index.ts";
 import cwd from "./cwd.ts";
-import effort from "./effort.ts";
 import fast from "./fast.ts";
 import goal from "./goal.ts";
 import llmEditor from "./llm-editor/index.ts";
@@ -25,7 +24,6 @@ export default async function cpi(pi: ExtensionAPI): Promise<void> {
     core,
     costTree,
     cwd,
-    effort,
     fast,
     goal,
     llmEditor,

@@ -1,8 +1,0 @@
-# Model-/user-facing text for the /effort command.
-
-[tool]
-description = "Tune thinking effort (no arg = show; levels: {{levels}})"
-prompt_snippet = ""
-
-[guidelines]
-bullets = []

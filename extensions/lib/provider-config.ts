@@ -55,24 +55,13 @@ interface FallbackCandidate {
   model: string;
 }
 
-export interface StripRule {
-  provider: string;
-  /** Env vars signaling ambient auth. */
-  env?: string[];
-  /** any matches one; all requires every var. */
-  match?: "any" | "all";
-}
-
 export interface FailoverConfig {
   failureThreshold?: number;
-  /** Counted failure statuses; omitted/null means >=400. */
-  statusCodes?: number[] | null;
 }
 
 export interface FallbackConfig {
   providers?: Record<string, ProviderConfig>;
   fallbacks?: FallbackCandidate[];
-  strip?: StripRule[];
   stripModels?: ModelStripRule[];
   failover?: FailoverConfig;
 }
@@ -101,10 +90,6 @@ export function storeConfig(cwd: string, config: FallbackConfig): void {
   const s = getState();
   s.config = config;
   s.configCwd = cwd;
-}
-
-export function getConfig(): FallbackConfig | null {
-  return getState().config;
 }
 
 const ZERO_COST = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
@@ -177,7 +162,6 @@ function mergeConfigs(
     }
   }
   merged.fallbacks = project?.fallbacks ?? user?.fallbacks ?? [];
-  merged.strip = project?.strip ?? user?.strip ?? undefined;
   merged.stripModels = project?.stripModels ?? user?.stripModels ?? undefined;
   merged.failover = project?.failover ?? user?.failover ?? undefined;
   return merged;
@@ -221,41 +205,7 @@ export function registerProviderConfig(
   }
 }
 
-/** Defaults for configs without strip. */
-export const DEFAULT_STRIP_RULES: StripRule[] = [
-  {
-    provider: "amazon-bedrock",
-    match: "any",
-    env: [
-      "AWS_PROFILE",
-      "AWS_ACCESS_KEY_ID",
-      "AWS_SECRET_ACCESS_KEY",
-      "AWS_BEARER_TOKEN_BEDROCK",
-      "AWS_CONTAINER_CREDENTIALS_RELATIVE_URI",
-      "AWS_CONTAINER_CREDENTIALS_FULL_URI",
-      "AWS_WEB_IDENTITY_TOKEN_FILE",
-    ],
-  },
-  { provider: "huggingface", match: "any", env: ["HF_TOKEN"] },
-];
-
-/** Whether configured env vars match. */
-export function stripMatches(rule: StripRule): boolean {
-  const vars = rule.env ?? [];
-  if (vars.length === 0) return false;
-  const present = vars.filter((v) => !!process.env[v]?.trim()).length;
-  return rule.match === "all" ? present === vars.length : present > 0;
-}
-
 export const DEFAULT_FAILURE_THRESHOLD = 3;
-
-export function isFailureStatus(
-  status: number,
-  cfg: FailoverConfig | undefined,
-): boolean {
-  const codes = cfg?.statusCodes ?? null;
-  return codes ? codes.includes(status) : status >= 400;
-}
 
 export interface FallbackPick {
   model: NonNullable<ExtensionContext["model"]>;

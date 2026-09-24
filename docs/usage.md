@@ -7,13 +7,13 @@ installation; use `/reload` after changing local extensions or settings.
 
 Type `/` in pi to browse available commands. Start with:
 
-- `/effort`: inspect or change the thinking budget.
 - `/fast`: switch between the current model and its `-fast` counterpart.
 - `/goal`: set a persistent objective; use `pause`, `resume`, or `clear`.
 - `/activity`: inspect background work without interrupting the agent.
 
 See [the activity browser](activity.md) for keyboard and mouse controls. Ask the
-agent about its tools and skills when you need a particular workflow.
+agent about its tools and skills when you need a particular workflow. Use Pi's
+`/thinking` command to change thinking level.
 
 ## Fast models
 

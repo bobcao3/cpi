@@ -1,15 +1,3 @@
-/**
- * cpi provider — startup strip + runtime failover (one feature). Both read
- * the merged fallback config (lib/provider-config.ts).
- *
- * Startup: register providers, strip unusable ones (defaults: env-based
- * bedrock/huggingface, so ambient creds don't shadow real providers), then
- * pick the first fitting fallback if the active model is gone.
- *
- * Runtime: after `failureThreshold` error turns, switch at turn_end — the
- * failed call is complete and pi awaits this handler before retrying.
- */
-
 import type {
   ExtensionAPI,
   ExtensionContext,
@@ -21,13 +9,11 @@ import {
 } from "./lib/model-strip";
 import {
   DEFAULT_FAILURE_THRESHOLD,
-  DEFAULT_STRIP_RULES,
   getState,
   loadMergedConfig,
   registerProviderConfig,
   selectFallback,
   storeConfig,
-  stripMatches,
 } from "./lib/provider-config";
 import { getCwd } from "./lib/cwd.ts";
 import { loadText, render, textPath, type ToolText } from "./lib/text.ts";
@@ -92,32 +78,6 @@ export default async function providerExtension(
       }
     }
 
-    const rules = live.strip ?? DEFAULT_STRIP_RULES;
-    const stripped: string[] = [];
-    for (const rule of rules) {
-      if (!stripMatches(rule)) {
-        debug(
-          "provider-strip",
-          `${rule.provider}: auth-match not fired, keeping`,
-        );
-        continue;
-      }
-      try {
-        pi.unregisterProvider(rule.provider);
-        stripped.push(rule.provider);
-      } catch (err) {
-        console.warn(
-          `[provider-strip] unregisterProvider(${rule.provider}) failed:`,
-          err,
-        );
-      }
-    }
-    if (stripped.length) {
-      process.stderr.write(
-        `[provider-strip] stripped: ${stripped.join(", ")}\n`,
-      );
-    }
-
     const strippedModelIds = stripModels(
       pi,
       ctx,
@@ -139,7 +99,7 @@ export default async function providerExtension(
       !isModelStripped(cur.provider, cur.id);
     if (curUsable) {
       debug(
-        "provider-strip",
+        "provider-startup",
         `active ${cur!.provider}/${cur!.id} usable; skipping startup pick`,
       );
       return;
@@ -162,18 +122,18 @@ export default async function providerExtension(
     const pick = selectFallback(ctx, live.fallbacks, null);
     if (!pick) {
       const text = "No usable model; no fallback candidate available.";
-      process.stderr.write(`[provider-strip] ${text}\n`);
+      process.stderr.write(`[provider-startup] ${text}\n`);
       if (ctx.hasUI) ctx.ui.notify(text, "warning");
       return;
     }
     const ok = await pi.setModel(pick.model);
     debug(
-      "provider-strip",
+      "provider-startup",
       `startup setModel(${pick.candidate.provider}/${pick.candidate.model}) -> ${ok}`,
     );
     if (ok) {
       const text = `No usable model; using ${pick.candidate.provider} / ${pick.candidate.model}.`;
-      process.stderr.write(`[provider-strip] ${text}\n`);
+      process.stderr.write(`[provider-startup] ${text}\n`);
       if (ctx.hasUI) ctx.ui.notify(text, "info");
     }
   });
