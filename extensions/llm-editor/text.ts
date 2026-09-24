@@ -1,4 +1,4 @@
-/** llm-editor text over lib/text.ts: all content lives in extensions/text/llm-editor.toml, layered with ~/.pi/agent/llm-editor.toml and <cwd>/.pi/llm-editor.toml overrides, deep-merged and cached per-cwd with mtime invalidation by loadText. Mustache {{name}} syntax, HTML-escaping disabled (plain text). */
+/** llm-editor text over lib/text.ts; overrides follow Pi's agent directory and the project directory. */
 
 import { getCwd } from "../lib/cwd.ts";
 import { loadText, render, textPath } from "../lib/text.ts";

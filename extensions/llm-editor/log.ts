@@ -3,11 +3,10 @@
 import { mkdir, writeFile, readdir, stat, unlink } from "node:fs/promises";
 import { join } from "node:path";
 import { homedir } from "node:os";
-
-const DEFAULT_DIR = join(homedir(), ".pi", "agent", "cpi-editor");
+import { getAgentDir } from "@earendil-works/pi-coding-agent";
 
 export function resolveTranscriptDir(configured: string, cwd: string): string {
-  if (!configured) return DEFAULT_DIR;
+  if (!configured) return join(getAgentDir(), "cpi-editor");
   let p = configured;
   if (p.startsWith("~")) p = join(homedir(), p.slice(1));
   if (!p.startsWith("/")) p = join(cwd, p);

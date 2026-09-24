@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { agentDir } from "./agent-dir.mjs";
 import {
   decorateFastProvider,
   isGeneratedFastModel,
@@ -19,7 +20,7 @@ export function loadFastConfig(cwd = process.cwd()) {
   ).fast;
   let config = { ...defaults };
   for (const path of [
-    join(process.env.HOME ?? "", ".pi/agent/cpi-config.json"),
+    join(agentDir(), "cpi-config.json"),
     join(cwd, ".pi/cpi-config.json"),
   ]) {
     try {

@@ -55,11 +55,11 @@
       { "search": "grok-[^:]*", "replace": "grok-build-0.1" },
       {
         "search": "^(.+[Dd]eep[Ss]eek[^:]*):[^:]*$",
-        "replace": "$1:low"
+        "replace": "$1:high"
       },
       {
         "search": "^(.+[Gg][Ll][Mm][^:]*):[^:]*$",
-        "replace": "$1:low"
+        "replace": "$1:high"
       },
       { "search": "^(.+):(high|xhigh|max)$", "replace": "$1:medium" }
     ]

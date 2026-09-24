@@ -8,6 +8,7 @@ import { copyFileSync, existsSync, readFileSync, renameSync, unlinkSync, writeFi
 import { homedir } from "node:os";
 import { join } from "node:path";
 import process from "node:process";
+import { agentDir } from "../../../bin/agent-dir.mjs";
 
 const { initTreeSitterWasm, ensureTreeSitterReady, parseLangCommand } = await import("../../../extensions/lib/tree-sitter.ts");
 
@@ -46,8 +47,8 @@ function die(msg: string): never {
 function wasmPath(): string {
   if (process.env.CPI_TS_WASM) return process.env.CPI_TS_WASM;
   const candidates = [
+    join(agentDir(), "cache/shell-tools/wasm/tree-sitter-wasm.wasm"),
     join(homedir(), "cpi/tree-sitter-wasm/zig-out/bin/tree-sitter-wasm.wasm"),
-    join(homedir(), ".pi/agent/cache/shell-tools/wasm/tree-sitter-wasm.wasm"),
   ];
   const found = candidates.find((p) => existsSync(p));
   if (!found) die("no tree-sitter-wasm found; set CPI_TS_WASM or build cpi/tree-sitter-wasm");

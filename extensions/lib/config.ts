@@ -6,6 +6,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { getCwd } from "./cwd.ts";
 import type { ForkProbeModelRule } from "./fork-probe-config.ts";
 
@@ -168,12 +169,7 @@ export function deepMerge<T>(user: T, project: Partial<T> | undefined): T {
 }
 
 export function loadCpiConfig(cwd: string = getCwd()): CpiConfig {
-  const userPath = join(
-    process.env.HOME ?? "",
-    ".pi",
-    "agent",
-    "cpi-config.json",
-  );
+  const userPath = join(getAgentDir(), "cpi-config.json");
   const projectPath = join(cwd, ".pi", "cpi-config.json");
 
   const user = loadConfigFile(userPath);

@@ -19,6 +19,8 @@ docstrings, comment runs everywhere else.
 
 The probe subagent never loads this skill. Its task must be fully self-contained
 in the heredoc.
+cpi sets `CPI_HARNESS_SRC` to this package's installed root; use it rather than
+assuming a separate `~/cpi` checkout.
 
 ## Steps
 
@@ -29,14 +31,14 @@ Run in order; never leave a file stripped.
    names for doc comments), and a preview:
 
    ```sh
-   ~/cpi/skills/process-clean-slop-code-comments/scripts/probe list FILE [--lang L]
+   "$CPI_HARNESS_SRC/skills/process-clean-slop-code-comments/scripts/probe" list FILE [--lang L]
    ```
 
    Then `show` the block under test — every target printed by `list` works
    verbatim:
 
    ```sh
-   ~/cpi/skills/process-clean-slop-code-comments/scripts/probe show FILE [--target T] [--lang L]
+   "$CPI_HARNESS_SRC/skills/process-clean-slop-code-comments/scripts/probe" show FILE [--target T] [--lang L]
    ```
 
    Targets: `module` (default), a dotted def path (`Widget.render`) for
@@ -56,7 +58,7 @@ Run in order; never leave a file stripped.
 3. **Strip.**
 
    ```sh
-   ~/cpi/skills/process-clean-slop-code-comments/scripts/probe strip FILE [--target T] [--lang L]
+   "$CPI_HARNESS_SRC/skills/process-clean-slop-code-comments/scripts/probe" strip FILE [--target T] [--lang L]
    ```
 
    Backs up to `FILE.probe-bak`; refuses while a backup exists — a leftover
@@ -92,7 +94,7 @@ Run in order; never leave a file stripped.
 5. **Restore & verify.**
 
    ```sh
-   ~/cpi/skills/process-clean-slop-code-comments/scripts/probe restore FILE
+   "$CPI_HARNESS_SRC/skills/process-clean-slop-code-comments/scripts/probe" restore FILE
    ```
 
    Prints `RESTORED`.
@@ -110,10 +112,9 @@ Run in order; never leave a file stripped.
 - Read-only in effect: the block is always restored; never commit a stripped
   file or a leftover `.probe-bak`.
 - Does not rewrite prose for you — it decides what survives, you write it.
-- Requires a cpi tree-sitter-wasm build carrying `parse_lang` (zig 0.16+,
-  `zig build --release=small` in `tree-sitter-wasm/`; set `CPI_TS_WASM` to point
-  elsewhere). The skill resolves the wasm from
-  `~/cpi/tree-sitter-wasm/zig-out/bin/` or the pi shell-tools cache.
+- Requires a tree-sitter-wasm build carrying `parse_lang` (zig 0.16+). The probe
+  checks `CPI_TS_WASM`, then Pi's agent-directory shell-tools cache, then an
+  optional `~/cpi/tree-sitter-wasm/zig-out/bin/` checkout build.
 - Runtime: the `probe` wrapper execs the interpreter pi itself runs under
   (`CPI_RUNTIME_KIND`/`CPI_RUNTIME_BIN` — node, bun, or deno), falling back to
   `node` on PATH outside pi; node needs >= 23.6 for unflagged type stripping (22

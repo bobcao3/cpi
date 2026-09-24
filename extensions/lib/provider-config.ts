@@ -1,13 +1,14 @@
 /**
- * Shared provider-fallback config/helpers; config merges project-over-user: ~/.pi/agent/fallback-providers.json then <cwd>/.pi/fallback-providers.json.
+ * Shared provider-fallback config/helpers; config merges project-over-user.
  * GlobalThis state survives jiti moduleCache-disabled reloads and prevents duplicate registration.
  */
 
 import { readFileSync, existsSync, appendFileSync } from "node:fs";
 import { join } from "node:path";
-import type {
-  ExtensionAPI,
-  ExtensionContext,
+import {
+  getAgentDir,
+  type ExtensionAPI,
+  type ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import { isModelStripped } from "./model-strip.ts";
 import type { ModelStripRule } from "./model-strip.ts";
@@ -168,9 +169,7 @@ function mergeConfigs(
 }
 
 export function loadMergedConfig(cwd: string): FallbackConfig {
-  const user = loadConfigFile(
-    join(process.env.HOME ?? "", ".pi", "agent", "fallback-providers.json"),
-  );
+  const user = loadConfigFile(join(getAgentDir(), "fallback-providers.json"));
   const project = loadConfigFile(join(cwd, ".pi", "fallback-providers.json"));
   debug(
     `user config: ${user ? "present" : "none"} | project config: ${project ? "present" : "none"}`,

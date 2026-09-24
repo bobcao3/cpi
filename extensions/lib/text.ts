@@ -8,6 +8,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parse as parseToml } from "smol-toml";
 import Mustache from "mustache";
+import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { deepMerge } from "./config.ts";
 import { getCwd } from "./cwd.ts";
 
@@ -86,7 +87,7 @@ export function loadText<T = Record<string, unknown>>(
   defaultPath: string,
   cwd: string = getCwd(),
 ): T {
-  const userPath = join(process.env.HOME ?? "", ".pi", "agent", `${id}.toml`);
+  const userPath = join(getAgentDir(), `${id}.toml`);
   const projectPath = join(cwd, ".pi", `${id}.toml`);
   const key = `${id}\x00${cwd}`;
   const paths = [defaultPath, userPath, projectPath];
