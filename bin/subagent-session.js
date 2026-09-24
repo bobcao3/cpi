@@ -1,16 +1,16 @@
 import { hostCodingAgent } from "./host-pi.mjs";
-import { fileURLToPath } from "node:url";
 import { observeSession } from "./subagent-activity.mjs";
 import { createFastRuntime, resolveFastModel } from "./fast-models.mjs";
+import { setSystemPromptOverride } from "../extensions/lib/system-prompt.ts";
 
 const {
-  DefaultResourceLoader,
   getAgentDir,
   ModelRuntime,
   resolveCliModel,
   SessionManager,
   SettingsManager,
-  createAgentSession,
+  createAgentSessionFromServices,
+  createAgentSessionServices,
 } = await hostCodingAgent();
 
 function resolveSelection(modelRuntime, request) {
@@ -65,38 +65,36 @@ export async function runSubagentSession(request, signal, exchangeCandidate) {
   }
   const agentDir = getAgentDir();
   const modelRuntime = await createFastRuntime(ModelRuntime, request.cwd);
-  const selection = resolveSelection(modelRuntime, request);
   const settingsManager = SettingsManager.create(request.cwd, agentDir);
   settingsManager.applyOverrides({ compaction: { enabled: false } });
-  const loader = new DefaultResourceLoader({
+  // Extensions load here, so the providers they register (fallback-providers)
+  // are resolvable below, before the session resolves its model.
+  const services = await createAgentSessionServices({
     cwd: request.cwd,
     agentDir,
     settingsManager,
-    additionalExtensionPaths: [
-      ...new Set([
-        fileURLToPath(
-          new URL("../extensions/lib/model-context.ts", import.meta.url),
-        ),
-        ...request.extensionPaths,
-      ]),
-    ],
-    noExtensions: true,
-    noSkills: true,
-    noContextFiles: true,
-    systemPrompt: request.systemPrompt,
-  });
-  await loader.reload();
-  const { session } = await createAgentSession({
-    cwd: request.cwd,
-    agentDir,
     modelRuntime,
-    settingsManager,
-    resourceLoader: loader,
+    resourceLoaderOptions: {
+      ...(request.extensionPaths?.length
+        ? { additionalExtensionPaths: request.extensionPaths }
+        : {}),
+      noSkills: true,
+      noContextFiles: true,
+      systemPrompt: request.systemPrompt,
+    },
+  });
+  for (const diagnostic of services.diagnostics) {
+    if (diagnostic.type !== "info")
+      process.stderr.write(`${diagnostic.type}: ${diagnostic.message}\n`);
+  }
+  const selection = resolveSelection(modelRuntime, request);
+  setSystemPromptOverride(request.systemPrompt);
+  const { session } = await createAgentSessionFromServices({
+    services,
     sessionManager: SessionManager.inMemory(request.cwd),
     model: selection.model,
     thinkingLevel: request.thinkingLevel || selection.thinkingLevel,
-    tools: request.tools,
-    noTools: request.tools === undefined ? "builtin" : undefined,
+    ...(request.tools ? { tools: request.tools } : { noTools: "all" }),
   });
   const unobserve = observeSession(session);
   // Automatic server caching may remain enabled.
@@ -153,6 +151,7 @@ export async function runSubagentSession(request, signal, exchangeCandidate) {
         .catch(() => {});
     }
     signal?.removeEventListener("abort", stop);
+    setSystemPromptOverride(undefined);
     unobserve();
     session.dispose();
   }

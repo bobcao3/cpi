@@ -12,13 +12,13 @@ import {
 } from "./disabled-skills.mjs";
 
 const {
-  DefaultResourceLoader,
   getAgentDir,
   ModelRuntime,
   resolveCliModel,
   SessionManager,
   SettingsManager,
-  createAgentSession,
+  createAgentSessionFromServices,
+  createAgentSessionServices,
 } = await hostCodingAgent();
 
 const THINKING = new Set([
@@ -149,25 +149,6 @@ export async function runSubagent(request, signal) {
   const selected = selector(args, parent);
   const agentDir = getAgentDir();
   const modelRuntime = await createFastRuntime(ModelRuntime, cwd);
-  const selection = resolveSelection(modelRuntime, selected);
-  const dir = subagentDir(env);
-  const id =
-    args.sessionId ||
-    `sub-${new Date()
-      .toISOString()
-      .replace(/[-:TZ.]/g, "")
-      .slice(0, 14)}-${request.runId}`;
-  const manager = await sessionManager(cwd, dir, id);
-  const restored = manager.buildSessionContext().model;
-  if (
-    !selected.model &&
-    restored?.modelId.endsWith("-fast") &&
-    !modelRuntime.getModel(restored.provider, restored.modelId)
-  ) {
-    throw new Error(
-      `Fast model unavailable: ${restored.provider}/${restored.modelId}`,
-    );
-  }
   const protocolPath = join(
     dirname(fileURLToPath(import.meta.url)),
     "output-protocol.md",
@@ -189,20 +170,43 @@ export async function runSubagent(request, signal) {
         return { ...base, skills: visible };
       }
     : undefined;
-  const loader = new DefaultResourceLoader({
+  // Extensions load here, so the providers they register (fallback-providers)
+  // are resolvable below, before the session resolves its model.
+  const services = await createAgentSessionServices({
     cwd,
     agentDir,
     settingsManager,
-    appendSystemPrompt: [protocol],
-    skillsOverride,
-  });
-  await loader.reload();
-  const { session } = await createAgentSession({
-    cwd,
-    agentDir,
     modelRuntime,
-    settingsManager,
-    resourceLoader: loader,
+    resourceLoaderOptions: {
+      appendSystemPrompt: [protocol],
+      skillsOverride,
+    },
+  });
+  for (const diagnostic of services.diagnostics) {
+    if (diagnostic.type !== "info")
+      process.stderr.write(`${diagnostic.type}: ${diagnostic.message}\n`);
+  }
+  const selection = resolveSelection(modelRuntime, selected);
+  const dir = subagentDir(env);
+  const id =
+    args.sessionId ||
+    `sub-${new Date()
+      .toISOString()
+      .replace(/[-:TZ.]/g, "")
+      .slice(0, 14)}-${request.runId}`;
+  const manager = await sessionManager(cwd, dir, id);
+  const restored = manager.buildSessionContext().model;
+  if (
+    !selected.model &&
+    restored?.modelId.endsWith("-fast") &&
+    !modelRuntime.getModel(restored.provider, restored.modelId)
+  ) {
+    throw new Error(
+      `Fast model unavailable: ${restored.provider}/${restored.modelId}`,
+    );
+  }
+  const { session } = await createAgentSessionFromServices({
+    services,
     sessionManager: manager,
     ...selection,
   });

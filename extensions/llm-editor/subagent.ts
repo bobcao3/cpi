@@ -6,8 +6,6 @@
  */
 
 import { randomUUID } from "node:crypto";
-import { dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
 import { writeTranscript } from "./log.ts";
 import { getActivitySession, updateActivity } from "../lib/activity.ts";
 import { STREAM_UPDATE_MS } from "./render.ts";
@@ -97,11 +95,6 @@ export async function runSubagent(
   const T = loadEditorText(opts.cwd);
   const maxOutputBytes = opts.maxOutputBytes ?? 524288;
   const maxCorrectionTurns = opts.maxCorrectionTurns ?? 0;
-  const extensionRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-  const extensionPaths = [
-    join(extensionRoot, "subagent-transcript/index.ts"),
-    join(extensionRoot, "cost-tree/index.ts"),
-  ];
   const env = inheritedEnvironment();
   const ownerSession = getActivitySession();
   if (ownerSession) env.PI_SESSION_ID = ownerSession;
@@ -111,7 +104,6 @@ export async function runSubagent(
     version: 1,
     kind: "session",
     cacheRetention: "none",
-    extensionPaths,
     runId: randomUUID(),
     systemPrompt: opts.systemPrompt,
     task: opts.task,

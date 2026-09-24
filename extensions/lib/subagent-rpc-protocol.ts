@@ -35,7 +35,8 @@ export interface CliSubagentRequest {
 export interface SessionSubagentRequest {
   version: 1;
   kind: "session";
-  extensionPaths: string[];
+  /** Extra extension paths on top of the discovered set. */
+  extensionPaths?: string[];
   tools?: string[];
   cacheRetention?: "none" | "short" | "long";
   systemPrompt: string;
@@ -221,7 +222,8 @@ export function validSessionSubagentRequest(
   if (
     request.version !== 1 ||
     request.kind !== "session" ||
-    !validStringList(request.extensionPaths, 16, 4096, true) ||
+    (request.extensionPaths !== undefined &&
+      !validStringList(request.extensionPaths, 16, 4096, true)) ||
     (request.tools !== undefined &&
       !validStringList(request.tools, 64, 128, false)) ||
     (request.cacheRetention !== undefined &&

@@ -10,8 +10,6 @@ import {
   type ExtensionAPI,
   type ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
-import { isModelStripped } from "./model-strip.ts";
-import type { ModelStripRule } from "./model-strip.ts";
 
 const debug = (msg: string): void => {
   if (!process.env.PF_DEBUG) return;
@@ -63,7 +61,6 @@ export interface FailoverConfig {
 export interface FallbackConfig {
   providers?: Record<string, ProviderConfig>;
   fallbacks?: FallbackCandidate[];
-  stripModels?: ModelStripRule[];
   failover?: FailoverConfig;
 }
 
@@ -163,7 +160,6 @@ function mergeConfigs(
     }
   }
   merged.fallbacks = project?.fallbacks ?? user?.fallbacks ?? [];
-  merged.stripModels = project?.stripModels ?? user?.stripModels ?? undefined;
   merged.failover = project?.failover ?? user?.failover ?? undefined;
   return merged;
 }
@@ -211,7 +207,7 @@ export interface FallbackPick {
   candidate: FallbackCandidate;
 }
 
-/** Selects the next registered, unstripped fallback fitting context usage. */
+/** Selects the next registered fallback fitting context usage. */
 export function selectFallback(
   ctx: ExtensionContext,
   fallbacks: FallbackCandidate[] | undefined,
@@ -230,10 +226,6 @@ export function selectFallback(
       debug(
         `fallback ${candidate.provider}/${candidate.model} not in registry`,
       );
-      continue;
-    }
-    if (isModelStripped(candidate.provider, candidate.model)) {
-      debug(`fallback ${candidate.provider}/${candidate.model} is stripped`);
       continue;
     }
     if (model.contextWindow && model.contextWindow < tokens) {

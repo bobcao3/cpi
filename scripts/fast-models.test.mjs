@@ -140,7 +140,7 @@ test("CLI and fork runners initialize variants before resolution", async () => {
   });
 });
 
-test("noExtensions session workers resolve and execute explicit base and fast models independently", async () => {
+test("session workers resolve and execute explicit base and fast models independently", async () => {
   await fixture(async ({ directory, requests }) => {
     const previous = process.env.PI_CODING_AGENT_DIR;
     process.env.PI_CODING_AGENT_DIR = directory;

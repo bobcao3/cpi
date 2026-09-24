@@ -9,6 +9,7 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import {
   applySystemPromptTransforms,
+  getSystemPromptOverride,
   unregisterSystemPromptTransform,
 } from "./lib/system-prompt.ts";
 import { buildCpiSystemPrompt } from "./lib/system-prompt-build.ts";
@@ -112,6 +113,8 @@ export default function coreExtension(pi: ExtensionAPI): void {
 
   // Sole systemPrompt return across cpi — no other handler returns one.
   pi.on("before_agent_start", async (event: any, ctx: any) => {
+    const override = getSystemPromptOverride();
+    if (override !== undefined) return { systemPrompt: override };
     const model = ctx.model;
     if (!model) throw new Error("cpi system prompt requires an active model");
     return {

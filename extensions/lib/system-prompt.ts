@@ -1,6 +1,8 @@
 /**
- * This registry survives jiti reloads via globalThis; throwing transforms
- * are skipped and logged.
+ * Prompt-override slot and transform registry for cpi's own system prompt.
+ * A session that sets an override (cpi subagents) gets exactly that prompt:
+ * core skips the build and the transforms while it is set. This registry
+ * survives jiti reloads via globalThis; throwing transforms are skipped.
  */
 
 interface TransformEntry {
@@ -10,6 +12,7 @@ interface TransformEntry {
 
 interface Registry {
   transforms: Map<string, TransformEntry>;
+  override?: string;
 }
 
 const GLOBAL_KEY = "__cpiSystemPrompt";
@@ -54,6 +57,19 @@ export function unregisterSystemPromptTransform(id: string): boolean {
     "id must be a non-empty string",
   );
   return registry().transforms.delete(id);
+}
+
+export function setSystemPromptOverride(prompt: string | undefined): void {
+  const r = registry();
+  if (prompt === undefined) {
+    delete r.override;
+    return;
+  }
+  r.override = prompt;
+}
+
+export function getSystemPromptOverride(): string | undefined {
+  return registry().override;
 }
 
 export function applySystemPromptTransforms(

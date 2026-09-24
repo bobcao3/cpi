@@ -3,11 +3,6 @@ import type {
   ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import {
-  DEFAULT_MODEL_STRIP_RULES,
-  isModelStripped,
-  stripModels,
-} from "./lib/model-strip";
-import {
   DEFAULT_FAILURE_THRESHOLD,
   getState,
   loadMergedConfig,
@@ -78,25 +73,9 @@ export default async function providerExtension(
       }
     }
 
-    const strippedModelIds = stripModels(
-      pi,
-      ctx,
-      live.stripModels ?? DEFAULT_MODEL_STRIP_RULES,
-    );
-    if (strippedModelIds.length) {
-      process.stderr.write(
-        `[model-strip] stripped ${strippedModelIds.length} superseded model${
-          strippedModelIds.length === 1 ? "" : "s"
-        }.\n`,
-      );
-      debug("model-strip", `stripped: ${strippedModelIds.join(", ")}`);
-    }
-
     const cur = ctx.model;
     const curUsable =
-      !!cur &&
-      ctx.modelRegistry.find(cur.provider, cur.id) != null &&
-      !isModelStripped(cur.provider, cur.id);
+      !!cur && ctx.modelRegistry.find(cur.provider, cur.id) != null;
     if (curUsable) {
       debug(
         "provider-startup",
