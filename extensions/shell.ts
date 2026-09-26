@@ -188,21 +188,25 @@ export default async function (pi: ExtensionAPI) {
     parameters: shSchema,
     renderShell: "self",
     async execute(_toolCallId, params, signal, onUpdate, ctx) {
+      const describe = params.description?.trim();
+      const blocked = (
+        reason: string,
+        details: Record<string, unknown> = {},
+        text = reason,
+      ) => ({
+        content: [{ type: "text" as const, text }],
+        details: { describe, blocked: reason, ...details },
+        isError: true,
+      });
       if (signal?.aborted)
         return {
           content: [{ type: "text", text: "Aborted before start." }],
           isError: true,
         };
       if (params.waitfor !== undefined && params.waitfor > MAX_WAITFOR)
-        return {
-          content: [
-            {
-              type: "text",
-              text: `waitfor must be <= ${MAX_WAITFOR}s (got ${params.waitfor}). For longer waits, background and use alarm.`,
-            },
-          ],
-          isError: true,
-        };
+        return blocked(
+          `waitfor must be <= ${MAX_WAITFOR}s (got ${params.waitfor}). For longer waits, background and use alarm.`,
+        );
       const truncation: OutputTruncation = { maxLines: MAX_PREVIEW_LINES };
       const effectiveWaitfor = params.waitfor ?? DEFAULT_WAITFOR;
       // Inline sleep guard
@@ -213,19 +217,12 @@ export default async function (pi: ExtensionAPI) {
       ]
         .map((m) => parseFloat(m[1]) * (m[2] ? SLEEP_UNITS[m[2]] : 1))
         .find((sec) => sec > effectiveWaitfor);
-      if (sleepMatch !== undefined)
-        return {
-          content: [
-            {
-              type: "text",
-              text: `Blocked: 'sleep ${sleepMatch}s && ...' exceeds waitfor (${effectiveWaitfor}s). Background and use alarm.`,
-            },
-          ],
-          isError: true,
-        };
+      if (sleepMatch !== undefined) {
+        const reason = `'sleep ${sleepMatch}s && ...' exceeds waitfor (${effectiveWaitfor}s). Background and use alarm.`;
+        return blocked(reason, {}, `Blocked: ${reason}`);
+      }
 
       const startedAt = Date.now();
-      const describe = params.description?.trim();
       const shuckPath = availability.shuck ? getShuckBinPath() : null;
       const analysis = await analyzeCommand({
         command: params.command,
@@ -234,15 +231,7 @@ export default async function (pi: ExtensionAPI) {
         shuckPath,
       });
       if (analysis.status === "unsupported-dialect") {
-        return {
-          content: [
-            {
-              type: "text",
-              text: unsupportedDialectMessage(analysis.unsupported!),
-            },
-          ],
-          isError: true,
-        };
+        return blocked(unsupportedDialectMessage(analysis.unsupported!));
       }
       const { parse } = analysis;
       if (analysis.errorText) {
@@ -256,21 +245,11 @@ export default async function (pi: ExtensionAPI) {
           },
         );
         const count = analysis.errorCount;
-        return {
-          content: [
-            {
-              type: "text",
-              text: `${text}\n---\nblocked (${count} error${count !== 1 ? "s" : ""})`,
-            },
-          ],
-          details: {
-            fullOutputPath,
-            describe,
-            shuckBlocked: true,
-            tsAst: parse.ast,
-          },
-          isError: true,
-        };
+        return blocked(
+          analysis.errorText,
+          { fullOutputPath, shuckBlocked: true, tsAst: parse.ast },
+          `${text}\n---\nblocked (${count} error${count !== 1 ? "s" : ""})`,
+        );
       }
 
       const shuckWarnings = analysis.warningText || undefined;

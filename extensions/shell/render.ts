@@ -4,6 +4,7 @@
  */
 
 import { Text, truncateToWidth } from "@earendil-works/pi-tui";
+import { renderBlocked } from "./blocked.ts";
 import { highlightCommandSync } from "../lib/tree-sitter.ts";
 import { highlightRange, byteLen, lineBounds } from "./highlight.ts";
 
@@ -103,6 +104,7 @@ interface ShResultDetails {
   fullOutputPath?: string;
   describe?: string;
   shuckWarnings?: string;
+  blocked?: string;
   shuckBlocked?: boolean;
   interval?: number;
 }
@@ -117,6 +119,11 @@ export function renderShResult(
   const content = result.content[0];
   let fullText = content?.type === "text" ? content.text : "";
   const details = result.details as ShResultDetails | undefined;
+  const blockedReason =
+    details?.blocked ??
+    (details?.shuckBlocked ? fullText.split("\n---\n")[0] : undefined);
+  if (blockedReason)
+    return renderBlocked(details?.describe ?? "shell", blockedReason, theme);
 
   if (details?.shuckWarnings) {
     const warnEnd = fullText.indexOf("\n---\n");
@@ -168,8 +175,7 @@ export function renderShResult(
   const isRepeating = details?.status === "repeating";
   const exitCode = details?.exitCode;
   let status = "";
-  if (details?.shuckBlocked) status = theme.fg("error", "✗ blocked");
-  else if (isRunning) {
+  if (isRunning) {
     status = theme.fg("warning", "⏳ backgrounded");
     if (details?.id) status += theme.fg("dim", ` PID=${details.id}`);
     if (details?.fullOutputPath)

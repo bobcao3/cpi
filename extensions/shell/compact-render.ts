@@ -1,9 +1,12 @@
 import { Container, Text } from "@earendil-works/pi-tui";
 import type { Theme } from "@earendil-works/pi-coding-agent";
+import { renderBlocked } from "./blocked.ts";
 import { cleanActivityDisplay } from "../lib/activity-details.ts";
 
 interface CompactDetails {
   describe?: string;
+  blocked?: string;
+  shuckBlocked?: boolean;
   shellName?: string;
   status?: string;
   exitCode?: number | null;
@@ -79,7 +82,11 @@ export function renderCompactShellCall(
 }
 
 export function renderCompactShellResult(
-  result: { details?: CompactDetails; isError?: boolean },
+  result: {
+    details?: CompactDetails;
+    isError?: boolean;
+    content?: ReadonlyArray<{ type?: string; text?: string }>;
+  },
   options: { isPartial: boolean },
   theme: Theme,
   context: ShellRenderContext,
@@ -93,6 +100,14 @@ export function renderCompactShellResult(
     details?.describe?.trim() || args?.description?.trim() || "shell",
   );
   const suffix = elapsedSuffix(details?.elapsedMs, undefined, theme);
+  const blockedReason =
+    details?.blocked ??
+    (details?.shuckBlocked
+      ? result.content
+          ?.find((section) => section.type === "text")
+          ?.text?.split("\n---\n")[0]
+      : undefined);
+  if (blockedReason) return renderBlocked(description, blockedReason, theme);
   if (details?.status === "running")
     return new Text(
       theme.fg("warning", `⏳ backgrounded ${name}: `) +

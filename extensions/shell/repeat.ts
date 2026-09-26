@@ -347,14 +347,17 @@ export function createRepeatTool(
     ) {
       const interval = params.interval;
       const description = params.description?.trim();
-      if (interval < 5 || interval > 60) {
-        return {
-          content: [
-            { type: "text", text: `interval must be 5-60s (got ${interval}).` },
-          ],
-          isError: true,
-        };
-      }
+      const blocked = (
+        reason: string,
+        details: Record<string, unknown> = {},
+        text = reason,
+      ) => ({
+        content: [{ type: "text" as const, text }],
+        details: { describe: description, blocked: reason, ...details },
+        isError: true,
+      });
+      if (interval < 5 || interval > 60)
+        return blocked(`interval must be 5-60s (got ${interval}).`);
 
       const shuckPath = availability.shuck ? getShuckBinPath() : null;
       const analysis = await analyzeCommand({
@@ -363,30 +366,16 @@ export function createRepeatTool(
         availability,
         shuckPath,
       });
-      if (analysis.status === "unsupported-dialect") {
-        return {
-          content: [
-            {
-              type: "text",
-              text: unsupportedDialectMessage(analysis.unsupported!),
-            },
-          ],
-          isError: true,
-        };
-      }
+      if (analysis.status === "unsupported-dialect")
+        return blocked(unsupportedDialectMessage(analysis.unsupported!));
       const { parse } = analysis;
       if (analysis.errorText) {
         const count = analysis.errorCount;
-        return {
-          content: [
-            {
-              type: "text",
-              text: `${analysis.errorText}\n---\nblocked (${count} error${count !== 1 ? "s" : ""})`,
-            },
-          ],
-          details: { description, shuckBlocked: true, tsAst: parse.ast },
-          isError: true,
-        };
+        return blocked(
+          analysis.errorText,
+          { shuckBlocked: true, tsAst: parse.ast },
+          `${analysis.errorText}\n---\nblocked (${count} error${count !== 1 ? "s" : ""})`,
+        );
       }
       const shuckWarnings = analysis.warningText || undefined;
       const warningPrefix = shuckWarnings
