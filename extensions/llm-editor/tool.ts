@@ -180,6 +180,7 @@ async function executeEdit(
     signal,
     maxFileBytes: cfg.maxFileBytes,
     fuzzyMatch: cfg.fuzzyMatch,
+    partialApply: cfg.partialApply,
   };
   const r =
     command === "apply_patch"
@@ -206,6 +207,7 @@ async function executeEdit(
     field("match", r.match),
     field("diff", r.diff),
   ];
+  if (r.failure) body.push(field("error", r.failure.message));
   if (r.lsp) body.push(r.lsp);
   const agents = surfaceAgentsBlock(dirname(abs));
   requestFooterRender();
@@ -225,6 +227,8 @@ async function executeEdit(
       firstChangedLine: r.firstChangedLine,
       diffOps: r.diffOps,
       usage: r.usage,
+      failure: r.failure,
+      message: r.failure?.message,
     },
     agents,
   );

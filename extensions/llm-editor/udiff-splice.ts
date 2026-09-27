@@ -22,6 +22,7 @@ export interface Splice {
   end: number;
   text: string;
   block: number;
+  hunk: number;
 }
 
 export type NewlineIntent = "add" | "remove";
@@ -133,7 +134,7 @@ export function changeSplices(
       lines.at(-1)?.eol === ""
     )
       text = nearbyEol + text;
-    splices.push({ start, end, text, block: hunk.block });
+    splices.push({ start, end, text, block: hunk.block, hunk: hunk.hunk });
   }
   return splices;
 }

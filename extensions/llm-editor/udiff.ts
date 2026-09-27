@@ -23,6 +23,8 @@ export interface UdiffRow {
 
 export interface UdiffHunk {
   block: number;
+  hunk: number;
+  line: number;
   /** False when the header carried no coordinates; `oldStart` is then unusable. */
   anchored: boolean;
   scope?: string;
@@ -47,12 +49,13 @@ export type UdiffParseErrorCode =
 export interface UdiffParseError {
   code: UdiffParseErrorCode;
   block?: number;
+  hunk?: number;
   line?: number;
 }
 
 export type UdiffParseResult =
   | { ok: true; hunks: UdiffHunk[] }
-  | { ok: false; error: UdiffParseError };
+  | { ok: false; error: UdiffParseError; hunks?: UdiffHunk[] };
 
 const HEADER = /^@@+ *-(\d+)(?:,(\d+))? *\+(\d+)(?:,(\d+))? *@@+(?: .*)?$/;
 const HEADER_LOOSE = /^(?:@@+(?: *(?:\.\.\.)? *@@+)?|\*\*\*)[ \t]*$/;
@@ -98,9 +101,10 @@ function parseHunk(
   body: string[],
   block: number,
   base: number,
+  hunk: number,
 ): HunkParse {
   const bad = (code: UdiffParseErrorCode, line?: number): HunkParse => ({
-    error: { code, block, line },
+    error: { code, block, hunk, line: line ?? base },
   });
 
   const anchored = header !== null;
@@ -177,6 +181,8 @@ function parseHunk(
   return {
     hunk: {
       block,
+      hunk,
+      line: base,
       anchored,
       scope,
       oldStart,
@@ -191,8 +197,9 @@ function parseHunk(
 function parseBlock(
   diff: string,
   block: number,
+  offset: number,
   target?: PatchTarget,
-): UdiffParseResult {
+): UdiffParseResult & { count?: number } {
   if (Buffer.byteLength(diff, "utf8") > MAX_DIFF_BLOCK_BYTES)
     return fail("too_large", block);
   const lines = logicalLines(diff);
@@ -205,6 +212,7 @@ function parseBlock(
     match: RegExpExecArray | null;
     scope?: string;
     at: number;
+    invalid?: boolean;
   }[] = [];
   for (let index = framing.start; index < framing.end; index++) {
     const match = HEADER.exec(lines[index]);
@@ -214,26 +222,40 @@ function parseBlock(
     else if (HEADER_SCOPE.test(lines[index]) && !/^@@ -\d/.test(lines[index]))
       headers.push({ match: null, scope: lines[index].slice(3), at: index });
     else if (lines[index].startsWith("@@"))
-      return fail("bad_header", block, index + 1);
+      headers.push({ match: null, at: index, invalid: true });
   }
   if (headers.length === 0) return fail("bad_header", block, 1);
+  const last = headers.at(-1)!;
+  const trailingSeparator =
+    lines[last.at] === "***" && last.at + 1 === framing.end;
+  const count = headers.length - Number(trailingSeparator);
+  if (count + offset > MAX_DIFF_BLOCKS) return fail("too_many", block);
 
   const hunks: UdiffHunk[] = [];
   for (let index = 0; index < headers.length; index++) {
     const start = headers[index].at;
     const end = headers[index + 1]?.at ?? framing.end;
     if (lines[start] === "***" && start + 1 === end) continue;
+    const hunk = offset + hunks.length + 1;
+    if (headers[index].invalid)
+      return {
+        ok: false,
+        hunks,
+        count,
+        error: { code: "bad_header", block, hunk, line: start + 1 },
+      };
     const parsed = parseHunk(
       headers[index].match,
       headers[index].scope,
       lines.slice(start + 1, end),
       block,
       start + 1,
+      hunk,
     );
-    if (parsed.error) return { ok: false, error: parsed.error };
+    if (parsed.error) return { ok: false, error: parsed.error, hunks, count };
     if (parsed.hunk) hunks.push(parsed.hunk);
   }
-  return { ok: true, hunks };
+  return { ok: true, hunks, count };
 }
 
 /** Parse every completion diff before any matching or file mutation occurs. */
@@ -245,14 +267,22 @@ export function parseUdiffs(
   if (raw.length > MAX_DIFF_BLOCKS) return fail("too_many");
   let total = 0;
   const hunks: UdiffHunk[] = [];
+  let count = 0;
+  let failure: (UdiffParseResult & { ok: false }) | undefined;
   for (let index = 0; index < raw.length; index++) {
     if (typeof raw[index] !== "string") return fail("bad_block", index + 1);
     total += Buffer.byteLength(raw[index], "utf8");
     if (total > MAX_DIFF_TOTAL_BYTES) return fail("too_large", index + 1);
-    const parsed = parseBlock(raw[index], index + 1, target);
-    if (!parsed.ok) return parsed;
-    hunks.push(...parsed.hunks);
   }
+  for (let index = 0; index < raw.length; index++) {
+    const parsed = parseBlock(raw[index], index + 1, count, target);
+    if (parsed.ok === false) {
+      if (!parsed.hunks) return parsed;
+      failure ??= { ...parsed, hunks: [...hunks, ...parsed.hunks] };
+    } else if (!failure) hunks.push(...parsed.hunks);
+    count += parsed.count ?? 0;
+  }
+  if (failure) return failure;
   if (hunks.length === 0) return fail("no_changes", 1);
   if (hunks.length > MAX_DIFF_BLOCKS) return fail("too_many", 1);
   if (

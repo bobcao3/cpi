@@ -132,11 +132,10 @@ function compileRule(
   try {
     return new RegExp(rule.search);
   } catch {
-    const tpl = T.errors.invalid_chain_regex;
-    const msg = tpl
-      ? fmt(tpl, { pattern: rule.search, i: i + 1 })
-      : `[editor] chain rule ${i + 1}: invalid regex ${rule.search}`;
-    process.stderr.write(msg + "\n");
+    warnConfig(T.errors.invalid_chain_regex, {
+      pattern: rule.search,
+      i: i + 1,
+    });
     return null;
   }
 }

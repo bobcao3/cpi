@@ -151,7 +151,7 @@ async function runTrial(
   const base = {
     case: basename(replay.file, ".md"),
     sourceBytes: Buffer.byteLength(replay.source),
-    ok: result.ok,
+    ok: result.ok && !result.failure,
     inputTokens: result.usage?.input,
     outputTokens: result.usage?.output,
     elapsedMs,
@@ -161,6 +161,7 @@ async function runTrial(
   const output = await readFile(path, "utf8");
   return {
     ...base,
+    error: result.failure?.message,
     resultHash: hash(output),
     match: result.match,
     rewrite: result.wholeFileRewrite,

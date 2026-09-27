@@ -45,8 +45,9 @@ Query: "Where is the database connection configured?"
 '''
 editor = '''
 You are an expert code editor. Analyze the numbered file and return the
-requested changes as one direct unified-diff envelope. Output only this format,
-with one or more hunks inside and no prose or Markdown fences:
+requested changes as one patch for the supplied file. Put the patch between
+the opening and closing marker lines shown below. Output no prose or Markdown
+fences:
 
 {{open}}
 @@
@@ -73,35 +74,48 @@ cancel the edit by outputting exactly `*** EDIT CANCELED ***`.
 
 2. Formatting the diff:
 
-We use a single-file diff format with optional Codex-style anchors.
+A patch is diff text describing changes to one existing file. A hunk consists
+of one hunk header and the following context, removal, and addition lines up to
+the next header or the end of the patch. Hunk numbers start at 1 in submission
+order and include context-only hunks. Error line numbers count lines of patch
+text, not source-file lines. For editor responses, patch text starts immediately
+after the opening marker line.
 - Unchanged context: prefix one space
 - Removed lines: prefix one `-`
 - Added lines: prefix one `+`
 
-All hunks refer to the original file and must not overlap.
+All hunks must use the original file as the source. Changed source regions
+must not overlap; unchanged context may overlap between hunks.
 
 Hunk headers:
-- Hunk coordinates and counts may be approximate; the applier uses the hunk body
-  as the source of truth and can relocate a uniquely matching hunk.
+- Line numbers and counts in numbered headers may be approximate. The tool
+  first checks the stated source-line position. If the hunk does not match
+  there, the tool searches for a unique matching location elsewhere in the
+  allowed source lines.
 - A bare `@@` header is also accepted.
-- `@@ exact source line` seeks that line before matching the hunk. Context-only
-  hunks similarly anchor subsequent hunks to lines after their matched context.
+- An exact-source-line header has the form `@@ exact source line`. The tool
+  finds the named source line and searches for the hunk body after that line.
+- A context-only hunk contains unchanged lines without additions or removals.
+  The tool searches for later hunks after the matched context lines.
 
 Hunk body:
 - Include enough unchanged or removed source context to identify the intended
   location.
-- At least one hunk must add or remove a line. Unnumbered anchors must match uniquely;
-  subsequent hunks must occur after them in source order.
+- At least one hunk must add or remove a line. Exact-source-line headers and
+  unnumbered hunks must match uniquely within the remaining source lines.
+  After a context-only hunk or exact-source-line header, keep subsequent hunks
+  in source order.
 - Use `\ No newline at end of file` only when changing final-newline state. Put
-  every hunk inside the single {{open}} / {{close}} envelope and output nothing
-  outside it.
+  every hunk after one {{open}} line and before one {{close}} line. Output
+  nothing before the opening marker or after the closing marker.
 
 ---
 '''
 
 editor_fuzzy = '''
-The applier can relocate a uniquely matching hunk and tolerate small whitespace
-drift; source rows should otherwise follow the file.
+The tool can find matching hunks at different line numbers and tolerate some
+indentation or trailing-whitespace differences. Still copy context and removal
+lines accurately from the source file.
 '''
 
 [tasks]
@@ -118,12 +132,9 @@ editor = '''
 Instruction: {{instruction}}
 '''
 editor_correction = '''
-Validation rejected your previous direct diff:
 {{failure}}
-
-The file is unchanged. The original numbered file, instruction, and response
-remain in the conversation. Do not restate or ask for them. Output only one
-corrected {{open}} / {{close}} envelope with no prose.
+Use the original numbered file/instruction. Return only corrected hunks between
+one {{open}} line and one {{close}} line.
 '''
 # ── Tool metadata shown to the main agent (one tool per command) ──
 [tool.read]
@@ -136,20 +147,20 @@ guidelines = [
 ]
 
 [tool.edit]
-description = "Edit an existing file via a natural-language instruction. An Editor subagent emits bounded single-file unified-diff hunks which the tool matches and applies in-house, atomically and with a whitespace-fuzzy fallback. Race-free per-path: concurrent same-path edits serialize."
+description = "Edit an existing file via a natural-language instruction. An editor subagent generates a patch, meaning diff text describing changes to one existing file. A hunk is one diff header and the following context, removal, and addition lines. Errors number hunks from 1 in submission order and identify lines of patch text, not source-file lines. The tool stops at the first failed hunk; editor.partialApply controls whether preceding hunks persist. A partial application ends the editor attempt and reports the applied hunks, failed hunk, and later hunks that the tool did not attempt. Concurrent same-path edits serialize."
 prompt_snippet = "Edit files via natural-language instruction"
 guidelines = [
 	"`edit` takes a natural-language `instruction` naming the function/class/method to change; the subagent emits unified-diff hunks. Be specific: 'In MyClass.my_method, change X to Y' beats 'fix the bug'.",
 	"`edit`: decompose edit tasks into concrete actions, editor subagent will refuse creative synthesis work",
-	"`edit` subagent guarantees clean formatting but does not guarantee logicical correctness, you are responsible for logically correct instructions.",
+	"Review the resulting diff: a matching patch does not guarantee instruction compliance or logical correctness.",
 	"`edit` cannot create a new file; use `write` for that.",
 ]
 
 [tool.apply_patch]
 description = """
-Apply single-file diff hunks atomically. Headers: `@@`, `@@ exact source line`, or `@@ -OLD,COUNT +NEW,COUNT @@`. Prefix context with a space, removals with -, additions with +.
-Context-only hunks anchor subsequent hunks after their matched lines; unnumbered scoped matches must be unique and proceed forward. At least one hunk must change lines. Any failed hunk leaves the file unchanged.
-Patch wrappers/footers and Markdown fences are unnecessary but accepted. File headers must match path. Numbered-header function labels remain decorative. File create/delete/move operations are unsupported.
+Apply a patch to one existing file. A patch is submitted diff text; a hunk is one header and the following context, removal, and addition lines. Hunk numbers start at 1 in submission order, including context-only hunks. Error line numbers refer to patch text, not source-file lines. Headers: `@@`, `@@ exact source line`, or `@@ -OLD,COUNT +NEW,COUNT @@`. Prefix context with a space, removals with -, additions with +.
+A context-only hunk contains unchanged lines without removals or additions. The tool matches later hunks after those unchanged lines. An exact-source-line header (`@@ exact source line`) selects a source line; the tool matches the hunk body after that line. Exact-source-line headers and unnumbered hunks must match uniquely within the remaining source lines. At least one hunk must change lines. The tool stops at the first failed hunk. The editor.partialApply setting controls whether preceding hunks persist; failure feedback identifies applied hunks, the failed hunk, and later hunks that the tool did not attempt. The tool checks file headers, surrounding patch markers, and input-size limits before applying hunks. Failure in those checks leaves the file unchanged. Re-read after a partial application and retry only the remaining changes.
+The tool accepts optional patch marker lines, such as *** Begin Patch and *** End Patch, or Markdown fences around the hunks. File headers must identify the path argument. Text after the closing @@ in a numbered hunk header does not select a source location. The tool does not create, delete, or rename files.
 """
 prompt_snippet = "Apply single-file diff hunks directly"
 guidelines = [
@@ -193,56 +204,60 @@ restart_hint = "LSP auto-started for {{root}}. If the env is wrong, run 'lsp sta
 
 # ── Error message templates ({{placeholder}} substituted at runtime) ──
 [errors]
-aborted = "Aborted."
+aborted = "Canceled without writing."
 not_found = "Not found: {{path}}"
-not_a_file = "Not a file: {{path}}"
-file_too_large = "{{path}} is {{size}}B (limit {{limit}}B) — too large to load. Use sh: `rg` to locate, `sed -n 'M,Np'` to read a range."
+not_a_file = "{{path}} is not a regular file."
+file_too_large = "{{path}}: {{size}} bytes exceeds {{limit}}. Use sh for targeted reads/edits."
 cannot_read = "Cannot read {{path}}: {{reason}}"
 create_requires_text = "write requires file_text."
 file_exists = "{{path}} already exists — use `apply_patch` or `edit` to modify it."
 create_failed = "Could not create {{path}}: {{reason}}"
 edit_requires_instruction = "edit requires an instruction."
-no_editor_model = "editor: no editor model (no editor config and no main model)."
-invalid_chain_regex = '[editor] chain rule {{i}}: invalid regex "{{pattern}}"; skipping.'
-configured_unavailable = '[editor] configured editor.model "{{model}}" not available/authed; falling back to chain.'
-chain_zero_width = '[editor] chain rule {{i}}: regex "{{pattern}}" matches an empty string, which would prepend "{{replace}}" instead of replacing; skipping.'
-chain_malformed_selector = '[editor] chain rule {{i}}: rewrite of "{{pattern}}" produced malformed selector "{{selector}}"; skipping.'
-chain_no_match = '[editor] no chain rule matched "{{selector}}"; using main model {{main}}.'
-provider_fallback = '[editor] {{requested}} not found/authed; using id-only match {{resolved}}.'
+no_editor_model = "Select a main-session model or configure an available editor.model with credentials."
+invalid_chain_regex = "Editor skipped editor.chain rule {{i}}: invalid regular expression."
+configured_unavailable = "{{model}} is unavailable or lacks credentials; editor.chain runs if a main-session model exists."
+chain_zero_width = "Editor skipped editor.chain rule {{i}} because the pattern matched empty text."
+chain_malformed_selector = "Editor skipped editor.chain rule {{i}}: \"{{selector}}\" needs nonempty provider/model names."
+chain_no_match = "No editor.chain rule selected an available model with credentials; editor uses {{main}}."
+provider_fallback = "Editor switched from {{requested}} to {{resolved}} due to availability or credentials."
 viewer_timeout = "Viewer subagent timed out after {{ms}}ms. Consider fewer query statements & use concrete keywords."
-editor_timeout = "Editor subagent timed out after {{ms}}ms. Consider reducing scope & increase specificity."
-no_change = "The edit produced no change to the file. Re-check the change against the current file content."
-editor_corrections_exhausted = "Editor correction limit reached after {{turns}} correction turns. Last validation error: {{failure}}"
-direct_output_overflow = "Editor direct output exceeded the bounded response-size limit."
-direct_too_large = "The direct diff exceeds the bounded patch-size limit."
-direct_missing_envelope = "Direct output must contain one `{{open}}` / `{{close}}` envelope."
-direct_multiple_envelopes = "Direct output contains more than one DIFF envelope."
-direct_bad_envelope = "The direct DIFF envelope markers are out of order."
-direct_outside_text = "Direct output contains text outside the DIFF envelope."
-direct_empty_diff = "The direct DIFF envelope is empty."
-direct_editor_cancelled = "Editor cancelled: the instruction requires open-ended implementation choices. Use write or provide an exact replacement."
+editor_timeout = "Editor timed out ({{ms}} ms) without writing. Request fewer changes."
+no_change = "The patch changes nothing; compare file and instruction."
+editor_corrections_exhausted = "Editor exhausted {{turns}} correction attempts: {{failure}}"
+editor_no_response = "No patch returned; file unchanged. Refine instruction or use apply_patch."
+direct_output_overflow = "Response exceeds {{response_limit}} UTF-8 bytes; request less. File unchanged."
+direct_too_large = "UTF-8 byte limits: response {{response_limit}}, patch {{patch_limit}}. Return less. File unchanged."
+direct_missing_envelope = "Return exactly {{open}}, all hunks, then {{close}} as separate lines. File unchanged."
+direct_multiple_envelopes = "Use one {{open}}/{{close}} pair around all hunks; remove duplicates. File unchanged."
+direct_bad_envelope = "Reverse markers: {{open}}, hunks, {{close}}. File unchanged."
+direct_outside_text = "Remove non-whitespace outside {{open}}/{{close}}, including prose or Markdown fences. File unchanged."
+direct_empty_diff = "Put a changed hunk between {{open}}/{{close}}. File unchanged."
+direct_editor_cancelled = "Editor declined; file unchanged. Clarify changes or use apply_patch."
 viewer_truncated = "Viewer response exceeded the output-size limit. Re-run with a narrower query."
 viewer_bad_output = "Viewer returned invalid JSON or invalid one_line_summary/ranges.\nOutput: {{tail}}"
-write_failed = "Could not write {{path}}: {{reason}}"
-subagent_start_failed = "Could not start subagent worker: {{reason}}"
-apply_bad_framing = "Diff block {{i}}, patch line {{line}}: unsupported framing or extra file section. Supply hunks for one existing file; only outer patch wrappers, Markdown fences, and matching file headers are accepted. File create/delete/move operations are unsupported."
-apply_bad_target = "Diff block {{i}}, patch line {{line}}: file headers must name the target path on both sides. Do not include another file, a rename, or /dev/null."
-apply_no_diffs = "No diff hunks were supplied."
-apply_too_many = "Diff block {{i}} exceeds the bounded hunk-count limit."
-apply_too_large = "Diff block {{i}} exceeds the bounded patch-size limit."
-apply_bad_block = "Diff block {{i}} is not a non-empty unified-diff string."
-apply_bad_header = "Diff block {{i}}, patch line {{line}}: use @@, @@ exact source line, or numbered @@ -OLD,COUNT +NEW,COUNT @@."
-apply_no_changes = "Diff block {{i}} has no changes (or an empty unscoped hunk at patch line {{line}}). Include at least one + or - row. No changes were applied."
-apply_bad_count = "Diff block {{i}} declares source lines but supplies none. Include the source context or use a zero-count header for an insertion."
-apply_bad_newline = "Diff block {{i}} has an invalid `No newline at end of file` marker or EOF location."
-apply_work_limit = "Diff block {{i}} exceeded the bounded matching-work limit. Add accurate line coordinates and more specific context."
-apply_bad_anchor = "Diff block {{i}} is a pure insertion without a usable position. Give real header coordinates, a preceding context-only anchor, or a `@@ exact source line` header."
-apply_not_found = "Diff block {{i}} does not match the file at its line anchor or at one unambiguous exact relocation. Re-read the numbered file and copy its context and removed rows exactly."
-apply_not_found_fuzzy = "Diff block {{i}} matched nothing in the file, exactly or with the whitespace-fuzzy fallback. Its context or removed rows differ from the real file lines — re-read the numbered file and copy them exactly rather than from the instruction."
-apply_ambiguous = "Diff block {{i}} has multiple possible application locations. Add context or correct its line header."
-apply_overlap = "Diff block {{i}} conflicts with diff block {{j}}. Separate or merge the changed regions."
+write_failed = "Replacing {{path}} failed: {{reason}}. File unchanged."
+subagent_start_failed = "Subagent failed: {{reason}}"
+patch_rejected = "{{reason}} File unchanged."
+hunk_failed = "Hunk {{hunk}} failed (patch {{patch}} line {{line}}): {{reason}}"
+hunk_unchanged = "{{failure}} File unchanged; skipped hunks after {{hunk}}."
+hunk_partial = "{{failure}} Applied hunks: {{applied}}; skipped hunks after {{hunk}}. Re-read; retry remaining changes with unchanged context or exact-source-line headers. Never repeat applied changes."
+apply_bad_framing = "Patch {{patch}} line {{line}}: submit only one existing file's hunks, without prose or create/delete/rename operations."
+apply_bad_target = "At patch {{patch}} line {{line}}, headers must name the path argument, exclude /dev/null, and pair --- with +++."
+apply_no_diffs = "Submit a changed hunk."
+apply_too_many = "Split requests exceeding {{hunk_limit}} hunks or {{hunk_limit}} patches."
+apply_too_large = "Split the request. Limits: {{patch_byte_limit}} UTF-8 bytes and {{patch_line_limit}} lines per patch; {{total_byte_limit}} bytes total."
+apply_bad_block = "Patch {{patch}} must be a nonempty diff string."
+apply_bad_header = "Use @@ or @@ exact source line. Numbered values must be 0–{{coordinate_limit}}; nonzero counts require starts ≥1."
+apply_no_changes = "Include additions/removals; hunks need body lines unless an exact-source-line header selects the location."
+apply_bad_count = "The header counts absent source lines. Add context/removals or set the source count to 0."
+apply_bad_newline = "Put `\\ No newline at end of file` only after an original or resulting file's final line without a newline."
+apply_work_limit = "Comparison limit reached. Use accurate source-line numbers, specific context, or fewer hunks."
+apply_bad_anchor = "Locate additions with a numbered header with source count 0, preceding context-only hunk, or exact-source-line header."
+apply_not_found = "The hunk did not match. Copy complete source lines with indentation/line breaks; preserve source order."
+apply_not_found_fuzzy = "The hunk did not match. Copy complete source lines with indentation/line breaks; preserve source order."
+apply_ambiguous = "Multiple matches require more context or accurate numbered positions. Exact-source-line headers must uniquely match remaining source lines."
+apply_overlap = "Hunk {{previous_hunk}} overlaps these edits or inserts at the same position. Merge or separate the edits."
 
-# ── Transcript (persisted subagent log) labels ──
 [transcript]
 title = "# {{role}} {{title}}"
 section_system = "## System Prompt"

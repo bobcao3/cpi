@@ -30,6 +30,7 @@
     "maxCorrectionTurns": 2,
     "maxTranscripts": 200,
     "fuzzyMatch": true,
+    "partialApply": true,
     "chain": [
       {
         "search": "(claude-)(fable|opus)[0-9.-]*:xhigh",

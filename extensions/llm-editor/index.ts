@@ -18,4 +18,11 @@ export default function llmEditorExtension(pi: ExtensionAPI): void {
   pi.registerTool(editTool);
   pi.registerTool(writeTool);
   pi.registerTool(applyPatchTool);
+  pi.on("tool_result", (event) => {
+    if (event.toolName !== "edit" && event.toolName !== "apply_patch") return;
+    const details = event.details as
+      | { kind?: string; failure?: unknown }
+      | undefined;
+    if (details?.kind === "error" || details?.failure) return { isError: true };
+  });
 }

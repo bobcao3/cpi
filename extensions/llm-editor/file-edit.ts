@@ -13,7 +13,15 @@ import {
   generateUnifiedPatch,
 } from "@earendil-works/pi-coding-agent";
 import { loadEditorText, fmt, type EditorText } from "./text.ts";
-import { parseUdiffs, type UdiffParseError } from "./udiff.ts";
+import {
+  parseUdiffs,
+  type UdiffParseError,
+  MAX_DIFF_BLOCK_BYTES,
+  MAX_DIFF_BLOCKS,
+  MAX_DIFF_LINES,
+  MAX_DIFF_TOTAL_BYTES,
+  MAX_DIFF_COORDINATE,
+} from "./udiff.ts";
 import type { PatchTarget } from "./patch-framing.ts";
 import {
   applyUdiffs,
@@ -23,6 +31,7 @@ import {
 import { editDiffOps, type DiffOp } from "./diff.ts";
 import { withPathLock } from "./lock.ts";
 import { lspFields } from "./lsp.ts";
+import { loadEditorConfig } from "../lib/config.ts";
 
 export interface FileEditOptions {
   cwd: string;
@@ -32,8 +41,18 @@ export interface FileEditOptions {
 
 type Usage = { input: number; output: number };
 type FileEditError = { ok: false; error: string; usage?: Usage };
+export interface PatchFailure {
+  block: number;
+  hunk: number;
+  line: number;
+  appliedHunks: number[];
+  message: string;
+}
 export type FileEditContentResult =
-  | ((UdiffApplyResult & { ok: true }) & { usage?: Usage })
+  | (Omit<UdiffApplyResult & { ok: true }, "failure"> & {
+      failure?: PatchFailure;
+      usage?: Usage;
+    })
   | FileEditError;
 
 export type EditFileResult =
@@ -48,39 +67,82 @@ export type EditFileResult =
       match: "exact" | "fuzzy";
       lsp: string;
       usage?: Usage;
+      failure?: PatchFailure;
     }
   | FileEditError;
 
-function formatParseError(T: EditorText, e: UdiffParseError): string {
-  return fmt(T.errors[`apply_${e.code}`], {
-    i: e.block ?? 0,
-    line: e.line ?? 0,
-  });
-}
-
-function formatApplyError(T: EditorText, e: UdiffApplyError): string {
+function failureMessage(
+  T: EditorText,
+  e: UdiffParseError | UdiffApplyError,
+  appliedHunks: number[] = [],
+): string {
   const code = e.code === "not_found" && e.fuzzy ? "not_found_fuzzy" : e.code;
-  return fmt(T.errors[`apply_${code}`], {
+  const reason = fmt(T.errors[`apply_${code}`], {
+    patch: e.block,
     i: e.block,
+    line: e.line,
     j: e.code === "overlap" ? e.previous : 0,
+    previous_hunk: e.code === "overlap" ? e.previous : 0,
+    hunk_limit: MAX_DIFF_BLOCKS,
+    patch_byte_limit: MAX_DIFF_BLOCK_BYTES,
+    total_byte_limit: MAX_DIFF_TOTAL_BYTES,
+    patch_line_limit: MAX_DIFF_LINES,
+    coordinate_limit: MAX_DIFF_COORDINATE,
   });
+  if (e.hunk === undefined) return fmt(T.errors.patch_rejected, { reason });
+  const failure = fmt(T.errors.hunk_failed, {
+    ...e,
+    patch: e.block,
+    reason,
+  });
+  return fmt(
+    T.errors[appliedHunks.length ? "hunk_partial" : "hunk_unchanged"],
+    {
+      failure,
+      hunk: e.hunk,
+      applied: appliedHunks.join(", "),
+      plural: appliedHunks.length !== 1,
+    },
+  );
 }
 
 export function applyFileDiff(
   content: string,
   diffs: unknown,
   T: EditorText,
-  opts: PatchTarget & { fuzzyMatch?: boolean },
+  opts: PatchTarget & { fuzzyMatch?: boolean; partialApply?: boolean },
 ): FileEditContentResult {
+  const partial = opts.partialApply ?? loadEditorConfig(opts.cwd).partialApply;
   const parsed = parseUdiffs(diffs, opts);
-  if (parsed.ok === false)
-    return { ok: false, error: formatParseError(T, parsed.error) };
-  const result = applyUdiffs(content, parsed.hunks, { fuzzy: opts.fuzzyMatch });
+  if (parsed.ok === false && !parsed.hunks)
+    return { ok: false, error: failureMessage(T, parsed.error) };
+  const result = applyUdiffs(content, parsed.hunks ?? [], {
+    fuzzy: opts.fuzzyMatch,
+    partial,
+  });
   if (result.ok === false)
-    return { ok: false, error: formatApplyError(T, result.error) };
+    return { ok: false, error: failureMessage(T, result.error) };
+  const error =
+    result.failure ?? (parsed.ok === false ? parsed.error : undefined);
+  if (error) {
+    const appliedHunks =
+      partial && result.content !== content ? result.appliedHunks : [];
+    const message = failureMessage(T, error, appliedHunks);
+    if (!appliedHunks.length) return { ok: false, error: message };
+    return {
+      ...result,
+      failure: {
+        block: error.block!,
+        hunk: error.hunk!,
+        line: error.line!,
+        appliedHunks,
+        message,
+      },
+    };
+  }
   return result.content === content
     ? { ok: false, error: T.errors.no_change }
-    : result;
+    : { ...result, failure: undefined };
 }
 
 export async function withFileEdit(
@@ -158,13 +220,18 @@ export async function withFileEdit(
       match: applied.match,
       lsp,
       usage,
+      failure: applied.failure,
     };
   });
 }
 
 export async function applyPatchFile(
   path: string,
-  opts: FileEditOptions & { patch: string; fuzzyMatch?: boolean },
+  opts: FileEditOptions & {
+    patch: string;
+    fuzzyMatch?: boolean;
+    partialApply?: boolean;
+  },
 ): Promise<EditFileResult> {
   const T = loadEditorText(opts.cwd);
   return withFileEdit(path, opts, async (content) =>

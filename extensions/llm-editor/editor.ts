@@ -10,12 +10,13 @@ import {
   parseDirectDiff,
   type DirectDiffMarkers,
 } from "./direct-diff.ts";
-import type { UdiffApplyResult } from "./udiff-apply.ts";
 import { numberLines } from "./lines.ts";
+import { MAX_DIFF_TOTAL_BYTES } from "./udiff.ts";
 import {
   withFileEdit,
   applyFileDiff,
   type EditFileResult,
+  type FileEditContentResult,
 } from "./file-edit.ts";
 
 export type { EditFileResult };
@@ -35,6 +36,7 @@ export interface EditFileOptions {
   maxFileBytes: number;
   /** Controls fuzzy matching (default on). */
   fuzzyMatch?: boolean;
+  partialApply?: boolean;
   onStream?: (accumulated: string) => void;
   thinkingLevel?: string;
   /** Direct-diff envelope markers (default "patch"). */
@@ -42,7 +44,7 @@ export interface EditFileOptions {
 }
 
 type Attempt =
-  | { ok: "applied"; result: UdiffApplyResult & { ok: true } }
+  | { ok: "applied"; result: FileEditContentResult & { ok: true } }
   | { ok: "retryable"; error: string }
   | { ok: "fatal"; error: string };
 
@@ -59,6 +61,11 @@ export async function editFile(
       opts.maxCorrectionTurns ?? editorConfig.maxCorrectionTurns;
     const directMarkers = opts.directMarkers ?? "patch";
     const envelopeMarkers = directDiffEnvelope(directMarkers);
+    const response_format = {
+      ...envelopeMarkers,
+      response_limit: MAX_DIRECT_OUTPUT_BYTES,
+      patch_limit: MAX_DIFF_TOTAL_BYTES,
+    };
     const baseSystem =
       fmt(T.system.editor, envelopeMarkers) +
       (opts.fuzzyMatch === false ? "" : T.system.editor_fuzzy);
@@ -71,12 +78,15 @@ export async function editFile(
 
     const validateCandidate = (candidate: SubagentCandidate): Attempt => {
       if (candidate.outputOverflow)
-        return { ok: "retryable", error: T.errors.direct_output_overflow };
+        return {
+          ok: "retryable",
+          error: fmt(T.errors.direct_output_overflow, response_format),
+        };
       const envelope = parseDirectDiff(candidate.text, directMarkers);
       if (envelope.ok === false)
         return {
           ok: "retryable",
-          error: fmt(T.errors["direct_" + envelope.error], envelopeMarkers),
+          error: fmt(T.errors["direct_" + envelope.error], response_format),
         };
       if ("cancel" in envelope)
         return { ok: "fatal", error: T.errors.direct_editor_cancelled };
@@ -136,9 +146,9 @@ export async function editFile(
         usage,
       };
     if (!outcome)
-      return { ok: false, error: T.errors.direct_missing_envelope, usage };
+      return { ok: false, error: T.errors.editor_no_response, usage };
     if (correctionsSent >= res.turns)
-      return { ok: false, error: T.errors.direct_missing_envelope, usage };
+      return { ok: false, error: T.errors.editor_no_response, usage };
     if (
       outcome.ok === "retryable" &&
       maxCorrectionTurns > 0 &&

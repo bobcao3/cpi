@@ -36,6 +36,7 @@ export interface EditorConfig {
   transcriptDir?: string;
   maxTranscripts?: number;
   fuzzyMatch?: boolean;
+  partialApply?: boolean;
   chain?: EditorChainRule[];
 }
 
@@ -48,6 +49,7 @@ export interface ResolvedEditorConfig {
   transcriptDir: string;
   maxTranscripts: number;
   fuzzyMatch: boolean;
+  partialApply: boolean;
   chain: EditorChainRule[];
 }
 
@@ -267,6 +269,7 @@ export function loadEditorConfig(cwd: string = getCwd()): ResolvedEditorConfig {
         ? maxTranscripts
         : 200,
     fuzzyMatch: bool(e.fuzzyMatch, true),
+    partialApply: bool(e.partialApply, true),
     chain,
   };
 }

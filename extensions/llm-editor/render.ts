@@ -87,6 +87,7 @@ interface EditorDetails {
   rewrite?: boolean;
   bytes?: number;
   message?: string;
+  failure?: unknown;
 }
 
 const HEAD_PENDING = "⏳ ";
@@ -208,15 +209,25 @@ export function renderEditorResult(
 
   const d = (result.details ?? {}) as EditorDetails;
   const file = fileLabel(d.path, theme);
-  if (result.isError || d.kind === "error") {
+  if (result.isError || d.kind === "error" || d.failure) {
     const reason = oneLine(d.message ?? fullText) || "failed";
     const head =
       theme.fg("error", `${HEAD_FAIL}${command}: `) +
       file +
-      theme.fg("error", " failed");
+      theme.fg(
+        "error",
+        d.failure
+          ? ` · applied ${d.hunks} hunk${d.hunks === 1 ? "" : "s"} before failure`
+          : " failed",
+      );
     return editorView(theme, (bodyWidth) => ({
       head,
-      body: wrapReason(reason, bodyWidth, theme),
+      body: [
+        ...(d.diffOps?.length
+          ? renderDiffOps(d.diffOps, theme).split("\n")
+          : []),
+        ...wrapReason(reason, bodyWidth, theme),
+      ],
     }));
   }
 

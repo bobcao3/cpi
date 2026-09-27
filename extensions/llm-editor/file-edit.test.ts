@@ -31,7 +31,11 @@ async function fixture(content: string | Buffer, name = "sample.txt") {
   await writeFile(path, content);
   const apply = (
     patch: string,
-    options: { maxFileBytes?: number; signal?: AbortSignal } = {},
+    options: {
+      maxFileBytes?: number;
+      signal?: AbortSignal;
+      partialApply?: boolean;
+    } = {},
   ) =>
     applyPatchFile(name, {
       cwd,
@@ -46,7 +50,11 @@ async function fixture(content: string | Buffer, name = "sample.txt") {
 async function rejected(
   file: Awaited<ReturnType<typeof fixture>>,
   patch: string,
-  options: { maxFileBytes?: number; signal?: AbortSignal } = {},
+  options: {
+    maxFileBytes?: number;
+    signal?: AbortSignal;
+    partialApply?: boolean;
+  } = {},
 ) {
   const original = await readFile(file.path);
   const entries = await readdir(file.cwd);
@@ -133,17 +141,19 @@ describe("applyPatchFile production filesystem integration", () => {
     );
   });
 
-  test("a missing later hunk rolls back all earlier hunks byte-for-byte", async () => {
+  test("disabling partial application rolls back a missing later hunk", async () => {
     await rejected(
       await fixture("a\r\nb\r\nc"),
       "@@\n-a\n+A\n@@\n-missing\n+MISSING\n",
+      { partialApply: false },
     );
   });
 
-  test("overlapping hunks leave the original bytes untouched", async () => {
+  test("disabling partial application rolls back overlapping hunks", async () => {
     await rejected(
       await fixture("a\nb\nc\nd\n"),
       "@@ -2,2 +2,1 @@\n-b\n-c\n+X\n@@ -3,1 +3,1 @@\n-c\n+C\n",
+      { partialApply: false },
     );
   });
 
