@@ -172,6 +172,32 @@ export function trimOps(
   return out;
 }
 
+/** Collapse the middle of long consecutive removal runs into a skip. */
+export function collapseRemovals(
+  ops: DiffOp[],
+  keep = 3,
+  threshold = 7,
+): DiffOp[] {
+  const out: DiffOp[] = [];
+  for (let i = 0; i < ops.length; ) {
+    if (ops[i].type !== "remove") {
+      out.push(ops[i++]);
+      continue;
+    }
+    let end = i + 1;
+    while (end < ops.length && ops[end].type === "remove") end++;
+    const length = end - i;
+    if (length > threshold && length > keep * 2) {
+      out.push(...ops.slice(i, i + keep), { type: "skip" });
+      out.push(...ops.slice(end - keep, end));
+    } else {
+      out.push(...ops.slice(i, end));
+    }
+    i = end;
+  }
+  return out;
+}
+
 export function editDiffOps(
   oldText: string,
   newText: string,

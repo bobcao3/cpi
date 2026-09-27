@@ -8,6 +8,8 @@ import { stripVTControlCharacters } from "node:util";
 import { getThemeByName } from "../../node_modules/@earendil-works/pi-coding-agent/dist/modes/interactive/theme/theme.js";
 import { setCapabilityOverrides } from "@earendil-works/pi-tui";
 import { readTool } from "./tool.ts";
+import { faint } from "./read-batch.ts";
+import { getCwd, setCwd } from "../lib/cwd.ts";
 
 const theme = getThemeByName("dark")!;
 const visible = (component: { render(width: number): string[] }) =>
@@ -16,6 +18,8 @@ const visible = (component: { render(width: number): string[] }) =>
 test("read tool keeps file content in result but not the blockless TUI", async () => {
   const dir = await mkdtemp(join(tmpdir(), "read-inline-"));
   const path = join(dir, "sample.txt");
+  const initial = getCwd();
+  setCwd(dir);
   try {
     await writeFile(path, "secret file contents\n");
     assert.equal(readTool.renderShell, "self");
@@ -59,7 +63,7 @@ test("read tool keeps file content in result but not the blockless TUI", async (
         context,
       ),
     );
-    assert.equal(done, "✓ Read sample.txt:1 lines");
+    assert.equal(done, " ✓ Read sample.txt:1 lines");
     assert.equal((result.details as { lineCount: number }).lineCount, 1);
     assert.ok(!done.includes("secret file contents"));
     assert.equal(
@@ -95,7 +99,7 @@ test("read tool keeps file content in result but not the blockless TUI", async (
           context,
         ),
       ),
-      "✓ Read sample.txt:L1-10,2,3,6-200 Defines an exported parser",
+      " ✓ Read sample.txt:L1-10,2,3,6-200 Defines an exported parser",
     );
     assert.equal(
       visible(
@@ -106,7 +110,7 @@ test("read tool keeps file content in result but not the blockless TUI", async (
           context,
         ),
       ),
-      "✓ Read sample.txt: Query complete (summary unavailable)",
+      " ✓ Read sample.txt: Query complete (summary unavailable)",
     );
     const error = await readTool.execute(
       "test",
@@ -123,9 +127,10 @@ test("read tool keeps file content in result but not the blockless TUI", async (
         { args: { path: join(dir, "missing.txt") }, isError: true } as any,
       ),
     );
-    assert.ok(failed.startsWith("✗ Failed to read missing.txt: "));
+    assert.ok(failed.startsWith(" ✗ Failed to read missing.txt: "));
     assert.ok(!failed.includes("secret file contents"));
   } finally {
+    setCwd(initial);
     await rm(dir, { recursive: true, force: true });
   }
 });
@@ -133,6 +138,8 @@ test("read tool keeps file content in result but not the blockless TUI", async (
 test("read path is underlined and linked only in hyperlink-capable terminals", () => {
   const path = "/tmp/read with spaces.ts";
   const args = { path, query: "find helper" };
+  const initial = getCwd();
+  setCwd("/tmp");
   try {
     setCapabilityOverrides({ hyperlinks: true });
     const call = readTool
@@ -166,6 +173,7 @@ test("read path is underlined and linked only in hyperlink-capable terminals", (
     assert.ok(stripVTControlCharacters(plain).includes("read with spaces.ts"));
   } finally {
     setCapabilityOverrides({});
+    setCwd(initial);
   }
 });
 
@@ -182,7 +190,7 @@ test("read result highlights the range/count separately from the description", (
       .render(120)
       .join("\n");
   const lines = render({ kind: "content", lineCount: 10 });
-  assert.ok(lines.includes(theme.fg("warning", "10 lines")));
+  assert.ok(lines.includes(faint(theme, "warning", "10 lines")));
   const ranges = render({
     kind: "view",
     ranges: [
@@ -191,13 +199,15 @@ test("read result highlights the range/count separately from the description", (
     ],
     summary: "Relevant description",
   });
-  assert.ok(ranges.includes(theme.fg("warning", "L1-10,12")));
-  assert.ok(ranges.includes(theme.fg("text", " Relevant description")));
+  assert.ok(ranges.includes(faint(theme, "warning", "L1-10,12")));
+  assert.ok(ranges.includes(theme.fg("dim", " Relevant description")));
 });
 
 test("read line count covers empty, unterminated, and capped file reads", async () => {
   const dir = await mkdtemp(join(tmpdir(), "read-lines-"));
   const path = join(dir, "sample.txt");
+  const initial = getCwd();
+  setCwd(dir);
   try {
     for (const [body, expected] of [
       ["", 0],
@@ -228,10 +238,11 @@ test("read line count covers empty, unterminated, and capped file reads", async 
             { args: { path }, isError: false } as any,
           ),
         ),
-        `✓ Read sample.txt:${expected} lines`,
+        ` ✓ Read sample.txt:${expected} lines`,
       );
     }
   } finally {
+    setCwd(initial);
     await rm(dir, { recursive: true, force: true });
   }
 });

@@ -1,7 +1,7 @@
 // @ts-expect-error Bun test types are runtime-provided and not a package dependency.
 import { describe, expect, test } from "bun:test";
 import { diffArrays } from "diff";
-import { editDiffOps, type DiffOp } from "./diff.ts";
+import { collapseRemovals, editDiffOps, type DiffOp } from "./diff.ts";
 
 const linesOf = (text: string): string[] => {
   if (text === "") return [];
@@ -226,5 +226,42 @@ describe("trimOps window", () => {
     expect(
       ops.map((o) => (o.type === "skip" ? null : (o as { old: number }).old)),
     ).toEqual([1, 2, null, 3, null, 7, 8, null, 9]);
+  });
+});
+
+describe("collapseRemovals", () => {
+  const removes = (n: number): DiffOp[] =>
+    Array.from({ length: n }, (_, i) => ({
+      type: "remove",
+      old: i + 1,
+      new: null,
+      text: `r${i + 1}`,
+    }));
+
+  test("collapses the middle of a long run", () => {
+    const ops = collapseRemovals(removes(8));
+    expect(ops.map((op) => op.type)).toEqual([
+      "remove",
+      "remove",
+      "remove",
+      "skip",
+      "remove",
+      "remove",
+      "remove",
+    ]);
+    expect(
+      ops.filter((op) => op.type === "remove").map((op) => op.text),
+    ).toEqual(["r1", "r2", "r3", "r6", "r7", "r8"]);
+  });
+
+  test("preserves short runs and trailing additions", () => {
+    expect(collapseRemovals(removes(7)).map((op) => op.type)).toEqual(
+      Array(7).fill("remove"),
+    );
+
+    const add: DiffOp = { type: "add", old: null, new: 1, text: "added" };
+    const ops = collapseRemovals([...removes(20), add]);
+    expect(ops.at(-1)).toEqual(add);
+    expect(ops.filter((op) => op.type === "skip")).toHaveLength(1);
   });
 });

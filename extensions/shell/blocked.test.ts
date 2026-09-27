@@ -45,7 +45,7 @@ test("rejected sh command renders Blocked with its reason, not failed", async ()
         "zsh",
       ),
     ),
-    "🛑 Blocked: format a disk\n  - Reason: L1:1 reject[no-mkfs] filesystem formatting",
+    "🛑 Blocked: format a disk\n   - Reason: L1:1 reject[no-mkfs] filesystem formatting",
   );
 });
 
@@ -55,8 +55,8 @@ test("non-rejecting commands still render success and failure", async () => {
   const sh = tools.get("sh");
 
   for (const [command, expected] of [
-    ["true", "✓ zsh: ok"],
-    ["false", "✗ zsh: fail"],
+    ["true", " ✓ zsh: ok"],
+    ["false", " ✗ zsh: fail"],
   ] as const) {
     const args = { description: command === "true" ? "ok" : "fail", command };
     const result = await sh.execute("id", args, undefined, undefined, {});
@@ -98,7 +98,7 @@ test("waitfor and inline sleep guards render Blocked", async () => {
           { args, isError: true },
           "zsh",
         ),
-      ).startsWith(`🛑 Blocked: ${args.description}\n  - Reason: `),
+      ).startsWith(`🛑 Blocked: ${args.description}\n   - Reason: `),
     );
   }
 });

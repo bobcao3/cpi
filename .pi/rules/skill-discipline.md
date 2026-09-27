@@ -14,5 +14,5 @@ the full instructions. Resolve referenced files relative to that skill's
 directory. `/skill:name` also explicitly loads a skill when requested by a user.
 
 If a skill is already loaded in the current context, do not reread it. After
-compaction, reload only the skills still relevant to the outstanding task;
-never copy skill contents into the summary.
+compaction, reload only the skills still relevant to the outstanding task; never
+copy skill contents into the summary.

@@ -68,7 +68,7 @@ export function renderCompactShellCall(
   const description = cleanActivityDisplay(args.description?.trim() || "shell");
   return new Text(
     theme.fg("warning", `⏳ ${shellName}: `) +
-      theme.fg("text", description) +
+      theme.fg("dim", description) +
       elapsedSuffix(
         state?.startedAt === undefined
           ? undefined
@@ -111,7 +111,7 @@ export function renderCompactShellResult(
   if (details?.status === "running")
     return new Text(
       theme.fg("warning", `⏳ backgrounded ${name}: `) +
-        theme.fg("text", description) +
+        theme.fg("dim", description) +
         (details.elapsedMs === undefined
           ? ""
           : theme.fg(
@@ -126,8 +126,10 @@ export function renderCompactShellResult(
     result.isError ||
     (details?.exitCode != null && details.exitCode !== 0);
   const heading =
-    theme.fg(failed ? "error" : "success", `${failed ? "✗" : "✓"} ${name}: `) +
-    theme.fg("text", description);
+    theme.fg(
+      failed ? "error" : "success",
+      `${failed ? " ✗" : " ✓"} ${name}: `,
+    ) + theme.fg("dim", description);
   if (!failed && details?.exitCode === 0)
     return new Text(heading + suffix, 0, 0);
   const code = details?.exitCode == null ? "—" : String(details.exitCode);
@@ -136,7 +138,7 @@ export function renderCompactShellResult(
       ? ""
       : theme.fg("muted", ` · ${details.outputLines} lines`);
   return new Text(
-    `${heading}\n  ${theme.fg(failed ? "error" : "muted", `Exit ${code}`)}${lines}${suffix}`,
+    `${heading}\n   ${theme.fg(failed ? "error" : "muted", `Exit ${code}`)}${lines}${suffix}`,
     0,
     0,
   );

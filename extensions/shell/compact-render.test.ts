@@ -34,7 +34,7 @@ test("shell durations use milliseconds below 1.5 seconds", () => {
           "bash",
         ),
       ),
-      `✓ bash: Timing (${duration})`,
+      ` ✓ bash: Timing (${duration})`,
     );
     assert.equal(
       plain(
@@ -90,7 +90,7 @@ test("shell TUI shows only description and execution summary", async () => {
       .render(100)
       .join("\n")
       .includes(
-        theme.fg("warning", "⏳ bash: ") + theme.fg("text", args.description),
+        theme.fg("warning", "⏳ bash: ") + theme.fg("dim", args.description),
       ),
   );
   assert.equal(
@@ -154,7 +154,7 @@ test("shell TUI shows only description and execution summary", async () => {
       ? `${Math.round(details.elapsedMs)}ms`
       : `${Math.round(details.elapsedMs / 1000)}s`;
   const suffix = ` (${duration})`;
-  assert.equal(rendered, `✓ bash: Check shell summary${suffix}`);
+  assert.equal(rendered, ` ✓ bash: Check shell summary${suffix}`);
   assert.equal(
     plain(
       renderCompactShellResult(
@@ -165,7 +165,7 @@ test("shell TUI shows only description and execution summary", async () => {
         "bash",
       ),
     ),
-    `✓ zsh: Check shell summary${suffix}`,
+    ` ✓ zsh: Check shell summary${suffix}`,
   );
   assert.ok(!rendered.includes("secret-output"));
   assert.ok(!rendered.includes(args.command));
@@ -192,7 +192,7 @@ test("shell TUI shows only description and execution summary", async () => {
       .render(100)
       .join("\n")
       .includes(
-        theme.fg("success", "✓ bash: ") + theme.fg("text", args.description),
+        theme.fg("success", " ✓ bash: ") + theme.fg("dim", args.description),
       ),
   );
   assert.equal(
@@ -230,7 +230,7 @@ test("shell TUI shows only description and execution summary", async () => {
   );
   assert.equal(
     failed,
-    `✗ bash: Check shell summary\n  Exit 7 · 2 lines${suffix}`,
+    ` ✗ bash: Check shell summary\n   Exit 7 · 2 lines${suffix}`,
   );
   assert.ok(
     renderCompactShellResult(
@@ -243,7 +243,7 @@ test("shell TUI shows only description and execution summary", async () => {
       .render(100)
       .join("\n")
       .includes(
-        theme.fg("error", "✗ bash: ") + theme.fg("text", args.description),
+        theme.fg("error", " ✗ bash: ") + theme.fg("dim", args.description),
       ),
   );
   assert.ok(

@@ -61,16 +61,16 @@ Run in order; never leave a file stripped.
    fault: write better scenarios and re-mock before judging. Restore with
    `jj restore <paths>` or `git checkout -- <paths>`.
 
-5. **Loop to fixed point.** Re-prune, re-mock until a pass removes nothing.
-   Each batch builds on the standing prunes — restore the file after every
-   mock, re-apply them, then cut the next candidate.
-   Close with one full mock over the final doc using a scenario set covering
-   every step and branch: zero NOT SPECIFIED on critical paths is the pass
-   condition. A critical path is a point the executor must get right to run the
-   process — an action, a branch condition, or a boundary rule; delegated
-   mechanics and meta detail (counts, formats, sizes, which tool an action uses)
-   are not. When a surviving point has a silent-failure mode, prefer encoding it
-   in the procedure's own checklist over explanation prose.
+5. **Loop to fixed point.** Re-prune, re-mock until a pass removes nothing. Each
+   batch builds on the standing prunes — restore the file after every mock,
+   re-apply them, then cut the next candidate. Close with one full mock over the
+   final doc using a scenario set covering every step and branch: zero NOT
+   SPECIFIED on critical paths is the pass condition. A critical path is a point
+   the executor must get right to run the process — an action, a branch
+   condition, or a boundary rule; delegated mechanics and meta detail (counts,
+   formats, sizes, which tool an action uses) are not. When a surviving point
+   has a silent-failure mode, prefer encoding it in the procedure's own
+   checklist over explanation prose.
 
 ## Boundaries
 

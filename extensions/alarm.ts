@@ -296,7 +296,7 @@ export default function (pi: ExtensionAPI) {
               : "passed";
           const t = new Text("", 0, 0);
           t.setText(
-            theme.fg("success", "✓") +
+            theme.fg("success", " ✓") +
               theme.fg("dim", ` Alarm ${id} · ${absTime} · ${relTime}`),
           );
           return t;
@@ -304,7 +304,7 @@ export default function (pi: ExtensionAPI) {
       }
       // Cancel result or unrecognized — show raw text
       const t = new Text("", 0, 0);
-      t.setText(theme.fg("success", "✓") + theme.fg("dim", ` ${raw}`));
+      t.setText(theme.fg("success", " ✓") + theme.fg("dim", ` ${raw}`));
       return t;
     },
   });

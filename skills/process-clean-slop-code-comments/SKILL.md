@@ -18,9 +18,8 @@ could not recover from code. Tree-sitter parsed (cpi's wasm build); python
 docstrings, comment runs everywhere else.
 
 The probe subagent never loads this skill. Its task must be fully self-contained
-in the heredoc.
-cpi sets `CPI_HARNESS_SRC` to this package's installed root; use it rather than
-assuming a separate `~/cpi` checkout.
+in the heredoc. cpi sets `CPI_HARNESS_SRC` to this package's installed root; use
+it rather than assuming a separate `~/cpi` checkout.
 
 ## Steps
 

@@ -188,8 +188,8 @@ export function renderShResult(
         ` PID=${details.id} every ${details.interval}s · stop on non-zero exit`,
       );
   } else if (exitCode != null && exitCode !== 0)
-    status = theme.fg("error", `exit ${exitCode}`);
-  else status = theme.fg("success", "✓");
+    status = theme.fg("error", ` ✗ exit ${exitCode}`);
+  else status = theme.fg("success", " ✓");
 
   if (expanded) {
     let summary =

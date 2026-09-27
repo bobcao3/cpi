@@ -30,6 +30,7 @@ import {
 } from "./lib/footer.ts";
 import { registerActivityBrowser } from "./lib/activity-ui.ts";
 import { startKittyProbe, stopKittyProbe } from "./lib/kitty-probe.ts";
+import { setupThinkingBlock } from "./lib/thinking-block.ts";
 import { listActivities } from "./lib/activity.ts";
 import {
   setupStatusReports,
@@ -80,6 +81,7 @@ export default function coreExtension(pi: ExtensionAPI): void {
     startKittyProbe(ctx);
     if (!process.env.PI_SUBAGENT) await ensureSubagentRpc();
     setupCpiFooter(pi, ctx);
+    setupThinkingBlock(ctx);
     setupStatusReports(ctx);
     setSessionDir(ctx.sessionManager?.getSessionDir());
     resetSubagentUsage();
@@ -92,6 +94,7 @@ export default function coreExtension(pi: ExtensionAPI): void {
   });
   pi.on("session_tree", async (_event, ctx: ExtensionContext) => {
     setupCpiFooter(pi, ctx);
+    setupThinkingBlock(ctx);
     setupStatusReports(ctx);
     registerRightSegment("subagent-cost", () =>
       costSegment(ctx.sessionManager.getSessionId()),
@@ -108,6 +111,7 @@ export default function coreExtension(pi: ExtensionAPI): void {
 
   pi.on("before_agent_start", () => drainBeforeUser(pi));
   pi.on("tool_execution_end", () => drainAfterTool(pi));
+  pi.on("message_update", (_event, ctx) => setupThinkingBlock(ctx));
   pi.on("turn_start", (event, ctx) => statusReportTurnStarted(event, ctx));
   pi.on("turn_end", (event, ctx) => statusReportTurnEnded(event, ctx));
 

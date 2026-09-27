@@ -1,22 +1,23 @@
 /**
- * TUI rendering for `view`/`edit`/`create` under a persistent `{cmd} : {file}`
- * header — args tail while preparing, live transcript tail while running (the
- * subagent's stderr relayed via onUpdate), then the result: edit diffs as
- * old/new line-number columns, others capped at 16 lines (Ctrl+O expands).
- * Every line is ANSI-aware truncated to the render width, never wrapped.
+ * TUI rendering for `edit`/`write`/`apply_patch`: a leading
+ * `<glyph> {command}: {file}` line carries running/success/failure state, the
+ * edit diff follows (old/new line-number columns, long deletion runs elided per
+ * diff.collapseRemovals), and a failure appends an indented `└` reason. The
+ * surface keeps a neutral background; red text marks errors.
  */
 
 import {
+  Box,
+  Container,
   truncateToWidth,
-  getCapabilities,
-  getImageDimensions,
-  imageFallback,
+  visibleWidth,
+  wrapTextWithAnsi,
+  type Component,
 } from "@earendil-works/pi-tui";
-import type { DiffOp } from "./diff.ts";
+import { collapseRemovals, type DiffOp } from "./diff.ts";
+import { fileLabel, oneLine } from "./read-batch.ts";
 
-const CALL_TAIL = 3;
 const STREAM_TAIL = 5;
-const RESULT_MAX = 16;
 /** Partial-update throttle for the streaming transcript (ms). */
 export const STREAM_UPDATE_MS = 200;
 
@@ -40,48 +41,70 @@ function truncView(lines: string[]): TruncView {
   };
 }
 
+interface EditorPanel {
+  head: string;
+  body?: string[];
+  headLast?: boolean;
+}
+
+/** Neutral surface: full-width background, head flush left, body inset one column. */
+function editorView(
+  theme: any,
+  build: (bodyWidth: number) => EditorPanel,
+): Component {
+  return {
+    invalidate() {},
+    render(width: number): string[] {
+      const box = new Box(0, 0, (text: string) =>
+        theme.bg("toolPendingBg", text),
+      );
+      const panel = build(Math.max(1, width - 2));
+      const head = truncView([panel.head]);
+      const body = panel.body ?? [];
+      if (body.length === 0) {
+        box.addChild(head);
+      } else {
+        const bodyBox = new Box(1, 0);
+        bodyBox.addChild(truncView(body));
+        for (const child of panel.headLast ? [bodyBox, head] : [head, bodyBox])
+          box.addChild(child);
+      }
+      const lines = box.render(width);
+      const bgAnsi = theme.getBgAnsi("toolPendingBg");
+      if (!bgAnsi.startsWith("\x1b[48;")) return lines;
+      const fg = bgAnsi.replace("48;", "38;");
+      const half = (glyph: string) => `${fg}${glyph.repeat(width)}\x1b[39m`;
+      return [half("▄"), ...lines, half("▀")];
+    },
+  };
+}
+
 interface EditorDetails {
-  id?: string;
-  kind?:
-    | "edit"
-    | "view"
-    | "create"
-    | "tree"
-    | "content"
-    | "image"
-    | "video"
-    | "error";
-  diff?: string;
+  kind?: "edit" | "create" | "error";
+  path?: string;
   diffOps?: DiffOp[];
-  text?: string;
-  note?: string;
   hunks?: number;
   rewrite?: boolean;
   bytes?: number;
   message?: string;
 }
 
-function callBody(args: any): string {
-  return args.instruction ?? args.query ?? args.file_text ?? args.patch ?? "";
-}
-
-function headerLine(command: string, args: any, theme: any): string {
-  return (
-    theme.fg("toolTitle", theme.bold(command)) +
-    theme.fg("toolTitle", ` : ${args.path}`)
-  );
-}
+const HEAD_PENDING = "⏳ ";
+const HEAD_OK = " ✓ ";
+const HEAD_FAIL = " ✗ ";
 
 function gray(theme: any, t: string): string {
   return theme.fg("dim", t);
 }
 
-function hint(theme: any, expanded: boolean): string {
-  return gray(theme, expanded ? "Ctrl+O to collapse" : "Ctrl+O to expand");
+/** Wrap colored text in ANSI faint styling. */
+function faint(theme: any, color: string, text: string): string {
+  return `\x1b[2m${theme.fg(color, text)}\x1b[22m`;
 }
 
 function renderDiffOps(ops: DiffOp[], theme: any): string {
-  const numbers = ops
+  const shown = collapseRemovals(ops);
+  const numbers = shown
     .filter((op) => op.type !== "skip")
     .flatMap((op) =>
       op.type === "add"
@@ -95,22 +118,26 @@ function renderDiffOps(ops: DiffOp[], theme: any): string {
   const pad = (n: number | null) =>
     n == null ? " ".repeat(width) : String(n).padStart(width);
   const sep = "  ";
-  return ops
+  return shown
     .map((op) => {
       switch (op.type) {
         case "skip":
           return gray(theme, "…");
         case "add":
           return (
-            theme.fg("toolDiffAdded", "+") +
-            gray(theme, pad(null) + sep + pad(op.new) + sep) +
-            theme.fg("toolDiffAdded", op.text)
+            faint(
+              theme,
+              "toolDiffAdded",
+              "+" + pad(null) + sep + pad(op.new) + sep,
+            ) + theme.fg("toolDiffAdded", op.text)
           );
         case "remove":
           return (
-            theme.fg("toolDiffRemoved", "-") +
-            gray(theme, pad(op.old) + sep + pad(null) + sep) +
-            theme.fg("toolDiffRemoved", op.text)
+            faint(
+              theme,
+              "toolDiffRemoved",
+              "-" + pad(op.old) + sep + pad(null) + sep,
+            ) + theme.fg("toolDiffRemoved", op.text)
           );
         case "context":
           return (
@@ -122,66 +149,36 @@ function renderDiffOps(ops: DiffOp[], theme: any): string {
     .join("\n");
 }
 
-function renderImageLines(result: any, showImages: boolean): string[] {
-  const content = result?.content ?? [];
-  const textBlocks = content.filter((c: any) => c.type === "text");
-  const imageBlocks = content.filter((c: any) => c.type === "image");
-  let output = textBlocks.map((c: any) => c.text ?? "").join("\n");
-  const caps = getCapabilities();
-  if (imageBlocks.length > 0 && (!caps.images || !showImages)) {
-    const indicators = imageBlocks
-      .map((img: any) => {
-        const dims =
-          img.data && img.mimeType
-            ? (getImageDimensions(img.data, img.mimeType) ?? undefined)
-            : undefined;
-        return imageFallback(img.mimeType ?? "image/unknown", dims);
-      })
-      .join("\n");
-    output = output ? `${output}\n${indicators}` : indicators;
-  }
-  return output ? output.split("\n") : [];
-}
-
 export function renderEditorCall(
   command: string,
   args: any,
   theme: any,
   context: any,
-): TruncView {
-  const head = headerLine(command, args, theme);
-  // Executing: body (transcript/diff) is owned by renderResult — header only.
-  if (context.executionStarted) return truncView([head]);
-  const body = callBody(args);
-  if (!body) return truncView([head]);
-  const lines = body.split("\n");
-  if (context.expanded) {
-    return truncView([
-      head,
-      ...lines.map((l: string) => theme.fg("toolTitle", l)),
-      hint(theme, true),
-    ]);
-  }
-  const tail = lines.slice(-CALL_TAIL);
-  const more =
-    lines.length > CALL_TAIL
-      ? [gray(theme, `… ${lines.length - CALL_TAIL} more`)]
-      : [];
-  return truncView([
-    head,
-    ...more,
-    ...tail.map((l: string) => theme.fg("toolTitle", l)),
-    hint(theme, false),
-  ]);
+): Component {
+  // The result owns the head line once it is in, so the call folds away.
+  if (!context.isPartial) return new Container();
+  return editorView(theme, () => ({
+    head:
+      theme.fg("warning", `${HEAD_PENDING}${command}: `) +
+      fileLabel(args?.path, theme),
+  }));
+}
+
+function wrapReason(reason: string, width: number, theme: any): string[] {
+  const prefix = "  └ ";
+  const hanging = " ".repeat(visibleWidth(prefix));
+  const room = Math.max(1, width - hanging.length);
+  return wrapTextWithAnsi(reason, room).map((line, index) =>
+    theme.fg("error", (index ? hanging : prefix) + line),
+  );
 }
 
 export function renderEditorResult(
+  command: string,
   result: any,
-  opts: { expanded: boolean; isPartial: boolean },
+  opts: { isPartial: boolean },
   theme: any,
-  context?: any,
-): TruncView {
-  const { expanded } = opts;
+): Component {
   const content = result.content?.[0];
   const fullText = content?.type === "text" ? content.text : "";
 
@@ -197,75 +194,40 @@ export function renderEditorResult(
       theme.fg("warning", "⏳ running") +
       (hidden > 0
         ? gray(theme, ` · L${hidden + 1}-${lines.length}`)
-        : gray(theme, ` · ${lines.length} lines`)) +
-      " " +
-      hint(theme, expanded);
-    const shown = expanded ? lines : tail;
-    return truncView([...shown.map((l: string) => gray(theme, l)), status]);
+        : gray(theme, ` · ${lines.length} lines`));
+    return editorView(theme, () => ({
+      head: status,
+      body: tail.map((l: string) => gray(theme, l)),
+      headLast: true,
+    }));
   }
 
-  // Done: render the result (edit → colored diff).
   const d = (result.details ?? {}) as EditorDetails;
-  const isError = result.isError || d.kind === "error";
-  let status = isError ? theme.fg("error", "✗") : theme.fg("success", "✓");
-  if (!isError) {
-    if (d.kind === "edit")
-      status += gray(
-        theme,
-        ` · applied ${d.hunks} hunk${d.hunks !== 1 ? "s" : ""}${d.rewrite ? ", whole-file rewrite" : ""}`,
-      );
-    else if (d.kind === "create")
-      status += gray(theme, ` · created ${d.bytes} bytes`);
-    else if (d.kind) status += gray(theme, ` · ${d.kind}`);
+  const file = fileLabel(d.path, theme);
+  if (result.isError || d.kind === "error") {
+    const reason = oneLine(d.message ?? fullText) || "failed";
+    const head =
+      theme.fg("error", `${HEAD_FAIL}${command}: `) +
+      file +
+      theme.fg("error", " failed");
+    return editorView(theme, (bodyWidth) => ({
+      head,
+      body: wrapReason(reason, bodyWidth, theme),
+    }));
   }
 
-  let body = "";
-  let colored = false;
-  if (isError) body = d.message ?? fullText;
-  else if (d.kind === "edit") {
-    body = renderDiffOps(d.diffOps ?? [], theme);
-    colored = true;
-  } else if (d.kind === "image") {
-    const imgLines = renderImageLines(result, context?.showImages ?? false);
-    const lines = imgLines.map((l: string) => theme.fg("toolOutput", l));
-    if (lines.length === 0) return truncView([status]);
-    if (expanded)
-      return truncView([...lines, status + " " + hint(theme, expanded)]);
-    const shown = lines.length <= RESULT_MAX ? lines : lines.slice(-RESULT_MAX);
-    const range =
-      lines.length > RESULT_MAX
-        ? gray(theme, ` · L${lines.length - RESULT_MAX + 1}-${lines.length}`) +
-          " "
-        : "";
-    return truncView([...shown, status + range + hint(theme, expanded)]);
-  } else if (
-    (d.kind === "view" ||
-      d.kind === "tree" ||
-      d.kind === "content" ||
-      d.kind === "video") &&
-    (d.text ?? d.note) != null
-  ) {
-    body = (d.text ?? d.note ?? "").trimEnd();
-  }
-
+  const head =
+    theme.fg("success", `${HEAD_OK}${command}: `) +
+    file +
+    (d.kind === "edit"
+      ? gray(
+          theme,
+          ` · applied ${d.hunks} hunk${d.hunks !== 1 ? "s" : ""}${d.rewrite ? ", whole-file rewrite" : ""}`,
+        )
+      : d.kind === "create"
+        ? gray(theme, ` · created ${d.bytes} bytes`)
+        : "");
+  const body = d.kind === "edit" ? renderDiffOps(d.diffOps ?? [], theme) : "";
   const lines = body ? body.split("\n").filter((l: string) => l !== "") : [];
-  const total = lines.length;
-  const colorLine = (l: string) => (colored ? l : theme.fg("toolOutput", l));
-
-  if (total === 0) return truncView([status]);
-  if (expanded) {
-    return truncView([
-      ...lines.map(colorLine),
-      status + " " + hint(theme, expanded),
-    ]);
-  }
-  const shown = total <= RESULT_MAX ? lines : lines.slice(-RESULT_MAX);
-  const range =
-    total > RESULT_MAX
-      ? gray(theme, ` · L${total - RESULT_MAX + 1}-${total}`) + " "
-      : "";
-  return truncView([
-    ...shown.map(colorLine),
-    status + range + hint(theme, expanded),
-  ]);
+  return editorView(theme, () => ({ head, body: lines }));
 }

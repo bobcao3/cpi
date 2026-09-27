@@ -12,7 +12,8 @@ import {
   recordReadCalls,
   recordReadResult,
   resetReadBatches,
-} from "./read-render.ts";
+} from "./read-batch.ts";
+import { getCwd, setCwd } from "../lib/cwd.ts";
 
 const theme = getThemeByName("dark")!;
 const indent = " ".repeat(visibleWidth("⏳ Reading "));
@@ -23,6 +24,8 @@ test("concurrent reads group adjacent statuses without moving completed events",
   const dir = await mkdtemp(join(tmpdir(), "read-group-"));
   const paths = ["A.py", "B.py", "C.py"].map((name) => join(dir, name));
   resetReadBatches([]);
+  const initial = getCwd();
+  setCwd(dir);
   try {
     for (const path of paths) await writeFile(path, "one\ntwo\n");
     const calls = paths.map((path, index) => ({
@@ -67,7 +70,7 @@ test("concurrent reads group adjacent statuses without moving completed events",
     recordReadResult(calls[1].id, second, false);
     assert.equal(
       visible(lead),
-      `⏳ Reading A.py\n${indent}C.py for locate function\n✓ Read B.py:2 lines`,
+      `⏳ Reading A.py\n${indent}C.py for locate function\n ✓ Read B.py:2 lines`,
     );
     const viewed = {
       content: [{ type: "text", text: "1|one\n2|two" }],
@@ -80,7 +83,7 @@ test("concurrent reads group adjacent statuses without moving completed events",
     recordReadResult(calls[2].id, viewed, false);
     assert.equal(
       visible(lead),
-      "⏳ Reading A.py\n✓ Read B.py:2 lines\n       C.py:L1-2 Contains two lines",
+      "⏳ Reading A.py\n ✓ Read B.py:2 lines\n        C.py:L1-2 Contains two lines",
     );
 
     const first = await readTool.execute(
@@ -99,12 +102,12 @@ test("concurrent reads group adjacent statuses without moving completed events",
     );
     assert.equal(
       visible(finished),
-      "✓ Read B.py:2 lines\n       C.py:L1-2 Contains two lines\n✓ Read A.py:2 lines",
+      " ✓ Read B.py:2 lines\n        C.py:L1-2 Contains two lines\n ✓ Read A.py:2 lines",
     );
     recordReadResult(calls[1].id, second, false);
     assert.equal(
       visible(finished),
-      "✓ Read B.py:2 lines\n       C.py:L1-2 Contains two lines\n✓ Read A.py:2 lines",
+      " ✓ Read B.py:2 lines\n        C.py:L1-2 Contains two lines\n ✓ Read A.py:2 lines",
     );
     assert.equal(
       visible(
@@ -120,6 +123,7 @@ test("concurrent reads group adjacent statuses without moving completed events",
     assert.equal(updates, 3);
   } finally {
     resetReadBatches([]);
+    setCwd(initial);
     await rm(dir, { recursive: true, force: true });
   }
 });
@@ -166,11 +170,11 @@ test("read groups rebuild from a real session branch without mixing batches", ()
       );
     assert.equal(
       call("old-first"),
-      "✓ Read second.ts:12 lines, first.ts:3 lines",
+      " ✓ Read second.ts:12 lines, first.ts:3 lines",
     );
     assert.equal(
       call("new-first"),
-      "⏳ Reading second.ts\n✓ Read first.ts:5 lines",
+      "⏳ Reading second.ts\n ✓ Read first.ts:5 lines",
     );
     resetReadBatches([]);
     assert.equal(call("old-first"), "⏳ Reading first.ts");
@@ -203,6 +207,8 @@ test("unqueried concurrent reads share one pending line", () => {
 test("directory reads use their own result group", async () => {
   const dir = await mkdtemp(join(tmpdir(), "read-dirs-"));
   resetReadBatches([]);
+  const initial = getCwd();
+  setCwd(dir);
   try {
     const paths = ["note.txt", "alpha", "beta"].map((name) => join(dir, name));
     await writeFile(paths[0], "one\n");
@@ -229,7 +235,7 @@ test("directory reads use their own result group", async () => {
           { args: { path: paths[1] }, isError: false } as any,
         ),
       ),
-      "✓ Listed dir: alpha",
+      " ✓ Listed dir: alpha",
     );
     recordReadCalls(calls);
     for (const index of [0, 1, 2])
@@ -247,7 +253,7 @@ test("directory reads use their own result group", async () => {
           } as any,
         ),
       ),
-      "✓ Read note.txt:1 lines\n✓ Listed dir: alpha, beta",
+      " ✓ Read note.txt:1 lines\n ✓ Listed dir: alpha, beta",
     );
     assert.equal(
       visible(
@@ -266,6 +272,105 @@ test("directory reads use their own result group", async () => {
     );
   } finally {
     resetReadBatches([]);
+    setCwd(initial);
     await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("batched read names fold instead of truncating", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "read-fold-"));
+  const initial = getCwd();
+  setCwd(dir);
+  resetReadBatches([]);
+  try {
+    const names = Array.from(
+      { length: 8 },
+      (_, i) => `very_long_file_name_${i}.ts`,
+    );
+    const calls = names.map((name, i) => ({
+      id: `fold-${i}`,
+      name: "read",
+      arguments: { path: join(dir, name) },
+    }));
+    recordReadCalls(calls);
+    for (const call of calls)
+      recordReadResult(
+        call.id,
+        { details: { kind: "content", lineCount: 1 } },
+        false,
+      );
+    const rendered = readTool
+      .renderResult(
+        { details: { kind: "content", lineCount: 1 } },
+        { isPartial: false, expanded: false },
+        theme,
+        {
+          args: calls[0].arguments,
+          toolCallId: calls[0].id,
+          isError: false,
+        } as any,
+      )
+      .render(40)
+      .map(stripVTControlCharacters);
+    assert.ok(rendered.length > 1);
+    assert.ok(names.every((name) => rendered.join("\n").includes(name)));
+  } finally {
+    resetReadBatches([]);
+    setCwd(initial);
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("long read descriptions drop to a box-drawing continuation line", () => {
+  resetReadBatches([]);
+  try {
+    const readIndent = " ".repeat(visibleWidth(" ✓ Read "));
+    recordReadCalls([
+      { id: "desc-a", name: "read", arguments: { path: "blocked.ts" } },
+      {
+        id: "desc-c",
+        name: "read",
+        arguments: { path: "render.ts", query: "status indicators" },
+      },
+    ]);
+    recordReadResult(
+      "desc-a",
+      {
+        content: [{ type: "text", text: "x" }],
+        details: { kind: "content", lineCount: 26 },
+      },
+      false,
+    );
+    recordReadResult(
+      "desc-c",
+      {
+        content: [{ type: "text", text: "x" }],
+        details: {
+          kind: "view",
+          ranges: [[177, 202]],
+          summary:
+            "Renders editor tool calls and results, including success and error status indicators",
+        },
+      },
+      false,
+    );
+
+    assert.equal(
+      visible(
+        readTool.renderCall({ path: "blocked.ts" }, theme, {
+          toolCallId: "desc-a",
+          isPartial: true,
+        } as any),
+      ),
+      " ✓ Read blocked.ts:26 lines\n" +
+        readIndent +
+        "render.ts:L177-202\n" +
+        readIndent +
+        "└ Renders editor tool calls and results, including success and error\n" +
+        readIndent +
+        "  status indicators",
+    );
+  } finally {
+    resetReadBatches([]);
   }
 });

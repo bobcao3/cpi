@@ -16,8 +16,8 @@ export function renderBlocked(
 ): Text {
   return new Text(
     theme.fg("error", "🛑 Blocked: ") +
-      theme.fg("text", description) +
-      "\n  " +
+      theme.fg("dim", description) +
+      "\n   " +
       theme.fg("muted", "- Reason: ") +
       theme.fg("text", oneLineReason(reason)),
     0,

@@ -105,7 +105,7 @@ function errorResult(
       },
     ],
     isError: true,
-    details: { id, kind: "error", message },
+    details: { id, kind: "error", path, message },
   };
 }
 
@@ -147,7 +147,12 @@ async function executeWrite(params: WriteParams, id: string, abs: string) {
       "write",
       abs,
       body,
-      { id, kind: "create", bytes: Buffer.byteLength(fileText, "utf-8") },
+      {
+        id,
+        kind: "create",
+        path: abs,
+        bytes: Buffer.byteLength(fileText, "utf-8"),
+      },
       agents,
     );
   });
@@ -211,6 +216,7 @@ async function executeEdit(
     {
       id,
       kind: "edit",
+      path: abs,
       diff: r.diff,
       hunks: r.applied,
       rewrite: r.wholeFileRewrite,
@@ -267,7 +273,8 @@ function defineTool(command: Command, schema: object) {
     promptSnippet: meta.prompt_snippet,
     promptGuidelines: meta.guidelines,
     parameters: schema,
-    renderShell: command === "read" ? ("self" as const) : ("default" as const),
+    // The extension paints its own neutral background, not pi's green/red result backgrounds.
+    renderShell: "self" as const,
     renderCall(args: any, theme: any, context: any) {
       return command === "read"
         ? renderReadCall(args, theme, context)
@@ -281,7 +288,7 @@ function defineTool(command: Command, schema: object) {
     ) {
       return command === "read"
         ? renderReadResult(result, opts, theme, context)
-        : renderEditorResult(result, opts, theme, context);
+        : renderEditorResult(command, result, opts, theme);
     },
     async execute(
       _toolCallId: string,

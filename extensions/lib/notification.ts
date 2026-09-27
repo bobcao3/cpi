@@ -106,29 +106,30 @@ export function registerNotificationRenderer(pi: ExtensionAPI): void {
 
     let icon: string;
     let iconColor: string;
+    // Leading space pads narrow glyphs to the two columns of the wide ⏰.
     if (kind === "alarm") {
       icon = "⏰";
       iconColor = "warning";
     } else if (kind === "shell-complete") {
-      icon = "✓";
+      icon = " ✓";
       iconColor = "success";
     } else if (kind === "shell-failed") {
-      icon = "✗";
+      icon = " ✗";
       iconColor = "error";
     } else if (kind === "repeat-stopped") {
-      icon = "•";
+      icon = " •";
       iconColor = "muted";
     } else if (kind === "repeat-breach") {
-      icon = "⚠";
+      icon = " ⚠";
       iconColor = "warning";
     } else if (kind === "orphaned-shells") {
-      icon = "⛓";
+      icon = " ⛓";
       iconColor = "muted";
     } else if (kind === "completed-shells") {
-      icon = "✓";
+      icon = " ✓";
       iconColor = "muted";
     } else {
-      icon = "•";
+      icon = " •";
       iconColor = "muted";
     }
 
