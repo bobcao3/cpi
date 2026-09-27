@@ -24,6 +24,7 @@ import {
 import { sanitizeActivityText } from "../lib/activity.ts";
 import { getCwd } from "../lib/cwd.ts";
 import { displayPath } from "../lib/path-display.ts";
+import { expandSourcePath } from "../lib/skill-paths.ts";
 
 interface ReadDetails {
   kind?: string;
@@ -72,14 +73,25 @@ export function fileLabel(
   theme: Theme,
   color: "text" | "dim" = "text",
 ): string {
-  const raw = path || "file";
+  const cwd = getCwd();
+  const absolute = path ? resolve(cwd, path) : undefined;
   const name =
-    sanitizeActivityText(displayPath(raw, getCwd())).trim() || "file";
-  const linked = Boolean(path && getCapabilities().hyperlinks);
+    sanitizeActivityText(
+      absolute ? displayPath(absolute, cwd) : "file",
+    ).trim() || "file";
+  const linked = Boolean(absolute && getCapabilities().hyperlinks);
   const styled = theme.fg(color, linked ? `\x1b[4m${name}\x1b[24m` : name);
-  return linked
-    ? hyperlink(styled, pathToFileURL(resolve(getCwd(), raw)).href)
+  return linked && absolute
+    ? hyperlink(styled, pathToFileURL(absolute).href)
     : styled;
+}
+
+export function readFileLabel(
+  path: string | undefined,
+  theme: Theme,
+  color: "text" | "dim" = "dim",
+): string {
+  return fileLabel(path && expandSourcePath(path), theme, color);
 }
 
 export function rangeLabel(details: ReadDetails): string {
@@ -126,7 +138,7 @@ function groupedReadBlocks(batch: ReadBatch, theme: Theme): ReadBlock[] {
   };
   for (const member of members) {
     const kind = memberKind(member);
-    const file = fileLabel(member.path, theme, "dim");
+    const file = readFileLabel(member.path, theme);
     const details = member.result?.details;
     const same = kind === previous;
     if (kind === "pending") {

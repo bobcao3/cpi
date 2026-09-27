@@ -11,7 +11,7 @@ import {
   HEAD_READ,
   HEAD_TREE,
   faint,
-  fileLabel,
+  readFileLabel,
   groupedReadComponent,
   oneLine,
   readBatch,
@@ -56,7 +56,7 @@ export function renderReadCall(
     batch.refresh = context.invalidate;
     return groupedReadComponent(batch, theme);
   }
-  const file = fileLabel(args.path, theme, "dim");
+  const file = readFileLabel(args.path, theme);
   const query = oneLine(args.query || "");
   return compactLine(
     theme.fg("warning", "⏳ Reading ") +
@@ -85,7 +85,7 @@ export function renderReadResult(
     batch && batch.members[0]?.id === context.toolCallId,
   );
   if (isLeader) batch.refresh = context.invalidate;
-  const file = fileLabel(args?.path, theme, "dim");
+  const file = readFileLabel(args?.path, theme);
   const details = result.details;
   if (batch && !isLeader && details?.kind !== "image") return new Container();
   const grouped =

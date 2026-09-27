@@ -1,8 +1,9 @@
 /**
- * TUI rendering for `edit`/`write`/`apply_patch`: a leading
- * `<glyph> {command}: {file}` line carries running/success/failure state, the
- * edit diff follows (old/new line-number columns, long deletion runs elided per
- * diff.collapseRemovals), and a failure appends an indented `└` reason. The
+ * TUI rendering for `edit`/`write`/`apply_patch`: one block per call, led by a
+ * `<glyph> {command}: {file}` line carrying running/success/failure state. Its
+ * body holds the editor subagent's live transcript tail while it runs and the
+ * edit diff afterwards (old/new line-number columns, long deletion runs elided
+ * per diff.collapseRemovals); a failure appends an indented `└` reason. The
  * surface keeps a neutral background; red text marks errors.
  */
 
@@ -44,7 +45,6 @@ function truncView(lines: string[]): TruncView {
 interface EditorPanel {
   head: string;
   body?: string[];
-  headLast?: boolean;
 }
 
 /** Neutral surface: full-width background, head flush left, body inset one column. */
@@ -66,8 +66,8 @@ function editorView(
       } else {
         const bodyBox = new Box(1, 0);
         bodyBox.addChild(truncView(body));
-        for (const child of panel.headLast ? [bodyBox, head] : [head, bodyBox])
-          box.addChild(child);
+        box.addChild(head);
+        box.addChild(bodyBox);
       }
       const lines = box.render(width);
       const bgAnsi = theme.getBgAnsi("toolPendingBg");
@@ -149,6 +149,16 @@ function renderDiffOps(ops: DiffOp[], theme: any): string {
     .join("\n");
 }
 
+/** Row state pi shares between the call and result renderers of one tool call. */
+interface EditorRowState {
+  /** Transcript tail the call body shows while the editor subagent streams. */
+  stream?: string[];
+}
+
+function rowState(context: any): EditorRowState {
+  return (context.state ??= {});
+}
+
 export function renderEditorCall(
   command: string,
   args: any,
@@ -157,10 +167,12 @@ export function renderEditorCall(
 ): Component {
   // The result owns the head line once it is in, so the call folds away.
   if (!context.isPartial) return new Container();
+  const row = rowState(context);
   return editorView(theme, () => ({
     head:
       theme.fg("warning", `${HEAD_PENDING}${command}: `) +
       fileLabel(args?.path, theme),
+    body: row.stream?.map((line) => gray(theme, line)),
   }));
 }
 
@@ -178,28 +190,20 @@ export function renderEditorResult(
   result: any,
   opts: { isPartial: boolean },
   theme: any,
+  context: any,
 ): Component {
   const content = result.content?.[0];
   const fullText = content?.type === "text" ? content.text : "";
 
-  // Running: live subagent transcript tail (gray).
+  // Running: hand the live transcript tail to the call renderer, which already
+  // frames this row — a second frame here would stack a second block below it.
   if (opts.isPartial) {
     const lines = fullText
       .trimEnd()
       .split("\n")
       .filter((l: string) => l !== "" && !/^(jsonl:|summary:)/.test(l));
-    const tail = lines.slice(-STREAM_TAIL);
-    const hidden = lines.length - tail.length;
-    const status =
-      theme.fg("warning", "⏳ running") +
-      (hidden > 0
-        ? gray(theme, ` · L${hidden + 1}-${lines.length}`)
-        : gray(theme, ` · ${lines.length} lines`));
-    return editorView(theme, () => ({
-      head: status,
-      body: tail.map((l: string) => gray(theme, l)),
-      headLast: true,
-    }));
+    rowState(context).stream = lines.slice(-STREAM_TAIL);
+    return new Container();
   }
 
   const d = (result.details ?? {}) as EditorDetails;

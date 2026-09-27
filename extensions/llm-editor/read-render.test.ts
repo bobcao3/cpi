@@ -1,15 +1,16 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { stripVTControlCharacters } from "node:util";
 import { getThemeByName } from "../../node_modules/@earendil-works/pi-coding-agent/dist/modes/interactive/theme/theme.js";
 import { setCapabilityOverrides } from "@earendil-works/pi-tui";
 import { readTool } from "./tool.ts";
-import { faint } from "./read-batch.ts";
+import { faint, fileLabel, readFileLabel } from "./read-batch.ts";
 import { getCwd, setCwd } from "../lib/cwd.ts";
+import { expandSourcePath } from "../lib/skill-paths.ts";
 
 const theme = getThemeByName("dark")!;
 const visible = (component: { render(width: number): string[] }) =>
@@ -171,6 +172,68 @@ test("read path is underlined and linked only in hyperlink-capable terminals", (
     assert.ok(!plain.includes("\x1b]8;"));
     assert.ok(!plain.includes("\x1b[4m"));
     assert.ok(stripVTControlCharacters(plain).includes("read with spaces.ts"));
+  } finally {
+    setCapabilityOverrides({});
+    setCwd(initial);
+  }
+});
+
+test("read links resolve source path prefixes rather than treating them as cwd-relative", async () => {
+  const initial = getCwd();
+  const args = { path: "$CPI_HARNESS_SRC/AGENTS.md" };
+  const absolute = expandSourcePath(args.path);
+  setCwd("/tmp");
+  setCapabilityOverrides({ hyperlinks: true });
+  try {
+    const expected = `\x1b]8;;${pathToFileURL(absolute).href}\x1b\\`;
+    const call = readTool
+      .renderCall(args, theme, { isPartial: true } as any)
+      .render(120)
+      .join("\n");
+    assert.ok(call.includes(expected), call);
+    const read = await readTool.execute(
+      "prefixed-read",
+      args,
+      undefined,
+      undefined,
+      { cwd: "/tmp" } as any,
+    );
+    assert.equal((read.details as { path: string }).path, absolute);
+    const result = readTool
+      .renderResult(read, { isPartial: false, expanded: false }, theme, {
+        args,
+        isError: false,
+      } as any)
+      .render(120)
+      .join("\n");
+    assert.ok(result.includes(expected), result);
+  } finally {
+    setCapabilityOverrides({});
+    setCwd(initial);
+  }
+});
+
+test("contracted cwd and home labels retain complete file URLs", () => {
+  const initial = getCwd();
+  const home = homedir();
+  const cwd = join(home, "work", "project");
+  setCwd(cwd);
+  setCapabilityOverrides({ hyperlinks: true });
+  try {
+    const inside = join(cwd, "src", "a b.ts");
+    const outside = join(home, "notes.txt");
+    for (const [label, path, render] of [
+      ["src/a b.ts", inside, () => fileLabel(inside, theme)],
+      ["~/notes.txt", outside, () => fileLabel(outside, theme)],
+      ["~/notes.txt", outside, () => readFileLabel("$HOME/notes.txt", theme)],
+    ] as const) {
+      const text = render();
+      assert.ok(text.includes(`\x1b[4m${label}\x1b[24m`), text);
+      assert.ok(
+        text.includes(`\x1b]8;;${pathToFileURL(path).href}\x1b\\`),
+        text,
+      );
+    }
   } finally {
     setCapabilityOverrides({});
     setCwd(initial);

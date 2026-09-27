@@ -288,7 +288,7 @@ function defineTool(command: Command, schema: object) {
     ) {
       return command === "read"
         ? renderReadResult(result, opts, theme, context)
-        : renderEditorResult(command, result, opts, theme);
+        : renderEditorResult(command, result, opts, theme, context);
     },
     async execute(
       _toolCallId: string,

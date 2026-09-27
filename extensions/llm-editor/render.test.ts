@@ -32,6 +32,7 @@ test("editor panels extend half a row past top and bottom", () => {
     { details: { kind: "edit", path: "src/a.ts", hunks: 1, diffOps: [] } },
     { isPartial: false },
     theme,
+    { state: {} },
   ).render(120);
   const fg = theme.getBgAnsi("toolPendingBg").replace("48;", "38;");
   assert.equal(all[0], `${fg}${"▄".repeat(120)}\x1b[39m`);
@@ -71,6 +72,7 @@ test("edit result head carries status and reason", () => {
       },
       { isPartial: false },
       theme,
+      { state: {} },
     ),
   );
   assert.equal(ok[0]!, " ✓ edit: src/a.ts · applied 1 hunk");
@@ -90,10 +92,51 @@ test("edit result head carries status and reason", () => {
       },
       { isPartial: false },
       theme,
+      { state: {} },
     ),
   );
   assert.deepEqual(err, [
     " ✗ apply_patch: src/a.ts failed",
     "   └ hunk did not apply",
   ]);
+});
+
+test("streaming transcript tail lands in the pending block, tail of 5", () => {
+  const context = { isPartial: true, state: {}, args: {} };
+  const streamed = renderEditorResult(
+    "edit",
+    {
+      content: [
+        {
+          type: "text",
+          text: [
+            "# editor",
+            "checking the file",
+            'jsonl: {"noise":1}',
+            "hunk 1",
+            "+ const a = 1;",
+            "applying",
+            "verifying",
+            "summary: done",
+          ].join("\n"),
+        },
+      ],
+      details: { id: "abc" },
+    },
+    { isPartial: true },
+    theme,
+    context,
+  );
+  assert.deepEqual(rows(streamed), []);
+  assert.deepEqual(
+    panel(renderEditorCall("edit", { path: "src/a.ts" }, theme, context)),
+    [
+      "⏳ edit: src/a.ts",
+      " checking the file",
+      " hunk 1",
+      " + const a = 1;",
+      " applying",
+      " verifying",
+    ],
+  );
 });
