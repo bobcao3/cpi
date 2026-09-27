@@ -12,8 +12,12 @@ import {
 } from "./lib/text.ts";
 
 const WAIT_ANY_TOOL = "wait_any";
+const SHORT_TIME_ZONE_FORMATTER = new Intl.DateTimeFormat("en-US", {
+  timeZoneName: "short",
+});
 
-function nowTimestamp(): string {
+/** IANA form is unambiguous for the model-facing tool result; short form is for the UI. */
+function nowTimestamp(zone: "iana" | "short" = "iana"): string {
   const d = new Date();
   const day = String(d.getDate()).padStart(2, "0");
   const month = String(d.getMonth() + 1).padStart(2, "0");
@@ -23,7 +27,13 @@ function nowTimestamp(): string {
   hours = hours % 12;
   if (hours === 0) hours = 12;
   const minutes = String(d.getMinutes()).padStart(2, "0");
-  return `${day}/${month}/${year} ${hours}:${minutes} ${ampm}`;
+  const timeZone =
+    zone === "iana"
+      ? Intl.DateTimeFormat().resolvedOptions().timeZone
+      : (SHORT_TIME_ZONE_FORMATTER.formatToParts(d).find(
+          (part) => part.type === "timeZoneName",
+        )?.value ?? "");
+  return `${day}/${month}/${year} ${hours}:${minutes} ${ampm} ${timeZone}`;
 }
 
 export default function waitAnyExtension(pi: ExtensionAPI): void {
@@ -56,7 +66,10 @@ export default function waitAnyExtension(pi: ExtensionAPI): void {
         (context.lastComponent as Text | undefined) ?? new Text("", 0, 0);
       t.setText(
         theme.fg("muted", "💤") +
-          theme.fg("dim", " waiting on events or user input"),
+          theme.fg(
+            "dim",
+            ` waiting on events or user input ${nowTimestamp("short")}`,
+          ),
       );
       return t;
     },

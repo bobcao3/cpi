@@ -13,7 +13,7 @@ export interface FooterHit {
   end: number;
 }
 
-const priorities = ["branch", "fast", "codex", "shell", "subagent-cost"];
+const priorities = ["branch", "fast", "usage", "shell", "subagent-cost"];
 const priority = (name: string) => {
   if (name === "jj") return 0;
   if (name === "summary") return 6;

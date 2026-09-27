@@ -10,7 +10,7 @@ import fast from "./fast.ts";
 import goal from "./goal.ts";
 import llmEditor from "./llm-editor/index.ts";
 import lsp from "./lsp.ts";
-import openAICodexUsage from "./openai-codex-usage.ts";
+import providerUsage from "./provider-usage.ts";
 import provider from "./provider.ts";
 import shell from "./shell.ts";
 import subagentModels from "./subagent-models.ts";
@@ -28,7 +28,7 @@ export default async function cpi(pi: ExtensionAPI): Promise<void> {
     goal,
     llmEditor,
     lsp,
-    openAICodexUsage,
+    providerUsage,
     provider,
     shell,
     subagentModels,
