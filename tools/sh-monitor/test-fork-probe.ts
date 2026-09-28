@@ -44,13 +44,14 @@ const server = createServer(async (request, response) => {
     arrived?.();
     await gate;
   }
-  if (mode === "error") {
+  if (mode === "error" || (mode.startsWith("tool") && requests.length > 4)) {
     response.writeHead(400);
     response.end("deliberate failure");
     return;
   }
   const tool =
     mode === "tool" ||
+    (mode === "tool-then-text" && requests.length === 1) ||
     (mode === "blocking" && !summary && ++mainRequests === 1);
   const delta = tool
     ? {
@@ -61,8 +62,13 @@ const server = createServer(async (request, response) => {
             id: "call_read",
             type: "function",
             function: {
-              name: "read",
-              arguments: JSON.stringify({ path: marker }),
+              name: mode.startsWith("tool") ? "write" : "read",
+              arguments: JSON.stringify({
+                path: marker,
+                ...(mode.startsWith("tool")
+                  ? { content: "PROBE_SHOULD_NOT_WRITE" }
+                  : {}),
+              }),
             },
           },
         ],
@@ -254,15 +260,31 @@ try {
     configPath,
     JSON.stringify({ forkProbe: { substitutions: [] } }),
   );
-  mode = "tool";
-  requests = [];
-  const tool = await runForkProbe(
-    { ...options, tools: "read" },
-    "Read the marker.",
-  );
-  assert.equal(requests.length, 1, JSON.stringify(tool));
-  assert.equal(tool.ok, false);
-  console.log("PASS real tool call: one turn, no continuation");
+  for (const [scenario, count, success] of [
+    ["tool", 4, false],
+    ["tool-then-text", 2, true],
+  ] as const) {
+    mode = scenario;
+    requests = [];
+    const result = await runForkProbe(
+      { ...options, tools: "write" },
+      "Write the marker, then answer.",
+    );
+    assert.equal(requests.length, count, JSON.stringify(result));
+    assert.equal(result.ok, success);
+    assert.equal(result.exitCode, success ? 0 : 1);
+    assert.equal(result.answer, success ? "PROBE_OK" : "");
+    assert(
+      requests[0].tools.some((tool: any) => tool.function.name === "write"),
+    );
+    for (const request of requests.slice(1)) {
+      assert.equal(request.messages.at(-1).role, "tool");
+      assert.match(request.messages.at(-1).content, /Tools are disabled/);
+    }
+    assert.equal(readFileSync(marker, "utf8"), "probe integration marker");
+    assert.equal(readFileSync(parent.getSessionFile()!, "utf8"), original);
+    console.log(`PASS ${scenario}: blocked writes and bounded retries`);
+  }
   mode = "error";
   requests = [];
   const error = await runForkProbe(options, "Return an answer.");

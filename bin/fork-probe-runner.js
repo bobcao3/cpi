@@ -90,13 +90,28 @@ function restrictProbeTools(session, disabledMessage) {
   const agent = session.agent;
   agent.beforeToolCall = () => ({ block: true, reason: disabledMessage });
   let turns = 0;
-  agent.shouldStopAfterTurn = ({ message }) => {
+  const should_stop = ({ message }) => {
     turns += 1;
     return (
       !message.content.some((part) => part.type === "toolCall") ||
       turns >= MAX_PROBE_TURNS
     );
   };
+  if ("finishTurn" in agent) {
+    const previous = agent.finishTurn;
+    agent.finishTurn = async (turn, signal) => {
+      const decision = await previous?.(turn, signal);
+      return should_stop(turn) ? { action: "end" } : decision;
+    };
+  } else if ("shouldStopAfterTurn" in agent) {
+    const previous = agent.shouldStopAfterTurn;
+    agent.shouldStopAfterTurn = async (turn, signal) =>
+      (await previous?.(turn, signal)) || should_stop(turn);
+  } else {
+    throw new Error(
+      "Pi does not expose a supported fork-probe turn limit hook",
+    );
+  }
 }
 
 export async function runForkProbeSubagent(request, signal) {
@@ -152,7 +167,6 @@ export async function runForkProbeSubagent(request, signal) {
       tools,
       ...selection,
     });
-    restrictProbeTools(created.session, request.toolsDisabledMessage);
     return { ...created, services, diagnostics };
   };
   const runtime = await createAgentSessionRuntime(createRuntime, {
@@ -190,6 +204,7 @@ export async function runForkProbeSubagent(request, signal) {
         process.stderr.write(`Extension error (${extensionPath}): ${error}\n`),
     });
     if (signal?.aborted) return 1;
+    restrictProbeTools(runtime.session, request.toolsDisabledMessage);
     capProbeOutput(runtime.session, request.maxOutputTokens);
     await runtime.session.prompt(request.prompt);
     if (
