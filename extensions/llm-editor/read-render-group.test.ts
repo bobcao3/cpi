@@ -128,7 +128,7 @@ test("concurrent reads group adjacent statuses without moving completed events",
   }
 });
 
-test("read groups rebuild from a real session branch without mixing batches", () => {
+test("read groups rebuild sequential batches from a real session without mixing results", () => {
   const session = SessionManager.inMemory();
   const assistant = (prefix: string) => ({
     role: "assistant",

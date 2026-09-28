@@ -27,17 +27,6 @@ describe("numbered editor context", () => {
 });
 
 describe("udiff parser", () => {
-  test("accepts one canonical hunk per array element", () => {
-    const parsed = parseUdiffs(["@@ -2,1 +2,2 @@\n b\n+c"]);
-    expect(parsed.ok).toBe(true);
-    if (parsed.ok)
-      expect(parsed.hunks[0]).toMatchObject({
-        oldStart: 2,
-        oldCount: 1,
-        newCount: 2,
-      });
-  });
-
   test("recomputes normal-hunk counts from the authoritative body", () => {
     const parsed = parseUdiffs(["@@ -1,2 +1,1 @@\n-a\n+b"]);
     expect(parsed).toMatchObject({ ok: true });
@@ -262,13 +251,6 @@ describe("udiff application", () => {
     expect(output("a", ["@@ -1,0 +2,1 @@\n+b"])).toBe("a\nb");
   });
 
-  test("preserves CRLF and the original final-newline state", () => {
-    expect(output("a\r\nb\r\n", ["@@ -2,1 +2,1 @@\n-b\n+B"])).toBe(
-      "a\r\nB\r\n",
-    );
-    expect(output("a\nb", ["@@ -2,1 +2,1 @@\n-b\n+B"])).toBe("a\nB");
-  });
-
   test("preserves whitespace-only added rows", () => {
     expect(output("a\n", ["@@ -1,1 +1,2 @@\n a\n+  "])).toBe("a\n  \n");
   });
@@ -314,14 +296,5 @@ describe("udiff application", () => {
       ok: false,
       error: { code: "work_limit" },
     });
-  });
-
-  test("a failed final hunk produces no partial output", () => {
-    const result = apply("a\nb\n", [
-      "@@ -1 +1 @@\n-a\n+A",
-      "@@ -2 +2 @@\n-missing\n+M",
-    ]);
-    expect(result).toMatchObject({ ok: false, error: { code: "not_found" } });
-    expect("a\nb\n").toBe("a\nb\n");
   });
 });

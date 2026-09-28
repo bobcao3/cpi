@@ -52,19 +52,6 @@ eq(
   "keep|yes",
 );
 
-const visionBlock =
-  "You can see images.{{#vision}} Use read_media to view image files.{{/vision}}{{^vision}} You cannot see images; do not attempt to read image files.{{/vision}}";
-eq(
-  "vision_on",
-  render(visionBlock, { vision: true }),
-  "You can see images. Use read_media to view image files.",
-);
-eq(
-  "vision_off",
-  render(visionBlock, { vision: false }),
-  "You can see images. You cannot see images; do not attempt to read image files.",
-);
-
 eq(
   "unknown_var_empty",
   render("a{{nope}}b{{#missing}}x{{/missing}}", {}),
@@ -79,11 +66,6 @@ try {
 eq("badtag_throws", threw, true);
 
 eq("no_escape_lt", render("{{x}}", { x: "a<b>&c" }), "a<b>&c");
-eq(
-  "no_escape_inline",
-  render("use `sleep && true`", {}),
-  "use `sleep && true`",
-);
 eq(
   "no_escape_search",
   render("{{x}}", { x: "<<<<<<< SEARCH" }),

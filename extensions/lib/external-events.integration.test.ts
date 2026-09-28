@@ -19,7 +19,7 @@ const notifications = () =>
     (m: any) => m.role === "custom" && m.details?.kind === "external-event",
   ) as any[];
 
-test("core owns the bounded shutdown drain and cleans observers after expiry", async () => {
+test("shutdown waits for a pending subscription to clear before cleaning its observer", async () => {
   const r = (runtime = await openEventRuntime());
   const watch = r.watch();
   expect(

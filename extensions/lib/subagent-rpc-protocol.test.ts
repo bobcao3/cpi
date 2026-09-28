@@ -142,8 +142,10 @@ describe("subagent RPC request boundary", () => {
     expect(
       validSessionSubagentRequest({ ...session, extensionPaths: paths }),
     ).toBe(true);
+    expect(
+      validSessionSubagentRequest({ ...session, extensionPaths: undefined }),
+    ).toBe(true);
     for (const extensionPaths of [
-      undefined,
       "bad",
       [...paths, resolve("extra.ts")],
       [paths[0], paths[0]],

@@ -20,6 +20,38 @@ import {
   readActivityTail,
 } from "../extensions/lib/activity.ts";
 import { createToolDisplay } from "../bin/subagent-display.mjs";
+import { createMarkdownWriter } from "../extensions/lib/subagent-markdown.ts";
+
+const streamed = [];
+const writer = createMarkdownWriter((chunk) => streamed.push(chunk));
+for (const chunk of [
+  "\n\n",
+  "live",
+  " token",
+  "\n> ",
+  "\n>",
+  "\n\n",
+  "next",
+  "\n\n",
+])
+  writer.write(chunk);
+assert.equal(streamed.slice(0, 2).join(""), "live token");
+writer.close();
+assert.equal(streamed.join(""), "live token\n\nnext\n");
+const unicode = [];
+const unicodeWriter = createMarkdownWriter((chunk) => unicode.push(chunk));
+for (const chunk of [
+  "\n\u00a0\n",
+  "\ud83d",
+  "\ude80",
+  "\n\n",
+  "x".repeat(131072),
+  "\n\u00a0\n",
+])
+  unicodeWriter.write(chunk);
+assert.equal(unicode.join(""), "🚀\n\n" + "x".repeat(131072));
+unicodeWriter.close();
+console.log("PASS token streaming and quoted blank normalization");
 
 const directory = mkdtempSync(join(tmpdir(), "cpi-markdown-pairing-"));
 const runId = randomUUID();

@@ -16,7 +16,7 @@ const {
 } = await hostCodingAgent();
 const { calculateCost } = await hostAi();
 
-test("probe substitution rules match only generated variants by canonical ID", async () => {
+test("probe substitution resolves a generated variant through its canonical ID", async () => {
   await fixture(async ({ runtime }) => {
     const manager = SessionManager.inMemory();
     manager.appendModelChange("openai", "gpt-5.5-fast");

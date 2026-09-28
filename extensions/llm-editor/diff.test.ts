@@ -197,11 +197,11 @@ describe("myers equivalence with jsdiff", () => {
 });
 
 describe("distance-cap fallback", () => {
-  test("degrades to a valid (non-minimal) alignment past MAX_D", () => {
+  test("large changes reconstruct both source and target without losing lines", () => {
     // Middle shares one line but has edit distance far above the cap.
     const shared = "anchor";
-    const a = [shared, ...Array.from({ length: 200 }, (_, k) => `old-${k}`)];
-    const b = [...Array.from({ length: 200 }, (_, k) => `new-${k}`), shared];
+    const a = [shared, ...Array.from({ length: 400 }, (_, k) => `old-${k}`)];
+    const b = [...Array.from({ length: 400 }, (_, k) => `new-${k}`), shared];
     const ops = fullOps(join(a), join(b));
     validate(ops, join(a), join(b));
   });

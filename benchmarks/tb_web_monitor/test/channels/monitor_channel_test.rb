@@ -304,7 +304,6 @@ class MonitorChannelTest < ActionCable::Channel::TestCase
     File.write(File.join(verifier_dir, "test-stdout.txt"), "running tests...\n")
     perform :tick
     streaming = trial_broadcasts.select { |m| m.to_s.include?("blk verifier") }.last.to_s
-    assert streaming, "verdict broadcast while streaming"
     assert streaming.include?('"status running"'), "streaming verifier shows running"
     refute streaming.include?('"status fail"'), "streaming verifier does not show fail"
     refute streaming.include?('"status pass"'), "streaming verifier does not show pass"

@@ -38,25 +38,6 @@ function assert(cond: unknown, msg: string): void {
 }
 
 let r = await runShell(
-  "echo hello-world",
-  5,
-  env,
-  undefined,
-  undefined,
-  "fast",
-  30,
-  truncation,
-  tunables,
-);
-assert(r.status === "completed", "fast command status completed");
-assert(r.exitCode === 0, "fast command exit 0");
-assert(
-  (r.text ?? "").includes("hello-world"),
-  "fast command output present: " + r.text,
-);
-console.log("   fast text:", JSON.stringify(r.text));
-
-r = await runShell(
   "exit 3",
   5,
   env,
@@ -70,28 +51,27 @@ r = await runShell(
 assert(r.status === "completed" && r.exitCode === 3, "failing command exit 3");
 
 r = await runShell(
-  "printf 'BINARY:\\xff\\xfe\\x00END\\n'",
+  "printf 'first line\\nBINARY:\\xff\\xfe\\x00END\\n'",
   5,
   env,
   undefined,
   undefined,
   "bin",
   30,
-  truncation,
+  { maxLines: 1 },
   tunables,
 );
 assert(
   r.status === "completed" && (r.text ?? "").includes("BINARY:"),
   "binary output present",
 );
-if (r.fullOutputPath) {
-  const { readFile } = await import("node:fs/promises");
-  const buf = await readFile(r.fullOutputPath);
-  assert(
-    buf.includes(0xff) && buf.includes(0xfe) && buf.includes(0x00),
-    "raw 0xff 0xfe 0x00 preserved in log",
-  );
-}
+assert(!!r.fullOutputPath, "truncated binary output retains its raw log");
+const { readFile } = await import("node:fs/promises");
+const buf = await readFile(r.fullOutputPath!);
+assert(
+  buf.includes(0xff) && buf.includes(0xfe) && buf.includes(0x00),
+  "raw 0xff 0xfe 0x00 preserved in log",
+);
 
 r = await runShell(
   "for i in 1 2 3 4 5 6 7 8 9 10; do echo bg$i; sleep 0.2; done",

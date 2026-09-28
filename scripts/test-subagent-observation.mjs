@@ -15,7 +15,6 @@ import {
   listActivities,
   readActivityTail,
 } from "../extensions/lib/activity.ts";
-import { createMarkdownWriter } from "../extensions/lib/subagent-markdown.ts";
 import { runSubagent as runEditorSubagent } from "../extensions/llm-editor/subagent.ts";
 
 const directory = mkdtempSync(join(tmpdir(), "cpi-observation-live-"));
@@ -282,10 +281,12 @@ try {
       assert(start >= 0, markdown);
       const end = markdown.indexOf("\n\n", start);
       const block = markdown.slice(start, end < 0 ? undefined : end);
+      assert(!/FIRST_DISPLAY_OK|SECOND_DISPLAY_OK/.test(block), block);
       assert(
-        block.includes(
-          label === "First fixture" ? "FIRST_DISPLAY_OK" : "SECOND_DISPLAY_OK",
-        ),
+        block
+          .split("\n")
+          .slice(1)
+          .some((line) => line.includes(label)),
         block,
       );
     }
@@ -338,36 +339,6 @@ try {
     assert(readFileSync(result.observation.diagnosticsPath, "utf8").length > 0);
     console.log("PASS actual worker startup failure terminal and diagnostics");
   }
-  const chunks = [];
-  const writer = createMarkdownWriter((chunk) => chunks.push(chunk));
-  for (const chunk of [
-    "\n\n",
-    "live",
-    " token",
-    "\n> ",
-    "\n>",
-    "\n\n",
-    "next",
-    "\n\n",
-  ])
-    writer.write(chunk);
-  assert.equal(chunks.slice(0, 2).join(""), "live token");
-  writer.close();
-  assert.equal(chunks.join(""), "live token\n\nnext\n");
-  const unicode = [];
-  const unicodeWriter = createMarkdownWriter((chunk) => unicode.push(chunk));
-  for (const chunk of [
-    "\n\u00a0\n",
-    "\ud83d",
-    "\ude80",
-    "\n\n",
-    "x".repeat(131072),
-    "\n\u00a0\n",
-  ])
-    unicodeWriter.write(chunk);
-  assert.equal(unicode.join(""), "🚀\n\n" + "x".repeat(131072));
-  unicodeWriter.close();
-  console.log("PASS token streaming and quoted blank normalization", directory);
 } finally {
   await stopSubagentRpc();
 }
