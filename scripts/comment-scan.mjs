@@ -5,7 +5,14 @@ import ts from "typescript";
 
 const LIMIT = 0.07;
 
-const EXCLUDED_DIRS = new Set(["node_modules", ".git", ".jj"]);
+const EXCLUDED_DIRS = new Set([
+  "node_modules",
+  ".git",
+  ".jj",
+  ".zig-cache",
+  "zig-pkg",
+  "zig-out",
+]);
 
 export function countCommentLines(source, file) {
   const totalLines = source.split("\n").length;
