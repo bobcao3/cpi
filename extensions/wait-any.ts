@@ -73,5 +73,20 @@ export default function waitAnyExtension(pi: ExtensionAPI): void {
       );
       return t;
     },
+    renderResult(result, _options, theme, context) {
+      return new Text(
+        context.isError
+          ? theme.fg(
+              "error",
+              result.content
+                .filter((part) => part.type === "text")
+                .map((part) => part.text)
+                .join("\n"),
+            )
+          : "",
+        0,
+        0,
+      );
+    },
   });
 }
