@@ -4,8 +4,10 @@ import { stripVTControlCharacters } from "node:util";
 import { getThemeByName } from "../../node_modules/@earendil-works/pi-coding-agent/dist/modes/interactive/theme/theme.js";
 import { killAll, runShell, setCurrentScope } from "./exec.ts";
 import {
+  renderCompactBackgroundPsResult,
   renderCompactShellCall,
   renderCompactShellResult,
+  renderCompactSignalResult,
 } from "./compact-render.ts";
 
 const theme = getThemeByName("dark")!;
@@ -35,18 +37,6 @@ test("shell durations use milliseconds below 1.5 seconds", () => {
         ),
       ),
       ` ✓ bash: Timing (${duration})`,
-    );
-    assert.equal(
-      plain(
-        renderCompactShellResult(
-          { details: { ...details, status: "running" } },
-          { isPartial: false },
-          theme,
-          context,
-          "bash",
-        ),
-      ),
-      `⏳ backgrounded bash: Timing (backgrounded after ${duration})`,
     );
   }
   const pending = renderCompactShellCall(
@@ -195,30 +185,6 @@ test("shell TUI shows only description and execution summary", async () => {
         theme.fg("success", " ✓ bash: ") + theme.fg("dim", args.description),
       ),
   );
-  assert.equal(
-    plain(
-      renderCompactShellResult(
-        { details: { ...details, status: "running" } },
-        { isPartial: false },
-        theme,
-        context,
-        "bash",
-      ),
-    ),
-    `⏳ backgrounded bash: Check shell summary (backgrounded after ${duration})`,
-  );
-  assert.equal(
-    plain(
-      renderCompactShellResult(
-        { details: { ...details, shellName: "zsh", status: "running" } },
-        { isPartial: false },
-        theme,
-        context,
-        "bash",
-      ),
-    ),
-    `⏳ backgrounded zsh: Check shell summary (backgrounded after ${duration})`,
-  );
   const failed = plain(
     renderCompactShellResult(
       { details: { ...details, exitCode: 7 } },
@@ -292,6 +258,7 @@ test("backgrounded shell shows time until backgrounding", async () => {
       { previewMaxBytes: 8192, maxAcc: 8192, updateMs: 100 },
     );
     assert.equal(result.status, "running");
+    assert.ok(result.id);
     const details = {
       ...result,
       describe: args.description,
@@ -319,13 +286,21 @@ test("backgrounded shell shows time until backgrounding", async () => {
     );
     assert.equal(
       plain(rendered),
-      `⏳ backgrounded bash: Slow shell (backgrounded after ${duration})`,
+      `⏳ backgrounded bash: PID=${result.id} · Slow shell (backgrounded after ${duration})`,
     );
     assert.ok(
       rendered
         .render(100)
         .join("\n")
         .includes(theme.fg("warning", "⏳ backgrounded bash: ")),
+    );
+    assert.ok(
+      rendered
+        .render(100)
+        .join("\n")
+        .includes(
+          `\x1b[2m${theme.fg("warning", `PID=${result.id}`)}\x1b[22m${theme.fg("dim", " · Slow shell")}`,
+        ),
     );
     assert.ok(
       rendered
@@ -338,4 +313,62 @@ test("backgrounded shell shows time until backgrounding", async () => {
     if (state.timer) clearInterval(state.timer);
     killAll();
   }
+});
+
+test("signal and background-ps use compact unboxed style", () => {
+  const faintPid = `\x1b[2m${theme.fg("warning", "PID=abc123")}\x1b[22m`;
+  const signal = renderCompactSignalResult(
+    { details: { id: "abc123", signal: "SIGINT", describe: "watch logs" } },
+    { isPartial: false },
+    theme,
+    { args: {}, isError: false },
+  );
+  assert.equal(plain(signal), " → Sent SIGINT to PID=abc123 · watch logs");
+  const signalRaw = signal.render(100).join("\n");
+  assert.ok(signalRaw.includes(theme.fg("text", " → Sent SIGINT to ")));
+  assert.ok(signalRaw.includes(faintPid));
+  assert.ok(signalRaw.includes(theme.fg("dim", " · watch logs")));
+  assert.equal(
+    plain(
+      renderCompactSignalResult(
+        { details: { id: "abc123", signal: "SIGKILL" } },
+        { isPartial: false },
+        theme,
+        { args: {}, isError: false },
+      ),
+    ),
+    " → Sent SIGKILL to PID=abc123",
+  );
+  const ps = renderCompactBackgroundPsResult(
+    {
+      details: {
+        backgrounds: [{ id: "abc123", describe: "watch logs" }],
+        repeats: [{ id: "rpt-1", describe: "poll api" }],
+      },
+    },
+    { isPartial: false },
+    theme,
+  );
+  assert.equal(
+    plain(ps),
+    " ○ Listed background shells:\n" +
+      "   ├─ PID=abc123 · watch logs\n" +
+      "   └─ rpt-1 [repeating] poll api",
+  );
+  const psRaw = ps.render(100).join("\n");
+  assert.ok(psRaw.includes(theme.fg("text", " ○ Listed background shells:")));
+  assert.ok(psRaw.includes(faintPid));
+  assert.ok(psRaw.includes(theme.fg("dim", "   ├─ ")));
+  assert.ok(psRaw.includes(theme.fg("dim", "   └─ ")));
+  assert.ok(psRaw.includes(theme.fg("accent", " [repeating]")));
+  assert.equal(
+    plain(
+      renderCompactBackgroundPsResult(
+        { details: undefined },
+        { isPartial: false },
+        theme,
+      ),
+    ),
+    " ○ No background shells",
+  );
 });

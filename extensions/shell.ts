@@ -28,6 +28,7 @@ import {
 import {
   buildOutputText,
   getActiveBackgrounds,
+  getShellBackgrounds,
   hasActiveBackground,
   killAll,
   runShell,
@@ -51,6 +52,7 @@ import { analyzeCommand, unsupportedDialectMessage } from "./shell/analyze.ts";
 import { surfaceCdAgents } from "./shell/cd-targets.ts";
 import { runLspHook } from "./shell/lsp-hook.ts";
 import { formatAgentsBlock } from "./lib/agents.ts";
+import { cleanActivityDisplay } from "./lib/activity-details.ts";
 import { loadText, render, renderLines, textPath } from "./lib/text.ts";
 import {
   notifyOrphanedShells,
@@ -125,6 +127,10 @@ export default async function (pi: ExtensionAPI) {
   setCompletionHook((id, cmd, code, reason, log) => {
     signalHoldEvent();
     const isRepeat = id.startsWith("rpt-");
+    const description = isRepeat
+      ? undefined
+      : getShellBackgrounds().find((entry) => entry.id === id)?.describe;
+    const shellLabel = `PID=${id}${description ? ` · ${truncateDescribe(cleanActivityDisplay(description))}` : ""}`;
     const kind: NotificationKind = isRepeat
       ? reason === "breach"
         ? "repeat-breach"
@@ -137,8 +143,8 @@ export default async function (pi: ExtensionAPI) {
         ? `Repeat monitor ${id} breached on exit ${code ?? "unknown"} (shell command time exceeded repeat interval)`
         : `Repeat monitor ${id} stopped on exit ${code ?? "unknown"}`
       : code === 0
-        ? `Shell ${id} completed on exit ${code}`
-        : `Shell ${id} command failed on exit ${code ?? "unknown"}`;
+        ? `Shell ${shellLabel} completed on exit ${code}`
+        : `Shell ${shellLabel} command failed on exit ${code ?? "unknown"}`;
     const hasRange =
       log && log.startLine !== undefined && log.endLine !== undefined;
     const summary = log
@@ -201,6 +207,7 @@ export default async function (pi: ExtensionAPI) {
       if (signal?.aborted)
         return {
           content: [{ type: "text", text: "Aborted before start." }],
+          details: undefined,
           isError: true,
         };
       if (params.waitfor !== undefined && params.waitfor > MAX_WAITFOR)
@@ -331,17 +338,7 @@ export default async function (pi: ExtensionAPI) {
 
   registerBackgroundControlTools(pi, T, switches);
 
-  pi.registerTool(
-    createRepeatTool(
-      pi,
-      DEFAULT_WAITFOR,
-      MAX_WAITFOR,
-      TAIL_LINES,
-      DESCRIBE_MAX,
-      availability,
-      shell,
-    ),
-  );
+  pi.registerTool(createRepeatTool(DESCRIBE_MAX, availability, shell));
   registerShellTranscriptRenderers();
 
   registerBackgroundListTool(pi, T, switches, truncateDescribe);

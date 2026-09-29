@@ -1,4 +1,3 @@
-// @ts-expect-error Bun test types are runtime-provided.
 import { afterAll, expect, test } from "bun:test";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";

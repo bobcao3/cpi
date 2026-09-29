@@ -4,11 +4,10 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import {
   DEFAULT_FAILURE_THRESHOLD,
-  getState,
   loadMergedConfig,
   registerProviderConfig,
   selectFallback,
-  storeConfig,
+  type FallbackConfig,
 } from "./lib/provider-config";
 import { getCwd } from "./lib/cwd.ts";
 import { loadText, render, textPath, type ToolText } from "./lib/text.ts";
@@ -17,21 +16,12 @@ const debug = (tag: string, msg: string): void => {
   if (process.env.PF_DEBUG) process.stderr.write(`[${tag}] ${msg}\n`);
 };
 
-function configFor() {
-  const s = getState();
-  const cwd = getCwd();
-  if (s.config && s.configCwd === cwd) return s.config;
-  const live = loadMergedConfig(cwd);
-  storeConfig(cwd, live);
-  return live;
-}
-
 async function applyFailover(
   pi: ExtensionAPI,
   ctx: ExtensionContext,
   from: string,
+  cfg: FallbackConfig,
 ): Promise<void> {
-  const cfg = configFor();
   const pick = selectFallback(ctx, cfg.fallbacks, from);
   if (!pick) {
     const text = `Failover: no fallback candidate fits after ${from} failures.`;
@@ -54,24 +44,26 @@ async function applyFailover(
 export default async function providerExtension(
   pi: ExtensionAPI,
 ): Promise<void> {
-  // Register providers from the logical cwd — the best value before session_start.
-  const config = loadMergedConfig(getCwd());
-  if (config.providers) {
-    for (const [key, pcfg] of Object.entries(config.providers)) {
+  let config: FallbackConfig;
+  const registered = new Set<string>();
+  const fails = new Map<string, number>();
+  const unregister = () => {
+    for (const key of registered) pi.unregisterProvider(key);
+    registered.clear();
+  };
+  const configure = () => {
+    unregister();
+    config = loadMergedConfig(getCwd());
+    for (const [key, pcfg] of Object.entries(config.providers ?? {})) {
       registerProviderConfig(pi, key, pcfg);
+      registered.add(key);
     }
-  }
+  };
+  configure();
+  pi.on("session_shutdown", unregister);
 
   pi.on("session_start", async (_event, ctx) => {
-    const cwd = getCwd();
-    const live = loadMergedConfig(cwd);
-    storeConfig(cwd, live);
-
-    if (live.providers) {
-      for (const [key, pcfg] of Object.entries(live.providers)) {
-        registerProviderConfig(pi, key, pcfg);
-      }
-    }
+    configure();
 
     const cur = ctx.model;
     const curUsable =
@@ -98,7 +90,7 @@ export default async function providerExtension(
       return;
     }
 
-    const pick = selectFallback(ctx, live.fallbacks, null);
+    const pick = selectFallback(ctx, config.fallbacks, null);
     if (!pick) {
       const text = "No usable model; no fallback candidate available.";
       process.stderr.write(`[provider-startup] ${text}\n`);
@@ -119,10 +111,9 @@ export default async function providerExtension(
 
   // New model selected (by us or the user): clear its failure slate so we don't fail away from it immediately.
   pi.on("model_select", (_event, ctx) => {
-    const s = getState();
     const provider = ctx.model?.provider;
     if (provider) {
-      s.fails.set(provider, 0);
+      fails.set(provider, 0);
       debug("provider-failover", `model_select: reset fails for ${provider}`);
     }
   });
@@ -131,25 +122,24 @@ export default async function providerExtension(
     const message = event.message as { role?: string; stopReason?: string };
     const provider = ctx.model?.provider;
     if (!provider) return;
-    const s = getState();
-    const cfg = configFor();
+    const cfg = loadMergedConfig(getCwd());
     const threshold =
       cfg.failover?.failureThreshold ?? DEFAULT_FAILURE_THRESHOLD;
 
     const failed =
       message?.role === "assistant" && message?.stopReason === "error";
     if (!failed) {
-      s.fails.set(provider, 0);
+      fails.set(provider, 0);
       return;
     }
 
-    const n = (s.fails.get(provider) ?? 0) + 1;
-    s.fails.set(provider, n);
+    const n = (fails.get(provider) ?? 0) + 1;
+    fails.set(provider, n);
     debug("provider-failover", `${provider}: error turn ${n}/${threshold}`);
     if (n >= threshold) {
-      s.fails.set(provider, 0);
+      fails.set(provider, 0);
       debug("provider-failover", `${provider}: threshold reached; switching`);
-      await applyFailover(pi, ctx, provider);
+      await applyFailover(pi, ctx, provider, cfg);
     }
   });
 }

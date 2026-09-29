@@ -1,8 +1,3 @@
-/**
- * Shared provider-fallback config/helpers; config merges project-over-user.
- * GlobalThis state survives jiti moduleCache-disabled reloads and prevents duplicate registration.
- */
-
 import { readFileSync, existsSync, appendFileSync } from "node:fs";
 import { join } from "node:path";
 import {
@@ -62,32 +57,6 @@ export interface FallbackConfig {
   providers?: Record<string, ProviderConfig>;
   fallbacks?: FallbackCandidate[];
   failover?: FailoverConfig;
-}
-
-interface ProviderState {
-  registered: Set<string>;
-  fails: Map<string, number>;
-  config: FallbackConfig | null;
-  configCwd: string;
-}
-
-export function getState(): ProviderState {
-  const g = globalThis as unknown as { __cpiProvider?: ProviderState };
-  if (!g.__cpiProvider) {
-    g.__cpiProvider = {
-      registered: new Set(),
-      fails: new Map(),
-      config: null,
-      configCwd: "",
-    };
-  }
-  return g.__cpiProvider;
-}
-
-export function storeConfig(cwd: string, config: FallbackConfig): void {
-  const s = getState();
-  s.config = config;
-  s.configCwd = cwd;
 }
 
 const ZERO_COST = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
@@ -173,17 +142,11 @@ export function loadMergedConfig(cwd: string): FallbackConfig {
   return mergeConfigs(user, project);
 }
 
-/** Register once; shared state guards duplicates. */
 export function registerProviderConfig(
   pi: ExtensionAPI,
   key: string,
   pcfg: ProviderConfig,
 ): void {
-  const registered = getState().registered;
-  if (registered.has(key)) {
-    debug(`provider already registered: ${key}`);
-    return;
-  }
   try {
     withDefaultCosts(pcfg);
     for (const w of validateAndNormalizeCompat(key, pcfg)) {
@@ -194,7 +157,6 @@ export function registerProviderConfig(
       pcfg as unknown as Parameters<typeof pi.registerProvider>[1],
     );
     debug(`registered provider: ${key}`);
-    registered.add(key);
   } catch (err) {
     console.warn(`[provider-fallback] registerProvider(${key}) failed:`, err);
   }

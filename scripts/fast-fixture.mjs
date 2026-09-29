@@ -1,6 +1,6 @@
 import { createServer } from "node:http";
 import { zstdDecompressSync } from "node:zlib";
-import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import "./fast-host-fixture.mjs";
@@ -86,19 +86,29 @@ export async function fixture(run, inputTokens = 100) {
   const baseUrl = `http://127.0.0.1:${server.address().port}`;
   const apiKey = `e30.${Buffer.from(JSON.stringify({ "https://api.openai.com/auth": { chatgpt_account_id: "test-account" } })).toString("base64url")}.signature`;
   const modelsPath = join(directory, "models.json");
+  const defaults = JSON.parse(
+    await readFile(
+      new URL("../cpi-config.default.json", import.meta.url),
+      "utf8",
+    ),
+  ).fast;
   await mkdir(join(directory, ".pi"));
   await writeFile(
     join(directory, ".pi/cpi-config.json"),
     JSON.stringify({
       fast: {
-        providers: ["openai", "openai-codex"],
-        models: ["gpt-5.5", "gpt-6-sol", "gpt-6-luna"],
+        models: [
+          ...new Set([
+            ...defaults.models,
+            ...Object.keys(defaults.costMultipliers),
+          ]),
+        ],
       },
     }),
   );
   const config = {
     providers: Object.fromEntries(
-      ["openai", "openai-codex"].map((id) => [id, { baseUrl, apiKey }]),
+      defaults.providers.map((id) => [id, { baseUrl, apiKey }]),
     ),
   };
   await writeFile(modelsPath, JSON.stringify(config));

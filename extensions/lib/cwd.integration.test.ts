@@ -1,14 +1,24 @@
-// @ts-expect-error Bun test types are runtime-provided.
 import { expect, test } from "bun:test";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { stripVTControlCharacters } from "node:util";
 import { queueMessage, drainBeforeUser } from "./prepend-message.ts";
+import {
+  getThemeByName,
+  initTheme,
+} from "../../node_modules/@earendil-works/pi-coding-agent/dist/modes/interactive/theme/theme.js";
 
 const coding_url = import.meta.resolve("@earendil-works/pi-coding-agent");
 const coding_entry = fileURLToPath(coding_url);
 const { ExtensionRunner, SessionManager } = await import(coding_entry);
 const { loadExtensions } = await import(
   resolve(dirname(coding_entry), "core/extensions/loader.js")
+);
+const { ToolExecutionComponent } = await import(
+  resolve(
+    dirname(coding_entry),
+    "modes/interactive/components/tool-execution.js",
+  )
 );
 
 queueMessage({ customType: "cwd-reminder", content: "stale one" });
@@ -21,7 +31,12 @@ const loaded = await loadExtensions(
 if (loaded.errors.length) throw new Error(JSON.stringify(loaded.errors));
 
 interface Sent {
-  message: { customType: string; details?: unknown };
+  message: {
+    customType: string;
+    content?: string;
+    display?: boolean;
+    details?: unknown;
+  };
   options?: { deliverAs?: string; triggerTurn?: boolean };
 }
 
@@ -93,6 +108,38 @@ test("set_cwd coalesces its reminder and delivers it at turn_end", async () => {
     runner.createContext(),
   );
   expect(result.isError).not.toBe(true);
+  const theme = getThemeByName("dark")!;
+  expect(tool!.renderShell).toBe("self");
+  const rendered = tool!.renderResult!(
+    result,
+    { expanded: false, isPartial: false },
+    theme,
+    { args: { path: process.cwd() }, isError: false } as any,
+  ).render(120);
+  expect(
+    rendered.map((line) => stripVTControlCharacters(line)).join("\n"),
+  ).toContain("✓ cwd:");
+  expect(rendered.join("\n")).toContain(theme.fg("success", " ✓ cwd: "));
+  initTheme("dark");
+  const display = new ToolExecutionComponent(
+    "set_cwd",
+    "cwd-display-test",
+    { path: process.cwd() },
+    {},
+    tool,
+    { requestRender: () => {} } as any,
+    process.cwd(),
+  );
+  display.updateResult(result);
+  const lines = display.render(120).filter((line: string) => line.trim());
+  const surfaced =
+    (result.details as { newAgentsFiles?: string[] }).newAgentsFiles ?? [];
+  expect(lines).toHaveLength(surfaced.length ? 2 : 1);
+  expect(stripVTControlCharacters(lines[0])).toContain("✓ cwd:");
+  if (surfaced.length)
+    expect(stripVTControlCharacters(lines[1])).toContain(
+      "New project instructions:",
+    );
   await tool!.execute(
     "cwd-test-again",
     { path: process.cwd() },
@@ -109,6 +156,8 @@ test("set_cwd coalesces its reminder and delivers it at turn_end", async () => {
   } as any);
   expect(sent).toHaveLength(1);
   expect(sent[0].message.customType).toBe("cwd-reminder");
+  expect(sent[0].message.display).toBe(false);
+  expect(sent[0].message.content).toContain(`Current cwd: ${process.cwd()}`);
   expect(sent[0].options).toEqual({ triggerTurn: false });
   expect(entries.at(-1)?.type).toBe("cwd-state");
 });
@@ -123,6 +172,7 @@ test("context boundary reminder is delivered at turn_end without a new turn", as
     toolResults: [],
   } as any);
   expect(sent).toHaveLength(1);
+  expect(sent[0].message.display).toBe(true);
   expect(sent[0].options).toEqual({ triggerTurn: false });
 
   await runner.emit({

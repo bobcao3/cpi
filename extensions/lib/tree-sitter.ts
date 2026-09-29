@@ -189,7 +189,10 @@ async function instantiate(): Promise<Parser | null> {
           ? wasi.getImportObject()
           : { wasi_snapshot_preview1: wasi.wasiImport };
       const mod = await WebAssembly.compile(binary);
-      const instance = await WebAssembly.instantiate(mod, imports);
+      const instance = await WebAssembly.instantiate(
+        mod,
+        imports as WebAssembly.Imports,
+      );
       st.instance = instance;
       return wrap(instance);
     } catch (err) {

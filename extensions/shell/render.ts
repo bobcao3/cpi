@@ -3,7 +3,7 @@
  * and ANSI sanitization. Extracted from shell.ts to keep it under line limits.
  */
 
-import { Text, truncateToWidth } from "@earendil-works/pi-tui";
+import { Text, truncateToWidth, type Component } from "@earendil-works/pi-tui";
 import { renderBlocked } from "./blocked.ts";
 import { highlightCommandSync } from "../lib/tree-sitter.ts";
 import { highlightRange, byteLen, lineBounds } from "./highlight.ts";
@@ -114,7 +114,7 @@ export function renderShResult(
   opts: { expanded: boolean; isPartial: boolean },
   theme: any,
   tailLines: number,
-): Text {
+): Component {
   const { expanded, isPartial } = opts;
   const content = result.content[0];
   let fullText = content?.type === "text" ? content.text : "";

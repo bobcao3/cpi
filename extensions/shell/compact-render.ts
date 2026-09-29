@@ -4,6 +4,7 @@ import { renderBlocked } from "./blocked.ts";
 import { cleanActivityDisplay } from "../lib/activity-details.ts";
 
 interface CompactDetails {
+  id?: string;
   describe?: string;
   blocked?: string;
   shuckBlocked?: boolean;
@@ -26,6 +27,42 @@ interface ShellRenderContext {
   executionStarted?: boolean;
   state?: ShellRenderState;
   invalidate?: () => void;
+}
+
+interface SignalRenderDetails {
+  id?: string;
+  signal?: string;
+  describe?: string;
+}
+
+interface BackgroundPsEntry {
+  id: string;
+  describe?: string;
+}
+
+interface SignalRenderContext {
+  args?: { id?: string; signal?: string };
+  isError: boolean;
+  isPartial?: boolean;
+}
+
+interface BackgroundPsDetails {
+  backgrounds?: BackgroundPsEntry[];
+  repeats?: BackgroundPsEntry[];
+}
+
+function faintWarning(theme: Theme, text: string): string {
+  return `\x1b[2m${theme.fg("warning", text)}\x1b[22m`;
+}
+
+export function backgroundShellLabel(
+  theme: Theme,
+  id: string,
+  description?: string,
+): string {
+  const pid = faintWarning(theme, `PID=${cleanActivityDisplay(id)}`);
+  const text = cleanActivityDisplay(description?.trim() ?? "");
+  return pid + (text ? theme.fg("dim", ` · ${text}`) : "");
 }
 
 function formatElapsed(elapsedMs: number): string {
@@ -111,7 +148,7 @@ export function renderCompactShellResult(
   if (details?.status === "running")
     return new Text(
       theme.fg("warning", `⏳ backgrounded ${name}: `) +
-        theme.fg("dim", description) +
+        backgroundShellLabel(theme, details.id ?? "unknown", description) +
         (details.elapsedMs === undefined
           ? ""
           : theme.fg(
@@ -142,4 +179,72 @@ export function renderCompactShellResult(
     0,
     0,
   );
+}
+
+export function renderCompactSignalResult(
+  result: {
+    details?: SignalRenderDetails;
+    isError?: boolean;
+    content?: ReadonlyArray<{ type?: string; text?: string }>;
+  },
+  options: { isPartial: boolean },
+  theme: Theme,
+  context: SignalRenderContext,
+) {
+  if (options.isPartial) return new Container();
+  const details = result.details;
+  const args = context.args;
+  const id = details?.id ?? args?.id ?? "";
+  const sig = details?.signal ?? args?.signal ?? "SIGINT";
+  if (context.isError || result.isError) {
+    const raw =
+      result.content?.find((section) => section.type === "text")?.text ??
+      `Background ${id} not active.`;
+    return new Text(
+      theme.fg("error", ` ✗ ${sig}: `) +
+        theme.fg("dim", cleanActivityDisplay(raw)),
+      0,
+      0,
+    );
+  }
+  return new Text(
+    theme.fg("text", ` → Sent ${sig} to `) +
+      (id.startsWith("rpt-")
+        ? faintWarning(theme, id) +
+          (details?.describe
+            ? theme.fg("dim", ` · ${cleanActivityDisplay(details.describe)}`)
+            : "")
+        : backgroundShellLabel(theme, id, details?.describe)),
+    0,
+    0,
+  );
+}
+
+export function renderCompactBackgroundPsResult(
+  result: { details?: BackgroundPsDetails },
+  options: { isPartial: boolean },
+  theme: Theme,
+) {
+  if (options.isPartial) return new Container();
+  const bgs = result.details?.backgrounds ?? [];
+  const rpts = result.details?.repeats ?? [];
+  if (bgs.length === 0 && rpts.length === 0)
+    return new Text(theme.fg("text", " ○ No background shells"), 0, 0);
+  const rows = [theme.fg("text", " ○ Listed background shells:")];
+  const items = [
+    ...bgs.map((e) => backgroundShellLabel(theme, e.id, e.describe)),
+    ...rpts.map((e) => {
+      const d = cleanActivityDisplay(e.describe?.trim() ?? "");
+      return (
+        faintWarning(theme, e.id) +
+        theme.fg("accent", " [repeating]") +
+        (d ? theme.fg("muted", ` ${d}`) : "")
+      );
+    }),
+  ];
+  items.forEach((body, i) => {
+    const branch = i === items.length - 1 ? "└─" : "├─";
+    rows.push(theme.fg("dim", `   ${branch} `) + body);
+  });
+  return new Text(rows.join("\n"), 0, 0);
 }

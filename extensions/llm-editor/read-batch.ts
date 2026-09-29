@@ -338,7 +338,14 @@ export function resetReadBatches(entries: readonly SessionEntry[]): void {
     const message = entry.message;
     if (message.role === "assistant") recordReadMessage(message);
     else if (message.role === "toolResult")
-      recordReadResult(message.toolCallId, message, message.isError);
+      recordReadResult(
+        message.toolCallId,
+        {
+          content: message.content,
+          details: message.details as unknown as ReadDetails | undefined,
+        },
+        message.isError,
+      );
   }
 }
 

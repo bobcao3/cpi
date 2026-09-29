@@ -9,6 +9,7 @@
   ],
   "scripts": {
     "lint": "node scripts/comment-scan.mjs extensions scripts tools",
+    "typecheck": "tsc --noEmit",
     "format": "bun scripts/format.mjs --write",
     "format:check": "bun scripts/format.mjs --check"
   },
@@ -43,6 +44,9 @@
     "sharp": "^0.35.4",
     "smol-toml": "^1.6.1"
   },
+  "overrides": {
+    "@types/node": "$@types/node"
+  },
   "peerDependencies": {
     "@earendil-works/pi-ai": ">=0.85.1",
     "@earendil-works/pi-coding-agent": ">=0.85.1",
@@ -50,10 +54,12 @@
     "typebox": "*"
   },
   "devDependencies": {
-    "@earendil-works/pi-ai": "0.85.1",
-    "@earendil-works/pi-coding-agent": "0.85.1",
-    "@earendil-works/pi-tui": "0.85.1",
+    "@earendil-works/pi-ai": "0.99.1",
+    "@earendil-works/pi-coding-agent": "0.99.1",
+    "@earendil-works/pi-tui": "0.99.1",
+    "@types/bun": "^1.4.2",
     "@types/mustache": "^4.2.6",
+    "@types/node": "^24.0.0",
     "diff": "8.0.4",
     "prettier": "^3",
     "typebox": "^1.1.0",

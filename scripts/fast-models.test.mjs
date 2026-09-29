@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { writeFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { fixture } from "./fast-fixture.mjs";
 import { runFastWorker } from "./fast-worker.mjs";
 import { join } from "node:path";
@@ -16,7 +16,7 @@ const {
 } = await hostCodingAgent();
 const { calculateCost } = await hostAi();
 
-test("probe substitution resolves a generated variant through its canonical ID", async () => {
+test("fork probes canonicalize Fast identities and retain inexpensive cached models", async () => {
   await fixture(async ({ runtime }) => {
     const manager = SessionManager.inMemory();
     manager.appendModelChange("openai", "gpt-5.5-fast");
@@ -27,6 +27,32 @@ test("probe substitution resolves a generated variant through its canonical ID",
     );
     assert.equal(selection.model.id, "gpt-5.4-nano");
     assert.equal(selection.thinkingLevel, "low");
+  });
+  await fixture(async ({ runtime }) => {
+    const defaults = JSON.parse(
+      await readFile(
+        new URL("../cpi-config.default.json", import.meta.url),
+        "utf8",
+      ),
+    );
+    for (const id of ["gpt-6.1-sol", "gpt-6-sol"]) {
+      for (const suffix of ["", "-fast"]) {
+        const manager = SessionManager.inMemory();
+        manager.appendModelChange("openai-codex", id + suffix);
+        const selected = selectForkProbeSubstitute(
+          { modelSubstitutions: defaults.forkProbe.substitutions },
+          { modelRuntime: runtime },
+          manager,
+        );
+        if (id === "gpt-6.1-sol") assert.deepEqual(selected, {});
+        else {
+          assert.ok(selected.model);
+          const source = runtime.getModel("openai-codex", id + suffix);
+          assert.notEqual(selected.model.id, source.id);
+          assert.ok(selected.model.cost.input < source.cost.cacheRead);
+        }
+      }
+    }
   });
 });
 

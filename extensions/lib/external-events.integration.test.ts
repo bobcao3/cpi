@@ -1,4 +1,3 @@
-// @ts-expect-error Bun test types are runtime-provided.
 import { afterEach, expect, test } from "bun:test";
 import { getEventListeners } from "node:events";
 import { gate, openEventRuntime } from "./external-events-test-runtime.ts";

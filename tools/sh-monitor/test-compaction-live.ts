@@ -137,7 +137,7 @@ try {
     { path: "$CPI_HARNESS_SRC/skills/subagents-in-pi/SKILL.md" },
     undefined as any,
     undefined as any,
-    session.extensionRunner.createContext(),
+    session.extensionRunner.createToolContext("alias-test", undefined),
   );
   assert.equal(
     (loaded.details as { path: string }).path,

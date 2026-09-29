@@ -16,8 +16,9 @@ import type {
   ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { Text } from "@earendil-works/pi-tui";
+import { Container, Text } from "@earendil-works/pi-tui";
 import { sendNotification } from "./lib/notification.ts";
+import { cleanActivityDisplay } from "./lib/activity-details.ts";
 import { registerHoldSource } from "./lib/session-hold.ts";
 import { recordAlarmSetup } from "./lib/poll-guard.ts";
 import {
@@ -89,7 +90,7 @@ function reconstructAlarms(ctx: ExtensionContext): void {
     if (entry.type !== "message") continue;
     const msg = entry.message;
     if (msg.role !== "toolResult" || msg.toolName !== ALARM_TOOL) continue;
-    const details = msg.details as AlarmDetails | undefined;
+    const details = msg.details as unknown as AlarmDetails | undefined;
     if (details?.alarms) fromTool = details.alarms;
   }
   alarms = fromState ?? fromTool ?? [];
@@ -188,6 +189,7 @@ export default function (pi: ExtensionAPI) {
     promptSnippet: T.tool.prompt_snippet,
     promptGuidelines: guidelines,
     parameters: alarmSchema,
+    renderShell: "self",
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       reconstructAlarms(ctx);
 
@@ -265,17 +267,28 @@ export default function (pi: ExtensionAPI) {
         details: { alarms: [...alarms] } satisfies AlarmDetails,
       };
     },
-    renderResult(
-      result,
-      { expanded: _expanded, isPartial: _isPartial },
-      theme,
-    ) {
+    renderCall(args, theme, context) {
+      if (!context.isPartial) return new Container();
+      const action = args.cancel ? "Cancelling alarm" : "Setting alarm";
+      const target =
+        args.cancel === true ? "all" : args.cancel || args.alarm_id || "";
+      return new Text(
+        theme.fg("warning", `⏳ ${action}`) +
+          theme.fg(
+            "dim",
+            target ? ` ${cleanActivityDisplay(String(target))}` : "",
+          ),
+        0,
+        0,
+      );
+    },
+    renderResult(result, { isPartial }, theme, context) {
+      if (isPartial) return new Container();
       const text = result.content[0];
       const raw = text?.type === "text" ? text.text : "";
-      // Parse alarm ID from text to look up targetMs in details
-      const match = /Alarm (\S+) at /.exec(raw);
-      if (match) {
-        const id = match[1];
+      const separator = raw.startsWith("Alarm ") ? raw.lastIndexOf(" at ") : -1;
+      if (separator > 6) {
+        const id = raw.slice(6, separator);
         const details = result.details as AlarmDetails | undefined;
         const alarm = details?.alarms?.find((a) => a.id === id);
         if (alarm) {
@@ -294,18 +307,24 @@ export default function (pi: ExtensionAPI) {
                 ? `T+${Math.floor(deltaSec / 3600)}h${Math.floor((deltaSec % 3600) / 60)}m`
                 : `T+${deltaSec}s`
               : "passed";
-          const t = new Text("", 0, 0);
-          t.setText(
-            theme.fg("success", " ✓") +
-              theme.fg("dim", ` Alarm ${id} · ${absTime} · ${relTime}`),
+          return new Text(
+            theme.fg("success", " ✓ Alarm ") +
+              theme.fg("dim", `${cleanActivityDisplay(id)} · ${absTime}`) +
+              theme.fg("muted", ` · ${relTime}`),
+            0,
+            0,
           );
-          return t;
         }
       }
-      // Cancel result or unrecognized — show raw text
-      const t = new Text("", 0, 0);
-      t.setText(theme.fg("success", " ✓") + theme.fg("dim", ` ${raw}`));
-      return t;
+      const missing = raw.startsWith("No active alarm");
+      return new Text(
+        theme.fg(
+          context.isError ? "error" : missing ? "muted" : "success",
+          context.isError ? " ✗ Alarm: " : missing ? " ○ " : " ✓ ",
+        ) + theme.fg("dim", cleanActivityDisplay(raw)),
+        0,
+        0,
+      );
     },
   });
 

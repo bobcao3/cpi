@@ -11,8 +11,7 @@ import { createWriteStream } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Type } from "typebox";
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { renderShCall, renderShResult } from "./render.ts";
+import { renderRepeatCall, renderRepeatResult } from "./repeat-render.ts";
 import {
   getShuckBinPath,
   buildShellEnvWithDotenv,
@@ -298,10 +297,6 @@ export function killAllRepeats(): void {
 // ── Tool factory ───────────────────────────────────────────────────────────────
 
 export function createRepeatTool(
-  pi: ExtensionAPI,
-  DEFAULT_WAITFOR: number,
-  MAX_WAITFOR: number,
-  TAIL_LINES: number,
   DESCRIBE_MAX: number,
   availability: ToolAvailability,
   shell: ShellProfile = resolveShell("bash"),
@@ -338,6 +333,7 @@ export function createRepeatTool(
     promptSnippet: T.tool.prompt_snippet,
     promptGuidelines: guidelines,
     parameters: schema,
+    renderShell: "self" as const,
     async execute(
       _toolCallId: string,
       params: any,
@@ -393,7 +389,9 @@ export function createRepeatTool(
       const status = `repeating PID=${id} every ${interval}s · stop on non-zero exit`;
       const tag = description ? ` (${truncateDescribe(description)})` : "";
       return {
-        content: [{ type: "text", text: `${warningPrefix}${status}${tag}` }],
+        content: [
+          { type: "text" as const, text: `${warningPrefix}${status}${tag}` },
+        ],
         details: {
           id,
           status: "repeating",
@@ -405,15 +403,7 @@ export function createRepeatTool(
         isError: false,
       };
     },
-    renderCall(args: any, theme: any, context: any) {
-      return renderShCall(args, theme, context, DEFAULT_WAITFOR, TAIL_LINES);
-    },
-    renderResult(
-      result: any,
-      { expanded, isPartial }: { expanded: boolean; isPartial: boolean },
-      theme: any,
-    ) {
-      return renderShResult(result, { expanded, isPartial }, theme, TAIL_LINES);
-    },
+    renderCall: renderRepeatCall,
+    renderResult: renderRepeatResult,
   };
 }

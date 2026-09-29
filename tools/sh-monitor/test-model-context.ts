@@ -9,6 +9,7 @@ import {
   SessionManager,
   SettingsManager,
 } from "@earendil-works/pi-coding-agent";
+import { getCurrentSystemPrompt } from "@earendil-works/pi-ai";
 
 const root = mkdtempSync(join(tmpdir(), "cpi-model-context-"));
 const agentDir = join(root, "agent");
@@ -95,7 +96,7 @@ async function open(manager: SessionManager, minimal = false) {
       onPayload: async (payload, model) => {
         const transformed = await options?.onPayload?.(payload, model);
         captures.push({
-          system: context.systemPrompt,
+          system: getCurrentSystemPrompt(context.messages),
           messages: structuredClone(context.messages),
           payload: transformed ?? payload,
         });

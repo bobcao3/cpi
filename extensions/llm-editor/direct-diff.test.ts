@@ -1,4 +1,3 @@
-// @ts-expect-error Bun test types are runtime-provided and not a package dependency.
 import { describe, expect, test } from "bun:test";
 import { DIRECT_EDIT_CANCELED, parseDirectDiff } from "./direct-diff.ts";
 

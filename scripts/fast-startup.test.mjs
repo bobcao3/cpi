@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { writeFile } from "node:fs/promises";
 import { test } from "node:test";
 import { spawn } from "node:child_process";
 import { join } from "node:path";
@@ -63,11 +64,19 @@ async function runPi(directory, model, requests) {
 }
 
 test("the installed Pi CLI resolves the fast identity before selection", async () => {
-  await fixture(async ({ directory, requests }) => {
-    await runPi(directory, "gpt-5.5-fast:low", requests);
-    assert.equal(requests.at(-1)?.body.model, "gpt-5.5");
-    assert.equal(requests.at(-1)?.body.service_tier, "priority");
-  });
+  for (const model of ["gpt-5.5", "gpt-6.1-sol"]) {
+    await fixture(async ({ directory, requests }) => {
+      if (model === "gpt-6.1-sol") {
+        await writeFile(
+          join(directory, ".pi/cpi-config.json"),
+          JSON.stringify({ fast: {} }),
+        );
+      }
+      await runPi(directory, `${model}-fast:low`, requests);
+      assert.equal(requests.at(-1)?.body.model, model);
+      assert.equal(requests.at(-1)?.body.service_tier, "priority");
+    });
+  }
 });
 
 test("saved default and resumed session keep the fast model identity", async () => {

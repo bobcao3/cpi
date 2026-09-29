@@ -9,8 +9,10 @@ export function isGeneratedFastModel(model) {
   return Boolean(model?.[OWNER]);
 }
 
-function priorityCost(model) {
-  const multiplier = model.id === "gpt-5.5" ? 2.5 : 2;
+function priorityCost(model, config) {
+  const multiplier = Object.hasOwn(config.costMultipliers, model.id)
+    ? config.costMultipliers[model.id]
+    : config.costMultiplier;
   const scale = (rates) =>
     Object.fromEntries(
       Object.entries(rates).map(([key, value]) => [
@@ -57,7 +59,7 @@ export function decorateFastProvider(provider, config) {
         ...model,
         id: `${model.id}-fast`,
         name: `${model.name} Fast`,
-        cost: priorityCost(model),
+        cost: priorityCost(model, config),
         [OWNER]: model,
       }));
     return [...models, ...variants];

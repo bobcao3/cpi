@@ -1,4 +1,3 @@
-// @ts-expect-error Bun test types are runtime-provided and not a package dependency.
 import { describe, expect, test } from "bun:test";
 import { resolve } from "node:path";
 import {

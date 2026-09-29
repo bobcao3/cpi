@@ -10,6 +10,8 @@ export { canonicalFastModel, isGeneratedFastModel } from "./fast-provider.mjs";
 const INSTALLATION = Symbol.for("cpi.fast.runtime");
 const CONFIG = Symbol.for("cpi.fast.config");
 const EFFORT = /:(off|minimal|low|medium|high|xhigh|max)$/;
+const validMultiplier = (value) =>
+  Number.isFinite(value) && value > 0 && value <= 100;
 
 export function loadFastConfig(cwd = process.cwd()) {
   const defaults = JSON.parse(
@@ -24,7 +26,20 @@ export function loadFastConfig(cwd = process.cwd()) {
     join(cwd, ".pi/cpi-config.json"),
   ]) {
     try {
-      config = { ...config, ...JSON.parse(readFileSync(path, "utf8")).fast };
+      const override = JSON.parse(readFileSync(path, "utf8")).fast;
+      const multipliers = override?.costMultipliers;
+      config = {
+        ...config,
+        ...override,
+        costMultipliers: {
+          ...config.costMultipliers,
+          ...(multipliers &&
+          typeof multipliers === "object" &&
+          !Array.isArray(multipliers)
+            ? multipliers
+            : {}),
+        },
+      };
     } catch (error) {
       if (error.code !== "ENOENT")
         process.stderr.write(`[fast] ${path}: ${error.message}\n`);
@@ -39,6 +54,20 @@ export function loadFastConfig(cwd = process.cwd()) {
         ? [...new Set(list.map((item) => item.trim()))]
         : [...defaults[key]];
   }
+  if (!validMultiplier(config.costMultiplier))
+    config.costMultiplier = defaults.costMultiplier;
+  const multipliers = Object.entries(config.costMultipliers);
+  config.costMultipliers =
+    multipliers.length <= 64 &&
+    multipliers.every(
+      ([id, value]) =>
+        id.trim() === id &&
+        id.length > 0 &&
+        id.length <= 256 &&
+        validMultiplier(value),
+    )
+      ? Object.fromEntries(multipliers)
+      : { ...defaults.costMultipliers };
   return config;
 }
 

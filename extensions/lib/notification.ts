@@ -1,6 +1,6 @@
 /** Delivers async events to the LLM as user-role messages wrapped in <notification> XML, distinct from user input. */
 
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ThemeColor } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 import { compactedNotificationFilter } from "./compaction-display.ts";
 
@@ -102,10 +102,14 @@ export function registerNotificationRenderer(pi: ExtensionAPI): void {
     if (hidden) return hidden;
     const details = message.details as NotificationDetails | undefined;
     const kind = details?.kind ?? "unknown";
-    const summary = details?.summary ?? message.content;
+    const summary =
+      details?.summary ??
+      (typeof message.content === "string"
+        ? message.content
+        : (message.content.find((part) => part.type === "text")?.text ?? ""));
 
     let icon: string;
-    let iconColor: string;
+    let iconColor: ThemeColor;
     // Leading space pads narrow glyphs to the two columns of the wide ⏰.
     if (kind === "alarm") {
       icon = "⏰";

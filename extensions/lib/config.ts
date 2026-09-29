@@ -56,6 +56,8 @@ export interface ResolvedEditorConfig {
 export interface FastConfig {
   providers: string[];
   models: string[];
+  costMultiplier: number;
+  costMultipliers: Record<string, number>;
 }
 
 export interface LspTypescriptServerConfig {

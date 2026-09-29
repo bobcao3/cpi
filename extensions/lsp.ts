@@ -28,6 +28,7 @@ import {
 } from "./lib/lsp/discover.ts";
 import { loadLspConfig } from "./lib/config.ts";
 import { renderDiagnostics } from "./lib/lsp/diagnostics-overflow.ts";
+import { renderLspCall, renderLspResult } from "./lsp-render.ts";
 import {
   loadText,
   render,
@@ -49,10 +50,14 @@ interface LspParams {
 }
 
 function textResult(text: string) {
-  return { content: [{ type: "text" as const, text }] };
+  return { content: [{ type: "text" as const, text }], details: undefined };
 }
 function errResult(text: string) {
-  return { content: [{ type: "text" as const, text }], isError: true };
+  return {
+    content: [{ type: "text" as const, text }],
+    details: undefined,
+    isError: true,
+  };
 }
 
 class UserErr extends Error {}
@@ -135,9 +140,12 @@ async function doStart(p: LspParams) {
       `install failed for ${language} (root ${root})${session.error ? `: ${session.error}` : ""}. Fix the toolchain or pass \`env=\` with the server on PATH, then re-run \`lsp start\`.${envNote}`,
     );
   }
-  return textResult(
-    `session ${session.id}\nlanguage=${language} root=${root} state=${session.state} bin=${session.bin} source=${session.source}${envNote}`,
-  );
+  return {
+    ...textResult(
+      `session ${session.id}\nlanguage=${language} root=${root} state=${session.state} bin=${session.bin} source=${session.source}${envNote}`,
+    ),
+    details: { language, state: session.state },
+  };
 }
 
 async function doStop(p: LspParams) {
@@ -188,11 +196,14 @@ async function doCheck(p: LspParams) {
     );
   }
   const diags = await checkFile(abs);
-  return textResult(
-    diags.length
-      ? (await renderDiagnostics(diags)).text
-      : `no diagnostics for ${p.file}`,
-  );
+  const rendered = diags.length ? await renderDiagnostics(diags) : undefined;
+  return {
+    ...textResult(rendered?.text ?? `no diagnostics for ${p.file}`),
+    details: {
+      diagnosticCount: diags.length,
+      errorCount: diags.filter((d) => d.severity === "error").length,
+    },
+  };
 }
 
 export default async function lspExtension(pi: ExtensionAPI): Promise<void> {
@@ -222,6 +233,7 @@ export default async function lspExtension(pi: ExtensionAPI): Promise<void> {
         }),
       ),
     }),
+    renderShell: "self",
     async execute(_toolCallId, params: LspParams, _signal, _onUpdate, _ctx) {
       try {
         switch (params.command) {
@@ -243,6 +255,8 @@ export default async function lspExtension(pi: ExtensionAPI): Promise<void> {
       }
       return errResult(`lsp: unknown command ${params.command}`);
     },
+    renderCall: renderLspCall,
+    renderResult: renderLspResult,
   });
 
   pi.on("session_shutdown", async () => {

@@ -9,7 +9,7 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { Text } from "@earendil-works/pi-tui";
+import { Container, Text } from "@earendil-works/pi-tui";
 import { statSync } from "node:fs";
 import { discardQueuedMessages } from "./lib/prepend-message.ts";
 import { getCwd, resolveCwdPath, setCwd } from "./lib/cwd.ts";
@@ -27,6 +27,8 @@ import {
 } from "./lib/text.ts";
 
 import { compactedNotificationFilter } from "./lib/compaction-display.ts";
+import { cleanActivityDisplay } from "./lib/activity-details.ts";
+import { fileLabel } from "./llm-editor/read-batch.ts";
 
 export { getCwd, resolveCwdPath } from "./lib/cwd.ts";
 
@@ -69,7 +71,7 @@ function deliverReminder(pi: ExtensionAPI, cwd: string, reason?: string): void {
     {
       customType: REMINDER_TYPE,
       content: reminderContent(cwd, reason),
-      display: true,
+      display: reason === undefined,
       details: { cwd, reason },
     },
     { triggerTurn: false },
@@ -135,6 +137,7 @@ export default function (pi: ExtensionAPI): void {
     promptSnippet: T.tool.prompt_snippet,
     promptGuidelines: guidelines,
     parameters: cwdSchema,
+    renderShell: "self",
     async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
       const target = resolveCwdPath(params.path);
       try {
@@ -167,6 +170,55 @@ export default function (pi: ExtensionAPI): void {
           })),
         },
       };
+    },
+    renderCall(args, theme, context) {
+      if (!context.isPartial) return new Container();
+      return new Text(
+        theme.fg("warning", "⏳ cwd: ") +
+          theme.fg("dim", cleanActivityDisplay(args.path ?? "")),
+        0,
+        0,
+      );
+    },
+    renderResult(result, { isPartial }, theme, context) {
+      if (isPartial) return new Container();
+      const details = result.details as
+        | { cwd?: string; newAgentsFiles?: string[] }
+        | undefined;
+      if (context.isError) {
+        const raw =
+          result.content.find((entry) => entry.type === "text")?.text ??
+          "failed";
+        const reason = raw.startsWith("path not found:")
+          ? "path not found"
+          : raw.startsWith("not a directory:")
+            ? "not a directory"
+            : raw;
+        return new Text(
+          theme.fg("error", " ✗ cwd: ") +
+            theme.fg("dim", cleanActivityDisplay(context.args?.path ?? "")) +
+            theme.fg("text", ` · ${cleanActivityDisplay(reason)}`),
+          0,
+          0,
+        );
+      }
+      const files = details?.newAgentsFiles ?? [];
+      const shown = files.slice(0, 3);
+      const instructions = files.length
+        ? "\n   " +
+          theme.fg("warning", "└─ New project instructions: ") +
+          shown.map((file) => fileLabel(file, theme)).join(", ") +
+          (files.length > shown.length
+            ? theme.fg("muted", ` +${files.length - shown.length} more`)
+            : "")
+        : "";
+      return new Text(
+        theme.fg("success", " ✓ cwd: ") +
+          theme.fg("dim", cleanActivityDisplay(details?.cwd ?? "")) +
+          instructions,
+        0,
+        0,
+      );
     },
   });
 

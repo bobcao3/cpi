@@ -1,5 +1,7 @@
 import { Type } from "typebox";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { Container, Text } from "@earendil-works/pi-tui";
+import { cleanActivityDisplay } from "../lib/activity-details.ts";
 import {
   detachChild,
   getShellBackgrounds,
@@ -7,6 +9,11 @@ import {
   silenceChild,
 } from "./exec.ts";
 import { getActiveRepeats } from "./repeat.ts";
+import {
+  backgroundShellLabel,
+  renderCompactBackgroundPsResult,
+  renderCompactSignalResult,
+} from "./compact-render.ts";
 import { render, renderLines } from "../lib/text.ts";
 
 interface BackgroundToolText {
@@ -42,13 +49,23 @@ export function registerBackgroundControlTools(
         Type.String({ description: text.schema.sh_signal.signal }),
       ),
     }),
+    renderShell: "self",
     async execute(_toolCallId, params) {
       const signal = params.signal ?? "SIGINT";
+      const describe =
+        getShellBackgrounds().find((e) => e.id === params.id)?.describe ??
+        getActiveRepeats().find((e) => e.id === params.id)?.describe;
       if (!signalChild(params.id, signal))
         return {
           content: [
             { type: "text", text: `Background ${params.id} not active.` },
           ],
+          details: {
+            id: params.id,
+            signal,
+            describe,
+            completionNoticeSuppressed: false,
+          },
           isError: true,
         };
       // Only SIGKILL guarantees process-group exit; other POSIX signals may be ignored,
@@ -78,9 +95,16 @@ export function registerBackgroundControlTools(
         details: {
           id: params.id,
           signal,
+          describe,
           completionNoticeSuppressed: isShell && isTerminating,
         },
       };
+    },
+    renderCall() {
+      return new Container();
+    },
+    renderResult(result, options, theme, context) {
+      return renderCompactSignalResult(result, options, theme, context);
     },
   });
 
@@ -93,13 +117,18 @@ export function registerBackgroundControlTools(
     parameters: Type.Object({
       id: Type.String({ description: text.schema.sh_detach.id }),
     }),
+    renderShell: "self",
     async execute(_toolCallId, params) {
+      const describe = getShellBackgrounds().find(
+        (entry) => entry.id === params.id,
+      )?.describe;
       const logPath = detachChild(params.id);
       if (!logPath)
         return {
           content: [
             { type: "text", text: `Background ${params.id} not active.` },
           ],
+          details: undefined,
           isError: true,
         };
       return {
@@ -109,8 +138,44 @@ export function registerBackgroundControlTools(
             text: `Detached ${params.id}: runs untracked, survives this pi process; no completion notification fires. Output continues to drain to ${logPath}.`,
           },
         ],
-        details: { id: params.id, detached: true, logPath },
+        details: { id: params.id, describe, detached: true, logPath },
       };
+    },
+    renderCall(args, theme, context) {
+      if (!context.isPartial) return new Container();
+      const describe = getShellBackgrounds().find(
+        (entry) => entry.id === args.id,
+      )?.describe;
+      return new Text(
+        theme.fg("warning", "⏳ Detaching ") +
+          backgroundShellLabel(theme, args.id ?? "", describe),
+        0,
+        0,
+      );
+    },
+    renderResult(result, options, theme, context) {
+      if (options.isPartial) return new Container();
+      const details = result.details as
+        | { id?: string; describe?: string; logPath?: string }
+        | undefined;
+      const id = cleanActivityDisplay(details?.id ?? context.args?.id ?? "");
+      if (context.isError)
+        return new Text(
+          theme.fg("error", " ✗ Detach PID=") +
+            theme.fg("dim", id) +
+            theme.fg("text", " · background not active"),
+          0,
+          0,
+        );
+      return new Text(
+        theme.fg("text", " → Detached ") +
+          backgroundShellLabel(theme, id, details?.describe) +
+          (options.expanded && details?.logPath
+            ? "\n   " + theme.fg("muted", cleanActivityDisplay(details.logPath))
+            : ""),
+        0,
+        0,
+      );
     },
   });
 }
@@ -128,6 +193,7 @@ export function registerBackgroundListTool(
     promptSnippet: text.sh_background_ps.prompt_snippet,
     promptGuidelines: renderLines(text.guidelines.sh_background_ps, switches),
     parameters: Type.Object({}),
+    renderShell: "self",
     async execute() {
       const bgs = getShellBackgrounds();
       const rpts = getActiveRepeats();
@@ -137,6 +203,7 @@ export function registerBackgroundListTool(
           content: [
             { type: "text", text: "no active background shells or monitors" },
           ],
+          details: undefined,
           isError: false,
         };
       }
@@ -156,6 +223,12 @@ export function registerBackgroundListTool(
         details: { backgrounds: bgs, repeats: rpts },
         isError: false,
       };
+    },
+    renderCall() {
+      return new Container();
+    },
+    renderResult(result, options, theme) {
+      return renderCompactBackgroundPsResult(result, options, theme);
     },
   });
 }

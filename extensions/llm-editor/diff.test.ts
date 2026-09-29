@@ -1,4 +1,3 @@
-// @ts-expect-error Bun test types are runtime-provided and not a package dependency.
 import { describe, expect, test } from "bun:test";
 import { diffArrays } from "diff";
 import { collapseRemovals, editDiffOps, type DiffOp } from "./diff.ts";
