@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 /**
  * Repeat-until monitor engine and tool factory.
  *
@@ -6,7 +7,8 @@
  * line range.
  */
 
-import { spawn } from "node:child_process";
+import { launchMonitor } from "./monitor.ts";
+import { record_shell_shutdown } from "./shutdown.ts";
 import { createWriteStream } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -19,7 +21,6 @@ import {
 } from "./tools.ts";
 import { resolveShell, type ShellProfile } from "./profile.ts";
 import { analyzeCommand, unsupportedDialectMessage } from "./analyze.ts";
-import { signalProcessTree } from "../../tools/sh-monitor/process-tree.ts";
 import type { RepeatMonitor } from "./background-types.ts";
 import {
   loadText,
@@ -49,18 +50,26 @@ export type RepeatCompletionHook = (
   log?: RepeatLogRange,
 ) => void;
 
-const rpt = new Map<string, RepeatMonitor>();
-let rptCounter = 0;
-let hook: RepeatCompletionHook | undefined;
-let getScope: () => string | undefined = () => undefined;
-
-/** Inject the current session scope so repeats are owned per-conversation (a fork inherits none), mirroring background shells. */
-export const setRepeatScopeGetter = (fn: () => string | undefined): void => {
-  getScope = fn;
+interface RepeatState {
+  monitors: Map<string, RepeatMonitor>;
+  counter: number;
+  hook?: RepeatCompletionHook;
+  getScope: () => string | undefined;
+}
+const shared = globalThis as typeof globalThis & {
+  __cpiRepeatState?: RepeatState;
 };
-
-export const setRepeatCompletionHook = (fn: RepeatCompletionHook) => {
-  hook = fn;
+const state: RepeatState = (shared.__cpiRepeatState ??= {
+  monitors: new Map(),
+  counter: 0,
+  getScope: () => undefined,
+});
+const rpt = state.monitors;
+export const setRepeatScopeGetter = (fn: () => string | undefined): void => {
+  state.getScope = fn;
+};
+export const setRepeatCompletionHook = (fn: RepeatCompletionHook): void => {
+  state.hook = fn;
 };
 
 function writeLog(mon: RepeatMonitor, text: string): void {
@@ -93,9 +102,9 @@ function stopRepeat(mon: RepeatMonitor): void {
   }
   clearTimeout(mon.timeout);
   clearTimeout(mon.nextTimer);
-  if (mon.child && !mon.child.killed && mon.pid > 0) {
+  if (mon.client && mon.pid > 0) {
     try {
-      signalProcessTree(mon.pid, "SIGTERM");
+      mon.client!.sendSignal("SIGTERM");
     } catch {}
   }
   mon.logStream.end();
@@ -120,8 +129,8 @@ function finalize(
     last_exit: code ?? "signal",
     breach: outcome === "breach" ? 1 : 0,
   });
-  if (mon.sessScope === getScope()) {
-    hook?.(mon.id, mon.command, code, outcome, {
+  if (mon.sessScope === state.getScope()) {
+    state.hook?.(mon.id, mon.command, code, outcome, {
       path: mon.logPath,
       startLine: mon.startLine,
       endLine: mon.logLine,
@@ -150,71 +159,64 @@ function runIteration(mon: RepeatMonitor): void {
   const header = `═══════════════════════════════════════════════════════════════════════════════\nInvocation ${mon.invocation} — ${new Date().toISOString()}\nCommand: ${mon.command}\n───────────────────────────────────────────────────────────────────────────────\n`;
   writeLog(mon, header);
 
-  const child = spawn(
-    mon.shell.executable,
-    mon.shell.commandArgs(mon.command),
-    {
-      detached: process.platform !== "win32",
-      env: mon.env,
-      cwd: mon.cwd,
-      stdio: ["ignore", "pipe", "pipe"],
-      windowsHide: true,
-    },
-  );
-  mon.child = child;
-  mon.pid = child.pid ?? -1;
   mon.observingChild = true;
-  updateActivity(`monitor:${mon.logPath}`, {
-    metrics: {
-      phase: "executing",
-      pid: mon.pid,
-      invocation: mon.invocation,
-      next_due_at: 0,
-    },
-  });
-
-  child.stdout?.on("data", (chunk: Buffer) => writeLogBuffer(mon, chunk));
-  child.stderr?.on("data", (chunk: Buffer) => writeLogBuffer(mon, chunk));
-
-  mon.timeout = setTimeout(() => {
-    mon.breached = true;
-    updateActivity(`monitor:${mon.logPath}`, {
-      status: "stopping",
-      metrics: { breach: 1 },
+  void launchMonitor(
+    mon.command,
+    mon.env,
+    `repeat-${randomUUID()}`,
+    mon.shell,
+    mon.cwd,
+  )
+    .then(async ({ client }) => {
+      mon.client = client;
+      mon.pid = (await client.stat()).pid;
+      if (!mon.running) client.sendSignal(mon.stopSignal ?? "SIGTERM");
+      mon.observingChild = true;
+      updateActivity(`monitor:${mon.logPath}`, {
+        metrics: {
+          phase: "executing",
+          pid: mon.pid,
+          invocation: mon.invocation,
+          next_due_at: 0,
+        },
+      });
+      if (mon.running)
+        mon.timeout = setTimeout(() => {
+          mon.breached = true;
+          updateActivity(`monitor:${mon.logPath}`, {
+            status: "stopping",
+            metrics: { breach: 1 },
+          });
+          client.sendSignal("SIGTERM");
+        }, mon.intervalSec * 1000);
+      await client.subscribe((event) => {
+        if (event.kind === "data") {
+          if (mon.running) writeLogBuffer(mon, event.buf);
+          return;
+        }
+        mon.observingChild = false;
+        client.close();
+        clearTimeout(mon.timeout);
+        if (!mon.running) {
+          finishActivity(`monitor:${mon.logPath}`, "cancelled");
+          return;
+        }
+        finalize(
+          mon,
+          event.exitCode,
+          mon.breached ? "breach" : event.exitCode === 0 ? "next" : "stopped",
+        );
+      });
+      client.onClose(() => {
+        clearTimeout(mon.timeout);
+        if (mon.running) finalize(mon, null, "stopped");
+      });
+    })
+    .catch(() => {
+      finishActivity(`monitor:${mon.logPath}`, "failed", { spawn_error: 1 });
+      if (mon.running) finalize(mon, null, "stopped");
+      else finishActivity(`monitor:${mon.logPath}`, "cancelled");
     });
-    if (mon.child && !mon.child.killed && mon.pid > 0) {
-      try {
-        signalProcessTree(mon.pid, "SIGTERM");
-      } catch {}
-    }
-  }, mon.intervalSec * 1000);
-
-  child.on("close", (code) => {
-    mon.observingChild = false;
-    updateActivity(`monitor:${mon.logPath}`, {
-      metrics: { last_exit: code ?? "signal" },
-    });
-    if (!mon.running) {
-      finishActivity(`monitor:${mon.logPath}`, "cancelled");
-    }
-    clearTimeout(mon.timeout);
-    if (!mon.running || mon.breached) {
-      if (mon.breached) finalize(mon, null, "breach");
-      return;
-    }
-    if (code === 0) {
-      finalize(mon, 0, "next");
-      return;
-    }
-    finalize(mon, code, "stopped");
-  });
-
-  child.on("error", () => {
-    finishActivity(`monitor:${mon.logPath}`, "failed", { spawn_error: 1 });
-    clearTimeout(mon.timeout);
-    if (!mon.running || mon.breached) return;
-    finalize(mon, null, "stopped");
-  });
 }
 
 export function startRepeat(
@@ -225,14 +227,14 @@ export function startRepeat(
   shell: ShellProfile = resolveShell("bash"),
   cwd: string = process.cwd(),
 ): string {
-  const id = `rpt-${++rptCounter}`;
+  const id = `rpt-${++state.counter}`;
   const logPath = join(tmpdir(), `pi-rpt-output-${id}-${Date.now()}.log`);
   const logStream = createWriteStream(logPath, { flags: "a" });
   const mon: RepeatMonitor = {
     id,
     command,
     shell,
-    sessScope: getScope(),
+    sessScope: state.getScope(),
     describe,
     intervalSec,
     env,
@@ -265,11 +267,12 @@ export function startRepeat(
 
 export function signalRepeat(id: string, signal: string): boolean {
   const mon = rpt.get(id);
-  if (!mon || mon.sessScope !== getScope()) return false;
+  if (!mon || mon.sessScope !== state.getScope()) return false;
+  mon.stopSignal = signal;
   stopRepeat(mon);
-  if (mon.child && mon.pid > 0) {
+  if (mon.client && mon.pid > 0) {
     try {
-      signalProcessTree(mon.pid, signal);
+      mon.client.sendSignal(signal);
     } catch {}
   }
   rpt.delete(mon.id);
@@ -277,18 +280,30 @@ export function signalRepeat(id: string, signal: string): boolean {
 }
 
 export const getRepeatCount = (): number =>
-  [...rpt.values()].filter((m) => m.sessScope === getScope()).length;
+  [...rpt.values()].filter((m) => m.sessScope === state.getScope()).length;
 export const hasActiveRepeats = (): boolean =>
-  [...rpt.values()].some((m) => m.sessScope === getScope());
+  [...rpt.values()].some((m) => m.sessScope === state.getScope());
 export const getActiveRepeats = () =>
   [...rpt.values()]
-    .filter((m) => m.sessScope === getScope())
-    .map((e) => ({ id: e.id, describe: e.describe }));
+    .filter((m) => m.sessScope === state.getScope())
+    .map((e) => ({
+      id: e.id,
+      describe: e.describe,
+      uid: e.client?.target?.uid,
+      socketPath: e.client?.target?.socketPath,
+      isPty: false,
+    }));
 
 export function killAllRepeats(): void {
-  for (const mon of [...rpt.values()].filter(
-    (m) => m.sessScope === getScope(),
-  )) {
+  for (const mon of rpt.values()) {
+    if (mon.sessScope !== state.getScope()) continue;
+    record_shell_shutdown(mon.env.PI_SESSION_DIR, mon.sessScope, {
+      id: mon.id,
+      command: mon.command,
+      describe: mon.describe,
+      log_path: mon.logPath,
+      kind: "repeat",
+    });
     stopRepeat(mon);
     rpt.delete(mon.id);
   }

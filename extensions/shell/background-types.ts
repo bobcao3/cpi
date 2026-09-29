@@ -1,4 +1,3 @@
-import type { ChildProcess } from "node:child_process";
 import type { WriteStream } from "node:fs";
 import type { StringDecoder } from "node:string_decoder";
 import type { MonitorClient, ResumeClient } from "./monitor.ts";
@@ -42,7 +41,7 @@ export interface RepeatMonitor {
   cwd: string;
   running: boolean;
   breached: boolean;
-  child?: ChildProcess;
+  client?: MonitorClient;
   pid: number;
   timeout?: ReturnType<typeof setTimeout>;
   nextTimer?: ReturnType<typeof setTimeout>;
@@ -52,5 +51,6 @@ export interface RepeatMonitor {
   invocation: number;
   startLine?: number;
   observingChild?: boolean;
+  stopSignal?: string;
   outputBytes?: number;
 }

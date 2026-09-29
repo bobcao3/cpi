@@ -15,6 +15,7 @@ export type NotificationKind =
   | "repeat-breach"
   | "model-change"
   | "orphaned-shells"
+  | "interrupted-shells"
   | "completed-shells";
 
 export interface RawXmlValue {
@@ -129,6 +130,9 @@ export function registerNotificationRenderer(pi: ExtensionAPI): void {
     } else if (kind === "orphaned-shells") {
       icon = " ⛓";
       iconColor = "muted";
+    } else if (kind === "interrupted-shells") {
+      icon = " ⚠";
+      iconColor = "warning";
     } else if (kind === "completed-shells") {
       icon = " ✓";
       iconColor = "muted";

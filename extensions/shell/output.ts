@@ -46,6 +46,13 @@ export interface ShResult {
   outputLines?: number;
   fullOutputPath?: string;
   cursor?: OutputCursor;
+  uid?: string;
+  socketPath?: string;
+  binaryPath?: string;
+  statusPath?: string;
+  serverPid?: number;
+  isPty?: boolean;
+  backendError?: string;
 }
 export async function buildOutputText(
   acc: string,

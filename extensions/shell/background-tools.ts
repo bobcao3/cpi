@@ -4,6 +4,7 @@ import { Container, Text } from "@earendil-works/pi-tui";
 import { cleanActivityDisplay } from "../lib/activity-details.ts";
 import {
   detachChild,
+  getSessionTarget,
   getShellBackgrounds,
   signalChild,
   silenceChild,
@@ -122,6 +123,7 @@ export function registerBackgroundControlTools(
       const describe = getShellBackgrounds().find(
         (entry) => entry.id === params.id,
       )?.describe;
+      const target = await getSessionTarget(params.id).catch(() => undefined);
       const logPath = detachChild(params.id);
       if (!logPath)
         return {
@@ -135,10 +137,18 @@ export function registerBackgroundControlTools(
         content: [
           {
             type: "text",
-            text: `Detached ${params.id}: runs untracked, survives this pi process; no completion notification fires. Output continues to drain to ${logPath}.`,
+            text: `Detached ${params.id}: runs untracked, survives this pi process; no completion notification fires. Output continues to drain to ${logPath}.${target ? ` UID=${target.uid} socket=${target.socketPath}` : ""}`,
           },
         ],
-        details: { id: params.id, describe, detached: true, logPath },
+        details: {
+          id: params.id,
+          describe,
+          detached: true,
+          logPath,
+          uid: target?.uid,
+          socketPath: target?.socketPath,
+          isPty: target?.isPty,
+        },
       };
     },
     renderCall(args, theme, context) {
@@ -215,7 +225,7 @@ export function registerBackgroundListTool(
       const entries = [...bgs, ...rpts]
         .map(
           (e) =>
-            `[${e.id}${e.describe ? " " + truncateDescribe(e.describe) : ""}]`,
+            `[${e.id}${e.describe ? " " + truncateDescribe(e.describe) : ""}${e.uid ? ` UID=${e.uid} socket=${e.socketPath}` : ""}]`,
         )
         .join(" ");
       return {

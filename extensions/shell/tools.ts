@@ -12,6 +12,7 @@ import { delimiter, dirname, join } from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
+import { ghostmuxSocket } from "./ghostmux.ts";
 import { resolveShell } from "./profile.ts";
 import {
   initTreeSitterWasm,
@@ -46,6 +47,7 @@ const WASM_URL = `https://github.com/bobcao3/cpi/releases/download/${WASM_VERSIO
 const WASM_SIG_URL = `https://github.com/bobcao3/cpi/releases/download/${WASM_VERSION}/tree-sitter-wasm.wasm.minisig`;
 const WASM_PUB = parsePubKey(WASM_PUBKEY_B64);
 const CPI_CONTROL_ENV_KEYS = [
+  "CPI_GHOSTMUX_SOCKET",
   "CPI_RUNTIME_BIN",
   "CPI_RUNTIME_KIND",
   "PI_AGENT_SRC",
@@ -327,6 +329,11 @@ export function buildShellEnv(sm?: {
     const id = sm.getSessionId();
     if (id) env.PI_SESSION = id.slice(0, 8);
     if (id) env.PI_SESSION_ID = id;
+    if (id)
+      env.CPI_GHOSTMUX_SOCKET = ghostmuxSocket({
+        ...env,
+        CPI_GHOSTMUX_SOCKET: undefined,
+      });
     const dir = sm.getSessionDir();
     if (dir) env.PI_SESSION_DIR = dir;
   }

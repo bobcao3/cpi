@@ -48,8 +48,8 @@ See `forkProbe` in [`cpi-config.default.json`](../cpi-config.default.json).
 - [Runtime snapshot](../extensions/lib/compaction-state.ts)
 - [Summary/restoration templates](../extensions/text/compaction.toml) and
   [document markers](../extensions/text/compaction-references.toml)
-- [Context integration coverage](../tools/sh-monitor/test-compaction-context.ts)
-  and [live-provider verification](../tools/sh-monitor/test-compaction-live.ts)
+- [Context integration coverage](../scripts/harness/test-compaction-context.ts)
+  and [live-provider verification](../scripts/harness/test-compaction-live.ts)
 
 ## Develop locally
 

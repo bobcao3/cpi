@@ -1,0 +1,18 @@
+[tool]
+description = "Capture the current screen of a live PTY shell and return the screenshot directly as an image in model context."
+prompt_snippet = "Inspect an interactive terminal screen visually."
+guidelines = [
+  "Start interactive terminal programs with sh(is_pty=true), then pass the returned shell id to sh_screenshot.",
+  "Use ghostmux capture-pane for readable terminal text and sh_screenshot when terminal layout, colors, or graphics matter.",
+  "Use the ghostmux CLI to save screenshots to disk without adding images to model context."
+]
+
+[schema]
+id = "The shell id returned by sh for a live PTY session."
+font_size = "Optional font size for the screenshot."
+
+[results]
+complete = "Terminal screenshot for shell {{id}} ({{uid}})."
+non_vision = "The current model does not accept image input. Use ghostmux capture-pane for text, or save a screenshot with the CLI."
+image_failed = "The screenshot could not be prepared for model context. Use the ghostmux CLI to save and inspect the image."
+image_too_large = "The screenshot exceeds the image tool's input budget. Reduce the terminal dimensions or screenshot font size."

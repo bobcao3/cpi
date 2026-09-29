@@ -1,9 +1,11 @@
+import { readTarget } from "./ghostmux.ts";
 import {
   ResumeClient,
   readCompletedRecords,
   readResumeRecords,
   removeCompletedRecord,
   removeResumeRecord,
+  writeCompletedRecord,
   type CompletedRecord,
   type ResumeRecord,
 } from "./monitor.ts";
@@ -27,7 +29,7 @@ async function probeAlive(sockPath: string): Promise<boolean> {
         setTimeout(() => rej(new Error("probe timeout")), PROBE_TIMEOUT_MS),
       ),
     ]);
-    return true;
+    return !(await readTarget(sockPath)).completed;
   } catch {
     return false;
   } finally {
@@ -106,6 +108,20 @@ export async function surfaceCompletedShells(
   scope: string | undefined,
 ): Promise<void> {
   if (!sessionDir || !scope) return;
+  for (const record of await readResumeRecords(sessionDir, scope)) {
+    try {
+      const target = await readTarget(record.sockPath);
+      if (!target.completed) continue;
+      await writeCompletedRecord(sessionDir, scope, record.pid, {
+        pid: record.pid,
+        command: record.cmd,
+        exitCode: target.exitCode ?? -1,
+        logPath: target.logPath,
+        completedAt: Date.now(),
+      });
+      await removeResumeRecord(sessionDir, scope, record.pid);
+    } catch {}
+  }
   const recs = await readCompletedRecords(sessionDir, scope);
   if (recs.length === 0) return;
   const summary = formatCompletedSummary(recs);

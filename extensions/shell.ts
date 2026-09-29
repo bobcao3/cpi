@@ -5,6 +5,8 @@
  * and async completion notifications.
  */
 
+import { registerTerminalCaptureTool } from "./shell/terminal-capture.ts";
+import { surface_shell_shutdowns } from "./shell/shutdown.ts";
 import { Type } from "typebox";
 import {
   renderCompactShellCall,
@@ -32,6 +34,7 @@ import {
   hasActiveBackground,
   killAll,
   runShell,
+  captureSessionScreenshot,
   resumeBackgroundShells,
   setCurrentScope,
   setCompletionHook,
@@ -98,6 +101,7 @@ function disableBuiltinBash(pi: ExtensionAPI): void {
 }
 
 export default async function (pi: ExtensionAPI) {
+  registerTerminalCaptureTool(pi, captureSessionScreenshot);
   const cfg = loadShellConfig();
   const shell: ShellProfile = resolveShell(cfg.executable);
   const {
@@ -183,6 +187,7 @@ export default async function (pi: ExtensionAPI) {
     ),
     command: Type.String({ description: T.schema.sh.command }),
     env: Type.Optional(Type.String({ description: T.schema.sh.env })),
+    is_pty: Type.Optional(Type.Boolean({ description: T.schema.sh.is_pty })),
   });
 
   pi.registerTool({
@@ -280,6 +285,7 @@ export default async function (pi: ExtensionAPI) {
         tunables,
         shell,
         getCwd(),
+        params.is_pty ?? false,
       );
 
       const tag = describe ? ` (${truncateDescribe(describe)})` : "";
@@ -291,6 +297,7 @@ export default async function (pi: ExtensionAPI) {
       if (shuckWarnings)
         text = `linter warnings:\n${shuckWarnings}\n---\n${text}`;
       if (slowDown) text = `${slowDown}\n---\n${text}`;
+      if (res.uid) text += `\nUID=${res.uid} socket=${res.socketPath}`;
       text += formatAgentsBlock(cdAgents);
       text += await runLspHook(availability.treeSitter ? parse.node : null);
 
@@ -298,6 +305,13 @@ export default async function (pi: ExtensionAPI) {
         content: [{ type: "text", text }],
         details: {
           id: res.id,
+          uid: res.uid,
+          socketPath: res.socketPath,
+          binaryPath: res.binaryPath,
+          statusPath: res.statusPath,
+          serverPid: res.serverPid,
+          isPty: res.isPty,
+          backendError: res.backendError,
           exitCode: res.exitCode,
           outputLines: res.outputLines,
           status: res.status,
@@ -349,6 +363,7 @@ export default async function (pi: ExtensionAPI) {
     const dir = ctx.sessionManager?.getSessionDir();
     const scope = ctx.sessionManager?.getSessionId();
     setCurrentScope(scope);
+    if (event.reason !== "fork") await surface_shell_shutdowns(pi, ctx);
     if (event.reason !== "fork" && event.reason !== "reload")
       await surfaceCompletedShells(dir, scope);
     void resumeBackgroundShells(dir, scope);

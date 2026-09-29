@@ -11,26 +11,26 @@
     "lint": "node scripts/comment-scan.mjs extensions scripts tools",
     "typecheck": "tsc --noEmit",
     "format": "bun scripts/format.mjs --write",
-    "format:check": "bun scripts/format.mjs --check"
+    "format:check": "bun scripts/format.mjs --check",
+    "ghostmux:build": "cd tools/ghostmux && zig build --release=safe",
+    "ghostmux:test-install": "node scripts/ghostmux-install.test.mjs"
   },
   "files": [
     "bin",
     "extensions",
     "skills",
-    "tools/sh-monitor/package.json",
-    "tools/sh-monitor/process-tree.ts",
-    "tools/sh-monitor/protocol.ts",
-    "tools/sh-monitor/runtime-dir.ts",
-    "tools/sh-monitor/sh-monitor.ts",
+    "tools/ghostmux/build.zig",
+    "tools/ghostmux/build.zig.zon",
+    "tools/ghostmux/src/*.{zig,c,h}",
+    "tools/ghostmux/fonts/*.{zig,ttf,otf,txt,md,sha256,sh}",
+    "tools/ghostmux/THIRD_PARTY_NOTICES.md",
     "cpi-config.default.json",
     "fallback-providers.example.json"
   ],
   "bin": {
-    "subagent": "bin/subagent.js"
+    "subagent": "bin/subagent.js",
+    "ghostmux": "bin/ghostmux.mjs"
   },
-  "workspaces": [
-    "tools/sh-monitor"
-  ],
   "pi": {
     "extensions": [
       "./extensions/index.ts"

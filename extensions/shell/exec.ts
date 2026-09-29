@@ -1,11 +1,11 @@
-/**
- * Spawns each command through a detached `sh-monitor` supervisor so the
- * child's output pipe is owned by the supervisor, never by pi: detach
- * survives pi's exit (no SIGPIPE), and the log file is the durable source
- * of truth — acc is only live preview.
- */
-
-import { rm, readFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+export {
+  captureSessionScreenshot,
+  getSessionTarget,
+  ghostmuxRpc,
+  resolveGhostmuxBinary,
+} from "./ghostmux.ts";
+import { setTargetScope } from "./ghostmux.ts";
 import { StringDecoder } from "node:string_decoder";
 import {
   buildOutputText,
@@ -24,7 +24,6 @@ export type {
 import {
   getActiveRepeats,
   hasActiveRepeats,
-  killAllRepeats,
   setRepeatCompletionHook,
   setRepeatScopeGetter,
   signalRepeat,
@@ -32,12 +31,15 @@ import {
 import {
   launchMonitor,
   type MonitorClient,
-  ResumeClient,
   writeResumeRecord,
-  writeCompletedRecord,
-  readResumeRecords,
   removeResumeRecord,
 } from "./monitor.ts";
+import {
+  shellState,
+  completeBackground,
+  stopBackground,
+} from "./background-lifecycle.ts";
+export { killAll, resumeBackgroundShells } from "./background-lifecycle.ts";
 import { resolveShell, type ShellProfile } from "./profile.ts";
 import {
   updateActivity,
@@ -48,18 +50,15 @@ import { observeShell, finishShell } from "./activity.ts";
 import type { BackgroundChild, CompletionHook } from "./background-types.ts";
 export type { CompletionHook } from "./background-types.ts";
 
-const bg = new Map<string, BackgroundChild>();
-let completionHook: CompletionHook | undefined;
-
-let currentScope: string | undefined;
+const bg = shellState.backgrounds;
 export const setCurrentScope = (scope: string | undefined): void => {
-  currentScope = scope;
+  shellState.scope = scope;
+  setTargetScope(scope);
   setActivitySession(scope);
 };
-setRepeatScopeGetter(() => currentScope);
-
+setRepeatScopeGetter(() => shellState.scope);
 export const setCompletionHook = (fn: CompletionHook) => {
-  completionHook = fn;
+  shellState.completionHook = fn;
   setRepeatCompletionHook(fn);
 };
 
@@ -75,6 +74,7 @@ export async function runShell(
   tunables: ShellTunables,
   shell: ShellProfile = resolveShell("bash"),
   cwd: string = process.cwd(),
+  isPty = false,
 ): Promise<ShResult> {
   if (signal?.aborted)
     return {
@@ -83,18 +83,26 @@ export async function runShell(
       exitCode: -1,
       text: "Aborted before start.",
     };
-  const pathId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const pathId = randomUUID();
   const sessDir = env.PI_SESSION_DIR;
   const sessScope = env.PI_SESSION_ID;
   let handle: Awaited<ReturnType<typeof launchMonitor>>;
   try {
-    handle = await launchMonitor(command, env, pathId, shell, cwd);
+    handle = await launchMonitor(
+      command,
+      env,
+      pathId,
+      shell,
+      cwd,
+      isPty,
+      signal,
+    );
   } catch (e) {
     return {
       id: null,
       status: "completed",
-      exitCode: -1,
-      text: `sh-monitor launch failed: ${(e as Error).message}`,
+      exitCode: signal?.aborted ? 137 : -1,
+      text: `ghostmux launch failed: ${(e as Error).message}`,
     };
   }
   const { client, logPath } = handle;
@@ -103,12 +111,13 @@ export async function runShell(
   try {
     status = await client.stat();
   } catch (e) {
+    await client.reap().catch(() => {});
     client.close();
     return {
       id: null,
       status: "completed",
       exitCode: -1,
-      text: `sh-monitor stat failed: ${(e as Error).message}`,
+      text: `ghostmux stat failed: ${(e as Error).message}`,
     };
   }
   const pid = status.pid;
@@ -178,12 +187,13 @@ export async function runShell(
   } catch (e) {
     if (!entry.done) {
       finishActivity(entry.activityId, "failed", { connection_lost: 1 });
+      await client.reap().catch(() => {});
       client.close();
       return {
         id: null,
         status: "completed",
         exitCode: -1,
-        text: `sh-monitor subscribe failed: ${(e as Error).message}`,
+        text: `ghostmux subscribe failed: ${(e as Error).message}`,
       };
     }
   }
@@ -213,29 +223,26 @@ export async function runShell(
 
   if (completed) {
     client.close();
-    let content = "";
-    let outputLines: number | undefined;
-    try {
-      content = (await readFile(logPath)).toString("utf8"); // monitor flushed before sending exit
-      outputLines = 0;
-      for (let i = 0; i < content.length; i++)
-        if (content.charCodeAt(i) === 10) outputLines++;
-      if (content && !content.endsWith("\n")) outputLines++;
-    } catch {}
+    const content = entry.acc;
+    const outputLines = entry.linesEmitted + (entry.colBytes > 0 ? 1 : 0);
     if (content) updateActivity(entry.activityId, { tail: content });
-    const { text, fullOutputPath } = await buildOutputText(content, {
+    const { text } = await buildOutputText(content, {
       logPath,
       truncation,
       tunables,
     });
-    if (!fullOutputPath) await rm(logPath, { force: true }).catch(() => {});
+
     return {
-      id: null,
+      id,
+      ...client.target,
       status: "completed",
       exitCode,
-      text,
+      backendError: client.target?.error,
+      text: client.target?.error
+        ? `ghostmux: ${client.target.error}\n${text}`
+        : text,
       outputLines,
-      fullOutputPath,
+      fullOutputPath: logPath,
     };
   }
   // still running → background it; the subscribe callback stays live for completion
@@ -263,6 +270,7 @@ export async function runShell(
   });
   return {
     id,
+    ...client.target,
     status: "running",
     exitCode: null,
     text,
@@ -275,57 +283,10 @@ export async function runShell(
   };
 }
 
-function completeBackground(entry: BackgroundChild, exitCode: number): void {
-  if (entry.done) return;
-  entry.done = true;
-  entry.exitCode = exitCode;
-  const { id, command, client, logPath, sessDir, sessScope } = entry;
-  if (!bg.has(id)) return;
-  if (!entry.signaled) {
-    if (entry.sessScope === currentScope) {
-      completionHook?.(id, command, exitCode, "completed", { path: logPath });
-    } else if (sessDir && sessScope) {
-      // owner away: persist the off-screen completion for the owner's resume to surface
-      void writeCompletedRecord(sessDir, sessScope, id, {
-        pid: id,
-        command,
-        exitCode,
-        logPath,
-        completedAt: Date.now(),
-      });
-    }
-  }
-  bg.delete(id);
-  client.close(); // backgrounded entry finished → disconnect; monitor drains + exits
-  if (sessDir && sessScope) void removeResumeRecord(sessDir, sessScope, id);
-}
-
-/** sh-monitor connection dropped without an exit event (supervisor crashed). False if already done/signaled. */
-function stopBackground(entry: BackgroundChild): boolean {
-  finishActivity(
-    entry.activityId,
-    entry.cancelRequested ? "cancelled" : "failed",
-    { connection_lost: 1 },
-  );
-  if (entry.done || entry.signaled) return false;
-  entry.done = true;
-  entry.exitCode = -1;
-  entry.acc += entry.decoder.end();
-  const { id, command, client, logPath, sessDir, sessScope } = entry;
-  if (!bg.has(id)) return true;
-  if (entry.sessScope === currentScope)
-    completionHook?.(id, command, -1, "stopped", { path: logPath });
-  bg.delete(id);
-  client.close();
-  // supervisor connection dropped → the resume socket is gone too; drop the stale record
-  if (sessDir && sessScope) void removeResumeRecord(sessDir, sessScope, id);
-  return true;
-}
-
 export function signalChild(id: string, sig: string): boolean {
   if (id.startsWith("rpt-")) return signalRepeat(id, sig);
   const e = bg.get(id);
-  if (!e || e.done || e.sessScope !== currentScope) return false;
+  if (!e || e.done || e.sessScope !== shellState.scope) return false;
   if (
     process.platform === "win32" ||
     ["SIGINT", "SIGTERM", "SIGKILL", "2", "15", "9"].includes(sig)
@@ -339,7 +300,7 @@ export function signalChild(id: string, sig: string): boolean {
 
 export const silenceChild = (id: string): boolean => {
   const e = bg.get(id);
-  if (!e || e.done || e.sessScope !== currentScope) return false;
+  if (!e || e.done || e.sessScope !== shellState.scope) return false;
   e.signaled = true;
   return true;
 };
@@ -352,7 +313,7 @@ export const silenceChild = (id: string): boolean => {
  */
 export const detachChild = (id: string): string | null => {
   const e = bg.get(id);
-  if (!e || e.done || e.sessScope !== currentScope) return null;
+  if (!e || e.done || e.sessScope !== shellState.scope) return null;
   e.signaled = true; // suppress any in-flight completion hook
   finishActivity(e.activityId, "detached");
   if (e.sessDir && e.sessScope)
@@ -363,90 +324,31 @@ export const detachChild = (id: string): string | null => {
 };
 
 export const getBackgroundCount = (): number =>
-  [...bg.values()].filter((e) => e.sessScope === currentScope).length;
+  [...bg.values()].filter((e) => e.sessScope === shellState.scope).length;
 export const hasActiveBackground = (): boolean =>
-  [...bg.values()].some((e) => !e.done && e.sessScope === currentScope) ||
+  [...bg.values()].some((e) => !e.done && e.sessScope === shellState.scope) ||
   hasActiveRepeats();
 
 export const getShellBackgrounds = () =>
   [...bg.values()]
-    .filter((e) => e.sessScope === currentScope)
-    .map((e) => ({ id: e.id, describe: e.describe }));
+    .filter((e) => e.sessScope === shellState.scope)
+    .map((e) => ({
+      id: e.id,
+      describe: e.describe,
+      uid: e.client.target?.uid,
+      socketPath: e.client.target?.socketPath,
+      isPty: e.client.target?.isPty,
+    }));
 
 export const getActiveBackgrounds = () => [
   ...[...bg.values()]
-    .filter((e) => e.sessScope === currentScope)
-    .map((e) => ({ id: e.id, describe: e.describe })),
+    .filter((e) => e.sessScope === shellState.scope)
+    .map((e) => ({
+      id: e.id,
+      describe: e.describe,
+      uid: e.client.target?.uid,
+      socketPath: e.client.target?.socketPath,
+      isPty: e.client.target?.isPty,
+    })),
   ...getActiveRepeats(),
 ];
-
-export function killAll(): void {
-  for (const e of bg.values()) {
-    if (e.sessScope !== currentScope || e.done) continue;
-    e.cancelRequested = true;
-    updateActivity(e.activityId, { status: "stopping" });
-    e.done = true;
-    e.client.kill("SIGKILL");
-    bg.delete(e.id);
-    if (e.sessDir && e.sessScope)
-      void removeResumeRecord(e.sessDir, e.sessScope, e.id);
-  }
-  killAllRepeats();
-}
-
-/**
- * Re-attach a conversation's backgrounded shells after a pi restart/reload.
- * Records are scoped by conversation id, so concurrent agents in the same
- * cwd never cross-read each other's. A record whose socket is gone is stale
- * (shell completed or supervisor died): remove it silently.
- */
-export async function resumeBackgroundShells(
-  sessionDir: string | undefined,
-  scope: string | undefined,
-): Promise<void> {
-  if (!sessionDir || !scope) return;
-  const records = await readResumeRecords(sessionDir, scope);
-  for (const r of records) {
-    const c = new ResumeClient(r.sockPath);
-    try {
-      await Promise.race([
-        c.whenReady,
-        new Promise<void>((_, rej) =>
-          setTimeout(() => rej(new Error("resume connect timeout")), 2000),
-        ),
-      ]);
-    } catch {
-      c.close();
-      void removeResumeRecord(sessionDir, scope, r.pid);
-      continue;
-    }
-    const entry: BackgroundChild = {
-      id: r.pid,
-      activityId: `shell:${r.logPath ?? r.sockPath}`,
-      startedAt: Date.now(),
-      pid: Number(r.pid),
-      command: r.cmd,
-      describe: r.describe,
-      client: c,
-      logPath: r.logPath ?? "",
-      sessDir: sessionDir,
-      sessScope: scope,
-      acc: "",
-      decoder: new StringDecoder("utf8"),
-      exitCode: null,
-      done: false,
-      bytesEmitted: 0,
-      linesEmitted: 0,
-      colBytes: 0,
-    };
-    bg.set(r.pid, entry);
-    observeShell(entry, undefined, true);
-    c.subscribe((ev) => {
-      if (ev.kind === "exit") {
-        finishShell(entry, ev.exitCode, ev.bytes);
-        completeBackground(entry, ev.exitCode);
-      }
-    });
-    c.onClose(() => stopBackground(entry));
-  }
-}

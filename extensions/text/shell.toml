@@ -14,7 +14,7 @@ description = "List active background shells and repeat_until monitors."
 prompt_snippet = "List active background jobs"
 
 [sh_detach]
-description = "Release a background shell (by sh-returned PID) to run on its own, untracked: it survives this pi process, no completion notification fires, and sh_signal/killAll will not touch it. Output keeps draining to its log file. The child never receives SIGPIPE because pi never held its pipe (sh-monitor does)."
+description = "Release a background shell (by sh-returned PID) to run on its own, untracked: it survives this pi process, no completion notification fires, and sh_signal/killAll will not touch it. Output keeps draining to its log file. The child never receives SIGPIPE because pi never held its pipe (ghostmux does)."
 prompt_snippet = "Detach background shells to run untracked"
 
 [schema.sh]
@@ -22,6 +22,8 @@ description = "Short description of what this command is doing (a few words)"
 waitfor = "Seconds to wait before backgrounding (default {{max_waitfor}}, max {{max_waitfor}}; >{{max_waitfor}} errors)"
 command = "Command to run"
 env = "Dotenv merged into sh env; dotenv wins for command variables, while cpi session/runtime routing variables refresh from the current session"
+
+is_pty = "Allocate a pseudoterminal for interactive terminal applications; default false preserves pipe semantics. Use ghostmux send-input for CLI input."
 
 [schema.sh_signal]
 id = "Background shell PID (as returned by sh)"
@@ -35,9 +37,17 @@ windows_terminated = "Background {{id}} process tree terminated (requested {{sig
 posix_killed = "Background {{id}} terminated (SIGKILL)."
 posix_sent = "Sent {{signal}} to {{id}}."
 
+[shutdown]
+summary = "Session shutdown interrupted background {{kind}} {{id}}{{#describe}} · {{describe}}{{/describe}}."
+guidance = "cpi stopped tracking this background action during session shutdown and requested termination of any running command. The final exit status is unknown. Do not assume the command completed or stopped. Check the log and command side effects before restarting."
+
 # ── promptGuidelines ──
 [guidelines]
 sh = [
+  "Use is_pty=true for interactive terminal applications. Send input with ghostmux send-input --uid UID --text TEXT; sh has no stdin tool parameter.",
+  "Shell results include UID and socketPath. Select the target daemon with ghostmux -S SOCKET COMMAND. The shell environment includes CPI_GHOSTMUX_SOCKET and ghostmux on PATH; pass the socket explicitly with -S.",
+  "Read rendered terminal text with ghostmux -S SOCKET capture-pane --uid UID --history --join. Read raw bytes with ghostmux -S SOCKET read-output --uid UID --offset N --limit N. Save a live PTY image with ghostmux -S SOCKET screenshot --uid UID --output PATH. Completed sessions no longer retain terminal state; read their durable log instead.",
+  "The returned log path contains the recorded raw output, including terminal escape sequences. Replay completed PTY logs with ghostmux --input LOG --text capture.txt --history --join --png screen.png; supply the terminal's --cols and --rows when replaying a non-default geometry.",
   "Each sh call = fresh `{{shell_invocation}}` ({{shell_name}}). No session reuse; env/cwd/shell state don't persist. Use `env-capture` to capture the current environment as a dotenv file that you can load in later `sh` sessions.",
   "For sh & sh_repeat_until, a short `description` parameter is required (a few words explaining the command's purpose).",
   "For sh tool, the maximum legal `waitfor` time is {{max_waitfor}}s; any longer the command will be rejected.",

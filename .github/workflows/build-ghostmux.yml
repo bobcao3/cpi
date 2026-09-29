@@ -1,0 +1,102 @@
+name: Build ghostmux
+
+on:
+  push:
+    paths:
+      [
+        "tools/ghostmux/**",
+        "bin/ghostmux*",
+        "scripts/ghostmux-install*",
+        ".github/workflows/*ghostmux.yml",
+        "package.json",
+      ]
+  pull_request:
+    paths:
+      [
+        "tools/ghostmux/**",
+        "bin/ghostmux*",
+        "scripts/ghostmux-install*",
+        ".github/workflows/*ghostmux.yml",
+        "package.json",
+      ]
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {
+              runner: ubuntu-24.04,
+              platform: linux-x64,
+              target: "-Dtarget=x86_64-linux-musl -Dcpu=x86_64_v3",
+            }
+          - {
+              runner: ubuntu-24.04-arm,
+              platform: linux-arm64,
+              target: "-Dtarget=aarch64-linux-musl -Dcpu=neoverse_n1",
+            }
+          - {
+              runner: macos-15-intel,
+              platform: darwin-x64,
+              target: "-Dtarget=x86_64-macos -Dcpu=x86_64_v3",
+            }
+          - {
+              runner: macos-15,
+              platform: darwin-arm64,
+              target: "-Dtarget=aarch64-macos -Dcpu=apple_m1",
+            }
+    runs-on: ${{ matrix.runner }}
+    env:
+      GHOSTMUX_BIN:
+        ${{ github.workspace }}/tools/ghostmux/zig-out/bin/ghostmux${{
+        startsWith(matrix.platform, 'win32-') && '.exe' || '' }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - uses: mlugg/setup-zig@v2
+        with:
+          version: "0.16.0"
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.4.0"
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+      - name: Build native executable
+        id: compile
+        working-directory: tools/ghostmux
+        run:
+          zig build --release=safe ${{ matrix.target }} --verbose --summary all
+      - name: Run native regression and integration tests
+        working-directory: tools/ghostmux
+        run: zig build test --release=safe ${{ matrix.target }}
+      - name: Verify static Linux linkage
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          headers=$(readelf --program-headers "$GHOSTMUX_BIN")
+          if grep -q INTERP <<< "$headers"; then
+            echo "The Linux release must not require a dynamic loader." >&2
+            exit 1
+          fi
+      - name: Exercise installed package without Pi peers or Zig
+        if: ${{ !cancelled() && steps.compile.outcome == 'success' }}
+        run: node scripts/ghostmux-install.test.mjs
+      - name: Stage binary and provenance
+        shell: bash
+        run: |
+          binary=tools/ghostmux/zig-out/bin/ghostmux
+          if [[ '${{ matrix.platform }}' == win32-* ]]; then binary="$binary.exe"; fi
+          node bin/ghostmux-release.mjs stage "$binary" dist '${{ matrix.platform }}'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ghostmux-${{ matrix.platform }}
+          path: dist/
+          if-no-files-found: error

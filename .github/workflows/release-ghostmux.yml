@@ -1,0 +1,99 @@
+name: Release ghostmux
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["ghostmux-*"]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    uses: ./.github/workflows/build-ghostmux.yml
+  release:
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: ghostmux-*
+          path: dist
+          merge-multiple: true
+      - name: Restore executable bits
+        shell: bash
+        run: |
+          for artifact in dist/ghostmux-linux-* dist/ghostmux-darwin-*; do
+            [[ -f "$artifact" ]] || continue
+            case "$artifact" in
+              *.json|*.minisig) continue ;;
+            esac
+            chmod +x "$artifact"
+          done
+      - name: Sign source-bound artifacts
+        id: source
+        shell: bash
+        env:
+          CPI_MINISIGN_SECRET: ${{ secrets.CPI_MINISIGN_SECRET }}
+        run: |
+          digest=$(node bin/ghostmux-release.mjs digest)
+          tag="ghostmux-$digest"
+          if [[ '${{ github.ref_type }}' == tag && '${{ github.ref_name }}' != "$tag" ]]; then
+            echo "The requested tag does not identify the checked-out ghostmux sources." >&2
+            exit 1
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          for metadata in dist/ghostmux-*.json; do
+            node bin/ghostmux-release.mjs sign "${metadata%.json}"
+          done
+          tar -czf dist/ghostmux-licenses.tar.gz -C dist licenses
+      - name: Test signed installed executable
+        env:
+          GHOSTMUX_TEST_ARTIFACT: ${{ github.workspace }}/dist
+          GHOSTMUX_BIN: ${{ github.workspace }}/dist/ghostmux-linux-x64
+        run: node scripts/ghostmux-install.test.mjs
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.source.outputs.tag }}
+          target_commitish: ${{ github.sha }}
+          name: ghostmux ${{ steps.source.outputs.tag }}
+          fail_on_unmatched_files: true
+          files: |
+            dist/ghostmux-*
+      - name: Verify public downloads and signatures
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ steps.source.outputs.tag }}
+        run: |
+          mkdir public-download
+          for asset in dist/ghostmux-*; do
+            name=$(basename "$asset")
+            curl --fail --location --retry 3 --retry-all-errors \
+              --max-time 120 --retry-max-time 360 \
+              --output "public-download/$name" \
+              "https://github.com/${{ github.repository }}/releases/download/$RELEASE_TAG/$name"
+            cmp "$asset" "public-download/$name"
+          done
+          export XDG_CACHE_HOME="$RUNNER_TEMP/ghostmux-fresh-cache"
+          unset GHOSTMUX_BIN GHOSTMUX_BUILD
+          node --input-type=module <<'NODE'
+          import { resolveGhostmux } from './bin/ghostmux-resolve.mjs';
+          import { resolve } from 'node:path';
+          const cache = resolve(process.env.XDG_CACHE_HOME);
+          const binary = await resolveGhostmux();
+          if (!resolve(binary).startsWith(`${cache}/`)) {
+            throw new Error(`Expected a fresh-cache artifact, got ${binary}`);
+          }
+          NODE
+          binary=$(node bin/ghostmux.mjs --resolve)
+          GHOSTMUX_BIN="$binary" \
+            GHOSTMUX_TEST_ARTIFACT="$GITHUB_WORKSPACE/dist" \
+            node scripts/ghostmux-install.test.mjs

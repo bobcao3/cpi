@@ -2,7 +2,7 @@ import { randomBytes } from "node:crypto";
 import { chmodSync, lstatSync, mkdirSync, unlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { resolveRuntimeDir } from "../../tools/sh-monitor/runtime-dir.ts";
+import { resolveRuntimeDir } from "./runtime-dir.ts";
 
 const MAX_UNIX_SOCKET_PATH_BYTES = 100;
 
