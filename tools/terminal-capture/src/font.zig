@@ -54,26 +54,7 @@ pub const Engine = struct {
     }
 
     pub fn metrics(self: *Engine, size: u16) !Metrics {
-        if (size < 6 or size > 128) return error.InvalidFontSize;
-        const face = &self.faces[0].raster;
-        const requested_scale = c.stbtt_ScaleForMappingEmToPixels(face, @floatFromInt(size));
-        var advance: c_int = 0;
-        var bearing: c_int = 0;
-        c.stbtt_GetCodepointHMetrics(face, 'M', &advance, &bearing);
-        if (advance <= 0) return error.InvalidFont;
-        const width = @ceil(@as(f32, @floatFromInt(advance)) * requested_scale);
-        const scale = width / @as(f32, @floatFromInt(advance));
-        var ascent: c_int = 0;
-        var descent: c_int = 0;
-        var gap: c_int = 0;
-        c.stbtt_GetFontVMetrics(face, &ascent, &descent, &gap);
-        return .{
-            .width = @max(1, @as(usize, @intFromFloat(width))),
-            .height = @max(1, @as(usize, @intFromFloat(@ceil(@as(f32, @floatFromInt(ascent - descent + gap)) * scale)))),
-            .baseline = @as(f32, @floatFromInt(ascent)) * scale,
-            .size = @as(f32, @floatFromInt(size)) * scale / requested_scale,
-            .ideograph_width = if (ideographAdvance(face)) |ic| @as(f32, @floatFromInt(ic)) * scale else @min(asciiHeight(face) * scale, 2 * width),
-        };
+        return raster_metrics(&self.faces[0].raster, size);
     }
 
     pub fn choose(self: *Engine, points: []const u21, bold: bool) usize {
@@ -205,6 +186,36 @@ pub const Engine = struct {
         }
     }
 };
+
+pub fn metrics(size: u16) !Metrics {
+    const bytes = fonts.data.get(.mono);
+    var face: c.stbtt_fontinfo = undefined;
+    const offset = c.stbtt_GetFontOffsetForIndex(bytes.ptr, 0);
+    if (offset < 0 or c.stbtt_InitFont(&face, bytes.ptr, offset) == 0) return error.InvalidFont;
+    return raster_metrics(&face, size);
+}
+
+fn raster_metrics(face: *c.stbtt_fontinfo, size: u16) !Metrics {
+    if (size < 6 or size > 128) return error.InvalidFontSize;
+    const requested_scale = c.stbtt_ScaleForMappingEmToPixels(face, @floatFromInt(size));
+    var advance: c_int = 0;
+    var bearing: c_int = 0;
+    c.stbtt_GetCodepointHMetrics(face, 'M', &advance, &bearing);
+    if (advance <= 0) return error.InvalidFont;
+    const width = @ceil(@as(f32, @floatFromInt(advance)) * requested_scale);
+    const scale = width / @as(f32, @floatFromInt(advance));
+    var ascent: c_int = 0;
+    var descent: c_int = 0;
+    var gap: c_int = 0;
+    c.stbtt_GetFontVMetrics(face, &ascent, &descent, &gap);
+    return .{
+        .width = @max(1, @as(usize, @intFromFloat(width))),
+        .height = @max(1, @as(usize, @intFromFloat(@ceil(@as(f32, @floatFromInt(ascent - descent + gap)) * scale)))),
+        .baseline = @as(f32, @floatFromInt(ascent)) * scale,
+        .size = @as(f32, @floatFromInt(size)) * scale / requested_scale,
+        .ideograph_width = if (ideographAdvance(face)) |ic| @as(f32, @floatFromInt(ic)) * scale else @min(asciiHeight(face) * scale, 2 * width),
+    };
+}
 
 fn ideographAdvance(face: *c.stbtt_fontinfo) ?c_int {
     if (c.stbtt_FindGlyphIndex(face, '水') == 0) return null;

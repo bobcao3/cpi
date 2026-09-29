@@ -16,6 +16,7 @@ pub fn build(b: *std.Build) void {
         }),
     });
     executable.root_module.addAnonymousImport("fonts", .{ .root_source_file = b.path("fonts/assets.zig") });
+    if (target.result.os.tag == .linux) executable.root_module.linkSystemLibrary("util", .{});
     executable.root_module.addIncludePath(kb.path(""));
     executable.root_module.addIncludePath(stb.path(""));
     executable.root_module.addCSourceFile(.{ .file = b.path("src/font_engine.c"), .flags = &.{"-std=c23"} });

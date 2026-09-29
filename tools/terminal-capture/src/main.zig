@@ -2,11 +2,13 @@ const std = @import("std");
 const options = @import("options.zig");
 const Session = @import("session.zig");
 const protocol = @import("protocol.zig");
+const client = @import("client.zig");
 
 pub const std_options: std.Options = .{ .log_level = .warn };
 
 pub fn main(init: std.process.Init) void {
     run(init) catch |err| {
+        if (err == error.RemoteFailure) std.process.exit(1);
         var buffer: [256]u8 = undefined;
         const message = std.fmt.bufPrint(&buffer, "terminal-capture: {s}\n", .{@errorName(err)}) catch unreachable;
         std.Io.File.stderr().writeStreamingAll(init.io, message) catch {};
@@ -19,9 +21,22 @@ fn run(init: std.process.Init) !void {
     const io = init.io;
     const args = try init.minimal.args.toSlice(allocator);
     defer allocator.free(args);
+    if (args.len > 1 and std.mem.eql(u8, args[1], "--serve")) {
+        if (@import("builtin").os.tag != .linux) return error.ServerRequiresLinux;
+        if (args.len != 5) return error.InvalidServerArguments;
+        const initial_fd = try std.fmt.parseInt(c_int, args[3], 10);
+        const lock_fd = try std.fmt.parseInt(c_int, args[4], 10);
+        if (initial_fd < 3 or lock_fd < 3 or initial_fd == lock_fd) return error.InvalidServerArguments;
+        return @import("server.zig").run(allocator, io, args[2], initial_fd, lock_fd);
+    }
+    if (client.is_command(args)) {
+        if (@import("builtin").os.tag != .linux) return error.ServerRequiresLinux;
+        return client.run(init, args);
+    }
     const config = try options.parse(args);
     if (config.help) {
         try std.Io.File.stdout().writeStreamingAll(io, options.help);
+        try std.Io.File.stdout().writeStreamingAll(io, client.help);
         return;
     }
     const stdin = std.mem.eql(u8, config.input, "-");

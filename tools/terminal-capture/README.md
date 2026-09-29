@@ -7,9 +7,8 @@ A headless terminal CLI built with Zig,
 PTY, maintains terminal state, captures text, and renders PNG screenshots
 without a display server or installed fonts.
 
-This module does not launch commands or replace `tools/sh-monitor` yet. The
-caller owns the PTY and supplies resize events. The CLI observes output and does
-not send terminal query responses back to the PTY.
+The CLI supports managed PTYs as well as playback from an existing PTY stream.
+It does not replace `tools/sh-monitor` or integrate with the shell extension.
 
 ## Build and run
 
@@ -27,9 +26,60 @@ dependencies during the build. Update dependency pins with
 `zig fetch --save=<name> <url>`; do not hand-edit the manifest. The installed
 executable embeds the font assets and can run outside the checkout.
 
+## Managed terminals (Linux)
+
+The Linux server manages PTYs and their child processes. For example:
+
+```sh
+./zig-out/bin/terminal-capture new-session --uid build -- /bin/sh -c 'printf "ready\n"'
+./zig-out/bin/terminal-capture capture-pane --uid build --history --join
+./zig-out/bin/terminal-capture screenshot --uid build --output build.png
+./zig-out/bin/terminal-capture list-sessions --json
+```
+
+For an interactive session, start one with `new-session --uid interactive`, then
+send input and resize it:
+
+```sh
+printf 'echo hello\n' | ./zig-out/bin/terminal-capture send-input --uid interactive
+./zig-out/bin/terminal-capture resize-window --uid interactive --cols 100 --rows 30
+./zig-out/bin/terminal-capture kill-session --uid interactive
+./zig-out/bin/terminal-capture kill-server
+```
+
+Here `--uid` is an application identifier scoped by the OS user and socket, not
+an OS user ID. Only `new-session` starts a missing server. The server rejects
+duplicate UIDs and retains completed terminals until `kill-session` removes
+them. The server exits when no sessions or clients remain. Use `-S PATH` to
+select another socket inside a private directory. New sessions use the calling
+client's working directory and environment, not those of the daemon starter.
+
+`send-input` acknowledges queue acceptance, not application processing. Use
+`--json` to see session status and, after PTY output drains, the eventual
+`exit_code`. See [`src/client.zig`](src/client.zig) for command syntax and
+[`src/wire.zig`](src/wire.zig), [`src/transport.zig`](src/transport.zig), and
+[`src/app_spawn.zig`](src/app_spawn.zig) for limits and socket policy.
+
+Startup follows the connect/lock/retry sequence in tmux 3.7c's
+[client](https://github.com/tmux/tmux/blob/e476c1230b958df0cb12977517d24b3dc931375b/client.c)
+and
+[server](https://github.com/tmux/tmux/blob/e476c1230b958df0cb12977517d24b3dc931375b/server.c)
+implementations. The CLI passes its first connection through a socketpair and
+executes the same binary as a detached server. The lock file remains on disk to
+preserve one inode for competing startup attempts. The protocol is not
+wire-compatible with tmux.
+
+Screenshots are currently synchronous and briefly pause PTY draining. The server
+does not keep durable raw logs or provide process-tree containment. Use a
+separate supervisor for workloads that escape the managed process groups.
+
+## Existing PTY streams
+
 Raw mode captures at EOF. Supply actual PTY bytes: a line feed moves down
 without returning to column zero unless the terminal mode enables that behavior.
 PTYs normally translate application newlines to carriage-return/line-feed pairs.
+Raw playback observes output and cannot reply to terminal queries; managed
+sessions can reply.
 
 Text capture resembles `tmux capture-pane`, but does not implement tmux's
 command-line syntax. The capture contains the active screen by default. Use
@@ -88,7 +138,7 @@ and
 After building, run the real-process integration suite from the repository root:
 
 ```sh
-node --test tools/terminal-capture/integration.test.mjs
+node --test tools/terminal-capture/*.test.mjs
 ```
 
 The suite requires Python for a real PTY and the repository's `sharp` dependency
