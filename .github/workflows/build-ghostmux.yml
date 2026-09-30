@@ -2,6 +2,7 @@ name: Build ghostmux
 
 on:
   push:
+    branches: ["**"]
     paths:
       [
         "tools/ghostmux/**",

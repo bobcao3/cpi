@@ -43,13 +43,13 @@ jobs:
         env:
           CPI_MINISIGN_SECRET: ${{ secrets.CPI_MINISIGN_SECRET }}
         run: |
-          digest=$(node bin/ghostmux-release.mjs digest)
-          tag="ghostmux-$digest"
+          tag=$(node bin/ghostmux-release.mjs tag)
           if [[ '${{ github.ref_type }}' == tag && '${{ github.ref_name }}' != "$tag" ]]; then
-            echo "The requested tag does not identify the checked-out ghostmux sources." >&2
+            echo "The requested tag does not match the checked-out ghostmux release." >&2
             exit 1
           fi
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "name=ghostmux ${tag#ghostmux-}" >> "$GITHUB_OUTPUT"
           for metadata in dist/ghostmux-*.json; do
             node bin/ghostmux-release.mjs sign "${metadata%.json}"
           done
@@ -64,7 +64,7 @@ jobs:
         with:
           tag_name: ${{ steps.source.outputs.tag }}
           target_commitish: ${{ github.sha }}
-          name: ghostmux ${{ steps.source.outputs.tag }}
+          name: ${{ steps.source.outputs.name }}
           fail_on_unmatched_files: true
           files: |
             dist/ghostmux-*

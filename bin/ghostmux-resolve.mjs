@@ -17,6 +17,7 @@ import {
   packageRoot,
   platformKey,
   releaseBase,
+  releaseTag,
   sourceDigest,
 } from "./ghostmux-source.mjs";
 import { verifyArtifact } from "./ghostmux-signature.mjs";
@@ -112,7 +113,7 @@ export async function resolveGhostmux() {
   await mkdir(dirname(directory), { recursive: true, mode: 0o700 });
   const staging = await mkdtemp(join(dirname(directory), ".install-"));
   try {
-    const base = `${releaseBase}/ghostmux-${digest}/${filename}`;
+    const base = `${releaseBase}/${releaseTag}/${filename}`;
     const [bytes, signature] = await Promise.all([
       download(base, 128 * 1024 * 1024),
       download(`${base}.minisig`, 8192),

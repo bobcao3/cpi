@@ -7,6 +7,7 @@ export const packageRoot = fileURLToPath(new URL("../", import.meta.url));
 export const publicKey =
   "RWQWdcLzFjpLqtjewtcZo71AHJVUFws3irxz2ColvNW/r0m4tHyxzDX5";
 export const releaseBase = "https://github.com/bobcao3/cpi/releases/download";
+export const releaseTag = "ghostmux-2026.09.30";
 
 export function platformKey(
   platform = process.platform,

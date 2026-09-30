@@ -6,6 +6,7 @@ import {
   artifactName,
   packageRoot,
   platformKey,
+  releaseTag,
   sourceDigest,
 } from "./ghostmux-source.mjs";
 import { verifyArtifact } from "./ghostmux-signature.mjs";
@@ -14,6 +15,8 @@ const [command, input, output, requestedPlatform] = process.argv.slice(2);
 const digest = await sourceDigest();
 if (command === "digest") {
   console.log(digest);
+} else if (command === "tag") {
+  console.log(releaseTag);
 } else if (command === "stage" && input && output) {
   const platform = requestedPlatform || platformKey();
   const [os, architecture] = platform.split("-");
@@ -107,6 +110,6 @@ if (command === "digest") {
   await writeFile(`${input}.minisig`, envelope);
 } else {
   throw new Error(
-    "Usage: ghostmux-release.mjs digest | stage INPUT OUTPUT [PLATFORM] | sign INPUT",
+    "Usage: ghostmux-release.mjs digest | tag | stage INPUT OUTPUT [PLATFORM] | sign INPUT",
   );
 }
