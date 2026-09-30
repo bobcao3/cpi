@@ -12,7 +12,18 @@ fn gone(pid: i32) !void {
             error.FileNotFound => return,
             else => return err,
         };
-        if (std.mem.indexOf(u8, value, ") Z ") != null) return;
+        if (std.mem.indexOf(u8, value, ") Z ") != null) {
+            var task_buffer: [64]u8 = undefined;
+            const task_path = try std.fmt.bufPrint(&task_buffer, "/proc/{d}/task", .{pid});
+            var tasks = std.Io.Dir.cwd().openDir(f.io, task_path, .{ .iterate = true }) catch |err| switch (err) {
+                error.FileNotFound => return,
+                else => return err,
+            };
+            defer tasks.close(f.io);
+            var iterator = tasks.iterate();
+            _ = try iterator.next(f.io);
+            if (try iterator.next(f.io) == null) return;
+        }
         try f.pause();
     }
     return error.ChildStillAlive;
