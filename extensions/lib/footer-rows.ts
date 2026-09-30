@@ -1,4 +1,4 @@
-import type { Theme } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, Theme } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import type { ActivityKind } from "./activity.ts";
 
@@ -55,6 +55,7 @@ export function renderFooterRows(
   width: number,
   theme: Theme,
   input: FooterSection[],
+  thinking_level: ReturnType<ExtensionAPI["getThinkingLevel"]>,
   selected?: ActivityKind,
 ): { lines: string[]; hits: FooterHit[] } {
   const sections = [...input].sort(
@@ -79,6 +80,10 @@ export function renderFooterRows(
     .map((row, row_index) => {
       let column = 0;
       const pieces = row.map((section) => {
+        if (section.name.toLowerCase() === "summary") {
+          column += visibleWidth(section.value) + 3;
+          return ` ${theme.getThinkingBorderColor(thinking_level)(section.value)} `;
+        }
         let position = 0;
         let value = "";
         for (const token of tokens(section)) {
@@ -109,7 +114,14 @@ export function renderFooterRows(
         column += visibleWidth(section.value) + 3;
         return theme.bg("customMessageBg", ` ${value} `);
       });
-      return truncateToWidth(pieces.join(separator(theme)), width);
+      const line = pieces.reduce((line, piece, index) => {
+        if (index === 0) return piece;
+        const plain = [row[index - 1], row[index]].some(
+          (section) => section.name.toLowerCase() === "summary",
+        );
+        return line + (plain ? " " : separator(theme)) + piece;
+      }, "");
+      return truncateToWidth(line, width);
     });
   return { lines, hits };
 }

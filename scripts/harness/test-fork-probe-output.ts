@@ -218,11 +218,18 @@ try {
     .filter((section: any) => section.value);
   assert.equal(
     sections.find((section: any) => section.name === "summary")?.value,
-    `[ ${answer} ]`,
+    answer,
   );
   const theme = getThemeByName("dark")!;
+  const summary = sections.filter((section: any) => section.name === "summary");
+  for (const effort of ["off", "low", "high", "xhigh"] as const) {
+    const line = renderFooterRows(160, theme, summary, effort).lines[0];
+    assert.equal(stripVTControlCharacters(line).trim(), answer);
+    assert.ok(line.includes(theme.getThinkingBorderColor(effort)(answer)));
+    assert.doesNotMatch(line, /\x1b\[(?:48[;:]|4[0-7]m|10[0-7]m)/);
+  }
   for (const width of [40, 160]) {
-    const rows = renderFooterRows(width, theme, sections).lines.map(
+    const rows = renderFooterRows(width, theme, sections, "high").lines.map(
       stripVTControlCharacters,
     );
     assert.ok(rows.join("\n").includes("I'm auditing documentation"));

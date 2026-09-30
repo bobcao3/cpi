@@ -97,8 +97,7 @@ function cancelWork(s: StatusReportState): void {
 }
 
 function statusReportSegment(): string | null {
-  const report = state().report;
-  return report ? `[ ${report} ]` : null;
+  return state().report;
 }
 
 function clearStatus(): void {

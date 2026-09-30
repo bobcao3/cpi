@@ -1,4 +1,4 @@
-import type { Theme } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, Theme } from "@earendil-works/pi-coding-agent";
 import {
   matchesKey,
   type Component,
@@ -25,6 +25,7 @@ export class FooterNavigation implements Component {
     private footer: Component,
     private sections: () => FooterSection[],
     private open: (kind: ActivityKind) => void,
+    private thinking_level: ExtensionAPI["getThinkingLevel"],
   ) {}
 
   focus(return_focus: (input?: string) => void): boolean {
@@ -92,6 +93,7 @@ export class FooterNavigation implements Component {
       width,
       this.theme,
       this.sections(),
+      this.thinking_level(),
       this.focused ? this.selected : undefined,
     );
     this.hits = rows.hits;

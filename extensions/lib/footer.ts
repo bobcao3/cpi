@@ -227,7 +227,7 @@ export function clearRightSegment(name: string): void {
   ensureTimer();
 }
 
-export function setupCpiFooter(_pi: ExtensionAPI, ctx: ExtensionContext): void {
+export function setupCpiFooter(pi: ExtensionAPI, ctx: ExtensionContext): void {
   if (!ctx.hasUI || ctx.mode !== "tui") return;
   const s = state();
   stopTimer();
@@ -274,6 +274,7 @@ export function setupCpiFooter(_pi: ExtensionAPI, ctx: ExtensionContext): void {
           ctx.ui.notify(String(error), "error"),
         );
       },
+      () => pi.getThinkingLevel(),
     );
     s.focusActivity = (returnFocus) => navigation.focus(returnFocus);
     return navigation;
