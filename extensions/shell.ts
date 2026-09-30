@@ -40,7 +40,8 @@ import {
   setCompletionHook,
   type OutputTruncation,
 } from "./shell/exec.ts";
-import { createRepeatTool } from "./shell/repeat.ts";
+import { createRepeatTool, resumeRepeats } from "./shell/repeat.ts";
+import { suspendRepeatWrites } from "./shell/repeat-persistence.ts";
 import {
   registerBackgroundControlTools,
   registerBackgroundListTool,
@@ -363,9 +364,14 @@ export default async function (pi: ExtensionAPI) {
     const dir = ctx.sessionManager?.getSessionDir();
     const scope = ctx.sessionManager?.getSessionId();
     setCurrentScope(scope);
+    await resumeRepeats(pi, ctx, event.reason !== "fork");
     if (event.reason !== "fork") await surface_shell_shutdowns(pi, ctx);
     if (event.reason !== "fork" && event.reason !== "reload")
-      await surfaceCompletedShells(dir, scope);
+      await surfaceCompletedShells(
+        dir,
+        scope,
+        ctx.sessionManager.getSessionFile(),
+      );
     void resumeBackgroundShells(dir, scope);
     if (event.reason !== "fork" && event.reason !== "reload")
       void notifyOrphanedShells(dir, scope);
@@ -398,7 +404,12 @@ export default async function (pi: ExtensionAPI) {
     onAbort: killAll,
   });
 
-  pi.on("session_shutdown", async () => {
+  pi.on("session_tree", async (_event, ctx) => {
+    await resumeRepeats(pi, ctx);
+  });
+
+  pi.on("session_shutdown", async (event, ctx) => {
+    suspendRepeatWrites(ctx, event.reason);
     shellStatus?.dispose();
     shellStatus = null;
   });

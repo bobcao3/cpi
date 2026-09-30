@@ -39,7 +39,7 @@ import {
   statusReportTurnEnded,
 } from "./lib/status-report.ts";
 import { setSessionDir } from "./lib/session-dir.ts";
-import { getSubagentUsage, resetSubagentUsage } from "./lib/cost-ledger.ts";
+import { getSubagentUsage } from "./lib/cost-ledger.ts";
 import { ensureSubagentRpc, stopSubagentRpc } from "./lib/subagent-rpc.ts";
 import {
   awaitHoldInterval,
@@ -84,7 +84,6 @@ export default function coreExtension(pi: ExtensionAPI): void {
     setupThinkingBlock(ctx);
     setupStatusReports(ctx);
     setSessionDir(ctx.sessionManager?.getSessionDir());
-    resetSubagentUsage();
     registerRightSegment("subagent-cost", () =>
       costSegment(ctx.sessionManager.getSessionId()),
     );
@@ -109,11 +108,11 @@ export default function coreExtension(pi: ExtensionAPI): void {
   registerNotificationRenderer(pi);
   registerActivityBrowser(pi, focusFooterActivity);
 
-  pi.on("before_agent_start", () => drainBeforeUser(pi));
-  pi.on("tool_execution_end", () => drainAfterTool(pi));
+  pi.on("before_agent_start", (_event, ctx) => drainBeforeUser(pi, ctx));
+  pi.on("tool_execution_end", (_event, ctx) => drainAfterTool(pi, ctx));
   pi.on("message_update", (_event, ctx) => setupThinkingBlock(ctx));
   pi.on("turn_start", (event, ctx) => statusReportTurnStarted(event, ctx));
-  pi.on("turn_end", (event, ctx) => statusReportTurnEnded(event, ctx));
+  pi.on("turn_end", (event, ctx) => statusReportTurnEnded(pi, event, ctx));
 
   // Sole systemPrompt return across cpi — no other handler returns one.
   pi.on("before_agent_start", async (event: any, ctx: any) => {
@@ -210,6 +209,7 @@ export default function coreExtension(pi: ExtensionAPI): void {
     const abortAll = () => {
       external_events.close();
       for (const s of sources) {
+        if (event.reason === "reload" && s.id === "shell") continue;
         try {
           s.onAbort();
         } catch {
@@ -269,6 +269,6 @@ function costSegment(session_id: string): string | undefined {
   const live = entries.filter(
     (entry) => entry.status === "running" || entry.status === "stopping",
   ).length;
-  if (entries.length === 0) return undefined;
+  if (entries.length === 0 && u.count === 0 && u.cost === 0) return undefined;
   return `sub:${live} $${u.cost.toFixed(4)}·${u.count}`;
 }

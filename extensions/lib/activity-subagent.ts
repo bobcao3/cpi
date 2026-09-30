@@ -14,6 +14,7 @@ export function subagentEnvironment(
     CPI_SUBAGENT_RPC: endpoint,
     PI_SUBAGENT: "1",
     CPI_ACTIVITY_TELEMETRY: "1",
+    CPI_COST_RUN_ID: request.runId,
   };
   if ("kind" in request && request.kind === "fork-probe") {
     env.CPI_FORK_PROBE = "1";

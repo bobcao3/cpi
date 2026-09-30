@@ -12,6 +12,7 @@ import {
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { randomUUID } from "node:crypto";
+import { execFileSync } from "node:child_process";
 import { stripVTControlCharacters } from "node:util";
 import {
   SessionManager,
@@ -20,6 +21,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { getThemeByName } from "../../node_modules/@earendil-works/pi-coding-agent/dist/modes/interactive/theme/theme.js";
 import { renderFooterRows } from "../../extensions/lib/footer-rows.ts";
+import { getSubagentUsage } from "../../extensions/lib/cost-ledger.ts";
 import {
   runSubagentWorker,
   stopSubagentRpc,
@@ -31,6 +33,8 @@ const agentDir = join(root, "agent");
 mkdirSync(agentDir);
 process.env.PI_CODING_AGENT_DIR = agentDir;
 process.env.CPI_STATUS_REPORT_TURNS = "1";
+delete process.env.CPI_COST_SOCKET;
+delete process.env.CPI_COST_RUN_ID;
 delete process.env.CPI_FORK_PROBE;
 const answer = "I'm auditing documentation and source comments.";
 let fail = false;
@@ -87,9 +91,10 @@ writeFileSync(
 export default function(pi) {
   pi.on("input", event => event.text === "NO_MODEL" ? { action: "handled" } : undefined);
   pi.on("session_start", (_, ctx) => setupStatusReports(ctx));
+  pi.on("session_tree", (_, ctx) => setupStatusReports(ctx));
   pi.on("session_shutdown", () => disposeStatusReports());
   pi.on("turn_start", (event, ctx) => statusReportTurnStarted(event, ctx));
-  pi.on("turn_end", (event, ctx) => statusReportTurnEnded(event, ctx));
+  pi.on("turn_end", (event, ctx) => statusReportTurnEnded(pi, event, ctx));
 }`,
 );
 writeFileSync(
@@ -100,7 +105,11 @@ writeFileSync(
     defaultThinkingLevel: "off",
     compaction: { enabled: false },
     retry: { enabled: false },
-    extensions: [resolve("extensions/cwd.ts"), extension],
+    extensions: [
+      resolve("extensions/cwd.ts"),
+      resolve("extensions/cost-tree/index.ts"),
+      extension,
+    ],
   }),
 );
 const parent = SessionManager.create(root, join(root, "parent"));
@@ -161,6 +170,15 @@ async function probe(prompt: string) {
     },
   });
   const file = readdirSync(sessionDir).find((name) => name.endsWith(".jsonl"))!;
+  assert.ok(
+    file,
+    JSON.stringify({
+      result,
+      error: result.error?.message,
+      stderr,
+      sessionDir,
+    }),
+  );
   const messages = SessionManager.open(
     join(sessionDir, file),
   ).buildSessionContext().messages;
@@ -236,6 +254,98 @@ try {
   }
   console.log(
     "PASS real status hook publishes returned probe into rendered footer",
+  );
+  const probe_usage = getSubagentUsage();
+  assert.equal(
+    probe_usage.count,
+    1,
+    "Worker observation and socket reports counted the same probe twice",
+  );
+  assert(probe_usage.input > 0 && probe_usage.cost > 0);
+  const summary_value = () =>
+    (globalThis as any).__cpiFooter.segments
+      .find((segment: any) => segment.name === "summary")
+      ?.produce();
+  const summary_file = session.sessionManager.getSessionFile();
+  execFileSync(
+    process.execPath,
+    [
+      "--input-type=module",
+      "-e",
+      `
+    import assert from "node:assert/strict";
+    import { hostCodingAgent } from ${JSON.stringify(resolve("bin/host-pi.mjs"))};
+    import { getSubagentUsage } from ${JSON.stringify(resolve("extensions/lib/cost-ledger.ts"))};
+    delete process.env.CPI_COST_SOCKET;
+    delete process.env.CPI_COST_RUN_ID;
+    const { SessionManager, createAgentSessionServices, createAgentSessionFromServices } = await hostCodingAgent();
+    const { session } = await createAgentSessionFromServices({
+      services: await createAgentSessionServices({ cwd: ${JSON.stringify(root)}, agentDir: ${JSON.stringify(agentDir)} }),
+      sessionManager: SessionManager.open(${JSON.stringify(summary_file)}),
+    });
+    await session.bindExtensions({ mode: "tui", onError: error => { throw new Error(error.error); } });
+    assert.equal(globalThis.__cpiFooter.segments.find(segment => segment.name === "summary")?.produce(), ${JSON.stringify(answer)});
+    assert.deepEqual(getSubagentUsage(), ${JSON.stringify(probe_usage)});
+    await session.extensionRunner.emit({ type: "session_shutdown", reason: "quit" });
+    session.dispose();
+  `,
+    ],
+    { timeout: 20000 },
+  );
+  const summary_leaf = session.sessionManager.getLeafId();
+  const earlier_leaf = session.sessionManager
+    .getBranch()
+    .find(
+      (entry: any) =>
+        entry.type === "message" && entry.message.role === "assistant",
+    ).id;
+  await session.reload();
+  assert.equal(
+    summary_value(),
+    answer,
+    "reload discarded the published summary",
+  );
+  assert.deepEqual(
+    getSubagentUsage(),
+    probe_usage,
+    "Reload changed persisted probe accounting",
+  );
+  await session.navigateTree(earlier_leaf);
+  assert.equal(
+    summary_value(),
+    null,
+    "summary leaked from an abandoned branch",
+  );
+  await session.navigateTree(summary_leaf);
+  assert.equal(summary_value(), answer);
+  await session.extensionRunner.emit({
+    type: "session_shutdown",
+    reason: "quit",
+  });
+  session.dispose();
+  delete (globalThis as any).__cpiStatusReport;
+  ({ session } = await createAgentSessionFromServices({
+    services: await createAgentSessionServices({ cwd: root, agentDir }),
+    sessionManager: SessionManager.open(summary_file),
+  }));
+  await session.bindExtensions({
+    mode: "tui",
+    onError: (error: any) => {
+      throw new Error(JSON.stringify(error));
+    },
+  });
+  assert.equal(
+    summary_value(),
+    answer,
+    "resume discarded the persisted summary",
+  );
+  assert.deepEqual(
+    getSubagentUsage(),
+    probe_usage,
+    "Resume changed persisted probe accounting",
+  );
+  console.log(
+    "PASS summary survives reload and resume and follows tree navigation",
   );
 } finally {
   if (session) {

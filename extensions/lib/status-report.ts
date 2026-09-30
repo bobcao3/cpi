@@ -1,4 +1,5 @@
 import type {
+  ExtensionAPI,
   ExtensionContext,
   TurnEndEvent,
   TurnStartEvent,
@@ -15,6 +16,7 @@ const GLOBAL_KEY = "__cpiStatusReport";
 const FORK_ENV = "CPI_FORK_PROBE";
 const SEGMENT_NAME = "summary";
 const MAX_REPORT_CHARS = 320;
+const STATE_ENTRY = "cpi.status-report";
 
 function envInteger(
   key: string,
@@ -51,6 +53,7 @@ interface ActiveTurn {
 }
 
 interface ProbeRequest {
+  pi: ExtensionAPI;
   ctx: ExtensionContext;
   epoch: number;
   parentSessionFile: string;
@@ -110,9 +113,32 @@ export function setupStatusReports(ctx: ExtensionContext): void {
   cancelWork(s);
   s.epoch += 1;
   s.turnCount = 0;
+  s.report = null;
+  for (const entry of ctx.sessionManager.getBranch()) {
+    if (entry.type !== "custom" || entry.customType !== STATE_ENTRY) continue;
+    const data = entry.data as
+      | { version?: unknown; report?: unknown; turnCount?: unknown }
+      | undefined;
+    if (data?.version !== 1) continue;
+    s.report =
+      typeof data.report === "string" ? normalizeReport(data.report) : null;
+    s.turnCount =
+      Number.isInteger(data.turnCount) && (data.turnCount as number) >= 0
+        ? Math.min(data.turnCount as number, TURN_LIMIT)
+        : 0;
+  }
   s.enabled = ctx.mode === "tui" && process.env[FORK_ENV] !== "1";
-  clearStatus();
+  requestFooterRender();
   registerLineSegment(SEGMENT_NAME, statusReportSegment);
+}
+
+function persistStatus(pi: ExtensionAPI): void {
+  const s = state();
+  pi.appendEntry(STATE_ENTRY, {
+    version: 1,
+    report: s.report,
+    turnCount: s.turnCount,
+  });
 }
 
 export function disposeStatusReports(): void {
@@ -143,6 +169,7 @@ function normalizeReport(answer: string): string | null {
 function publishReport(request: ProbeRequest, report: string): void {
   if (request.ctx.mode !== "tui") return;
   state().report = report;
+  persistStatus(request.pi);
   requestFooterRender();
 }
 
@@ -202,6 +229,7 @@ export function statusReportTurnStarted(
 }
 
 export async function statusReportTurnEnded(
+  pi: ExtensionAPI,
   event: TurnEndEvent,
   ctx: ExtensionContext,
 ): Promise<void> {
@@ -213,11 +241,16 @@ export async function statusReportTurnEnded(
   const longTurn =
     turn?.index === event.turnIndex &&
     Date.now() - turn.startedAtMs >= LONG_TURN_MS;
-  if (!longTurn && s.turnCount < TURN_LIMIT) return;
+  if (!longTurn && s.turnCount < TURN_LIMIT) {
+    persistStatus(pi);
+    return;
+  }
   s.turnCount = 0;
+  persistStatus(pi);
   const parentSessionFile = ctx.sessionManager.getSessionFile();
   if (!parentSessionFile || ctx.signal?.aborted) return;
   await runStatusProbe({
+    pi,
     ctx,
     epoch: s.epoch,
     parentSessionFile,

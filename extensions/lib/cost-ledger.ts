@@ -1,13 +1,15 @@
-/**
- * Subagent cost ledger: children report their subtree totals at shutdown via
- * CPI_COST_SOCKET, crossing the process boundary through the `summary:` line,
- * each added exactly once — no double counting.
- */
+import {
+  COST_ENTRY,
+  persistedAccounts,
+  mergeAccounts,
+  sumAccounts,
+  validReport,
+  type CostAccount,
+  type CostReport,
+  type AccountingEntry,
+} from "./cost-accounting.ts";
 
 import { openSync, fstatSync, readSync, closeSync } from "node:fs";
-
-const GLOBAL_KEY = "__cpiCostLedger";
-const TAIL_BYTES = 16384;
 
 export interface Usage {
   input: number;
@@ -16,44 +18,86 @@ export interface Usage {
 }
 
 interface LedgerState {
-  input: number;
-  output: number;
-  cost: number;
-  count: number;
+  accounts: Map<string, CostAccount>;
+  append?: (type: string, data: CostReport) => void;
+  sessionId?: string;
 }
 
-function state(): LedgerState {
-  const g = globalThis as Record<string, unknown>;
-  const s = g[GLOBAL_KEY] as LedgerState | undefined;
-  if (s) return s;
-  const fresh: LedgerState = { input: 0, output: 0, cost: 0, count: 0 };
-  g[GLOBAL_KEY] = fresh;
-  return fresh;
+const GLOBAL_KEY = "__cpiCostLedger";
+const TAIL_BYTES = 16384;
+
+function currentState(): LedgerState | undefined {
+  return (globalThis as Record<string, unknown>)[GLOBAL_KEY] as
+    | LedgerState
+    | undefined;
 }
 
-export function resetSubagentUsage(): void {
-  const s = state();
-  s.input = 0;
-  s.output = 0;
-  s.cost = 0;
-  s.count = 0;
+function emptyState(): LedgerState {
+  return { accounts: new Map() };
 }
 
-export function addSubagentUsage(u: Partial<Usage> | undefined): void {
-  if (!u) return;
-  const s = state();
-  if (typeof u.input === "number") s.input += u.input;
-  if (typeof u.output === "number") s.output += u.output;
-  if (typeof u.cost === "number") s.cost += u.cost;
-  s.count += 1;
+function record(state: LedgerState, report: CostReport): void {
+  if (!validReport(report)) return;
+  if (!state.append) throw new Error("cost ledger is not bound to a session");
+  const next = new Map(state.accounts);
+  const changes = mergeAccounts(next, report.accounts);
+  if (!changes.length) return;
+  sumAccounts(next.values());
+  state.append(COST_ENTRY, { version: 1, accounts: changes });
+  state.accounts = next;
+}
+
+export function bindCostLedger(
+  entries: AccountingEntry[],
+  append: (type: string, data: CostReport) => void,
+  sessionId: string,
+): () => void {
+  const previous = currentState();
+  if (previous) previous.append = undefined;
+  const bound: LedgerState =
+    previous?.sessionId === sessionId
+      ? previous
+      : { accounts: new Map(), sessionId };
+  bound.accounts = persistedAccounts(entries);
+  bound.append = append;
+  (globalThis as Record<string, unknown>)[GLOBAL_KEY] = bound;
+  return () => {
+    if (bound.append === append) bound.append = undefined;
+  };
+}
+
+export function captureSubagentUsageReporter(): (
+  runId: string,
+  usage: Usage,
+) => void {
+  const reportUsage = captureCostReportReporter();
+  const captured = currentState();
+  return (runId, usage) => {
+    if (!captured?.append) return;
+    if (typeof runId !== "string" || !runId.trim()) return;
+    const report: CostReport = {
+      version: 1,
+      accounts: [{ id: `run:${runId}`, ...usage, count: 1 }],
+    };
+    if (!validReport(report)) return;
+    reportUsage(report);
+  };
+}
+
+export function captureCostReportReporter(): (report: CostReport) => void {
+  const captured = currentState() ?? emptyState();
+  return (report) => record(captured, report);
 }
 
 export function getSubagentUsage(): Usage & { count: number } {
-  const s = state();
-  return { input: s.input, output: s.output, cost: s.cost, count: s.count };
+  return sumAccounts((currentState() ?? emptyState()).accounts.values());
 }
 
-// `summary:` line: in/out required, `cost=` optional; the LAST line wins, so tail reads hold it.
+export function getSubagentAccounts(): CostAccount[] {
+  return [...(currentState() ?? emptyState()).accounts.values()].map(
+    (account) => ({ ...account }),
+  );
+}
 
 const SUMMARY_RE =
   /summary:[^\n]*?\bin=(\d+)\b[^\n]*?\bout=(\d+)\b(?:[^\n]*?\bcost=\$?([0-9]+(?:\.[0-9]+)?))?/g;

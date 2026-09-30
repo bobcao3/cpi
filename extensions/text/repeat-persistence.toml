@@ -1,0 +1,9 @@
+[interrupted]
+summary = "Repeat monitor {{id}} was interrupted; log {{log_path}}"
+guidance = "The repeat timer no longer exists. The harness did not rerun the command. Inspect the log before explicitly starting another monitor."
+
+[results]
+interval_invalid = "interval must be 5-60s (got {{interval}})."
+blocked = "{{error}}\n---\nblocked ({{count}} error{{plural}})"
+warnings = "linter warnings:\n{{warnings}}\n---\n"
+started = "repeating PID={{id}} every {{interval}}s · stop on non-zero exit{{tag}}"

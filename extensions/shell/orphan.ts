@@ -3,12 +3,15 @@ import {
   ResumeClient,
   readCompletedRecords,
   readResumeRecords,
-  removeCompletedRecord,
   removeResumeRecord,
   writeCompletedRecord,
   type CompletedRecord,
   type ResumeRecord,
 } from "./monitor.ts";
+import {
+  completionDeliveryId,
+  pendingCompletedRecords,
+} from "./completion-delivery.ts";
 import { NOTIFICATION_TYPE } from "../lib/notification.ts";
 import { queueMessage } from "../lib/prepend-message.ts";
 
@@ -89,6 +92,7 @@ export function notifyOrphanedShells(
         summary,
         payload: { shells: orphans },
       },
+      sessionId: scope,
       deliverAs: "beforeUser",
     });
   });
@@ -106,33 +110,53 @@ export function formatCompletedSummary(recs: CompletedRecord[]): string {
 export async function surfaceCompletedShells(
   sessionDir: string | undefined,
   scope: string | undefined,
+  sessionFile: string | undefined = undefined,
 ): Promise<void> {
   if (!sessionDir || !scope) return;
   for (const record of await readResumeRecords(sessionDir, scope)) {
     try {
       const target = await readTarget(record.sockPath);
       if (!target.completed) continue;
-      await writeCompletedRecord(sessionDir, scope, record.pid, {
-        pid: record.pid,
-        command: record.cmd,
-        exitCode: target.exitCode ?? -1,
-        logPath: target.logPath,
-        completedAt: Date.now(),
-      });
-      await removeResumeRecord(sessionDir, scope, record.pid);
+      if (
+        !(await readCompletedRecords(sessionDir, scope)).some(
+          (r) => r.pid === record.pid,
+        )
+      ) {
+        await writeCompletedRecord(sessionDir, scope, record.pid, {
+          pid: record.pid,
+          command: record.cmd,
+          exitCode: target.exitCode ?? -1,
+          logPath: target.logPath,
+          completedAt: Date.now(),
+        });
+      }
+      if (
+        (await readCompletedRecords(sessionDir, scope)).some(
+          (r) => r.pid === record.pid,
+        )
+      ) {
+        await removeResumeRecord(sessionDir, scope, record.pid);
+      }
     } catch {}
   }
-  const recs = await readCompletedRecords(sessionDir, scope);
-  if (recs.length === 0) return;
-  const summary = formatCompletedSummary(recs);
-  queueMessage({
-    customType: NOTIFICATION_TYPE,
-    content: summary,
-    display: true,
-    details: { kind: "completed-shells", summary, payload: { shells: recs } },
-    deliverAs: "beforeUser",
-  });
-  await Promise.all(
-    recs.map((r) => removeCompletedRecord(sessionDir, scope, r.pid)),
-  );
+  for (const record of await pendingCompletedRecords(
+    sessionDir,
+    scope,
+    sessionFile,
+  )) {
+    const summary = formatCompletedSummary([record]);
+    queueMessage({
+      customType: NOTIFICATION_TYPE,
+      content: summary,
+      display: true,
+      details: {
+        kind: "completed-shells",
+        summary,
+        payload: { shells: [record] },
+      },
+      sessionId: scope,
+      deliveryId: completionDeliveryId(scope, record),
+      deliverAs: "beforeUser",
+    });
+  }
 }

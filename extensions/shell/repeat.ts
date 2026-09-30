@@ -1,35 +1,22 @@
 import { randomUUID } from "node:crypto";
-/**
- * Repeat-until monitor engine and tool factory.
- *
- * Each monitor appends every invocation to a single log file. Invocations are
- * separated by header/footer blocks so the agent can locate a failed run by
- * line range.
- */
-
 import { launchMonitor } from "./monitor.ts";
 import { record_shell_shutdown } from "./shutdown.ts";
 import { createWriteStream } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Type } from "typebox";
-import { renderRepeatCall, renderRepeatResult } from "./repeat-render.ts";
-import {
-  getShuckBinPath,
-  buildShellEnvWithDotenv,
-  type ToolAvailability,
-} from "./tools.ts";
 import { resolveShell, type ShellProfile } from "./profile.ts";
-import { analyzeCommand, unsupportedDialectMessage } from "./analyze.ts";
 import type { RepeatMonitor } from "./background-types.ts";
+import type {
+  ExtensionAPI,
+  ExtensionContext,
+} from "@earendil-works/pi-coding-agent";
 import {
-  loadText,
-  render,
-  renderLines,
-  textPath,
-  type ToolText,
-} from "../lib/text.ts";
-import { getCwd } from "../lib/cwd.ts";
+  recordRepeatStart,
+  recordRepeatTerminal,
+  resumeRepeatMonitors,
+} from "./repeat-persistence.ts";
+export { createRepeatTool } from "./repeat-tool.ts";
+export { getRepeatHistory } from "./repeat-persistence.ts";
 import {
   beginActivity,
   updateActivity,
@@ -52,7 +39,6 @@ export type RepeatCompletionHook = (
 
 interface RepeatState {
   monitors: Map<string, RepeatMonitor>;
-  counter: number;
   hook?: RepeatCompletionHook;
   getScope: () => string | undefined;
 }
@@ -61,7 +47,6 @@ const shared = globalThis as typeof globalThis & {
 };
 const state: RepeatState = (shared.__cpiRepeatState ??= {
   monitors: new Map(),
-  counter: 0,
   getScope: () => undefined,
 });
 const rpt = state.monitors;
@@ -90,6 +75,14 @@ function writeLogBuffer(mon: RepeatMonitor, chunk: Buffer): void {
   updateActivity(`monitor:${mon.logPath}`, {
     metrics: { output_bytes: mon.outputBytes, last_output_at: Date.now() },
   });
+}
+
+export async function resumeRepeats(
+  pi: ExtensionAPI,
+  ctx: ExtensionContext,
+  notify = true,
+): Promise<void> {
+  await resumeRepeatMonitors(pi, ctx, rpt, notify);
 }
 
 function stopRepeat(mon: RepeatMonitor): void {
@@ -122,6 +115,7 @@ function finalize(
     scheduleNext(mon);
     return;
   }
+  recordRepeatTerminal(mon, outcome, code);
   mon.running = false;
   clearTimeout(mon.timeout);
   mon.logStream.end();
@@ -226,8 +220,12 @@ export function startRepeat(
   describe?: string,
   shell: ShellProfile = resolveShell("bash"),
   cwd: string = process.cwd(),
+  env_file?: string,
 ): string {
-  const id = `rpt-${++state.counter}`;
+  if (rpt.size >= 256) throw new Error("Repeat monitor limit exceeded");
+  if (!Number.isFinite(intervalSec) || intervalSec < 5 || intervalSec > 60)
+    throw new Error("Invalid repeat interval");
+  const id = `rpt-${randomUUID()}`;
   const logPath = join(tmpdir(), `pi-rpt-output-${id}-${Date.now()}.log`);
   const logStream = createWriteStream(logPath, { flags: "a" });
   const mon: RepeatMonitor = {
@@ -248,6 +246,12 @@ export function startRepeat(
     invocation: 0,
     startLine: 1,
   };
+  try {
+    recordRepeatStart(mon, env_file);
+  } catch (error) {
+    logStream.end();
+    throw error;
+  }
   rpt.set(id, mon);
   beginActivity({
     id: `monitor:${logPath}`,
@@ -268,6 +272,7 @@ export function startRepeat(
 export function signalRepeat(id: string, signal: string): boolean {
   const mon = rpt.get(id);
   if (!mon || mon.sessScope !== state.getScope()) return false;
+  recordRepeatTerminal(mon, "stopped");
   mon.stopSignal = signal;
   stopRepeat(mon);
   if (mon.client && mon.pid > 0) {
@@ -297,128 +302,15 @@ export const getActiveRepeats = () =>
 export function killAllRepeats(): void {
   for (const mon of rpt.values()) {
     if (mon.sessScope !== state.getScope()) continue;
-    record_shell_shutdown(mon.env.PI_SESSION_DIR, mon.sessScope, {
-      id: mon.id,
-      command: mon.command,
-      describe: mon.describe,
-      log_path: mon.logPath,
-      kind: "repeat",
-    });
+    if (!recordRepeatTerminal(mon, "shutdown"))
+      record_shell_shutdown(mon.env.PI_SESSION_DIR, mon.sessScope, {
+        id: mon.id,
+        command: mon.command,
+        describe: mon.describe,
+        log_path: mon.logPath,
+        kind: "repeat",
+      });
     stopRepeat(mon);
     rpt.delete(mon.id);
   }
-}
-
-// ── Tool factory ───────────────────────────────────────────────────────────────
-
-export function createRepeatTool(
-  DESCRIBE_MAX: number,
-  availability: ToolAvailability,
-  shell: ShellProfile = resolveShell("bash"),
-) {
-  const truncateDescribe = (t: string) =>
-    t.length <= DESCRIBE_MAX ? t : t.slice(0, DESCRIBE_MAX - 1) + "…";
-  const T = loadText<ToolText>("sh-repeat", textPath("sh-repeat"));
-  const guidelines = renderLines(T.guidelines.bullets, {
-    shell_invocation: shell.invocation,
-    shell_name: shell.displayName,
-  });
-  const schema = Type.Object({
-    command: Type.String({ description: T.schema!.command }),
-    interval: Type.Number({
-      minimum: 5,
-      maximum: 60,
-      description: T.schema!.interval,
-    }),
-    description: Type.String({
-      minLength: 1,
-      pattern: "\\S",
-      description: T.schema!.description,
-    }),
-    env: Type.Optional(Type.String({ description: T.schema!.env })),
-  });
-
-  return {
-    name: "sh_repeat_until",
-    label: "sh_repeat_until",
-    description: render(T.tool.description, {
-      shell_invocation: shell.invocation,
-      shell_name: shell.displayName,
-    }),
-    promptSnippet: T.tool.prompt_snippet,
-    promptGuidelines: guidelines,
-    parameters: schema,
-    renderShell: "self" as const,
-    async execute(
-      _toolCallId: string,
-      params: any,
-      _signal: AbortSignal | undefined,
-      _onUpdate: any,
-      ctx: any,
-    ) {
-      const interval = params.interval;
-      const description = params.description?.trim();
-      const blocked = (
-        reason: string,
-        details: Record<string, unknown> = {},
-        text = reason,
-      ) => ({
-        content: [{ type: "text" as const, text }],
-        details: { describe: description, blocked: reason, ...details },
-        isError: true,
-      });
-      if (interval < 5 || interval > 60)
-        return blocked(`interval must be 5-60s (got ${interval}).`);
-
-      const shuckPath = availability.shuck ? getShuckBinPath() : null;
-      const analysis = await analyzeCommand({
-        command: params.command,
-        shell,
-        availability,
-        shuckPath,
-      });
-      if (analysis.status === "unsupported-dialect")
-        return blocked(unsupportedDialectMessage(analysis.unsupported!));
-      const { parse } = analysis;
-      if (analysis.errorText) {
-        const count = analysis.errorCount;
-        return blocked(
-          analysis.errorText,
-          { shuckBlocked: true, tsAst: parse.ast },
-          `${analysis.errorText}\n---\nblocked (${count} error${count !== 1 ? "s" : ""})`,
-        );
-      }
-      const shuckWarnings = analysis.warningText || undefined;
-      const warningPrefix = shuckWarnings
-        ? `linter warnings:\n${shuckWarnings}\n---\n`
-        : "";
-
-      const id = startRepeat(
-        params.command,
-        interval,
-        buildShellEnvWithDotenv(ctx?.sessionManager, params.env),
-        description,
-        shell,
-        getCwd(),
-      );
-      const status = `repeating PID=${id} every ${interval}s · stop on non-zero exit`;
-      const tag = description ? ` (${truncateDescribe(description)})` : "";
-      return {
-        content: [
-          { type: "text" as const, text: `${warningPrefix}${status}${tag}` },
-        ],
-        details: {
-          id,
-          status: "repeating",
-          interval,
-          description,
-          shuckWarnings,
-          tsAst: parse.ast,
-        },
-        isError: false,
-      };
-    },
-    renderCall: renderRepeatCall,
-    renderResult: renderRepeatResult,
-  };
 }

@@ -24,6 +24,8 @@ export interface QueuedMessage {
   content: string;
   display?: boolean;
   details?: unknown;
+  sessionId?: string;
+  deliveryId?: string;
 }
 
 export interface QueueMessageOptions extends QueuedMessage {
@@ -81,11 +83,17 @@ function deliver(
   deliverAs: PrependDeliverAs,
   triggerTurn: boolean,
 ): void {
+  const details = m.deliveryId
+    ? {
+        ...(m.details && typeof m.details === "object" ? m.details : {}),
+        deliveryId: m.deliveryId,
+      }
+    : m.details;
   const message = {
     customType: m.customType,
     content: m.content,
     display: m.display ?? true,
-    details: m.details,
+    details,
   };
   if (deliverAs === "afterToolResult") {
     // Steer: lands after the current tool batch, before the next LLM call.
@@ -95,13 +103,46 @@ function deliver(
   }
 }
 
-export function drainBeforeUser(pi: ExtensionAPI): void {
-  const items = queue(Q_BEFORE_USER).splice(0);
+function takePending(
+  ctx: ExtensionContext | undefined,
+  key: string,
+): QueuedMessage[] {
+  const pending = queue(key);
+  const items: QueuedMessage[] = [];
+  for (let i = pending.length - 1; i >= 0; i--) {
+    const m = pending[i];
+    if (
+      m.sessionId !== undefined &&
+      (!ctx || m.sessionId !== ctx.sessionManager.getSessionId())
+    )
+      continue;
+    pending.splice(i, 1);
+    items.unshift(m);
+  }
+  return items.filter((m) => {
+    if (!m.deliveryId || !ctx) return true;
+    return !ctx.sessionManager
+      .getEntries()
+      .some(
+        (entry) =>
+          entry.type === "custom_message" &&
+          entry.customType === m.customType &&
+          (entry.details as { deliveryId?: string } | undefined)?.deliveryId ===
+            m.deliveryId,
+      );
+  });
+}
+
+export function drainBeforeUser(
+  pi: ExtensionAPI,
+  ctx?: ExtensionContext,
+): void {
+  const items = takePending(ctx, Q_BEFORE_USER);
   for (const m of items) deliver(pi, m, "beforeUser", false);
 }
 
-export function drainAfterTool(pi: ExtensionAPI): void {
-  const items = queue(Q_AFTER_TOOL).splice(0);
+export function drainAfterTool(pi: ExtensionAPI, ctx?: ExtensionContext): void {
+  const items = takePending(ctx, Q_AFTER_TOOL);
   if (items.length === 0) return;
   const last = items.length - 1;
   items.forEach((m, i) => deliver(pi, m, "afterToolResult", i === last));
@@ -114,9 +155,23 @@ export function queueMessage(options: QueueMessageOptions): void {
     content: options.content,
     display: options.display,
     details: options.details,
+    sessionId: options.sessionId,
+    deliveryId: options.deliveryId,
   };
-  if (deliverAs === "afterToolResult") queue(Q_AFTER_TOOL).push(m);
-  else queue(Q_BEFORE_USER).push(m);
+  const pending = queue(
+    deliverAs === "afterToolResult" ? Q_AFTER_TOOL : Q_BEFORE_USER,
+  );
+  if (
+    m.deliveryId &&
+    pending.some(
+      (item) =>
+        item.customType === m.customType &&
+        item.sessionId === m.sessionId &&
+        item.deliveryId === m.deliveryId,
+    )
+  )
+    return;
+  pending.push(m);
 }
 
 export function discardQueuedMessages(customType: string): void {

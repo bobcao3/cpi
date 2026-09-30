@@ -82,7 +82,7 @@ const CWD_STATE_ENTRY = "cwd-state";
 const ALARM_TOOL = "alarm";
 const ENV_TOOLS = new Set(["sh", "sh_repeat_until", "lsp"]);
 const LIVE = new Set(["running", "stopping"]);
-const RPT_LOG = /pi-rpt-output-(rpt-\d+)-/;
+const RPT_LOG = /pi-rpt-output-(rpt-(?:\d+|[a-f0-9-]{36}))-/;
 
 function branchOf(ctx: ExtensionContext) {
   const branch = ctx.sessionManager.getBranch();

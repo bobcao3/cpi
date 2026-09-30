@@ -298,7 +298,7 @@ export default function(pi) {
 pi.on("session_start", (_, ctx) => setupStatusReports(ctx));
 pi.on("session_shutdown", () => disposeStatusReports());
 pi.on("turn_start", (event, ctx) => statusReportTurnStarted(event, ctx));
-pi.on("turn_end", (event, ctx) => statusReportTurnEnded(event, ctx));
+pi.on("turn_end", (event, ctx) => statusReportTurnEnded(pi, event, ctx));
 }`,
   );
   const services = await createAgentSessionServices({

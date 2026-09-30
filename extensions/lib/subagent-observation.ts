@@ -8,6 +8,7 @@ import {
 } from "./activity.ts";
 import { createMarkdownWriter } from "./subagent-markdown.ts";
 import { reserveTranscript } from "./subagent-artifacts.ts";
+import { captureSubagentUsageReporter } from "./cost-ledger.ts";
 import {
   assertSubagentEvent,
   type SubagentRunEvent,
@@ -34,9 +35,11 @@ export class SubagentObservation {
   private releaseTranscript: () => void;
   private writer: ReturnType<typeof createMarkdownWriter>;
   private request: SubagentWorkerRequest;
+  private reportUsage = captureSubagentUsageReporter();
 
   constructor(request: SubagentWorkerRequest) {
     this.request = request;
+    this.reportUsage(request.runId, { input: 0, output: 0, cost: 0 });
     const directory = join(
       request.env.PI_SESSION_DIR || join(getAgentDir(), "sessions"),
       "subagent-transcripts",
@@ -113,6 +116,7 @@ export class SubagentObservation {
         )
           throw new Error("subagent cumulative usage decreased");
         this.result.usage = message.usage;
+        this.reportUsage(this.request.runId, message.usage);
         this.turns = message.turns;
         updateActivity(this.request.runId, {
           metrics: {
