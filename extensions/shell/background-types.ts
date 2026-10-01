@@ -29,7 +29,13 @@ export type CompletionHook = (
   cmd: string,
   code: number | null,
   reason: "completed" | "stopped" | "breach",
-  log?: { path: string; startLine?: number; endLine?: number },
+  log?: {
+    path: string;
+    startLine?: number;
+    endLine?: number;
+    activityId?: string;
+    scope?: string;
+  },
 ) => void;
 export interface RepeatMonitor {
   id: string;

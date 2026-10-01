@@ -1,17 +1,23 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { promisify } from "node:util";
+import { fileURLToPath } from "node:url";
 import { hostCodingAgent, piExecutableOnPath } from "../bin/host-pi.mjs";
 import {
-  readCompletedRecords,
-  writeCompletedRecord,
-} from "../extensions/shell/monitor.ts";
+  SHELL_ENTRY,
+  restoreShellActivities,
+  type ShellRecord,
+} from "../extensions/shell/persistence.ts";
+import { listActivities } from "../extensions/lib/activity.ts";
 
 const execute = promisify(execFile);
 const [directory, phase] = process.argv.slice(2);
+const filename = fileURLToPath(import.meta.url);
+const directoryName = dirname(filename);
 process.env.CPI_PI_HOST_ENTRY ??= piExecutableOnPath();
 const host = await hostCodingAgent();
 const notices = (manager: any) =>
@@ -22,6 +28,22 @@ const notices = (manager: any) =>
         entry.type === "custom_message" &&
         entry.details?.kind === "completed-shells",
     );
+const lifecycleRecords = (manager: any): ShellRecord[] =>
+  manager
+    .getEntries()
+    .filter(
+      (entry: any) =>
+        entry.type === "custom" && entry.customType === SHELL_ENTRY,
+    )
+    .map((entry: any) => entry.data as ShellRecord);
+const latestLifecycleRecord = (manager: any, id: string) =>
+  lifecycleRecords(manager).reduce<ShellRecord | undefined>(
+    (latest, record) =>
+      record.id === id && (!latest || record.updatedAt >= latest.updatedAt)
+        ? record
+        : latest,
+    undefined,
+  );
 
 async function open(manager: any) {
   const settings = host.SettingsManager.inMemory({
@@ -38,7 +60,7 @@ async function open(manager: any) {
     noThemes: true,
     noContextFiles: true,
     additionalExtensionPaths: [
-      join(import.meta.dir, "shell/completion-delivery.extension.ts"),
+      join(directoryName, "shell/completion-delivery.extension.ts"),
     ],
   });
   await loader.reload();
@@ -64,11 +86,12 @@ async function open(manager: any) {
 if (!phase) {
   const work = await mkdtemp(join(tmpdir(), "cpi-completion-delivery-"));
   try {
-    for (const step of ["queue", "resume", "ack", "replay"]) {
-      await execute(process.execPath, [import.meta.filename, work, step], {
-        env: process.env,
-        timeout: 30000,
-      });
+    for (const step of ["queue", "resume", "ack", "replay", "active-ack"]) {
+      await execute(
+        process.execPath,
+        [...process.execArgv, filename, work, step],
+        { env: process.env, timeout: 30000 },
+      );
     }
     console.log(
       "Completed-shell delivery survived restart, isolated sessions and forks, and suppressed acknowledged replay",
@@ -85,37 +108,69 @@ if (!phase) {
   const manager = metadata
     ? host.SessionManager.open(metadata.file)
     : host.SessionManager.create(directory, join(directory, "sessions"));
-  const record = metadata?.record ?? {
+  const sessionDir = manager.getSessionDir();
+  const scope = manager.getSessionId();
+  const record: ShellRecord = metadata?.record ?? {
+    version: 1,
+    id: randomUUID(),
+    scope,
+    statePath: join(directory, "shell.state"),
     pid: "completed-target",
     command: "exit 7",
     exitCode: 7,
     logPath: join(directory, "shell.log"),
-    completedAt: Date.now(),
+    startedAt: Date.now() - 10000,
+    endedAt: Date.now() - 9000,
+    updatedAt: Date.now() - 9000,
+    status: "failed",
   };
-  const sessionDir = manager.getSessionDir();
-  const scope = manager.getSessionId();
   if (phase === "queue") {
     manager.appendMessage({
       role: "user",
       content: "Background work",
       timestamp: Date.now(),
     });
-    await writeCompletedRecord(sessionDir, scope, record.pid, record);
+    manager.appendCustomEntry(SHELL_ENTRY, record);
     await writeFile(
       metadataPath,
       JSON.stringify({ file: manager.getSessionFile(), record }),
     );
   }
-  if (phase === "replay")
-    await writeCompletedRecord(sessionDir, scope, record.pid, record);
+  if (phase === "replay") manager.appendCustomEntry(SHELL_ENTRY, { ...record });
+  const activeRecord = { ...record, id: randomUUID(), updatedAt: Date.now() };
+  if (phase === "active-ack") {
+    manager.appendCustomEntry(SHELL_ENTRY, activeRecord);
+    manager.appendCustomMessageEntry(
+      "notification",
+      "Delivered active shell",
+      true,
+      {
+        kind: "shell-failed",
+        summary: "Delivered active shell",
+        payload: { "shell-id": record.pid, "exit-code": record.exitCode },
+        deliveryId: JSON.stringify([scope, activeRecord.id]),
+      },
+    );
+  }
   const session = await open(manager);
   try {
-    if (phase === "queue") {
+    if (phase === "active-ack") {
+      await session.prompt("/deliver-completions");
+      assert.equal(
+        notices(manager).length,
+        1,
+        "A persisted active completion must not become a second away notification",
+      );
+      assert.equal(
+        typeof latestLifecycleRecord(manager, activeRecord.id)?.acknowledgedAt,
+        "number",
+      );
+    } else if (phase === "queue") {
       assert.equal(notices(manager).length, 0);
       assert.equal(
-        (await readCompletedRecords(sessionDir, scope)).length,
-        1,
-        "Startup must retain an undelivered completion for restart",
+        latestLifecycleRecord(manager, record.id)?.acknowledgedAt,
+        undefined,
+        "Startup must retain an unacknowledged completion for restart",
       );
     } else if (phase === "resume") {
       await session.prompt("/queue-completions");
@@ -171,11 +226,17 @@ if (!phase) {
         "An acknowledged completion must not be redelivered",
       );
       assert.equal(
-        (await readCompletedRecords(sessionDir, scope)).length,
-        0,
-        "Only the persisted transcript may acknowledge completion records",
+        typeof latestLifecycleRecord(manager, record.id)?.acknowledgedAt,
+        "number",
+        "Acknowledgement must be persisted as a lifecycle entry",
       );
     }
+    restoreShellActivities(scope);
+    assert.equal(
+      listActivities(scope).find((entry) => entry.id === record.id)?.ended_at,
+      record.endedAt,
+      "Acknowledgement must not extend a completed shell's duration",
+    );
   } finally {
     session.dispose();
   }

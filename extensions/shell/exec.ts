@@ -28,12 +28,12 @@ import {
   setRepeatScopeGetter,
   signalRepeat,
 } from "./repeat.ts";
+import { launchMonitor, type MonitorClient } from "./monitor.ts";
 import {
-  launchMonitor,
-  type MonitorClient,
-  writeResumeRecord,
-  removeResumeRecord,
-} from "./monitor.ts";
+  recordShellStart,
+  recordShellEnd,
+  updateShellRecord,
+} from "./persistence.ts";
 import {
   shellState,
   completeBackground,
@@ -83,7 +83,7 @@ export async function runShell(
       exitCode: -1,
       text: "Aborted before start.",
     };
-  const pathId = randomUUID();
+  const activityId = randomUUID();
   const sessDir = env.PI_SESSION_DIR;
   const sessScope = env.PI_SESSION_ID;
   let handle: Awaited<ReturnType<typeof launchMonitor>>;
@@ -91,7 +91,7 @@ export async function runShell(
     handle = await launchMonitor(
       command,
       env,
-      pathId,
+      activityId,
       shell,
       cwd,
       isPty,
@@ -128,7 +128,7 @@ export async function runShell(
   let lastUpd = 0;
   const entry: BackgroundChild = {
     id,
-    activityId: `shell:${logPath}`,
+    activityId,
     startedAt: Date.now(),
     pid,
     command,
@@ -147,6 +147,19 @@ export async function runShell(
     colBytes: 0,
   };
   observeShell(entry, cwd);
+  try {
+    recordShellStart(entry, cwd);
+  } catch (e) {
+    finishActivity(entry.activityId, "failed");
+    await client.reap();
+    client.close();
+    return {
+      id: null,
+      status: "completed",
+      exitCode: -1,
+      text: `ghostmux persistence start failed: ${(e as Error).message}`,
+    };
+  }
 
   let exitResolve!: () => void;
   const exitP = new Promise<void>((resolve) => {
@@ -188,6 +201,7 @@ export async function runShell(
   } catch (e) {
     if (!entry.done) {
       finishActivity(entry.activityId, "failed", { connection_lost: 1 });
+      recordShellEnd(entry, "lost", -1, true);
       await client.reap().catch(() => {});
       client.close();
       return {
@@ -248,23 +262,6 @@ export async function runShell(
   }
   // still running → background it; the subscribe callback stays live for completion
   bg.set(id, entry);
-  if (sessDir && sessScope)
-    void client
-      .bindResume()
-      .then((sp) => {
-        if (sp && bg.has(id))
-          void writeResumeRecord(
-            sessDir,
-            sessScope,
-            id,
-            sp,
-            command,
-            logPath,
-            describe,
-            shell.dialect ?? undefined,
-          );
-      })
-      .catch(() => {});
   const { text } = await buildOutputText(entry.acc, {
     logPath,
     truncation,
@@ -297,6 +294,9 @@ export function signalChild(id: string, sig: string): boolean {
     updateActivity(e.activityId, { status: "stopping" });
   }
   e.client.sendSignal(sig);
+  if (e.cancelRequested) {
+    updateShellRecord(e.activityId, { cancelRequested: true });
+  }
   return true;
 }
 
@@ -304,6 +304,7 @@ export const silenceChild = (id: string): boolean => {
   const e = bg.get(id);
   if (!e || e.done || e.sessScope !== shellState.scope) return false;
   e.signaled = true;
+  updateShellRecord(e.activityId, { noticeSuppressed: true });
   return true;
 };
 
@@ -318,8 +319,7 @@ export const detachChild = (id: string): string | null => {
   if (!e || e.done || e.sessScope !== shellState.scope) return null;
   e.signaled = true; // suppress any in-flight completion hook
   finishActivity(e.activityId, "detached");
-  if (e.sessDir && e.sessScope)
-    void removeResumeRecord(e.sessDir, e.sessScope, id);
+  recordShellEnd(e, "detached", undefined, true);
   e.client.orphan();
   bg.delete(id);
   return e.logPath;

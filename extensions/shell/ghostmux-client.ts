@@ -232,7 +232,7 @@ export async function reapLaunch(
 export async function launchMonitor(
   command: string,
   env: NodeJS.ProcessEnv,
-  pathId: string,
+  shellId: string,
   shell: ShellProfile = resolveShell("bash"),
   cwd = process.cwd(),
   isPty = false,
@@ -242,7 +242,7 @@ export async function launchMonitor(
   const binaryPath = await resolveGhostmuxBinary();
   signal?.throwIfAborted();
   const directory = await ensureTargetDirectory();
-  const uid = `sh-${pathId}`;
+  const uid = `sh-${shellId}`;
   if (!/^[a-zA-Z0-9_.-]{1,128}$/.test(uid))
     throw new Error("Invalid ghostmux shell UID");
   const statePath = join(directory, `${uid}.json`);

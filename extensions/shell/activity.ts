@@ -20,7 +20,7 @@ export function observeShell(
   beginActivity({
     id: entry.activityId,
     kind: "shell",
-    status: "running",
+    status: entry.cancelRequested ? "stopping" : "running",
     session_id: entry.sessScope,
     label: entry.describe || entry.command,
     command: entry.command,

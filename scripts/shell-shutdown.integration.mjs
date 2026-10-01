@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { promisify } from "node:util";
@@ -29,6 +29,21 @@ const notifications = (session) =>
         message.type === "custom_message" &&
         message.details?.kind === "interrupted-shells",
     );
+const shellRecords = (manager) =>
+  manager
+    .getEntries()
+    .filter((entry) => entry.customType === "cpi-shell")
+    .map((entry) => entry.data)
+    .filter(Boolean);
+const latestShellRecords = (manager) => {
+  const latest = new Map();
+  for (const record of shellRecords(manager)) {
+    const previous = latest.get(record.id);
+    if (!previous || record.updatedAt >= previous.updatedAt)
+      latest.set(record.id, record);
+  }
+  return [...latest.values()];
+};
 
 if (!phase) {
   const work = await mkdtemp(join(tmpdir(), "cpi-shell-shutdown-"));
@@ -49,16 +64,7 @@ if (!phase) {
         env,
         timeout: 30000,
       });
-      const metadata = JSON.parse(
-        await readFile(join(scenario, "metadata.json"), "utf8"),
-      );
-      for (const record of metadata.shutdown_records ?? []) {
-        await writeFile(
-          join(metadata.shutdown_directory, record.file),
-          record.data,
-        );
-      }
-      await execute(process.execPath, [script, root, scenario, "resume"], {
+      await execute(process.execPath, [script, root, scenario, "replay"], {
         env,
         timeout: 30000,
       });
@@ -103,10 +109,10 @@ if (!phase) {
   });
   await loader.reload();
   assert.deepEqual(loader.getExtensions().errors, []);
-  const metadata =
-    phase === "resume"
-      ? JSON.parse(await readFile(join(directory, "metadata.json"), "utf8"))
-      : undefined;
+  const restoring = phase === "resume" || phase === "replay";
+  const metadata = restoring
+    ? JSON.parse(await readFile(join(directory, "metadata.json"), "utf8"))
+    : undefined;
   const manager = metadata
     ? host.SessionManager.open(
         metadata.session_file,
@@ -119,6 +125,10 @@ if (!phase) {
       content: "Run background work",
       timestamp: Date.now(),
     });
+  if (phase === "replay") {
+    for (const record of metadata.shutdown_records)
+      manager.appendCustomEntry("cpi-shell", { ...record });
+  }
   const { session } = await host.createAgentSession({
     cwd: directory,
     agentDir: directory,
@@ -135,7 +145,7 @@ if (!phase) {
   });
   assert.equal(session.extensionRunner.hasUI(), true);
   try {
-    if (phase === "resume") {
+    if (restoring) {
       const notices = notifications(session);
       assert.equal(notices.length, 2);
       assert.deepEqual(
@@ -156,9 +166,17 @@ if (!phase) {
           return text.includes('<notification type="interrupted-shells">');
         });
       assert.equal(notificationUsers.length, 2);
+      const shellNotices = notices.filter(
+        (message) => message.details.payload.kind === "shell",
+      );
+      assert.equal(shellNotices.length, 1);
       assert.equal(
-        notices.filter((message) => message.details.shutdown_record).length,
-        1,
+        shellNotices[0].details.shutdown_record,
+        metadata.shutdown_records[0].id,
+      );
+      assert.equal(
+        shellNotices[0].details.payload.activityId,
+        metadata.shutdown_records[0].id,
       );
       assert(
         notices.every(
@@ -183,19 +201,13 @@ if (!phase) {
         ).length,
         2,
       );
-      assert.equal(
-        (
-          await readdir(
-            join(
-              manager.getSessionDir(),
-              "sh-mon",
-              manager.getSessionId(),
-              "shutdown",
-            ),
-          )
-        ).length,
-        0,
-      );
+      for (const record of metadata.shutdown_records) {
+        const latest = latestShellRecords(manager).find(
+          (candidate) => candidate.id === record.id,
+        );
+        assert.equal(latest?.status, "shutdown");
+        assert.equal(typeof latest?.acknowledgedAt, "number");
+      }
     } else {
       const run = (name, command) =>
         session._toolRegistry
@@ -208,6 +220,12 @@ if (!phase) {
       await session._toolRegistry
         .get("sh_detach")
         .execute("detach", { id: detached.details.id });
+      const detachedRecord = latestShellRecords(manager).find(
+        (record) => record.pid === detached.details.id,
+      );
+      assert.notEqual(detachedRecord?.id, detached.details.id);
+      assert.equal(detachedRecord?.status, "detached");
+      assert.equal(typeof detachedRecord?.acknowledgedAt, "number");
       const completed = await session._toolRegistry
         .get("sh")
         .execute("completed", {
@@ -216,6 +234,12 @@ if (!phase) {
           waitfor: 2,
         });
       assert.equal(completed.details.status, "completed");
+      const completedRecord = latestShellRecords(manager).find(
+        (record) => record.pid === completed.details.id,
+      );
+      assert.notEqual(completedRecord?.id, completed.details.id);
+      assert.equal(completedRecord?.status, "completed");
+      assert.equal(typeof completedRecord?.acknowledgedAt, "number");
       const active = await run(
         "interrupted shell",
         shellCommand(
@@ -223,6 +247,11 @@ if (!phase) {
           "Write-Output pending; Start-Sleep -Seconds 60",
         ),
       );
+      const activeRecord = latestShellRecords(manager).find(
+        (record) => record.pid === active.details.id,
+      );
+      assert.notEqual(activeRecord?.id, active.details.id);
+      assert.equal(activeRecord?.status, "running");
       const repeated = await session._toolRegistry
         .get("sh_repeat_until")
         .execute("repeat", {
@@ -248,7 +277,6 @@ if (!phase) {
         );
       const record = {
         session_file: manager.getSessionFile(),
-        interrupted: [active.details.id, repeated.details.id],
         socket: active.details.socketPath,
         binary: process.env.GHOSTMUX_BIN,
       };
@@ -256,7 +284,6 @@ if (!phase) {
         const { resolveGhostmux } = await import("../bin/ghostmux-resolve.mjs");
         record.binary = await resolveGhostmux();
       }
-      await writeFile(join(directory, "metadata.json"), JSON.stringify(record));
       if (phase === "reload") {
         await session.reload();
         assert.equal(notifications(session).length, 0);
@@ -268,31 +295,6 @@ if (!phase) {
           reason: "quit",
         });
         assert.equal(notifications(session).length, 0);
-        const files = await readdir(
-          join(
-            manager.getSessionDir(),
-            "sh-mon",
-            manager.getSessionId(),
-            "shutdown",
-          ),
-        );
-        assert.equal(files.filter((file) => file.endsWith(".json")).length, 1);
-        record.shutdown_directory = join(
-          manager.getSessionDir(),
-          "sh-mon",
-          manager.getSessionId(),
-          "shutdown",
-        );
-        record.shutdown_records = await Promise.all(
-          files.map(async (file) => ({
-            file,
-            data: await readFile(join(record.shutdown_directory, file), "utf8"),
-          })),
-        );
-        await writeFile(
-          join(directory, "metadata.json"),
-          JSON.stringify(record),
-        );
       }
       const listed = await list();
       if (phase === "reload") {
@@ -321,7 +323,7 @@ if (!phase) {
         assert(
           native.sessions.some((entry) => entry.uid === active.details.uid),
         );
-      } else
+      } else {
         await until(async () => {
           const { stdout } = await execute(record.binary, [
             "-S",
@@ -333,6 +335,25 @@ if (!phase) {
             (entry) => entry.uid === active.details.uid,
           );
         });
+      }
+      if (phase === "reload") {
+        await session.extensionRunner.emit({
+          type: "session_shutdown",
+          reason: "quit",
+        });
+        assert.equal(notifications(session).length, 0);
+      }
+      const shutdownRecords = latestShellRecords(manager).filter(
+        (entry) =>
+          entry.pid === active.details.id &&
+          entry.status === "shutdown" &&
+          entry.acknowledgedAt === undefined,
+      );
+      assert.equal(shutdownRecords.length, 1);
+      assert.equal(shutdownRecords[0].scope, manager.getSessionId());
+      record.shutdown_records = shutdownRecords;
+      record.interrupted = [active.details.id, repeated.details.id];
+      await writeFile(join(directory, "metadata.json"), JSON.stringify(record));
     }
     assert.deepEqual(errors, []);
   } finally {

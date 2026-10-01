@@ -1,17 +1,17 @@
 import { readTarget } from "./ghostmux.ts";
-import {
-  ResumeClient,
-  readCompletedRecords,
-  readResumeRecords,
-  removeResumeRecord,
-  writeCompletedRecord,
-  type CompletedRecord,
-  type ResumeRecord,
-} from "./monitor.ts";
+import { ResumeClient } from "./monitor.ts";
 import {
   completionDeliveryId,
   pendingCompletedRecords,
 } from "./completion-delivery.ts";
+import {
+  readResumeRecords,
+  writeCompletedRecord,
+  type CompletedRecord,
+  type ResumeRecord,
+  shellRecords,
+  shellTarget,
+} from "./persistence.ts";
 import { NOTIFICATION_TYPE } from "../lib/notification.ts";
 import { queueMessage } from "../lib/prepend-message.ts";
 
@@ -41,17 +41,17 @@ async function probeAlive(sockPath: string): Promise<boolean> {
 }
 
 async function probeRecords(
-  sessionDir: string,
   records: (ResumeRecord & { sessionId: string })[],
 ): Promise<OrphanedShell[]> {
   const alive: OrphanedShell[] = [];
-  await Promise.all(
-    records.map(async (r) => {
-      if (await probeAlive(r.sockPath))
-        alive.push({ pid: r.pid, cmd: r.cmd, sessionId: r.sessionId });
-      else void removeResumeRecord(sessionDir, r.sessionId, r.pid);
-    }),
-  );
+  for (let i = 0; i < records.length; i += 16) {
+    await Promise.all(
+      records.slice(i, i + 16).map(async (r) => {
+        if (await probeAlive(r.sockPath))
+          alive.push({ pid: r.pid, cmd: r.cmd, sessionId: r.sessionId });
+      }),
+    );
+  }
   return alive;
 }
 
@@ -64,7 +64,7 @@ export async function discoverShellsForScope(
     ...r,
     sessionId: scope,
   }));
-  return probeRecords(sessionDir, records);
+  return probeRecords(records);
 }
 
 export function formatOrphanedSummary(orphans: OrphanedShell[]): string {
@@ -113,30 +113,20 @@ export async function surfaceCompletedShells(
   sessionFile: string | undefined = undefined,
 ): Promise<void> {
   if (!sessionDir || !scope) return;
-  for (const record of await readResumeRecords(sessionDir, scope)) {
+  for (const record of shellRecords(scope).filter(
+    (record) => record.status === "running",
+  )) {
     try {
-      const target = await readTarget(record.sockPath);
+      const target = await shellTarget(record);
       if (!target.completed) continue;
-      if (
-        !(await readCompletedRecords(sessionDir, scope)).some(
-          (r) => r.pid === record.pid,
-        )
-      ) {
-        await writeCompletedRecord(sessionDir, scope, record.pid, {
-          pid: record.pid,
-          command: record.cmd,
-          exitCode: target.exitCode ?? -1,
-          logPath: target.logPath,
-          completedAt: Date.now(),
-        });
-      }
-      if (
-        (await readCompletedRecords(sessionDir, scope)).some(
-          (r) => r.pid === record.pid,
-        )
-      ) {
-        await removeResumeRecord(sessionDir, scope, record.pid);
-      }
+      await writeCompletedRecord(scope, {
+        id: record.id,
+        pid: record.pid,
+        command: record.command,
+        exitCode: target.exitCode ?? -1,
+        logPath: target.logPath,
+        completedAt: Date.now(),
+      });
     } catch {}
   }
   for (const record of await pendingCompletedRecords(

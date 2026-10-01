@@ -8,6 +8,7 @@ import {
   signalChild,
   killAll,
   getShellBackgrounds,
+  resumeBackgroundShells,
 } from "../../extensions/shell/exec.ts";
 import {
   discoverShellsForScope,
@@ -17,8 +18,8 @@ import {
 import {
   readCompletedRecords,
   readResumeRecords,
-  writeResumeRecord,
-} from "../../extensions/shell/monitor.ts";
+} from "../../extensions/shell/persistence.ts";
+import { writeResumeRecord } from "./resume-record.ts";
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -65,7 +66,7 @@ const waitMarker = async (m: string): Promise<boolean> => {
   }
   return false;
 };
-const marker = (n: string) => `/tmp/pi-orphan-marker-${n}-${Date.now()}`;
+const marker = (n: string) => join(sessDir, `marker-${n}-${Date.now()}`);
 
 try {
   setCurrentScope(A);
@@ -129,6 +130,7 @@ try {
     !staleShells.some((o: { pid: string }) => o.pid === "999999"),
     "stale (dead) shell not listed",
   );
+  await resumeBackgroundShells(sessDir, "sess-c");
   ok(
     (await readResumeRecords(sessDir, "sess-c")).length === 0,
     "stale record from dead session removed silently",
@@ -137,7 +139,7 @@ try {
   setCurrentScope(B);
   const m2 = marker("b");
   const r2 = await runShell(
-    `sleep 0.5; echo done > ${m2}`,
+    `sleep 0.5; echo done > '${m2.replaceAll("\\", "/")}'`,
     0.2,
     env(A),
     undefined,
@@ -162,7 +164,7 @@ try {
   setCurrentScope(A);
   const m3 = marker("a");
   const r3 = await runShell(
-    `sleep 0.5; echo done > ${m3}`,
+    `sleep 0.5; echo done > '${m3.replaceAll("\\", "/")}'`,
     0.2,
     env(A),
     undefined,
@@ -190,8 +192,8 @@ try {
     "suppressed completion persisted a marker (id2, exit 0)",
   );
   ok(
-    !doneA.some((r) => r.pid === id3),
-    "owner-active completion wrote no marker (id3)",
+    doneA.some((r) => r.pid === id3),
+    "owner-active completion remains pending without a persisted notification (id3)",
   );
   const summary = formatCompletedSummary(doneA);
   ok(
@@ -200,8 +202,10 @@ try {
   );
   await surfaceCompletedShells(sessDir, A);
   ok(
-    (await readCompletedRecords(sessDir, A)).length === 0,
-    "surfaceCompletedShells consumed the markers (one-shot)",
+    (await readCompletedRecords(sessDir, A)).some(
+      (record) => record.pid === id2,
+    ),
+    "surfaceCompletedShells retained the completion until transcript acknowledgement",
   );
 
   setCurrentScope(A);

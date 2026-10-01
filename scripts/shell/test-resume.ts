@@ -9,12 +9,9 @@ import {
   signalChild,
   killAll,
 } from "../../extensions/shell/exec.ts";
-import {
-  ResumeClient,
-  launchMonitor,
-  readResumeRecords,
-  writeResumeRecord,
-} from "../../extensions/shell/monitor.ts";
+import { ResumeClient, launchMonitor } from "../../extensions/shell/monitor.ts";
+import { readResumeRecords } from "../../extensions/shell/persistence.ts";
+import { writeResumeRecord } from "./resume-record.ts";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

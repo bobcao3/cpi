@@ -6,12 +6,7 @@ export interface ActivityEntry {
   id: string;
   kind: ActivityKind;
   status:
-    | "running"
-    | "stopping"
-    | "completed"
-    | "failed"
-    | "cancelled"
-    | "detached";
+    "running" | "stopping" | "completed" | "failed" | "cancelled" | "detached";
   session_id?: string;
   label: string;
   command?: string;
@@ -31,8 +26,7 @@ export function setActivitySession(session_id?: string): void {
 }
 export function getActivitySession(): string | undefined {
   return (globalThis as Record<string, unknown>).__cpiActivitySession as
-    | string
-    | undefined;
+    string | undefined;
 }
 function entries(): Map<string, ActivityEntry> {
   const globals = globalThis as Record<string, unknown>;
@@ -93,6 +87,15 @@ export function beginActivity(entry: ActivityEntry): void {
     map.set(entry.id, clean(entry));
     if (!live(entry)) trimHistory(map);
   } catch {}
+}
+export function rekeyActivity(source: string, target: string): void {
+  if (source === target) return;
+  const map = entries();
+  const entry = map.get(source);
+  if (!entry) return;
+  if (map.has(target)) throw new Error("Activity UUID is already registered");
+  map.delete(source);
+  map.set(target, { ...entry, id: target });
 }
 export function updateActivity(
   id: string,

@@ -18,10 +18,8 @@ import {
   resumeBackgroundShells,
 } from "../../extensions/shell/exec.ts";
 import { startRepeat, signalRepeat } from "../../extensions/shell/repeat.ts";
-import {
-  launchMonitor,
-  writeResumeRecord,
-} from "../../extensions/shell/monitor.ts";
+import { launchMonitor } from "../../extensions/shell/monitor.ts";
+import { writeResumeRecord } from "./resume-record.ts";
 
 const testScope = `shell-test-${randomUUID()}`;
 process.env.PI_SESSION_ID = testScope;
@@ -111,7 +109,7 @@ try {
   assert.equal(shell(resumedId).metrics?.resumed, 1);
   await until(() => shell(resumedId).status === "completed");
 
-  const repeat = startRepeat("echo iteration", 1, env, "waiting monitor");
+  const repeat = startRepeat("echo iteration", 5, env, "waiting monitor");
   const monitor = () =>
     listActivities(scope).find(
       (entry) => entry.kind === "monitor" && entry.label === "waiting monitor",
@@ -124,7 +122,7 @@ try {
 
   const executing = startRepeat(
     "echo running; sleep 30",
-    1,
+    5,
     env,
     "executing monitor",
   );
@@ -134,7 +132,7 @@ try {
   assert.equal(activeMonitor().status, "stopping");
   await until(() => activeMonitor().status === "cancelled");
 
-  startRepeat("exit 3", 1, env, "failed monitor");
+  startRepeat("exit 3", 5, env, "failed monitor");
   await until(() =>
     listActivities(scope).some(
       (entry) => entry.label === "failed monitor" && entry.status === "failed",

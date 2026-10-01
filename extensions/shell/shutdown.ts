@@ -12,6 +12,7 @@ import {
   type NotificationDetails,
 } from "../lib/notification.ts";
 import { loadText, render, textPath } from "../lib/text.ts";
+import { shellRecords, updateShellRecord } from "./persistence.ts";
 
 interface ShutdownAction {
   id: string;
@@ -57,6 +58,7 @@ export async function surface_shell_shutdowns(
   pi: ExtensionAPI,
   ctx: ExtensionContext,
 ): Promise<void> {
+  surfaceSessionShutdowns(pi, ctx);
   const session_dir = ctx.sessionManager.getSessionDir();
   const scope = ctx.sessionManager.getSessionId();
   if (!session_dir || !scope) return;
@@ -112,5 +114,55 @@ export async function surface_shell_shutdowns(
       if (!persisted) continue;
     }
     await unlink(path);
+  }
+}
+
+function surfaceSessionShutdowns(
+  pi: ExtensionAPI,
+  ctx: ExtensionContext,
+): void {
+  const scope = ctx.sessionManager.getSessionId();
+  const text = loadText<{ shutdown: { summary: string; guidance: string } }>(
+    "shell",
+    textPath("shell"),
+  ).shutdown;
+  for (const record of shellRecords(scope)) {
+    if (record.status !== "shutdown" || record.acknowledgedAt) continue;
+    const delivered = () =>
+      ctx.sessionManager
+        .getEntries()
+        .some(
+          (entry) =>
+            entry.type === "custom_message" &&
+            entry.customType === NOTIFICATION_TYPE &&
+            (entry.details as { shutdown_record?: string })?.shutdown_record ===
+              record.id,
+        );
+    if (!delivered()) {
+      const payload = {
+        id: record.pid,
+        activityId: record.id,
+        command: record.command,
+        describe: record.describe,
+        log_path: record.logPath,
+        kind: "shell",
+        interrupted_at: record.updatedAt,
+      };
+      const summary = render(text.summary, payload);
+      const details: NotificationDetails & { shutdown_record: string } = {
+        kind: "interrupted-shells",
+        summary,
+        shutdown_record: record.id,
+        payload: { ...payload, summary, guidance: text.guidance },
+      };
+      pi.sendMessage({
+        customType: NOTIFICATION_TYPE,
+        content: wrapNotification(details),
+        display: true,
+        details,
+      });
+    }
+    if (delivered())
+      updateShellRecord(record.id, { acknowledgedAt: Date.now() });
   }
 }

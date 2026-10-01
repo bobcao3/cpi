@@ -4,6 +4,7 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import { drainBeforeUser } from "../../extensions/lib/prepend-message.ts";
 import { surfaceCompletedShells } from "../../extensions/shell/orphan.ts";
+import { bindShellPersistence } from "../../extensions/shell/persistence.ts";
 
 export default function (pi: ExtensionAPI) {
   const surface = (ctx: ExtensionContext) =>
@@ -13,6 +14,7 @@ export default function (pi: ExtensionAPI) {
       ctx.sessionManager.getSessionFile(),
     );
   pi.on("session_start", async (_event, ctx) => {
+    await bindShellPersistence(pi, ctx);
     await surface(ctx);
   });
   pi.registerCommand("queue-completions", {

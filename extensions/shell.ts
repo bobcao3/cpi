@@ -43,6 +43,13 @@ import {
 import { createRepeatTool, resumeRepeats } from "./shell/repeat.ts";
 import { suspendRepeatWrites } from "./shell/repeat-persistence.ts";
 import {
+  bindShellPersistence,
+  restoreShellActivities,
+  suspendShellWrites,
+} from "./shell/persistence.ts";
+import { migrateShellRecords } from "./shell/persistence-migration.ts";
+import { acknowledgeShellNotifications } from "./shell/completion-delivery.ts";
+import {
   registerBackgroundControlTools,
   registerBackgroundListTool,
 } from "./shell/background-tools.ts";
@@ -160,7 +167,15 @@ export default async function (pi: ExtensionAPI) {
       "exit-code": code ?? -1,
       summary,
     };
-    sendNotification(pi, { kind, summary, payload }, { deliverAs: "steer" });
+    const details = {
+      kind,
+      summary,
+      payload,
+      ...(log?.activityId && log.scope
+        ? { deliveryId: JSON.stringify([log.scope, log.activityId]) }
+        : {}),
+    };
+    sendNotification(pi, details, { deliverAs: "steer" });
   });
 
   const T = loadText<ShellText>("shell", textPath("shell"));
@@ -364,6 +379,9 @@ export default async function (pi: ExtensionAPI) {
     const dir = ctx.sessionManager?.getSessionDir();
     const scope = ctx.sessionManager?.getSessionId();
     setCurrentScope(scope);
+    await bindShellPersistence(pi, ctx);
+    await migrateShellRecords(ctx);
+    acknowledgeShellNotifications(ctx);
     await resumeRepeats(pi, ctx, event.reason !== "fork");
     if (event.reason !== "fork") await surface_shell_shutdowns(pi, ctx);
     if (event.reason !== "fork" && event.reason !== "reload")
@@ -372,7 +390,8 @@ export default async function (pi: ExtensionAPI) {
         scope,
         ctx.sessionManager.getSessionFile(),
       );
-    void resumeBackgroundShells(dir, scope);
+    restoreShellActivities(scope);
+    await resumeBackgroundShells(dir, scope);
     if (event.reason !== "fork" && event.reason !== "reload")
       void notifyOrphanedShells(dir, scope);
     pi.setActiveTools(
@@ -408,7 +427,11 @@ export default async function (pi: ExtensionAPI) {
     await resumeRepeats(pi, ctx);
   });
 
+  pi.on("turn_end", (_event, ctx) => acknowledgeShellNotifications(ctx));
+  pi.on("agent_settled", (_event, ctx) => acknowledgeShellNotifications(ctx));
+
   pi.on("session_shutdown", async (event, ctx) => {
+    suspendShellWrites(ctx, event.reason);
     suspendRepeatWrites(ctx, event.reason);
     shellStatus?.dispose();
     shellStatus = null;

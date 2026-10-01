@@ -2,14 +2,15 @@ import { StringDecoder } from "node:string_decoder";
 import { finishActivity, updateActivity } from "../lib/activity.ts";
 import { finishShell, observeShell } from "./activity.ts";
 import type { BackgroundChild, CompletionHook } from "./background-types.ts";
+import { ResumeClient } from "./monitor.ts";
 import {
-  ResumeClient,
-  readResumeRecords,
-  removeResumeRecord,
-  writeCompletedRecord,
-} from "./monitor.ts";
+  recordShellEnd,
+  ShellIdentityError,
+  shellRecords,
+  shellTarget,
+  updateShellRecord,
+} from "./persistence.ts";
 import { killAllRepeats } from "./repeat.ts";
-import { record_shell_shutdown } from "./shutdown.ts";
 
 interface ShellState {
   backgrounds: Map<string, BackgroundChild>;
@@ -29,28 +30,35 @@ export function completeBackground(
   exitCode: number,
 ): void {
   if (entry.done) return;
+  const registered = bg.get(entry.id) === entry;
   entry.done = true;
   entry.exitCode = exitCode;
-  const { id, command, client, logPath, sessDir, sessScope } = entry;
-  if (!bg.has(id)) return;
-  if (!entry.signaled) {
-    if (entry.sessScope === shellState.scope) {
-      shellState.completionHook?.(id, command, exitCode, "completed", {
-        path: logPath,
-      });
-    } else if (sessDir && sessScope) {
-      void writeCompletedRecord(sessDir, sessScope, id, {
-        pid: id,
-        command,
-        exitCode,
-        logPath,
-        completedAt: Date.now(),
-      });
+  const { id, command, client, logPath } = entry;
+  try {
+    recordShellEnd(
+      entry,
+      entry.cancelRequested
+        ? "cancelled"
+        : exitCode === 0
+          ? "completed"
+          : "failed",
+      exitCode,
+      Boolean(entry.signaled || !registered),
+    );
+    if (!registered) return;
+    if (!entry.signaled) {
+      if (entry.sessScope === shellState.scope) {
+        shellState.completionHook?.(id, command, exitCode, "completed", {
+          path: logPath,
+          activityId: entry.activityId,
+          scope: entry.sessScope,
+        });
+      }
     }
+  } finally {
+    if (bg.get(entry.id) === entry) bg.delete(entry.id);
+    client.close();
   }
-  bg.delete(id);
-  client.close();
-  if (sessDir && sessScope) void removeResumeRecord(sessDir, sessScope, id);
 }
 
 export function stopBackground(entry: BackgroundChild): boolean {
@@ -60,36 +68,36 @@ export function stopBackground(entry: BackgroundChild): boolean {
     { connection_lost: 1 },
   );
   if (entry.done) return false;
+  const registered = bg.get(entry.id) === entry;
   entry.done = true;
   entry.exitCode = -1;
-  entry.acc += entry.decoder.end();
-  const { id, command, client, logPath, sessDir, sessScope } = entry;
-  if (!bg.has(id)) return true;
-  if (!entry.signaled && entry.sessScope === shellState.scope)
-    shellState.completionHook?.(id, command, -1, "stopped", { path: logPath });
-  bg.delete(id);
-  client.close();
-  if (sessDir && sessScope) void removeResumeRecord(sessDir, sessScope, id);
-  return true;
+  const { id, command, client, logPath } = entry;
+  try {
+    recordShellEnd(entry, "lost", -1, Boolean(entry.signaled || !registered));
+    entry.acc += entry.decoder.end();
+    if (!registered) return true;
+    if (!entry.signaled && entry.sessScope === shellState.scope)
+      shellState.completionHook?.(id, command, -1, "stopped", {
+        path: logPath,
+        activityId: entry.activityId,
+        scope: entry.sessScope,
+      });
+    return true;
+  } finally {
+    if (bg.get(entry.id) === entry) bg.delete(entry.id);
+    client.close();
+  }
 }
 
 export function killAll(): void {
   for (const e of bg.values()) {
     if (e.sessScope !== shellState.scope || e.done) continue;
-    record_shell_shutdown(e.sessDir, e.sessScope, {
-      id: e.id,
-      command: e.command,
-      describe: e.describe,
-      log_path: e.logPath,
-      kind: "shell",
-    });
+    recordShellEnd(e, "shutdown");
     e.cancelRequested = true;
     updateActivity(e.activityId, { status: "stopping" });
     e.done = true;
     e.client.kill("SIGKILL");
     bg.delete(e.id);
-    if (e.sessDir && e.sessScope)
-      void removeResumeRecord(e.sessDir, e.sessScope, e.id);
   }
   killAllRepeats();
 }
@@ -99,10 +107,30 @@ export async function resumeBackgroundShells(
   scope: string | undefined,
 ): Promise<void> {
   if (!sessionDir || !scope) return;
-  const records = await readResumeRecords(sessionDir, scope);
+  const records = shellRecords(scope).filter((r) => r.status === "running");
   for (const r of records) {
-    if (bg.has(r.pid)) continue;
-    const c = new ResumeClient(r.sockPath);
+    const existing = bg.get(r.pid);
+    if (existing?.activityId === r.id) continue;
+    let target: Awaited<ReturnType<typeof shellTarget>> | undefined;
+    try {
+      target = await shellTarget(r);
+    } catch (error) {
+      if (
+        !(error instanceof ShellIdentityError) &&
+        (error as NodeJS.ErrnoException).code !== "ENOENT"
+      )
+        continue;
+    }
+    if (!target || (existing && !existing.done)) {
+      updateShellRecord(r.id, {
+        status: "lost",
+        acknowledgedAt: Date.now(),
+        exitCode: -1,
+      });
+      finishActivity(r.id, "failed", { connection_lost: 1 });
+      continue;
+    }
+    const c = new ResumeClient(r.statePath);
     try {
       await Promise.race([
         c.whenReady,
@@ -110,43 +138,68 @@ export async function resumeBackgroundShells(
           setTimeout(() => rej(new Error("resume connect timeout")), 2000),
         ),
       ]);
-    } catch {
+    } catch (error) {
       c.close();
-      void removeResumeRecord(sessionDir, scope, r.pid);
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+        updateShellRecord(r.id, {
+          status: "lost",
+          acknowledgedAt: Date.now(),
+          exitCode: -1,
+        });
+        finishActivity(r.id, "failed", { connection_lost: 1 });
+      }
       continue;
     }
     const entry: BackgroundChild = {
       id: r.pid,
-      activityId: `shell:${r.logPath ?? r.sockPath}`,
-      startedAt: Date.now(),
+      activityId: r.id,
+      startedAt: r.startedAt,
       pid: Number(r.pid),
-      command: r.cmd,
+      command: r.command,
       dialect: r.dialect,
       describe: r.describe,
       client: c,
-      logPath: r.logPath ?? "",
+      logPath: r.logPath,
       sessDir: sessionDir,
       sessScope: scope,
       acc: "",
       decoder: new StringDecoder("utf8"),
       exitCode: null,
       done: false,
-      bytesEmitted: 0,
+      cancelRequested: r.cancelRequested,
+      signaled: r.noticeSuppressed,
+      bytesEmitted: target.bytes,
       linesEmitted: 0,
       colBytes: 0,
     };
     bg.set(r.pid, entry);
-    observeShell(entry, undefined, true);
+    observeShell(entry, r.cwd, true);
+    updateActivity(entry.activityId, {
+      metrics: { output_bytes: entry.bytesEmitted },
+    });
     c.onClose(() => stopBackground(entry));
     try {
       await c.subscribe((ev) => {
-        if (ev.kind === "exit") {
+        if (ev.kind === "data") {
+          entry.bytesEmitted = Math.max(
+            entry.bytesEmitted,
+            ev.off + ev.buf.length,
+          );
+          updateActivity(entry.activityId, {
+            metrics: {
+              output_bytes: entry.bytesEmitted,
+              last_output_at: Date.now(),
+            },
+          });
+        } else {
+          entry.bytesEmitted = ev.bytes;
           finishShell(entry, ev.exitCode, ev.bytes);
           completeBackground(entry, ev.exitCode);
         }
       });
     } catch {
-      stopBackground(entry);
+      c.close();
+      if (bg.get(r.pid) === entry) bg.delete(r.pid);
     }
   }
 }

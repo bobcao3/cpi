@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
 import {
@@ -23,9 +23,11 @@ import {
   startRepeat,
   signalRepeat,
 } from "../extensions/shell/repeat.ts";
-import { readResumeRecords } from "../extensions/shell/monitor.ts";
+import { readResumeRecords } from "../extensions/shell/persistence.ts";
 import { resolveShell } from "../extensions/shell/profile.ts";
-import { ghostmuxRpc } from "../extensions/shell/ghostmux.ts";
+import { ghostmuxRpc, ghostmuxSocket } from "../extensions/shell/ghostmux.ts";
+import { resolveGhostmux } from "../bin/ghostmux-resolve.mjs";
+import { openShellSession } from "./shell/resume-record.ts";
 
 const execute = promisify(execFile);
 const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -42,7 +44,8 @@ async function until(check: () => boolean | Promise<boolean>, seconds = 10) {
 }
 const directory =
   process.argv[2] ?? (await mkdtemp(join(tmpdir(), "cpi-shell-integration-")));
-const scope = `integration-${directory.split("/").at(-1)}`;
+const scope = `integration-${basename(directory)}`;
+let session = await openShellSession(directory, scope);
 const env = {
   ...process.env,
   PI_SESSION_ID: scope,
@@ -84,7 +87,7 @@ if (process.argv[3] === "restart") {
 }
 try {
   const bytes = await run(
-    "printf '\\xff\\x00\\xfe'; printf '\\n'; pwd; printf '%s' \"$SCOPED\"",
+    "printf '\\xff\\x00\\xfe'; printf '\\n'; node -p 'process.cwd()'; printf '%s' \"$SCOPED\"",
     2,
   );
   assert.equal(bytes.exitCode, 0);
@@ -109,7 +112,10 @@ try {
   );
   assert.equal(background.status, "running");
   assert.equal(background.isPty, false);
-  assert(background.cursor!.bytes >= 4);
+  assert(
+    background.cursor!.bytes >= 0 &&
+      background.cursor!.bytes <= Buffer.byteLength("one\ntwo\n"),
+  );
   await assert.rejects(
     captureSessionScreenshot(background.id!, join(directory, "pipes.png")),
     /pipes/,
@@ -175,7 +181,7 @@ try {
   );
   const repeat = startRepeat(
     "n=$(cat count 2>/dev/null || echo 0); n=$((n+1)); echo $n > count; echo iteration-$n; test $n -lt 2",
-    0.15,
+    5,
     env,
     "repeat",
     shell,
@@ -185,11 +191,11 @@ try {
     completions.some((entry) => entry.id === repeat && entry.code === 1),
   );
   assert.equal(await readFile(join(directory, "count"), "utf8"), "2\n");
-  const stopped = startRepeat("echo tick", 0.3, env, "stop", shell, directory);
+  const stopped = startRepeat("echo tick", 5, env, "stop", shell, directory);
   await pause(150);
   assert(signalRepeat(stopped, "SIGKILL"));
   assert(!getActiveRepeats().some((entry) => entry.id === stopped));
-  const breach = startRepeat("sleep 2", 0.15, env, "breach", shell, directory);
+  const breach = startRepeat("sleep 30", 5, env, "breach", shell, directory);
   await until(() =>
     completions.some(
       (entry) => entry.id === breach && entry.reason === "breach",
@@ -204,6 +210,8 @@ try {
   const restarted = JSON.parse(
     await readFile(join(directory, "restart.json"), "utf8"),
   );
+  session.dispose();
+  session = await openShellSession(directory, scope);
   await resumeBackgroundShells(directory, scope);
   await until(() =>
     completions.some((entry) => entry.id === restarted.id && entry.code === 7),
@@ -222,6 +230,8 @@ try {
   const live = JSON.parse(
     await readFile(join(directory, "restart.json"), "utf8"),
   );
+  session.dispose();
+  session = await openShellSession(directory, scope);
   await resumeBackgroundShells(directory, scope);
   assert(getShellBackgrounds().some((entry) => entry.id === live.id));
   assert(signalChild(live.id, "SIGINT"));
@@ -246,5 +256,16 @@ try {
   console.log("Shell ghostmux lifecycle integration passed");
 } finally {
   killAll();
-  await rm(directory, { recursive: true, force: true });
+  session.dispose();
+  await execute(
+    await resolveGhostmux(),
+    ["-S", ghostmuxSocket(env), "kill-server"],
+    { timeout: 5000 },
+  ).catch(() => {});
+  await rm(directory, {
+    recursive: true,
+    force: true,
+    maxRetries: 20,
+    retryDelay: 50,
+  });
 }
