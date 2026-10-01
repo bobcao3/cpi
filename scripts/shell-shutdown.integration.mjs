@@ -157,8 +157,8 @@ if (!phase) {
         });
       assert.equal(notificationUsers.length, 2);
       assert.equal(
-        new Set(notices.map((message) => message.details.shutdown_record)).size,
-        2,
+        notices.filter((message) => message.details.shutdown_record).length,
+        1,
       );
       assert(
         notices.every(
@@ -235,6 +235,17 @@ if (!phase) {
       await until(async () =>
         (await list()).details?.repeats?.some((entry) => entry.uid),
       );
+      if (phase === "quit")
+        await until(() =>
+          manager
+            .getEntries()
+            .some(
+              (entry) =>
+                entry.customType === "cpi-repeat" &&
+                entry.data?.id === repeated.details.id &&
+                entry.data?.status === "running",
+            ),
+        );
       const record = {
         session_file: manager.getSessionFile(),
         interrupted: [active.details.id, repeated.details.id],
@@ -248,9 +259,9 @@ if (!phase) {
       await writeFile(join(directory, "metadata.json"), JSON.stringify(record));
       if (phase === "reload") {
         await session.reload();
-        assert.equal(notifications(session).length, 2);
+        assert.equal(notifications(session).length, 0);
         await session.reload();
-        assert.equal(notifications(session).length, 2);
+        assert.equal(notifications(session).length, 0);
       } else {
         await session.extensionRunner.emit({
           type: "session_shutdown",
@@ -265,7 +276,7 @@ if (!phase) {
             "shutdown",
           ),
         );
-        assert.equal(files.filter((file) => file.endsWith(".json")).length, 2);
+        assert.equal(files.filter((file) => file.endsWith(".json")).length, 1);
         record.shutdown_directory = join(
           manager.getSessionDir(),
           "sh-mon",
@@ -284,7 +295,18 @@ if (!phase) {
         );
       }
       const listed = await list();
-      assert.equal(listed.details, undefined);
+      if (phase === "reload") {
+        assert(
+          listed.details.backgrounds.some(
+            (entry) => entry.id === active.details.id,
+          ),
+        );
+        assert(
+          listed.details.repeats.some(
+            (entry) => entry.id === repeated.details.id,
+          ),
+        );
+      } else assert.equal(listed.details, undefined);
       const { stdout } = await execute(record.binary, [
         "-S",
         record.socket,
@@ -295,17 +317,22 @@ if (!phase) {
       assert(
         native.sessions.some((entry) => entry.uid === detached.details.uid),
       );
-      await until(async () => {
-        const { stdout } = await execute(record.binary, [
-          "-S",
-          record.socket,
-          "list-sessions",
-          "--json",
-        ]);
-        return !JSON.parse(stdout).sessions.some(
-          (entry) => entry.uid === active.details.uid,
+      if (phase === "reload") {
+        assert(
+          native.sessions.some((entry) => entry.uid === active.details.uid),
         );
-      });
+      } else
+        await until(async () => {
+          const { stdout } = await execute(record.binary, [
+            "-S",
+            record.socket,
+            "list-sessions",
+            "--json",
+          ]);
+          return !JSON.parse(stdout).sessions.some(
+            (entry) => entry.uid === active.details.uid,
+          );
+        });
     }
     assert.deepEqual(errors, []);
   } finally {
