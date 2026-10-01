@@ -103,19 +103,22 @@ function shellDetails(
         );
     }
   }
-  if (level < 2) {
-    lines.push(theme.fg("accent", text.shell_expand!));
-    return lines;
-  }
   const wrap = (value: string) => wrapTextWithAnsi(value, width).slice(0, 16);
   if (entry.cwd)
     lines.push(
       ...wrap(
-        render(text.shell_dir!, {
-          value: theme.fg("text", cleanActivityDisplay(entry.cwd)),
-        }),
+        theme.fg(
+          "muted",
+          render(text.shell_dir!, {
+            value: theme.fg("text", cleanActivityDisplay(entry.cwd)),
+          }),
+        ),
       ),
     );
+  if (level < 2) {
+    lines.push(theme.fg("accent", text.shell_expand!));
+    return lines;
+  }
   lines.push(theme.bold(theme.fg("accent", text.more!)));
   const metrics = entry.metrics ?? {};
   const snippets = primary.shell.flatMap((key) => {

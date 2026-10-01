@@ -77,7 +77,12 @@ test("activity panel uses actual registry and log, bounds rendering, restores re
     assert.ok(text().includes("Command: echo 'syntax-sample' (+1 lines)"));
     assert.ok(text().includes("[+] ↵ show details"));
     assert.ok(!text().includes("next-line"));
-    assert.ok(!text().includes("Dir: /tmp/panel-cwd"));
+    assert.ok(text().includes("Dir: /tmp/panel-cwd"));
+    assert.ok(
+      output.includes(
+        theme.fg("muted", `Dir: ${theme.fg("text", "/tmp/panel-cwd")}`),
+      ),
+    );
     const highlighted = await ensureTreeSitterReady();
     if (highlighted)
       assert.ok(
