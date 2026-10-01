@@ -61,7 +61,8 @@ export function rememberTarget(target: SessionTarget): void {
   targets.set(target.uid, target);
 }
 function targetDirectory(): string {
-  return join(tmpdir(), `cpi-ghostmux-${process.getuid?.() ?? "win32"}`);
+  const root = process.platform === "darwin" ? "/tmp" : tmpdir();
+  return join(root, `cpi-ghostmux-${process.getuid?.() ?? "win32"}`);
 }
 export function ghostmuxSocket(env: NodeJS.ProcessEnv): string {
   const scope = createHash("sha256")
