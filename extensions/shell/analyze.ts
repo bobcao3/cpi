@@ -7,7 +7,11 @@
 
 import { lintCommand, formatDiagnostics, type LintResult } from "./lint.ts";
 import { lintPowerShell } from "./powershell-analyzer.ts";
-import { parseCommand, type ParseResult } from "../lib/tree-sitter.ts";
+import {
+  parseCommand,
+  parseLangCommand,
+  type ParseResult,
+} from "../lib/tree-sitter.ts";
 import {
   checkRules,
   formatRuleMatches,
@@ -18,9 +22,7 @@ import type { ShellProfile } from "./profile.ts";
 import type { ToolAvailability } from "./tools.ts";
 
 export type AnalysisStatus =
-  | "ok"
-  | "unsupported-dialect"
-  | "parser-unavailable";
+  "ok" | "unsupported-dialect" | "parser-unavailable";
 
 export interface UnsupportedDialectInfo {
   executable: string;
@@ -80,12 +82,17 @@ export async function analyzeCommand(
   }
 
   if (shell.dialect === "powershell") {
-    const powershell = await lintPowerShell(command, shell, availability);
+    const [powershell, parse] = await Promise.all([
+      lintPowerShell(command, shell, availability),
+      availability.treeSitter
+        ? parseLangCommand("powershell", command)
+        : Promise.resolve(EMPTY_PARSE),
+    ]);
     return {
       status: powershell.available ? "ok" : "parser-unavailable",
       unsupported: null,
       lint: powershell,
-      parse: EMPTY_PARSE,
+      parse,
       rules: EMPTY_RULES,
       errorText: fmt(powershell.errors, formatDiagnostics),
       warningText: fmt(powershell.warnings, formatDiagnostics).trim(),

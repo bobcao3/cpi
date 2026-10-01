@@ -99,6 +99,8 @@ pub fn start(allocator: std.mem.Allocator, io: std.Io, request: wire.Request, _:
     if (native.SetInformationJobObject(job, native.extended_limit_information, &limits, @sizeOf(native.JobLimits)) == .FALSE) return error.ConPtyJobFailed;
     var startup: native.StartupInfo = .{ .base = std.mem.zeroes(w.STARTUPINFOW), .attributes = attributes };
     startup.base.cb = @sizeOf(native.StartupInfo);
+    // Null standard handles let ConPTY replace redirected daemon streams.
+    startup.base.dwFlags = w.STARTF_USESTDHANDLES;
     var information: w.PROCESS.INFORMATION = undefined;
     if (w.kernel32.CreateProcessW(executable.ptr, command.ptr, null, null, .FALSE, .{
         .extended_startupinfo_present = true,

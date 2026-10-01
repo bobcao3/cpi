@@ -23,6 +23,7 @@ const LANGS = [_]Lang{
     .{ .name = "typescript", .grammar = "tree-sitter-typescript", .parser = "typescript/src/parser.c", .scanner = "typescript/src/scanner.c", .include = "typescript/src", .query = null },
     .{ .name = "json", .grammar = "tree-sitter-json", .parser = "src/parser.c", .scanner = null, .include = "src", .query = null },
     .{ .name = "python", .grammar = "tree-sitter-python", .parser = "src/parser.c", .scanner = "src/scanner.c", .include = "src", .query = null },
+    .{ .name = "powershell", .grammar = "tree-sitter-powershell", .parser = "src/parser.c", .scanner = "src/scanner.c", .include = "src", .query = null },
     .{ .name = "c", .grammar = "tree-sitter-c", .parser = "src/parser.c", .scanner = null, .include = "src", .query = null },
     .{ .name = "cpp", .grammar = "tree-sitter-cpp", .parser = "src/parser.c", .scanner = "src/scanner.c", .include = "src", .query = null },
     .{ .name = "cuda", .grammar = "tree-sitter-cuda", .parser = "src/parser.c", .scanner = "src/scanner.c", .include = "src", .query = null },

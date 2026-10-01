@@ -16,11 +16,15 @@ fn subscribe(fixture: *f.Fixture, uid: ?[]const u8, offset: u64) !std.Io.net.Str
 test "atomic wire launch streams immediate binary output and exit beyond retained ring" {
     var fixture = try f.Fixture.init();
     defer fixture.deinit();
-    const keeper = try fixture.launch("keeper", false, "import time; time.sleep(120)");
+    const keeper = try fixture.launch(.{ .op = .new_session, .uid = "keeper", .is_pty = false }, .{});
     defer keeper.deinit();
     const stream = try fixture.connect();
     defer stream.close(f.io);
-    const response = try f.Channel.exchange(f.allocator, f.io, stream, .{ .op = .new_session, .uid = "atomic", .cwd = fixture.directory, .is_pty = false, .subscribe = true, .argv = &.{ f.python, "-c", "import os; data=b'0123456789abcdef'*131072\nwhile data: data=data[os.write(1,data):]\nos._exit(9)" } });
+    const payload = try f.repeated("0123456789abcdef", 2 * 1024 * 1024);
+    defer f.allocator.free(payload);
+    const directory = try fixture.prepare("atomic", payload);
+    defer f.allocator.free(directory);
+    const response = try f.Channel.exchange(f.allocator, f.io, stream, .{ .op = .new_session, .uid = "atomic", .cwd = directory, .is_pty = false, .subscribe = true, .argv = &.{f.child(.emit)} });
     defer response.deinit();
     try expect(response.value.ok);
     try std.testing.expectEqualStrings("subscribed", response.value.event.?);
@@ -32,7 +36,7 @@ test "atomic wire launch streams immediate binary output and exit beyond retaine
         const next = try f.next(stream);
         defer next.deinit();
         if (std.mem.eql(u8, next.value.event.?, "exit")) {
-            try std.testing.expectEqual(@as(?i32, 9), next.value.session.?.exit_code);
+            try std.testing.expectEqual(@as(?i32, 7), next.value.session.?.exit_code);
             try std.testing.expectEqual(@as(u64, 2 * 1024 * 1024), next.value.session.?.bytes);
             exited = true;
             break;
@@ -46,11 +50,11 @@ test "atomic wire launch streams immediate binary output and exit beyond retaine
 test "expired ring offsets reject while retained tail replays before final output and exit" {
     var fixture = try f.Fixture.init();
     defer fixture.deinit();
-    const release_path = try std.fmt.allocPrint(f.allocator, "{s}/release", .{fixture.directory});
+    const release_path = try fixture.path("ring/release");
     defer f.allocator.free(release_path);
-    const code = try std.fmt.allocPrint(f.allocator, "import os,time\nrelease={f}\ndata=b'0123456789abcdef'*131072\nwhile data: data=data[os.write(1,data):]\nwhile not os.path.exists(release): time.sleep(0.01)\nos.write(1,b'tail'); os._exit(3)", .{std.json.fmt(release_path, .{})});
-    defer f.allocator.free(code);
-    const created = try fixture.launch("ring", false, code);
+    const payload = try f.repeated("0123456789abcdef", 2 * 1024 * 1024);
+    defer f.allocator.free(payload);
+    const created = try fixture.launch(.{ .op = .new_session, .uid = "ring", .is_pty = false }, .{ .program = .replay, .output = payload });
     defer created.deinit();
     const ready = try fixture.wait_bytes("ring", 2 * 1024 * 1024);
     defer ready.deinit();
@@ -73,7 +77,7 @@ test "expired ring offsets reject while retained tail replays before final outpu
         const response = try f.next(stream);
         defer response.deinit();
         if (std.mem.eql(u8, response.value.event.?, "exit")) {
-            try std.testing.expectEqual(@as(?i32, 3), response.value.session.?.exit_code);
+            try std.testing.expectEqual(@as(?i32, 7), response.value.session.?.exit_code);
             exited = true;
             break;
         }
@@ -86,12 +90,12 @@ test "expired ring offsets reject while retained tail replays before final outpu
 test "multiplex subscriptions include future sessions and UID reuse" {
     var fixture = try f.Fixture.init();
     defer fixture.deinit();
-    const keeper = try fixture.launch("keeper", false, "import time; time.sleep(120)");
+    const keeper = try fixture.launch(.{ .op = .new_session, .uid = "keeper", .is_pty = false }, .{});
     defer keeper.deinit();
     const stream = try subscribe(&fixture, null, 0);
     defer stream.close(f.io);
     for (0..2) |_| {
-        const created = try fixture.launch("reused", false, "import os; os.write(1,b'new'); os._exit(7)");
+        const created = try fixture.launch(.{ .op = .new_session, .uid = "reused", .is_pty = false }, .{ .program = .emit, .output = "new" });
         defer created.deinit();
         var actual: std.ArrayList(u8) = .empty;
         defer actual.deinit(f.allocator);
@@ -116,13 +120,11 @@ test "multiplex subscriptions include future sessions and UID reuse" {
 test "blocked and disconnected subscribers do not block control or corrupt shared live frames" {
     var fixture = try f.Fixture.init();
     defer fixture.deinit();
-    const start_path = try std.fmt.allocPrint(f.allocator, "{s}/start", .{fixture.directory});
+    const start_path = try fixture.path("producer/start");
     defer f.allocator.free(start_path);
-    const finish_path = try std.fmt.allocPrint(f.allocator, "{s}/finish", .{fixture.directory});
-    defer f.allocator.free(finish_path);
-    const code = try std.fmt.allocPrint(f.allocator, "import os,time\nstart={f}; finish={f}\nwhile not os.path.exists(start): time.sleep(0.01)\ndata=b'abcdefgh'*262144\nwhile data: data=data[os.write(1,data):]\nwhile not os.path.exists(finish): time.sleep(0.01)", .{ std.json.fmt(start_path, .{}), std.json.fmt(finish_path, .{}) });
-    defer f.allocator.free(code);
-    const created = try fixture.launch("producer", false, code);
+    const payload = try f.repeated("abcdefgh", 2 * 1024 * 1024);
+    defer f.allocator.free(payload);
+    const created = try fixture.launch(.{ .op = .new_session, .uid = "producer", .is_pty = false }, .{ .program = .gated, .output = payload });
     defer created.deinit();
     const blocked = try subscribe(&fixture, "producer", 0);
     defer blocked.close(f.io);

@@ -6,6 +6,21 @@ const Dir = std.Io.Dir;
 const File = std.Io.File;
 const socket_path_limit = if (windows) std.Io.net.UnixAddress.max_len else @sizeOf(@FieldType(std.posix.sockaddr.un, "path"));
 
+pub fn prepare(allocator: std.mem.Allocator, io: std.Io, requested_path: []const u8) !void {
+    const path = try canonical_path(allocator, io, requested_path);
+    defer allocator.free(path);
+    if (windows) {
+        try @import("runtime_windows_security.zig").create(allocator, path);
+    } else {
+        try check_directory(allocator, io, std.fs.path.dirname(path) orelse return error.InvalidSocketPath, false);
+        Dir.cwd().createDir(io, path, .fromMode(0o700)) catch |err| switch (err) {
+            error.PathAlreadyExists => {},
+            else => return err,
+        };
+    }
+    try check_directory(allocator, io, path, true);
+}
+
 pub fn safe_directory(allocator: std.mem.Allocator, io: std.Io, path: []const u8, private: bool) !void {
     const named = try Dir.cwd().statFile(io, path, .{ .follow_symlinks = false });
     if (named.kind != .directory) return error.UnsafeSocketDirectory;

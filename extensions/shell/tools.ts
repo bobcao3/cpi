@@ -38,7 +38,7 @@ const VENDOR_BIN = join(
 );
 const WASM_DIR = join(CACHE_DIR, "wasm");
 const WASM_PATH = join(WASM_DIR, "tree-sitter-wasm.wasm");
-const WASM_VERSION = "2026.09.24";
+const WASM_VERSION = "2026.10.01";
 const WASM_PUBKEY_B64 =
   "RWQWdcLzFjpLqtjewtcZo71AHJVUFws3irxz2ColvNW/r0m4tHyxzDX5";
 const WASM_SIG_PATH = join(WASM_DIR, "tree-sitter-wasm.wasm.minisig");
@@ -256,43 +256,38 @@ const TOOLS_G = globalThis as unknown as {
 async function doEnsureShellTools(): Promise<ToolAvailability> {
   const [fd, rg, shuck, treeSitter] = await Promise.all([
     ...TOOLS.map(ensureTool),
-    IS_WIN
-      ? Promise.resolve(false)
-      : (async () => {
-          let have = wasmVerifiedSync();
-          if (!have) {
-            try {
-              await mkdir(WASM_DIR, { recursive: true });
-              const tmpBr = join(tmpdir(), `pi-sh-wasm-${Date.now()}.br`);
-              await download(WASM_URL, tmpBr);
-              const compressed = await readFile(tmpBr);
-              await rm(tmpBr, { force: true });
-              await writeFile(WASM_PATH, brotliDecompressSync(compressed));
-              try {
-                await download(WASM_SIG_URL, WASM_SIG_PATH);
-              } catch (err) {
-                /* sig fetch failed; verify will fail below */
-              }
-              have = wasmSignatureValid();
-              if (have) await writeFile(WASM_STAMP_PATH, WASM_VERSION);
-              if (!have) {
-                await rm(WASM_PATH, { force: true });
-                await rm(WASM_SIG_PATH, { force: true });
-                await rm(WASM_STAMP_PATH, { force: true });
-                console.warn(
-                  "[shell-ext] tree-sitter-wasm signature verification failed; highlighting disabled",
-                );
-              }
-            } catch (err) {
-              console.warn(
-                "[shell-ext] Failed to download tree-sitter-wasm:",
-                err,
-              );
-            }
+    (async () => {
+      let have = wasmVerifiedSync();
+      if (!have) {
+        try {
+          await mkdir(WASM_DIR, { recursive: true });
+          const tmpBr = join(tmpdir(), `pi-sh-wasm-${Date.now()}.br`);
+          await download(WASM_URL, tmpBr);
+          const compressed = await readFile(tmpBr);
+          await rm(tmpBr, { force: true });
+          await writeFile(WASM_PATH, brotliDecompressSync(compressed));
+          try {
+            await download(WASM_SIG_URL, WASM_SIG_PATH);
+          } catch (err) {
+            /* sig fetch failed; verify will fail below */
           }
-          if (have) await ensureTreeSitterReady(); // keep first-paint highlighting synchronous
-          return have;
-        })(),
+          have = wasmSignatureValid();
+          if (have) await writeFile(WASM_STAMP_PATH, WASM_VERSION);
+          if (!have) {
+            await rm(WASM_PATH, { force: true });
+            await rm(WASM_SIG_PATH, { force: true });
+            await rm(WASM_STAMP_PATH, { force: true });
+            console.warn(
+              "[shell-ext] tree-sitter-wasm signature verification failed; highlighting disabled",
+            );
+          }
+        } catch (err) {
+          console.warn("[shell-ext] Failed to download tree-sitter-wasm:", err);
+        }
+      }
+      if (have) await ensureTreeSitterReady(); // keep first-paint highlighting synchronous
+      return have;
+    })(),
   ]);
   return { fd, rg, shuck, treeSitter };
 }

@@ -2,18 +2,14 @@ const std = @import("std");
 const f = @import("test_fixture.zig");
 const expect = std.testing.expect;
 
-const keeper = "import os,time; os.write(1,b'ready'); time.sleep(120)";
-
 test "pipe binary stdout stderr, stdin EOF and reconnect preserve bytes and offsets" {
     var fixture = try f.Fixture.init();
     defer fixture.deinit();
     const log = try fixture.path("output.log");
     defer f.allocator.free(log);
-    const release = try fixture.path("release");
+    const release = try fixture.path("pipe/release");
     defer f.allocator.free(release);
-    const code = try std.fmt.allocPrint(f.allocator, "import os,time\nos.write(1,b'OUT\\x00\\xff')\nos.write(2,b'ERR\\x00\\xfe')\nassert os.read(0,1)==b''\nwhile not os.path.exists({f}): time.sleep(.01)\nos.write(1,b'EOF')\nos._exit(7)", .{std.json.fmt(release, .{})});
-    defer f.allocator.free(code);
-    const created = try fixture.request(&.{ "new-session", "--uid", "pipe", "--is-pty", "false", "--log", log, "--", f.python, "-c", code });
+    const created = try fixture.launch(.{ .op = .new_session, .uid = "pipe", .is_pty = false, .log_path = log }, .{ .program = .pipe_eof });
     defer created.deinit();
     try expect(!created.value.session.?.is_pty and created.value.session.?.exit_code == null);
     const ready = try fixture.wait_bytes("pipe", 10);
@@ -75,11 +71,11 @@ test "PTY input and resize reach the real child and preserve sibling sessions" {
     if (f.windows) return error.SkipZigTest;
     var fixture = try f.Fixture.init();
     defer fixture.deinit();
-    const created = try fixture.request(&.{ "new-session", "--uid", "pty", "--cols", "31", "--rows", "8", "--", f.python, "-c", "import os,signal,sys\ndef report(*args):\n s=os.get_terminal_size(); print('SIZE %d %d'%(s.columns,s.lines),flush=True)\nsignal.signal(signal.SIGWINCH,report)\nreport()\nfor line in sys.stdin: print('GOT:'+line.rstrip(),flush=True)" });
+    const created = try fixture.launch(.{ .op = .new_session, .uid = "pty", .cols = 31, .rows = 8 }, .{ .program = .echo });
     defer created.deinit();
     const initial = try fixture.wait_text("pty", "SIZE 31 8");
     defer initial.deinit();
-    const sibling = try fixture.launch("sibling", false, keeper);
+    const sibling = try fixture.launch(.{ .op = .new_session, .uid = "sibling", .is_pty = false }, .{ .output = "ready" });
     defer sibling.deinit();
     const resized = try fixture.exchange(.{ .op = .resize_window, .uid = "pty", .cols = 47, .rows = 11 });
     defer resized.deinit();
@@ -104,11 +100,11 @@ test "PTY input and resize reach the real child and preserve sibling sessions" {
 test "wire validation rejects bad launch and version without losing control service" {
     var fixture = try f.Fixture.init();
     defer fixture.deinit();
-    const created = try fixture.launch("keeper", false, keeper);
+    const created = try fixture.launch(.{ .op = .new_session, .uid = "keeper", .is_pty = false }, .{ .output = "ready" });
     defer created.deinit();
     for ([_]struct { request: f.wire.Request, name: []const u8 }{
         .{ .request = .{ .op = .new_session, .uid = "empty" }, .name = "InvalidArguments" },
-        .{ .request = .{ .op = .new_session, .uid = "bad uid", .argv = &.{f.python} }, .name = "InvalidUid" },
+        .{ .request = .{ .op = .new_session, .uid = "bad uid", .argv = &.{f.child(.hold)} }, .name = "InvalidUid" },
         .{ .request = .{ .op = .new_session, .uid = "missing", .cwd = fixture.directory, .env = &.{"PATH=/usr/bin:/bin"}, .argv = &.{"missing-ghostmux-executable"} }, .name = "ExecutableNotFound" },
         .{ .request = .{ .op = .list_sessions, .version = 99 }, .name = "ProtocolVersionMismatch" },
         .{ .request = .{ .op = .read_output, .uid = "keeper", .limit = 0 }, .name = "InvalidReadLimit" },
@@ -129,17 +125,17 @@ test "twenty-four pipe and PTY sessions retain independent output" {
     for (&names, 0..) |*name, i| {
         const uid = try std.fmt.bufPrint(name, "session-{d}", .{i});
         var code: [128]u8 = undefined;
-        const created = try fixture.launch(uid, i % 2 == 0, try std.fmt.bufPrint(&code, "import os,time; os.write(1,b'output-{d}'); time.sleep(120)", .{i}));
+        const created = try fixture.launch(.{ .op = .new_session, .uid = uid, .is_pty = i % 2 == 0 }, .{ .output = try std.fmt.bufPrint(&code, "output-{d}", .{i}) });
         defer created.deinit();
         var needle: [32]u8 = undefined;
         const expected = try std.fmt.bufPrint(&needle, "output-{d}", .{i});
-        const ready = try fixture.wait_bytes(uid, expected.len);
+        const ready = if (i % 2 == 0) try fixture.wait_text(uid, expected) else try fixture.wait_bytes(uid, expected.len);
         defer ready.deinit();
         const output = try fixture.exchange(.{ .op = .read_output, .uid = uid });
         defer output.deinit();
         const bytes = try f.decode(output.value);
         defer f.allocator.free(bytes);
-        try std.testing.expectEqualStrings(expected, bytes);
+        try f.expect_output(expected, bytes, i % 2 == 0);
     }
     const listed = try fixture.exchange(.{ .op = .list_sessions });
     defer listed.deinit();

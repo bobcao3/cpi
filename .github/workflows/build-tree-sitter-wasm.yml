@@ -4,12 +4,14 @@ on:
   push:
     branches: [main, master]
     paths:
-      - 'tree-sitter-wasm/**'
-      - '.github/workflows/build-tree-sitter-wasm.yml'
+      - "tree-sitter-wasm/**"
+      - "scripts/tree-sitter-wasm.integration.mjs"
+      - ".github/workflows/build-tree-sitter-wasm.yml"
   pull_request:
     paths:
-      - 'tree-sitter-wasm/**'
-      - '.github/workflows/build-tree-sitter-wasm.yml'
+      - "tree-sitter-wasm/**"
+      - "scripts/tree-sitter-wasm.integration.mjs"
+      - ".github/workflows/build-tree-sitter-wasm.yml"
   workflow_dispatch:
 
 jobs:
@@ -35,7 +37,7 @@ jobs:
           if-no-files-found: error
 
       - name: Smoke test
-        working-directory: tree-sitter-wasm
         run: |
-          file zig-out/bin/tree-sitter-wasm.wasm
-          file zig-out/bin/tree-sitter-wasm.wasm | grep -q "WebAssembly" || exit 1
+          file tree-sitter-wasm/zig-out/bin/tree-sitter-wasm.wasm
+          file tree-sitter-wasm/zig-out/bin/tree-sitter-wasm.wasm | grep -q "WebAssembly" || exit 1
+          node --experimental-transform-types scripts/tree-sitter-wasm.integration.mjs

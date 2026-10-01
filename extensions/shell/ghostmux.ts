@@ -1,4 +1,5 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
+import { constants } from "node:fs";
 import { execFile } from "node:child_process";
 import {
   mkdir,
@@ -7,6 +8,8 @@ import {
   copyFile,
   chmod,
   stat,
+  link,
+  rm,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -57,16 +60,15 @@ export function rememberTarget(target: SessionTarget): void {
   targets.set(String(target.pid), target);
   targets.set(target.uid, target);
 }
+function targetDirectory(): string {
+  return join(tmpdir(), `cpi-ghostmux-${process.getuid?.() ?? "win32"}`);
+}
 export function ghostmuxSocket(env: NodeJS.ProcessEnv): string {
   const scope = createHash("sha256")
     .update(env.PI_SESSION_ID ?? `process-${process.pid}`)
     .digest("hex")
     .slice(0, 32);
-  return join(
-    tmpdir(),
-    `cpi-ghostmux-${process.getuid?.() ?? "user"}`,
-    `${scope}.sock`,
-  );
+  return join(targetDirectory(), `${scope}.sock`);
 }
 export async function resolveGhostmuxBinary(): Promise<string> {
   return resolveGhostmux();
@@ -74,15 +76,36 @@ export async function resolveGhostmuxBinary(): Promise<string> {
 export async function ghostmuxCommandDirectory(
   binary: string,
 ): Promise<string> {
+  const source = await stat(binary, { bigint: true });
+  const identity =
+    process.platform === "win32"
+      ? `${binary}\0${source.size}\0${source.mtimeNs}\0${source.ctimeNs}`
+      : binary;
   const directory = join(
     await ensureTargetDirectory(),
-    `bin-${createHash("sha256").update(binary).digest("hex").slice(0, 16)}`,
+    `bin-${createHash("sha256").update(identity).digest("hex").slice(0, 16)}`,
   );
   await mkdir(directory, { recursive: true, mode: 0o700 });
   const destination = join(directory, name);
   if (process.platform === "win32") {
-    await copyFile(binary, destination);
-    await chmod(destination, 0o700);
+    try {
+      await stat(destination);
+      return directory;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
+    const temporary = join(directory, `${randomUUID()}.tmp`);
+    try {
+      await copyFile(binary, temporary, constants.COPYFILE_EXCL);
+      await chmod(temporary, 0o700);
+      try {
+        await link(temporary, destination);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+      }
+    } finally {
+      await rm(temporary, { force: true });
+    }
   } else {
     try {
       await symlink(binary, destination);
@@ -102,7 +125,7 @@ export async function ghostmuxRpc(
   const { stdout } = await execute(
     target.binaryPath,
     ["-S", target.socketPath, ...args, "--uid", target.uid, "--json"],
-    { signal, timeout: 10000, maxBuffer: 12 * 1024 * 1024 },
+    { signal, timeout: 10000, maxBuffer: 12 * 1024 * 1024, windowsHide: true },
   );
   const response = JSON.parse(stdout);
   if (
@@ -226,7 +249,10 @@ export async function readTarget(path: string): Promise<SessionTarget> {
   return target;
 }
 export async function ensureTargetDirectory(): Promise<string> {
-  const path = join(tmpdir(), `cpi-ghostmux-${process.getuid?.() ?? "user"}`);
-  await mkdir(path, { recursive: true, mode: 0o700 });
+  const path = targetDirectory();
+  await execute(await resolveGhostmuxBinary(), ["prepare-runtime", path], {
+    windowsHide: true,
+    timeout: 10000,
+  });
   return path;
 }

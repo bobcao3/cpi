@@ -10,7 +10,12 @@ const Launch = struct {
 fn launch(fixture: *f.Fixture, result: *Launch, index: usize) void {
     var buffer: [32]u8 = undefined;
     const uid = std.fmt.bufPrint(&buffer, "concurrent-{d}", .{index}) catch unreachable;
-    result.response = fixture.launch(uid, false, "import os,time; os.write(1,b'ready'); time.sleep(120)") catch |err| {
+    const directory = fixture.prepare(uid, "ready") catch |err| {
+        result.failure = err;
+        return;
+    };
+    defer f.allocator.free(directory);
+    result.response = fixture.cli_request(&.{ "new-session", "--uid", uid, "--is-pty", "false", "--cwd", directory, "--json", "--", f.child(.hold) }) catch |err| {
         result.failure = err;
         return;
     };
@@ -28,10 +33,12 @@ test "concurrent CLI clients auto-start one daemon and retain independent sessio
     for (&results, 0..) |*result, index| try group.concurrent(f.io, launch, .{ &fixture, result, index });
     try group.await(f.io);
     var server_pid: i32 = 0;
-    for (results) |result| {
+    for (results, 0..) |result, index| {
         if (result.failure) |err| return err;
         try expect(result.response != null);
         const response = result.response.?.value;
+        var name: [32]u8 = undefined;
+        try std.testing.expectEqualStrings(try std.fmt.bufPrint(&name, "concurrent-{d}", .{index}), response.session.?.uid);
         try expect(response.ok and response.session.?.exit_code == null);
         if (server_pid == 0) server_pid = response.server_pid;
         try std.testing.expectEqual(server_pid, response.server_pid);
@@ -47,11 +54,9 @@ test "concurrent CLI clients auto-start one daemon and retain independent sessio
 test "CLI JSON subscriptions replay retained bytes before final data and exit" {
     var fixture = try f.Fixture.init();
     defer fixture.deinit();
-    const gate = try fixture.path("release");
+    const gate = try fixture.path("cli/release");
     defer f.allocator.free(gate);
-    const code = try std.fmt.allocPrint(f.allocator, "import os,time\nos.write(1,b'initial\\x00\\xff')\nwhile not os.path.exists({f}): time.sleep(0.005)\nos.write(1,b'final'); os._exit(3)", .{std.json.fmt(gate, .{})});
-    defer f.allocator.free(code);
-    const created = try fixture.launch("cli", false, code);
+    const created = try fixture.launch(.{ .op = .new_session, .uid = "cli", .is_pty = false }, .{ .program = .replay, .output = "initial\x00\xff" });
     defer created.deinit();
     const ready = try fixture.wait_bytes("cli", 9);
     defer ready.deinit();
@@ -75,7 +80,7 @@ test "CLI JSON subscriptions replay retained bytes before final data and exit" {
             ack = true;
         } else if (std.mem.eql(u8, response.value.event.?, "exit")) {
             try expect(ack and released);
-            try std.testing.expectEqual(@as(?i32, 3), response.value.session.?.exit_code);
+            try std.testing.expectEqual(@as(?i32, 7), response.value.session.?.exit_code);
             exited = true;
             break;
         } else {
@@ -89,7 +94,7 @@ test "CLI JSON subscriptions replay retained bytes before final data and exit" {
         }
     }
     try expect(exited);
-    try std.testing.expectEqualStrings("initial\x00\xfffinal", actual.items);
+    try std.testing.expectEqualStrings("initial\x00\xfftail", actual.items);
     const term = try child.wait(f.io);
     try expect(term == .exited and term.exited == 0);
 }

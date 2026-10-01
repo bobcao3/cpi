@@ -6,6 +6,7 @@ import { dirname, join } from "node:path";
 import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
 import { hostCodingAgent, piExecutableOnPath } from "../bin/host-pi.mjs";
+import { shellCommand } from "./shell-platform.mjs";
 
 const execute = promisify(execFile);
 const script = fileURLToPath(import.meta.url);
@@ -107,7 +108,10 @@ if (!phase) {
       ? JSON.parse(await readFile(join(directory, "metadata.json"), "utf8"))
       : undefined;
   const manager = metadata
-    ? host.SessionManager.open(metadata.session_file)
+    ? host.SessionManager.open(
+        metadata.session_file,
+        join(directory, "sessions"),
+      )
     : host.SessionManager.create(directory, join(directory, "sessions"));
   if (!metadata)
     manager.appendMessage({
@@ -126,9 +130,10 @@ if (!phase) {
   const errors = [];
   await session.bindExtensions({
     mode: "rpc",
-    uiContext: session.extensionRunner.getUIContext(),
+    uiContext: { ...session.extensionRunner.getUIContext() },
     onError: (error) => errors.push(error),
   });
+  assert.equal(session.extensionRunner.hasUI(), true);
   try {
     if (phase === "resume") {
       const notices = notifications(session);
@@ -196,7 +201,10 @@ if (!phase) {
         session._toolRegistry
           .get("sh")
           .execute(name, { description: name, command, waitfor: 0.05 });
-      const detached = await run("detached", "exec sleep 60");
+      const detached = await run(
+        "detached",
+        shellCommand("exec sleep 60", "Start-Sleep -Seconds 60"),
+      );
       await session._toolRegistry
         .get("sh_detach")
         .execute("detach", { id: detached.details.id });
@@ -204,19 +212,22 @@ if (!phase) {
         .get("sh")
         .execute("completed", {
           description: "completed",
-          command: "printf done",
+          command: shellCommand("printf done", "Write-Output done"),
           waitfor: 2,
         });
       assert.equal(completed.details.status, "completed");
       const active = await run(
         "interrupted shell",
-        "printf pending; exec sleep 60",
+        shellCommand(
+          "printf pending; exec sleep 60",
+          "Write-Output pending; Start-Sleep -Seconds 60",
+        ),
       );
       const repeated = await session._toolRegistry
         .get("sh_repeat_until")
         .execute("repeat", {
           description: "interrupted monitor",
-          command: "exec sleep 60",
+          command: shellCommand("exec sleep 60", "Start-Sleep -Seconds 60"),
           interval: 5,
         });
       const list = () =>

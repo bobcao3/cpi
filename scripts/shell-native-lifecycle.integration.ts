@@ -18,12 +18,13 @@ import {
   setTargetScope,
 } from "../extensions/shell/ghostmux.ts";
 import { resolveShell } from "../extensions/shell/profile.ts";
+import { shellCommand } from "./shell-platform.mjs";
 
 const execute = promisify(execFile);
 const directory = await mkdtemp(join(tmpdir(), "cpi-native-shell-"));
 const scope = `native-${Date.now()}`;
 const env = { ...process.env, PI_SESSION_ID: scope };
-const shell = resolveShell("bash");
+const shell = resolveShell();
 const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 async function until(check: () => boolean | Promise<boolean>) {
   for (let attempt = 0; attempt < 200; attempt++) {
@@ -36,7 +37,10 @@ setTargetScope(scope);
 let crashPid: number | undefined;
 try {
   const handle = await launchMonitor(
-    "printf first; sleep .3; printf last; exit 9",
+    shellCommand(
+      "printf first; sleep .3; printf last; exit 9",
+      "[Console]::Write('first'); Start-Sleep -Milliseconds 300; [Console]::Write('last'); exit 9",
+    ),
     env,
     `${Date.now()}-native`,
     shell,
@@ -103,7 +107,7 @@ try {
     immediate.client.close();
   }
   const active = await launchMonitor(
-    "sleep 30",
+    shellCommand("sleep 30", "Start-Sleep -Seconds 30"),
     env,
     `${Date.now()}-reap`,
     shell,

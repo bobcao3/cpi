@@ -33,7 +33,7 @@ test "POSIX signals reach process group and preserve unrelated sessions" {
     if (f.windows) return error.SkipZigTest;
     var fixture = try f.Fixture.init();
     defer fixture.deinit();
-    const created = try fixture.launch("signals", true, "import os,signal,time\nsignal.signal(signal.SIGUSR1,lambda *a: os.write(1,b'USR1'))\nos.write(1,b'ready')\nwhile True: time.sleep(1)");
+    const created = try fixture.launch(.{ .op = .new_session, .uid = "signals" }, .{ .program = .signals });
     defer created.deinit();
     const ready = try fixture.wait_text("signals", "ready");
     defer ready.deinit();
@@ -43,7 +43,7 @@ test "POSIX signals reach process group and preserve unrelated sessions" {
     const received = try fixture.wait_text("signals", "USR1");
     defer received.deinit();
     try expect(received.value.session.?.exit_code == null);
-    const sibling = try fixture.launch("sibling", false, "import time; time.sleep(120)");
+    const sibling = try fixture.launch(.{ .op = .new_session, .uid = "sibling", .is_pty = false }, .{});
     defer sibling.deinit();
     const stream = try fixture.connect();
     defer stream.close(f.io);
@@ -69,17 +69,13 @@ test "PTY and pipe termination reap descendants and leader exit bounds inherited
         for ([_]bool{ false, true }) |leader_exit| {
             var fixture = try f.Fixture.init();
             defer fixture.deinit();
-            const child_path = try fixture.path("child");
-            defer f.allocator.free(child_path);
             const status_path = try fixture.path("status.json");
             defer f.allocator.free(status_path);
-            const code = try std.fmt.allocPrint(f.allocator, "import os,time\nchild=os.fork()\nif child==0:\n while True: time.sleep(1)\nopen({f},'w').write(str(child))\nos.write(1,b'ready')\n{s}", .{ std.json.fmt(child_path, .{}), if (leader_exit) "os._exit(9)" else "time.sleep(120)" });
-            defer f.allocator.free(code);
-            const created = try fixture.request(&.{ "new-session", "--uid", "family", "--is-pty", if (pty) "true" else "false", "--status-path", status_path, "--", f.python, "-c", code });
+            const created = try fixture.launch(.{ .op = .new_session, .uid = "family", .is_pty = pty, .status_path = status_path }, .{ .program = if (leader_exit) .family_exit else .family });
             defer created.deinit();
             var child_pid: i32 = 0;
             for (0..400) |_| {
-                const bytes = fixture.read_file("child") catch {
+                const bytes = fixture.read_file("family/child") catch {
                     try f.pause();
                     continue;
                 };
@@ -111,13 +107,17 @@ test "stale socket after daemon crash permits fresh server startup" {
     if (!linux) return error.SkipZigTest;
     var fixture = try f.Fixture.init();
     defer fixture.deinit();
-    const first = try fixture.launch("first", false, "import time; time.sleep(120)");
+    const first_directory = try fixture.prepare("first", "");
+    defer f.allocator.free(first_directory);
+    const first = try fixture.cli_request(&.{ "new-session", "--uid", "first", "--is-pty", "false", "--cwd", first_directory, "--json", "--", f.child(.hold) });
     defer first.deinit();
     const server_pid = first.value.server_pid;
     try std.posix.kill(server_pid, std.posix.SIG.KILL);
     try gone(server_pid);
     defer std.posix.kill(first.value.session.?.pid, std.posix.SIG.KILL) catch {};
-    const restarted = try fixture.launch("second", false, "import time; time.sleep(120)");
+    const second_directory = try fixture.prepare("second", "");
+    defer f.allocator.free(second_directory);
+    const restarted = try fixture.cli_request(&.{ "new-session", "--uid", "second", "--is-pty", "false", "--cwd", second_directory, "--json", "--", f.child(.hold) });
     defer restarted.deinit();
     try expect(restarted.value.server_pid != server_pid);
     const listed = try fixture.exchange(.{ .op = .list_sessions });
@@ -130,20 +130,17 @@ test "wire PTY and pipe resolve caller PATH and cwd and preserve explicit enviro
     if (f.windows) return error.SkipZigTest;
     var fixture = try f.Fixture.init();
     defer fixture.deinit();
-    const keeper = try fixture.launch("keeper", false, "import time; time.sleep(120)");
+    const keeper = try fixture.launch(.{ .op = .new_session, .uid = "keeper", .is_pty = false }, .{});
     defer keeper.deinit();
-    const python = try f.run(&.{ f.python, "-c", "import sys; print(sys.executable)" });
-    defer f.free_result(python);
-    try f.success(python);
-    const alias = try fixture.path("custom-python");
+    const alias = try fixture.path("custom-child");
     defer f.allocator.free(alias);
-    try std.Io.Dir.cwd().symLink(f.io, std.mem.trim(u8, python.stdout, "\r\n"), alias, .{});
+    try std.Io.Dir.cwd().symLink(f.io, f.child(.environment), alias, .{});
     const env_path = try std.fmt.allocPrint(f.allocator, "PATH={s}", .{fixture.directory});
     defer f.allocator.free(env_path);
     for ([_]bool{ false, true }) |pty| {
         const stream = try fixture.connect();
         defer stream.close(f.io);
-        const created = try f.Channel.exchange(f.allocator, f.io, stream, .{ .op = .new_session, .uid = if (pty) "env-pty" else "env-pipe", .is_pty = pty, .subscribe = true, .cwd = fixture.directory, .env = &.{ env_path, "CUSTOM=value" }, .argv = &.{ "custom-python", "-c", "import os; os.write(1,(os.getcwd()+'|'+os.environ['CUSTOM']+'|'+str(os.isatty(0))).encode())" } });
+        const created = try f.Channel.exchange(f.allocator, f.io, stream, .{ .op = .new_session, .uid = if (pty) "env-pty" else "env-pipe", .is_pty = pty, .subscribe = true, .cwd = fixture.directory, .env = &.{ env_path, "CUSTOM=value" }, .argv = &.{"custom-child"} });
         defer created.deinit();
         try expect(created.value.ok);
         var actual: std.ArrayList(u8) = .empty;

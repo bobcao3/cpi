@@ -28,6 +28,10 @@
             .url = "https://github.com/tree-sitter/tree-sitter-python/archive/26855eabccb19c6abf499fbc5b8dc7cc9ab8bc64.tar.gz",
             .hash = "N-V-__8AAOiqPgC9tH5tYSAYNsMWLoPiSxcmkHvIhMnezomx",
         },
+        .@"tree-sitter-powershell" = .{
+            .url = "https://github.com/wharflab/tree-sitter-powershell/archive/refs/tags/v0.35.0.tar.gz",
+            .hash = "N-V-__8AAO_JfgAwhVeToVmJd5PMjJwI8le3ggPCR0b19Evy",
+        },
         .@"tree-sitter-c" = .{
             .url = "https://github.com/tree-sitter/tree-sitter-c/archive/b780e47fc780ddc8da13afa35a3f4ed5c157823d.tar.gz",
             .hash = "tree_sitter_c-0.24.2-y5boS-ptQADHoCoVfjGT_nFtFQ5LbomIkW0fxG3_cmdB",
@@ -55,7 +59,8 @@
         .@"tree-sitter-yaml" = .{
             .url = "https://github.com/tree-sitter-grammars/tree-sitter-yaml/archive/a1c4812a73ec5e089de8e441fdea3a921e8d5079.tar.gz",
             .hash = "N-V-__8AAEkcHQB61IN4Zp5o83gmDa69AUnJUBSFIVM9lGg-",
-        },        .@"tree-sitter-json" = .{
+        },
+        .@"tree-sitter-json" = .{
             .url = "https://github.com/tree-sitter/tree-sitter-json/archive/001c28d7a29832b06b0e831ec77845553c89b56d.tar.gz",
             .hash = "N-V-__8AAHNaAgD6kjK3HX6lAf89chPqS5zIm0tLpvBQLOtX",
         },

@@ -63,6 +63,19 @@ export function piExecutableOnPath() {
     const candidate = join(directory, "pi");
     if (!existsSync(candidate)) continue;
     if (packageRoot(candidate)) return candidate;
+    if (process.platform === "win32") {
+      const root = join(directory, "node_modules", PACKAGE_NAME);
+      const manifest = join(root, "package.json");
+      if (packageName(manifest) !== PACKAGE_NAME) continue;
+      const entry = JSON.parse(readFileSync(manifest, "utf8")).bin?.pi;
+      if (typeof entry !== "string") continue;
+      const executable = join(root, entry);
+      if (
+        existsSync(executable) &&
+        packageRoot(executable) === realpathSync(root)
+      )
+        return executable;
+    }
   }
   throw new Error("Cannot locate an installed Pi executable on PATH");
 }

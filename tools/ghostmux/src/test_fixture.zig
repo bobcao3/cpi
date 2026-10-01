@@ -6,8 +6,27 @@ pub const Channel = @import("channel.zig");
 const options = @import("test_options");
 pub const binary = if (std.fs.path.isAbsolute(options.binary)) options.binary else std.fmt.comptimePrint("{s}/{s}", .{ options.project, options.binary });
 pub const windows = @import("builtin").os.tag == .windows;
-pub const python = if (windows) "python" else "python3";
+pub const Program = @import("test_child.zig").Program;
+pub const Child = struct { program: Program = .hold, output: []const u8 = "" };
 pub const Parsed = std.json.Parsed(wire.Response);
+
+pub fn child(program: Program) []const u8 {
+    inline for (comptime std.meta.tags(Program)) |value| {
+        if (program == value) {
+            const path = @field(options, @tagName(value));
+            std.debug.assert(path.len > 0);
+            return if (std.fs.path.isAbsolute(path)) path else std.fmt.comptimePrint("{s}/{s}", .{ options.project, path });
+        }
+    }
+    unreachable;
+}
+
+pub fn repeated(pattern: []const u8, length: usize) ![]u8 {
+    std.debug.assert(pattern.len > 0 and length <= 4 * 1024 * 1024);
+    const bytes = try allocator.alloc(u8, length);
+    for (bytes, 0..) |*byte, i| byte.* = pattern[i % pattern.len];
+    return bytes;
+}
 
 pub fn pause() !void {
     try std.Io.sleep(io, .fromMilliseconds(20), .awake);
@@ -45,6 +64,7 @@ pub const Fixture = struct {
     tmp: std.testing.TmpDir,
     directory: [:0]const u8,
     socket: [:0]const u8,
+    daemon: ?std.process.Child = null,
 
     pub fn init() !Fixture {
         var tmp = std.testing.tmpDir(.{});
@@ -63,7 +83,8 @@ pub const Fixture = struct {
     }
 
     pub fn deinit(self: *Fixture) void {
-        if (self.cli(&.{"kill-server"})) |result| free_result(result) else |_| {}
+        if (self.exchange(.{ .op = .kill_server })) |response| response.deinit() else |_| {}
+        if (self.daemon) |*daemon| daemon.kill(io);
         allocator.free(self.socket);
         allocator.free(self.directory);
         self.tmp.cleanup();
@@ -81,26 +102,60 @@ pub const Fixture = struct {
         return run(argv.items);
     }
 
-    pub fn request(self: *const Fixture, args: []const []const u8) !Parsed {
-        var argv: std.ArrayList([]const u8) = .empty;
-        defer argv.deinit(allocator);
-        const separator = for (args, 0..) |arg, i| {
-            if (std.mem.eql(u8, arg, "--")) break i;
-        } else args.len;
-        try argv.appendSlice(allocator, args[0..separator]);
-        try argv.append(allocator, "--json");
-        try argv.appendSlice(allocator, args[separator..]);
-        const result = try self.cli(argv.items);
+    pub fn cli_request(self: *const Fixture, args: []const []const u8) !Parsed {
+        const result = try self.cli(args);
         defer free_result(result);
         try success(result);
-        const parsed = try std.json.parseFromSlice(wire.Response, allocator, result.stdout, .{});
+        const parsed = try std.json.parseFromSlice(wire.Response, allocator, result.stdout, .{ .allocate = .alloc_always });
         errdefer parsed.deinit();
         try std.testing.expect(parsed.value.ok);
         return parsed;
     }
 
-    pub fn launch(self: *const Fixture, uid: []const u8, pty: bool, code: []const u8) !Parsed {
-        return self.request(&.{ "new-session", "--uid", uid, "--is-pty", if (pty) "true" else "false", "--", python, "-c", code });
+    pub fn prepare(self: *const Fixture, uid: []const u8, output: []const u8) ![]u8 {
+        try wire.validate_uid(uid);
+        std.debug.assert(output.len <= 4 * 1024 * 1024);
+        const directory = try self.path(uid);
+        errdefer allocator.free(directory);
+        try std.Io.Dir.cwd().createDirPath(io, directory);
+        var dir = try std.Io.Dir.openDirAbsolute(io, directory, .{});
+        defer dir.close(io);
+        try dir.writeFile(io, .{ .sub_path = "output", .data = output });
+        return directory;
+    }
+
+    pub fn launch(self: *Fixture, request: wire.Request, program: Child) !Parsed {
+        std.debug.assert(request.op == .new_session and !request.subscribe);
+        const directory = try self.prepare(request.uid.?, program.output);
+        defer allocator.free(directory);
+        const guard = try @import("transport.zig").lock_startup(allocator, io, self.socket);
+        defer guard.close(io);
+        const stream = try self.start();
+        defer stream.close(io);
+        var value = request;
+        value.cwd = directory;
+        value.argv = &.{child(program.program)};
+        const response = try Channel.exchange(allocator, io, stream, value);
+        errdefer response.deinit();
+        try std.testing.expect(response.value.ok);
+        return response;
+    }
+
+    fn start(self: *Fixture) !std.Io.net.Stream {
+        if (self.connect()) |stream| return stream else |err| switch (err) {
+            error.SocketMissing, error.FileNotFound, error.ConnectionRefused, error.Unexpected => {},
+            else => return err,
+        }
+        if (self.daemon) |*daemon| daemon.kill(io);
+        self.daemon = try std.process.spawn(io, .{ .argv = &.{ binary, "--serve", self.socket }, .stdin = .ignore, .stdout = .ignore, .stderr = .ignore, .create_no_window = windows });
+        for (0..400) |_| {
+            if (self.connect()) |stream| return stream else |err| switch (err) {
+                error.SocketMissing, error.FileNotFound, error.ConnectionRefused, error.Unexpected => {},
+                else => return err,
+            }
+            try pause();
+        }
+        return error.StartupDeadline;
     }
 
     pub fn connect(self: *const Fixture) !std.Io.net.Stream {
@@ -162,4 +217,15 @@ pub fn expect_error(response: wire.Response, name: []const u8) !void {
     if (response.ok) std.debug.print("expected rejection {s}, got success\n", .{name});
     try std.testing.expect(!response.ok);
     try std.testing.expectEqualStrings(name, response.error_name.?);
+}
+
+pub fn expect_output(expected: []const u8, actual: []const u8, pty: bool) !void {
+    if (!pty) return std.testing.expectEqualStrings(expected, actual);
+    var session: @import("session.zig") = undefined;
+    try session.init(allocator, io, .{});
+    defer session.deinit();
+    try session.feed(actual);
+    const text = try session.capture(allocator, false, true);
+    defer allocator.free(text);
+    try std.testing.expectEqualStrings(expected, text);
 }

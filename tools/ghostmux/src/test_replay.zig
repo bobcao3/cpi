@@ -5,16 +5,14 @@ const expect = std.testing.expect;
 test "multiplex replay drains twenty-four full rings before concurrent final output and exits" {
     var fixture = try f.Fixture.init();
     defer fixture.deinit();
-    const gate = try fixture.path("release");
-    defer f.allocator.free(gate);
     var names: [24][16]u8 = undefined;
     var offsets = [_]u64{0} ** 24;
     var finished = [_]bool{false} ** 24;
     for (&names, 0..) |*name, i| {
         const uid = try std.fmt.bufPrint(name, "replay-{d}", .{i});
-        const code = try std.fmt.allocPrint(f.allocator, "import os,time\ndata=bytes([{d},0,255,65,10])*209716; data=data[:1048576]\nwhile data: data=data[os.write(1,data):]\nwhile not os.path.exists({f}): time.sleep(0.005)\nos.write(1,b'tail'); os._exit({d})", .{ i, std.json.fmt(gate, .{}), i % 7 });
-        defer f.allocator.free(code);
-        const created = try fixture.launch(uid, false, code);
+        const payload = try f.repeated(&.{ @intCast(i), 0, 255, 65, 10 }, 1024 * 1024);
+        defer f.allocator.free(payload);
+        const created = try fixture.launch(.{ .op = .new_session, .uid = uid, .is_pty = false }, .{ .program = if (i % 2 == 0) .replay else .replay_success, .output = payload });
         defer created.deinit();
         const ready = try fixture.wait_bytes(uid, 1024 * 1024);
         defer ready.deinit();
@@ -24,7 +22,12 @@ test "multiplex replay drains twenty-four full rings before concurrent final out
     const subscribed = try f.Channel.exchange(f.allocator, f.io, stream, .{ .op = .subscribe_output });
     defer subscribed.deinit();
     try expect(subscribed.value.ok);
-    try std.Io.Dir.cwd().writeFile(f.io, .{ .sub_path = gate, .data = "release" });
+    for (0..24) |i| {
+        var name: [64]u8 = undefined;
+        const gate = try fixture.path(try std.fmt.bufPrint(&name, "replay-{d}/release", .{i}));
+        defer f.allocator.free(gate);
+        try std.Io.Dir.cwd().writeFile(f.io, .{ .sub_path = gate, .data = "release" });
+    }
     var remaining: usize = 24;
     for (0..1200) |_| {
         if (remaining == 0) break;
@@ -38,7 +41,7 @@ test "multiplex replay drains twenty-four full rings before concurrent final out
         try std.testing.expectEqual(offsets[index], response.value.offset.?);
         if (std.mem.eql(u8, response.value.event.?, "exit")) {
             try expect(response.value.eof);
-            try std.testing.expectEqual(@as(?i32, @intCast(index % 7)), response.value.session.?.exit_code);
+            try std.testing.expectEqual(@as(?i32, if (index % 2 == 0) 7 else 0), response.value.session.?.exit_code);
             try std.testing.expectEqual(@as(u64, 1024 * 1024 + 4), offsets[index]);
             try std.testing.expectEqual(offsets[index], response.value.next_offset.?);
             finished[index] = true;
@@ -64,7 +67,9 @@ test "multiplex replay drains twenty-four full rings before concurrent final out
 test "atomic CLI subscription delivers immediate output and completion on fresh daemon" {
     var fixture = try f.Fixture.init();
     defer fixture.deinit();
-    const result = try fixture.cli(&.{ "new-session", "--uid", "atomic-cli", "--is-pty", "false", "--subscribe", "--json", "--", f.python, "-c", "import os; os.write(1,b'immediate\\x00\\xff'); os._exit(7)" });
+    const directory = try fixture.prepare("atomic-cli", "immediate\x00\xff");
+    defer f.allocator.free(directory);
+    const result = try fixture.cli(&.{ "new-session", "--uid", "atomic-cli", "--is-pty", "false", "--cwd", directory, "--subscribe", "--json", "--", f.child(.emit) });
     defer f.free_result(result);
     try f.success(result);
     var lines = std.mem.tokenizeScalar(u8, result.stdout, '\n');

@@ -92,6 +92,41 @@ const foreground = await monitor(
 assert.equal(foreground.exitCode, 0);
 assert.match(foreground.text, /monitor-ok/);
 
+const watched = await launchMonitor(
+  "Start-Sleep -Seconds 30",
+  env,
+  `win-watched-${Date.now()}`,
+  shell,
+);
+const watcher = await launchMonitor(
+  `ghostmux -S $env:CPI_GHOSTMUX_SOCKET subscribe-output --uid '${watched.client.target!.uid}' --json`,
+  env,
+  `win-watcher-${Date.now()}`,
+  shell,
+);
+try {
+  for (let attempt = 0; attempt < 200; attempt++) {
+    if ((await readFile(watcher.logPath, "utf8")).includes('"subscribed"'))
+      break;
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  assert.match(await readFile(watcher.logPath, "utf8"), /subscribed/);
+  assert.equal(
+    (
+      await monitor(
+        "Write-Output concurrent-ok",
+        `win-concurrent-${Date.now()}`,
+      )
+    ).exitCode,
+    0,
+  );
+} finally {
+  await watched.client.reap();
+  await watcher.client.reap();
+  watched.client.close();
+  watcher.client.close();
+}
+
 const resumeHandle = await launchMonitor(
   "Start-Sleep -Milliseconds 500; Write-Output 'resume-ok'",
   env,
@@ -119,7 +154,7 @@ assert.equal(resumedExit, 0);
 assert.match(resumedText, /resume-ok/);
 
 const killHandle = await launchMonitor(
-  "$p=Start-Process powershell -ArgumentList '-NoProfile','-Command','Start-Sleep -Seconds 60' -PassThru; Write-Output $p.Id; Wait-Process $p.Id",
+  "$p=Start-Process powershell -WindowStyle Hidden -ArgumentList '-NoProfile','-Command','Start-Sleep -Seconds 60' -PassThru; Write-Output $p.Id; Wait-Process $p.Id",
   env,
   `win-kill-${Date.now()}`,
   shell,

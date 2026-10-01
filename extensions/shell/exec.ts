@@ -132,6 +132,7 @@ export async function runShell(
     startedAt: Date.now(),
     pid,
     command,
+    dialect: shell.dialect ?? undefined,
     describe,
     client,
     logPath,
@@ -260,6 +261,7 @@ export async function runShell(
             command,
             logPath,
             describe,
+            shell.dialect ?? undefined,
           );
       })
       .catch(() => {});

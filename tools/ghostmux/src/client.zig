@@ -212,6 +212,7 @@ fn print_status(writer: *std.Io.Writer, status: wire.Status) !void {
 
 pub const help =
     \\
+    \\Runtime directory: ghostmux prepare-runtime DIRECTORY
     \\Server commands: ghostmux [-S SOCKET] COMMAND [options]
     \\  new-session   --uid ID [--is-pty true|false] [--subscribe] [--cwd DIR] [--log PATH] [--cols N --rows N] [-- COMMAND ARGS...]
     \\  list-sessions

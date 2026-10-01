@@ -9,15 +9,13 @@ test "failed final status replacement stops daemon and preserves prior status" {
     defer f.allocator.free(path);
     const initial_path = try fixture.path("initial.json");
     defer f.allocator.free(initial_path);
-    const gate = try fixture.path("release");
+    const gate = try fixture.path("failure/release");
     defer f.allocator.free(gate);
-    const code = try std.fmt.allocPrint(f.allocator, "import os,time\nwhile not os.path.exists({f}): time.sleep(0.005)\nos._exit(7)", .{std.json.fmt(gate, .{})});
-    defer f.allocator.free(code);
-    const target = try fixture.request(&.{ "new-session", "--uid", "failure", "--status-path", path, "--is-pty", "false", "--", f.python, "-c", code });
+    const target = try fixture.launch(.{ .op = .new_session, .uid = "failure", .status_path = path, .is_pty = false }, .{ .program = .replay });
     defer target.deinit();
     const sibling_path = try fixture.path("sibling.json");
     defer f.allocator.free(sibling_path);
-    const sibling = try fixture.request(&.{ "new-session", "--uid", "sibling", "--status-path", sibling_path, "--is-pty", "false", "--", f.python, "-c", "import time; time.sleep(120)" });
+    const sibling = try fixture.launch(.{ .op = .new_session, .uid = "sibling", .status_path = sibling_path, .is_pty = false }, .{});
     defer sibling.deinit();
     try std.Io.Dir.renameAbsolute(path, initial_path, f.io);
     try std.Io.Dir.createDirAbsolute(f.io, path, if (f.windows) .default_dir else .fromMode(0o700));
@@ -56,7 +54,7 @@ test "launches during idle retirement preserve immediate output and persisted co
         const name = try std.fmt.bufPrint(&name_buffer, "status-{d}.json", .{i});
         const path = try fixture.path(name);
         defer f.allocator.free(path);
-        const created = try fixture.request(&.{ "new-session", "--uid", uid, "--status-path", path, "--is-pty", "false", "--", f.python, "-c", "import os; os.write(1,b'complete'); os._exit(7)" });
+        const created = try fixture.launch(.{ .op = .new_session, .uid = uid, .status_path = path, .is_pty = false }, .{ .program = .emit, .output = "complete" });
         defer created.deinit();
         try expect(created.value.ok);
     }

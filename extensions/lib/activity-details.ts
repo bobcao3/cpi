@@ -8,7 +8,7 @@ import {
 import type { ActivityEntry } from "./activity.ts";
 import { activityMetricValue } from "./activity-panel-style.ts";
 import { render } from "./text.ts";
-import { highlightCommandSync } from "./tree-sitter.ts";
+import { highlightCommandSync, highlightLangSync } from "./tree-sitter.ts";
 import { highlightRange, lineBounds } from "../shell/highlight.ts";
 
 export const cleanActivityDisplay = (
@@ -63,7 +63,10 @@ function shellDetails(
     );
     const sourceLines = command.split("\n");
     const { starts, ends } = lineBounds(command);
-    const captures = highlightCommandSync(command);
+    const captures =
+      entry.metrics?.syntax === "powershell"
+        ? highlightLangSync("powershell", command)
+        : highlightCommandSync(command);
     const shown = level < 2 ? 1 : Math.min(sourceLines.length, 32);
     for (let i = 0; i < shown; i++) {
       const code = captures

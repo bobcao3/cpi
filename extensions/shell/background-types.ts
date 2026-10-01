@@ -1,13 +1,14 @@
 import type { WriteStream } from "node:fs";
 import type { StringDecoder } from "node:string_decoder";
 import type { MonitorClient, ResumeClient } from "./monitor.ts";
-import type { ShellProfile } from "./profile.ts";
+import type { ShellDialect, ShellProfile } from "./profile.ts";
 export interface BackgroundChild {
   id: string;
   activityId: string;
   startedAt: number;
   pid: number;
   command: string;
+  dialect?: ShellDialect;
   describe?: string;
   client: MonitorClient | ResumeClient;
   logPath: string;

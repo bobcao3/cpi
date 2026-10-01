@@ -121,6 +121,7 @@ export async function resumeBackgroundShells(
       startedAt: Date.now(),
       pid: Number(r.pid),
       command: r.cmd,
+      dialect: r.dialect,
       describe: r.describe,
       client: c,
       logPath: r.logPath ?? "",

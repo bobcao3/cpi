@@ -21,6 +21,10 @@ fn run(init: std.process.Init) !void {
     const io = init.io;
     const args = try init.minimal.args.toSlice(allocator);
     defer allocator.free(args);
+    if (args.len > 1 and std.mem.eql(u8, args[1], "prepare-runtime")) {
+        if (args.len != 3) return error.InvalidRuntimeArguments;
+        return @import("socket_directory.zig").prepare(allocator, io, args[2]);
+    }
     if (args.len > 1 and std.mem.eql(u8, args[1], "--serve")) {
         if (args.len != 3) return error.InvalidServerArguments;
         try @import("runtime_security.zig").detach();

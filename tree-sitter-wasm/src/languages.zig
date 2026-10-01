@@ -13,6 +13,7 @@ extern fn tree_sitter_javascript() ?*const c.TSLanguage;
 extern fn tree_sitter_typescript() ?*const c.TSLanguage;
 extern fn tree_sitter_json() ?*const c.TSLanguage;
 extern fn tree_sitter_python() ?*const c.TSLanguage;
+extern fn tree_sitter_powershell() ?*const c.TSLanguage;
 extern fn tree_sitter_c() ?*const c.TSLanguage;
 extern fn tree_sitter_cpp() ?*const c.TSLanguage;
 extern fn tree_sitter_cuda() ?*const c.TSLanguage;
@@ -27,6 +28,7 @@ const javascript_hl = @import("javascript_highlights");
 const typescript_hl = @import("typescript_highlights");
 const json_hl = @import("json_highlights");
 const python_hl = @import("python_highlights");
+const powershell_hl = @import("powershell_highlights");
 const c_hl = @import("c_highlights");
 const cpp_hl = @import("cpp_highlights");
 const cuda_hl = @import("cuda_highlights");
@@ -48,6 +50,7 @@ pub const LANGS = [_]Lang{
     .{ .name = "typescript", .lang = tree_sitter_typescript, .query = typescript_hl.scm },
     .{ .name = "json", .lang = tree_sitter_json, .query = json_hl.scm },
     .{ .name = "python", .lang = tree_sitter_python, .query = python_hl.scm },
+    .{ .name = "powershell", .lang = tree_sitter_powershell, .query = powershell_hl.scm },
     .{ .name = "c", .lang = tree_sitter_c, .query = c_hl.scm },
     .{ .name = "cpp", .lang = tree_sitter_cpp, .query = cpp_hl.scm },
     .{ .name = "cuda", .lang = tree_sitter_cuda, .query = cuda_hl.scm },

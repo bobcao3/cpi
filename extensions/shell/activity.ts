@@ -1,10 +1,12 @@
 import { beginActivity, finishActivity } from "../lib/activity.ts";
+import type { ShellDialect } from "./profile.ts";
 interface ShellObservation {
   activityId: string;
   startedAt: number;
   sessScope?: string;
   describe?: string;
   command: string;
+  dialect?: ShellDialect;
   logPath: string;
   pid: number;
   bytesEmitted: number;
@@ -29,6 +31,7 @@ export function observeShell(
       pid: entry.pid,
       output_bytes: entry.bytesEmitted,
       resumed: resumed ? 1 : 0,
+      ...(entry.dialect ? { syntax: entry.dialect } : {}),
     },
   });
 }

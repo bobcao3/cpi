@@ -45,6 +45,7 @@ export function ghostmuxRequest(
       signal,
       timeout: 10000,
       maxBuffer: 8 * 1024 * 1024,
+      windowsHide: true,
     }).then(({ stdout }) => JSON.parse(stdout));
   }
   return new Promise((resolve, reject) => {

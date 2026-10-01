@@ -3,7 +3,7 @@ name: Release tree-sitter-wasm
 on:
   push:
     tags:
-      - '[0-9][0-9][0-9][0-9].[0-9][0-9].[0-9][0-9]'
+      - "[0-9][0-9][0-9][0-9].[0-9][0-9].[0-9][0-9]"
 
 jobs:
   release:
@@ -23,18 +23,22 @@ jobs:
         run: zig build -Drelease=true
 
       - name: Smoke test
-        working-directory: tree-sitter-wasm
         run: |
-          file zig-out/bin/tree-sitter-wasm.wasm
-          file zig-out/bin/tree-sitter-wasm.wasm | grep -q "WebAssembly" || exit 1
+          file tree-sitter-wasm/zig-out/bin/tree-sitter-wasm.wasm
+          file tree-sitter-wasm/zig-out/bin/tree-sitter-wasm.wasm | grep -q "WebAssembly" || exit 1
+          node --experimental-transform-types scripts/tree-sitter-wasm.integration.mjs
 
       - name: Sign wasm (minisign)
         env:
           CPI_MINISIGN_SECRET: ${{ secrets.CPI_MINISIGN_SECRET }}
-        run: node scripts/sign-wasm.mjs tree-sitter-wasm/zig-out/bin/tree-sitter-wasm.wasm
+        run:
+          node scripts/sign-wasm.mjs
+          tree-sitter-wasm/zig-out/bin/tree-sitter-wasm.wasm
 
       - name: Compress wasm (brotli)
-        run: node scripts/compress-wasm.mjs tree-sitter-wasm/zig-out/bin/tree-sitter-wasm.wasm
+        run:
+          node scripts/compress-wasm.mjs
+          tree-sitter-wasm/zig-out/bin/tree-sitter-wasm.wasm
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
@@ -49,7 +53,9 @@ jobs:
 
       - name: Verify public downloads
         env:
-          RELEASE_BASE: https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}
+          RELEASE_BASE:
+            https://github.com/${{ github.repository }}/releases/download/${{
+            github.ref_name }}
         run: |
           for asset in tree-sitter-wasm.wasm.br tree-sitter-wasm.wasm.minisig; do
             curl --fail --location --retry 3 --retry-all-errors \

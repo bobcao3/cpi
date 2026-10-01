@@ -1,5 +1,6 @@
 import { mkdir, readFile, readdir, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import type { ShellDialect } from "./profile.ts";
 export {
   MonitorClient,
   ResumeClient,
@@ -14,6 +15,7 @@ export interface ResumeRecord {
   cmd: string;
   logPath?: string;
   describe?: string;
+  dialect?: ShellDialect;
 }
 
 function resumeRecordDir(sessionDir: string, scope: string): string {
@@ -28,13 +30,14 @@ export async function writeResumeRecord(
   cmd: string,
   logPath?: string,
   describe?: string,
+  dialect?: ShellDialect,
 ): Promise<void> {
   try {
     const dir = resumeRecordDir(sessionDir, scope);
     await mkdir(dir, { recursive: true });
     await writeFile(
       join(dir, `${pid}.json`),
-      JSON.stringify({ pid, sockPath, cmd, logPath, describe }) + "\n",
+      JSON.stringify({ pid, sockPath, cmd, logPath, describe, dialect }) + "\n",
     );
   } catch {}
 }

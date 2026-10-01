@@ -3,7 +3,6 @@ const builtin = @import("builtin");
 const wire = @import("wire.zig");
 const security = @import("runtime_security.zig");
 const directory_security = @import("socket_directory.zig");
-const safe_directory = directory_security.safe_directory;
 const check_parent = directory_security.check_parent;
 const windows = builtin.os.tag == .windows;
 const Dir = std.Io.Dir;
@@ -53,14 +52,7 @@ pub fn socket_path(allocator: std.mem.Allocator, io: std.Io, environ: *const std
     defer allocator.free(requested_directory);
     const directory = try directory_security.canonical_path(allocator, io, requested_directory);
     defer allocator.free(directory);
-    if (!windows) try directory_security.check_directory(allocator, io, std.fs.path.dirname(directory) orelse return error.InvalidSocketPath, false);
-    if (windows) {
-        try @import("runtime_windows_security.zig").create(allocator, directory);
-    } else Dir.cwd().createDir(io, directory, permissions(0o700)) catch |err| switch (err) {
-        error.PathAlreadyExists => {},
-        else => return err,
-    };
-    try safe_directory(allocator, io, directory, true);
+    try directory_security.prepare(allocator, io, directory);
     const path = try std.fs.path.join(allocator, &.{ directory, "default.sock" });
     defer allocator.free(path);
     try check_parent(allocator, io, path);
@@ -152,11 +144,9 @@ pub fn connect_or_start(allocator: std.mem.Allocator, io: std.Io, path: [:0]cons
         guard.close(io);
         const executable = try std.process.executablePathAlloc(io, allocator);
         defer allocator.free(executable);
-        const child = try std.process.spawn(io, .{ .argv = &.{ executable, "--serve", path }, .stdin = .ignore, .stdout = .ignore, .stderr = .ignore, .create_no_window = windows });
         if (windows) {
-            std.os.windows.CloseHandle(child.id.?);
-            std.os.windows.CloseHandle(child.thread_handle);
-        }
+            try @import("daemon_windows.zig").start(allocator, executable, path);
+        } else _ = try std.process.spawn(io, .{ .argv = &.{ executable, "--serve", path }, .stdin = .ignore, .stdout = .ignore, .stderr = .ignore });
         while (now_ms(io) < deadline) {
             if (connect_once(allocator, io, path)) |stream| return stream else |err| if (!startable(err)) return err;
             try std.Io.sleep(io, .fromMilliseconds(20), .awake);

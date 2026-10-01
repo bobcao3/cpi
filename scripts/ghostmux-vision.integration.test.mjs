@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import sharp from "sharp";
+import { nodeProgram, windows } from "./shell-platform.mjs";
 import {
   hostAi,
   hostCodingAgent,
@@ -77,8 +78,17 @@ try {
     return tool.execute(`integration-${name}`, params, signal);
   };
   const result = await call("sh", {
-    command:
-      "python3 -c \"import os,time;os.write(1,b'\\x1b[?25l\\x1b[31mVISION_SCREEN\\r\\n');time.sleep(60)\"",
+    command: await nodeProgram(
+      work,
+      "terminal",
+      `process.stdin.setRawMode(true);
+      process.stdout.write('\u001b[?25l\u001b[31mVISION_SCREEN\\r\\n');
+      const size = () => process.stdout.write('SIZE:' + process.stdout.getWindowSize().join('x') + '\\r\\n');
+      size();
+      process.stdout.on('resize', size);
+      process.stdin.on('data', () => { process.stdout.write('INPUT_OK\\r\\n'); size(); });
+      setTimeout(() => {}, 60000);`,
+    ),
     description: "Launch a real colored terminal",
     waitfor: 0.1,
     is_pty: true,
@@ -86,7 +96,20 @@ try {
   const id = result.details.id;
   assert.ok(id, JSON.stringify(result));
   ids.push(id);
-  const screenshot = await call("sh_screenshot", { id });
+  const waitOutput = async (pattern) => {
+    for (let attempt = 0; attempt < 200; attempt++) {
+      const output = await readFile(result.details.fullOutputPath, "utf8");
+      if (pattern.test(output)) return;
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+    assert.match(
+      await readFile(result.details.fullOutputPath, "utf8"),
+      pattern,
+    );
+  };
+  await waitOutput(/VISION_SCREEN/);
+  await waitOutput(/SIZE:80x24/);
+  const screenshot = await call("sh_screenshot", { id, font_size: 8 });
   const image = screenshot.content.find((part) => part.type === "image");
   assert.ok(image, JSON.stringify(screenshot));
   const { data } = await sharp(Buffer.from(image.data, "base64"))
@@ -105,8 +128,25 @@ try {
     }
   }
   assert.ok(red, "The image must contain the terminal's red foreground");
+  const control = async (command) => {
+    const response = await call("sh", {
+      command: `ghostmux -S '${result.details.socketPath}' ${command} --uid '${result.details.uid}'`,
+      description: "Control the live terminal",
+      waitfor: 5,
+    });
+    assert.equal(response.details.exitCode, 0, JSON.stringify(response));
+  };
+  await control("resize-window --cols 100 --rows 30");
+  await control(
+    `send-input --text ${windows ? '"geometry`r"' : "'geometry\n'"}`,
+  );
+  await waitOutput(/INPUT_OK/);
+  await waitOutput(/SIZE:100x30/);
+  const resized = await call("sh_screenshot", { id, font_size: 8 });
+  assert.equal(resized.details.width * 80, screenshot.details.width * 100);
+  assert.equal(resized.details.height * 24, screenshot.details.height * 30);
   const pipe = await call("sh", {
-    command: "python3 -c 'import time;time.sleep(60)'",
+    command: await nodeProgram(work, "pipe", "setTimeout(() => {}, 60000);"),
     description: "Launch a pipe session",
     waitfor: 0.1,
   });
@@ -133,7 +173,7 @@ try {
   assert.ok(session.getActiveToolNames().includes("sh_screenshot"));
   await call("sh_screenshot", { id, font_size: 20 });
   console.log(
-    "Real Pi tools: PTY screenshot image delivery, pipe rejection, cancellation, and model capability switching passed.",
+    "Real Pi tools: PTY input, child geometry, resize, screenshot image delivery and dimensions, pipe rejection, cancellation, and model capability switching passed.",
   );
 } finally {
   if (session) {

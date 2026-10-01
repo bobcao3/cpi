@@ -206,16 +206,26 @@ sizing reference is Ghostty's
 and
 [`FaceMetrics.icWidth`](https://github.com/ghostty-org/ghostty/blob/12752b2ac1bb05ce53402ed8c853ed1f96eef0b1/src/font/Metrics.zig#L179-L185).
 
-After building, run the real-process integration suite from the repository root:
+Run the portable native suite from this directory:
 
 ```sh
-node --test tools/ghostmux/*.test.mjs
+zig build test --release=safe
 ```
 
-The suite requires Python for a real PTY and the repository's `sharp` dependency
-to independently decode PNG output. Set `GHOSTMUX_BIN` to test a relocated
-executable.
+The test programs are compiled directly by [`build.zig`](build.zig). The daemon
+fixtures use typed protocol requests and separate child executables; CLI tests
+exercise the public launcher.
 
-Linux real-process integration and full macOS/Windows cross-builds have passed.
-Native macOS/Windows runtime verification remains deferred. See
-[`build.zig`](build.zig) for target requirements.
+After building, run additional rendering checks from the repository root:
+
+```sh
+node --test tools/ghostmux/integration.test.mjs
+```
+
+The rendering checks use `sharp` to independently decode PNG output. The
+remaining JavaScript daemon suites require POSIX and Python. Set `GHOSTMUX_BIN`
+to test a relocated executable.
+
+The cpi shell, installed-package, and native runtime checks run on Linux and
+Windows. See [the build workflow](../../.github/workflows/build-ghostmux.yml)
+for the platform matrix and integration commands.

@@ -41,6 +41,7 @@ pub fn build(b: *std.Build) void {
     configure(executable.root_module, b, target, kb, stb);
     b.installArtifact(executable);
     const tests = b.addTest(.{
+        .filters = if (b.option([]const u8, "test-filter", "Run matching tests")) |filter| &.{filter} else &.{},
         .root_module = b.createModule(.{
             .root_source_file = b.path("src/native_tests.zig"),
             .target = target,
@@ -51,6 +52,30 @@ pub fn build(b: *std.Build) void {
     });
     configure(tests.root_module, b, target, kb, stb);
     const test_options = b.addOptions();
+    const Program = @import("src/test_child.zig").Program;
+    inline for (comptime std.meta.tags(Program)) |program| {
+        const posix = switch (program) {
+            .signals, .family, .family_exit, .echo, .queries => true,
+            else => false,
+        };
+        if (target.result.os.tag == .windows and posix) {
+            test_options.addOption([]const u8, @tagName(program), "");
+        } else {
+            const child_options = b.addOptions();
+            child_options.addOption(Program, "program", program);
+            const test_child = b.addExecutable(.{
+                .name = "ghostmux-test-" ++ @tagName(program),
+                .root_module = b.createModule(.{
+                    .root_source_file = b.path("src/test_child.zig"),
+                    .target = target,
+                    .optimize = optimize,
+                    .link_libc = true,
+                }),
+            });
+            test_child.root_module.addOptions("child_options", child_options);
+            test_options.addOptionPath(@tagName(program), test_child.getEmittedBin());
+        }
+    }
     test_options.addOptionPath("binary", executable.getEmittedBin());
     test_options.addOption([]const u8, "project", b.build_root.path orelse ".");
     tests.root_module.addImport("test_options", test_options.createModule());

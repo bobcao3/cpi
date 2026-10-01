@@ -8,7 +8,12 @@ test "unsafe writable socket directories reject launch without creating a socket
     defer fixture.deinit();
     try std.Io.Dir.cwd().setFilePermissions(f.io, fixture.directory, .fromMode(0o777), .{});
     defer std.Io.Dir.cwd().setFilePermissions(f.io, fixture.directory, .fromMode(0o700), .{}) catch {};
-    const result = try fixture.cli(&.{ "new-session", "--uid", "unsafe", "--", f.python, "-c", "pass" });
+    const prepared = try f.run(&.{ f.binary, "prepare-runtime", fixture.directory });
+    defer f.free_result(prepared);
+    try expect(prepared.term == .exited and prepared.term.exited != 0);
+    try expect(std.mem.indexOf(u8, prepared.stderr, "UnsafeSocketDirectory") != null);
+    try std.testing.expectEqual(@as(u16, 0o777), (try std.Io.Dir.cwd().statFile(f.io, fixture.directory, .{})).permissions.toMode() & 0o777);
+    const result = try fixture.cli(&.{ "new-session", "--uid", "unsafe", "--", f.child(.marker) });
     defer f.free_result(result);
     try expect(result.term == .exited and result.term.exited != 0);
     try expect(std.mem.indexOf(u8, result.stderr, "UnsafeSocketDirectory") != null);
@@ -38,7 +43,7 @@ test "symlink status destination never launches or overwrites target" {
     if (f.windows) return error.SkipZigTest;
     var fixture = try f.Fixture.init();
     defer fixture.deinit();
-    const keeper = try fixture.launch("keeper", false, "import time; time.sleep(120)");
+    const keeper = try fixture.launch(.{ .op = .new_session, .uid = "keeper", .is_pty = false }, .{});
     defer keeper.deinit();
     const target = try fixture.path("target");
     defer f.allocator.free(target);
@@ -48,9 +53,7 @@ test "symlink status destination never launches or overwrites target" {
     defer f.allocator.free(marker);
     try std.Io.Dir.cwd().writeFile(f.io, .{ .sub_path = target, .data = "preserve" });
     try std.Io.Dir.cwd().symLink(f.io, target, link, .{});
-    const code = try std.fmt.allocPrint(f.allocator, "open({f},'w').write('launched')", .{std.json.fmt(marker, .{})});
-    defer f.allocator.free(code);
-    const rejected = try fixture.exchange(.{ .op = .new_session, .uid = "rejected", .cwd = fixture.directory, .status_path = link, .argv = &.{ f.python, "-c", code } });
+    const rejected = try fixture.exchange(.{ .op = .new_session, .uid = "rejected", .cwd = fixture.directory, .status_path = link, .argv = &.{f.child(.marker)} });
     defer rejected.deinit();
     try f.expect_error(rejected.value, "PathAlreadyExists");
     const bytes = try fixture.read_file("target");

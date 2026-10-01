@@ -197,8 +197,8 @@ try {
   );
   await execute(
     process.execPath,
-    [fileURLToPath(import.meta.url), directory, "restart"],
-    { env },
+    [...process.execArgv, fileURLToPath(import.meta.url), directory, "restart"],
+    { env, timeout: 60000 },
   );
   await pause(1500);
   const restarted = JSON.parse(
@@ -216,8 +216,8 @@ try {
   );
   await execute(
     process.execPath,
-    [fileURLToPath(import.meta.url), directory, "restart"],
-    { env },
+    [...process.execArgv, fileURLToPath(import.meta.url), directory, "restart"],
+    { env, timeout: 60000 },
   );
   const live = JSON.parse(
     await readFile(join(directory, "restart.json"), "utf8"),

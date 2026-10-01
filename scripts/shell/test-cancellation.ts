@@ -4,6 +4,8 @@ import { getEventListeners } from "node:events";
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { resolveShell } from "../../extensions/shell/profile.ts";
+import { shellCommand } from "../shell-platform.mjs";
 import {
   getActiveBackgrounds,
   killAll,
@@ -39,6 +41,7 @@ const run = (
     30,
     { maxLines: 100 },
     { previewMaxBytes: 4096, maxAcc: 65536, updateMs: 0 },
+    resolveShell(),
   );
 
 try {
@@ -54,7 +57,10 @@ try {
     const controller = new AbortController();
     const start = Date.now();
     const pending = run(
-      "for i in {1..300}; do echo ready; sleep 0.1; done",
+      shellCommand(
+        "while true; do echo ready; sleep 0.1; done",
+        "1..300 | ForEach-Object { Write-Output ready; Start-Sleep -Milliseconds 100 }",
+      ),
       controller.signal,
       phase === "running"
         ? (text) => {

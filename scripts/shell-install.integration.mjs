@@ -15,6 +15,7 @@ import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { hostCodingAgent, piExecutableOnPath } from "../bin/host-pi.mjs";
 import { resolveGhostmux } from "../bin/ghostmux-resolve.mjs";
+import { shellCommand, windows, nodeProgram } from "./shell-platform.mjs";
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const directory = await mkdtemp(join(tmpdir(), "cpi-shell-installed-"));
@@ -39,6 +40,7 @@ try {
     await symlink(
       join(root, "node_modules", dependency),
       join(installed, "node_modules", dependency),
+      windows ? "junction" : "dir",
     );
   await assert.rejects(
     stat(join(installed, "node_modules/@earendil-works/pi-coding-agent")),
@@ -72,13 +74,16 @@ try {
     "installed-shell",
     {
       description: "Installed shell",
-      command: "printf installed-shell; command -v ghostmux",
+      command: shellCommand(
+        "printf installed-shell; command -v ghostmux",
+        "Write-Output installed-shell; (Get-Command ghostmux).Source",
+      ),
       waitfor: 2,
     },
     undefined,
     undefined,
   );
-  assert.equal(result.isError, false);
+  assert.equal(result.isError, false, JSON.stringify(result));
   assert(result.content[0].text.includes("installed-shell"));
   assert.equal(result.details.isPty, false);
   assert(result.details.uid);
@@ -92,7 +97,11 @@ try {
     "installed-terminal",
     {
       description: "Installed terminal",
-      command: "printf ready; read answer; printf '%s' \"$answer\"",
+      command: await nodeProgram(
+        directory,
+        "interactive",
+        "process.stdout.write('ready'); process.stdin.once('data', data => { process.stdout.write(data); process.exit(0); });",
+      ),
       waitfor: 0.05,
       is_pty: true,
     },
