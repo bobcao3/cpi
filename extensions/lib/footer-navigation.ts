@@ -1,13 +1,14 @@
 import type { ExtensionAPI, Theme } from "@earendil-works/pi-coding-agent";
 import {
   matchesKey,
+  VStack,
   type Component,
   type TUI,
   type TuiMouseEvent,
 } from "@earendil-works/pi-tui";
 import type { ActivityKind } from "./activity.ts";
 import {
-  renderFooterRows,
+  buildFooterRows,
   type FooterHit,
   type FooterSection,
 } from "./footer-rows.ts";
@@ -79,28 +80,32 @@ export class FooterNavigation implements Component {
         event.x < target.end,
     );
     if (!hit) return undefined;
-    if (event.type === "press") return { handled: true };
-    if (event.type !== "click") return undefined;
-    if (this.focused) this.restore();
-    this.open(hit.kind);
-    return { handled: true };
+    if (event.type === "click" && this.focused) this.restore();
+    return hit.region.handleMouse({
+      ...event,
+      x: event.x - hit.start,
+      y: 0,
+      width: hit.end - hit.start,
+      height: 1,
+    });
   }
 
   render(width: number): string[] {
     const base = this.footer.render(width);
     this.footer_height = base.length;
-    const rows = renderFooterRows(
+    const rows = buildFooterRows(
       width,
       this.theme,
       this.sections(),
       this.thinking_level(),
       this.focused ? this.selected : undefined,
+      this.open,
     );
     this.hits = rows.hits;
     if (this.focused && !this.hits.some((hit) => hit.kind === this.selected)) {
       this.selected = this.hits[0]?.kind;
     }
-    return [...base, ...rows.lines];
+    return new VStack([this.footer, rows.component]).render(width);
   }
 
   invalidate(): void {

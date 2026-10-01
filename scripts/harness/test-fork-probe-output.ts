@@ -20,7 +20,7 @@ import {
   createAgentSessionFromServices,
 } from "@earendil-works/pi-coding-agent";
 import { getThemeByName } from "../../node_modules/@earendil-works/pi-coding-agent/dist/modes/interactive/theme/theme.js";
-import { renderFooterRows } from "../../extensions/lib/footer-rows.ts";
+import { buildFooterRows } from "../../extensions/lib/footer-rows.ts";
 import { getSubagentUsage } from "../../extensions/lib/cost-ledger.ts";
 import {
   runSubagentWorker,
@@ -241,15 +241,17 @@ try {
   const theme = getThemeByName("dark")!;
   const summary = sections.filter((section: any) => section.name === "summary");
   for (const effort of ["off", "low", "high", "xhigh"] as const) {
-    const line = renderFooterRows(160, theme, summary, effort).lines[0];
+    const line = buildFooterRows(160, theme, summary, effort).component.render(
+      160,
+    )[0];
     assert.equal(stripVTControlCharacters(line).trim(), answer);
     assert.ok(line.includes(theme.getThinkingBorderColor(effort)(answer)));
     assert.doesNotMatch(line, /\x1b\[(?:48[;:]|4[0-7]m|10[0-7]m)/);
   }
   for (const width of [40, 160]) {
-    const rows = renderFooterRows(width, theme, sections, "high").lines.map(
-      stripVTControlCharacters,
-    );
+    const rows = buildFooterRows(width, theme, sections, "high")
+      .component.render(width)
+      .map(stripVTControlCharacters);
     assert.ok(rows.join("\n").includes("I'm auditing documentation"));
   }
   console.log(

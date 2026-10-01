@@ -11,7 +11,7 @@ import {
 import { getActiveBackgroundAnsi } from "../../../node_modules/@earendil-works/pi-tui/dist/utils.js";
 import { getThemeByName } from "../../../node_modules/@earendil-works/pi-coding-agent/dist/modes/interactive/theme/theme.js";
 import { codexUsage, parseUsageReport } from "./codex.ts";
-import { renderFooterRows } from "../footer-rows.ts";
+import { buildFooterRows } from "../footer-rows.ts";
 
 function luminance(color: Color): number {
   const { r, g, b } = colorToRgb(color);
@@ -50,9 +50,14 @@ for (const name of ["dark", "light"]) {
       theme.getBgAnsi("customMessageBg"),
     );
     expect(plain).toMatch(/^codex .* 1h$/);
-    const row = renderFooterRows(30, theme, [{ name: "usage", value }], "off");
-    expect(stripVTControlCharacters(row.lines[0])).toMatch(/50%\s+14%/);
-    expect(stripVTControlCharacters(row.lines[0])).toContain("1h");
+    const row = buildFooterRows(
+      30,
+      theme,
+      [{ name: "usage", value }],
+      "off",
+    ).component.render(30);
+    expect(stripVTControlCharacters(row[0])).toMatch(/50%\s+14%/);
+    expect(stripVTControlCharacters(row[0])).toContain("1h");
     const text_only = codexUsage.format(report, 1000)!;
     expect(text_only).toBe(plain);
     expect(text_only).not.toContain("\x1b");
