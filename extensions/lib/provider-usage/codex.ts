@@ -1,4 +1,9 @@
-import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type {
+  ExtensionContext,
+  Theme,
+  ThemeColor,
+} from "@earendil-works/pi-coding-agent";
+import { HStack, Text, mixColors, visibleWidth } from "@earendil-works/pi-tui";
 import { fetchJson, isRecord, type UsageSource } from "./source.ts";
 
 const PROVIDER_ID = "openai-codex";
@@ -7,6 +12,7 @@ const SECOND_MS = 1000;
 const MINUTE_MS = 60 * SECOND_MS;
 const HOUR_MS = 60 * MINUTE_MS;
 const DAY_MS = 24 * HOUR_MS;
+const BAR_CELLS = 8;
 
 export interface UsageWindow {
   usedPercent: number;
@@ -96,57 +102,38 @@ export function parseUsageReport(
   return primary || secondary ? { primary, secondary } : undefined;
 }
 
-export function formatDualBar(
-  primary: UsageWindow,
-  secondary: UsageWindow,
+function formatBar(
+  window: UsageWindow,
+  theme: Theme | undefined,
+  fill: ThemeColor,
 ): string {
-  const DUAL = [
-    "⠀",
-    "▘",
-    "▝",
-    "▀",
-    "▖",
-    "▌",
-    "▞",
-    "▛",
-    "▗",
-    "▚",
-    "▐",
-    "▜",
-    "▄",
-    "▙",
-    "▟",
-    "█",
-  ];
-  const filledSteps = (usedPercent: number): number => {
-    const remaining = Math.max(0, 100 - usedPercent);
-    return remaining <= 0 ? 0 : Math.max(1, Math.round(remaining / 5));
-  };
-  const primaryFilled = filledSteps(primary.usedPercent);
-  const secondaryFilled = filledSteps(secondary.usedPercent);
-  return Array.from({ length: 10 }, (_, index) => {
-    const first = index * 2 + 1;
-    const second = first + 1;
-    const mask =
-      (primaryFilled >= first ? 1 : 0) +
-      (primaryFilled >= second ? 2 : 0) +
-      (secondaryFilled >= first ? 4 : 0) +
-      (secondaryFilled >= second ? 8 : 0);
-    return DUAL[mask];
-  }).join("");
-}
-
-export function formatSingleBar(window: UsageWindow): string {
-  const remaining = Math.max(0, Math.min(100, 100 - window.usedPercent));
-  const eighths = Math.round((remaining / 100) * 80);
-  const fullCells = Math.floor(eighths / 8);
-  const partial = eighths % 8;
-  const partialBlocks = ["", "▏", "▎", "▍", "▌", "▋", "▊", "▉"];
-  return (
-    "█".repeat(fullCells) +
-    partialBlocks[partial] +
-    "░".repeat(10 - fullCells - (partial ? 1 : 0))
-  );
+  const percent = remainingPercent(window);
+  const value = `${percent}%`;
+  const label = (
+    " ".repeat(Math.floor((BAR_CELLS - value.length) / 2)) + value
+  ).padEnd(BAR_CELLS);
+  const filled =
+    percent === 0 ? 0 : Math.max(1, Math.round((percent * BAR_CELLS) / 100));
+  const prefix = label.slice(0, filled);
+  const suffix = label.slice(filled);
+  return theme
+    ? (prefix
+        ? theme.style(prefix, {
+            fg: theme.colors.userMessageBg,
+            bg: theme.colors[fill],
+          })
+        : "") +
+        (suffix
+          ? theme.style(suffix, {
+              fg: "text",
+              bg: mixColors(
+                theme.colors.customMessageBg,
+                theme.colors.text,
+                0.28,
+              ),
+            })
+          : "")
+    : label;
 }
 
 export function formatResetCountdown(
@@ -179,20 +166,50 @@ function remainingPercent(window: UsageWindow): number {
   return Math.round(Math.max(0, Math.min(100, 100 - window.usedPercent)));
 }
 
-function format(report: UsageReport, now: number): string | undefined {
+function format(
+  report: UsageReport,
+  now: number,
+  theme?: Theme,
+): string | undefined {
   const { primary, secondary } = report;
   const window = primary ?? secondary;
   if (!window) return undefined;
   const dual = primary !== undefined && secondary !== undefined;
-  const bar = dual
-    ? formatDualBar(primary, secondary)
-    : formatSingleBar(window);
-  const percent = dual
-    ? `${remainingPercent(primary)}%/${remainingPercent(secondary)}%`
-    : `${remainingPercent(window)}%`;
+  const tracks = dual
+    ? [
+        formatBar(primary, theme, "success"),
+        formatBar(secondary, theme, "warning"),
+      ]
+    : [formatBar(window, theme, "success")];
   const reset = secondary?.resetAt ?? primary?.resetAt;
   const countdown = formatResetCountdown(reset, now);
-  return `codex ${bar} ${percent}${countdown ? ` ${countdown}` : ""}`;
+  const pieces = [
+    { text: "codex ", track: false },
+    ...tracks.map((text) => ({ text, track: true })),
+    ...(countdown ? [{ text: ` ${countdown}`, track: false }] : []),
+  ];
+  if (!theme) return pieces.map((piece) => piece.text).join("");
+  const entries = pieces.map(({ text, track }) => ({
+    component: new Text(
+      track ? text : theme.fg("muted", text),
+      0,
+      0,
+      track ? undefined : (line: string) => theme.bg("customMessageBg", line),
+    ),
+    basis: visibleWidth(text),
+    shrink: 0,
+  }));
+  const width = pieces.reduce(
+    (sum, piece) => sum + visibleWidth(piece.text),
+    0,
+  );
+  const lines = new HStack(entries, { gap: 0 }).render(width);
+  if (lines.length !== 1) {
+    throw new Error(
+      `Expected Codex usage layout to render one line, got ${lines.length}`,
+    );
+  }
+  return lines[0];
 }
 
 function nextChange(report: UsageReport, now: number): number | undefined {

@@ -46,7 +46,11 @@ export default function providerUsageExtension(pi: ExtensionAPI): void {
 
   const statusValue = (): string | undefined => {
     const cached = cachedForContext();
-    return cached?.source.format(cached.value, Date.now());
+    return cached?.source.format(
+      cached.value,
+      Date.now(),
+      ctx?.mode === "tui" ? ctx.ui.theme : undefined,
+    );
   };
 
   const updateFooter = (): void => {

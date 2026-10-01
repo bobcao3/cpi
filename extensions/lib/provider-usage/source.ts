@@ -1,4 +1,4 @@
-import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
 
 const RESPONSE_LIMIT_BYTES = 64 * 1024;
 
@@ -10,7 +10,7 @@ export interface UsageSource<Report> {
     signal: AbortSignal,
   ): Promise<Report | undefined>;
   /** Segment text for a report, or undefined to hide the segment. */
-  format(report: Report, now: number): string | undefined;
+  format(report: Report, now: number, theme?: Theme): string | undefined;
   /** Instant the rendered text changes without a new report, e.g. a countdown tick. */
   nextChange?(report: Report, now: number): number | undefined;
 }
