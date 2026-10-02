@@ -44,13 +44,10 @@ test("fork probes canonicalize Fast identities and retain inexpensive cached mod
           { modelRuntime: runtime },
           manager,
         );
-        if (id === "gpt-6.1-sol") assert.deepEqual(selected, {});
-        else {
-          assert.ok(selected.model);
-          const source = runtime.getModel("openai-codex", id + suffix);
-          assert.notEqual(selected.model.id, source.id);
-          assert.ok(selected.model.cost.input < source.cost.cacheRead);
-        }
+        assert.equal(selected.model?.id, "gpt-6-luna");
+        assert.equal(selected.thinkingLevel, "medium");
+        const source = runtime.getModel("openai-codex", id + suffix);
+        assert.ok(selected.model.cost.input <= source.cost.cacheRead);
       }
     }
   });

@@ -33,7 +33,7 @@ function rate_at(cost, field, tokens) {
   return rate;
 }
 
-function cheaper_than_cache(source, target) {
+function within_cached_input_cost(source, target) {
   if (
     !valid_rates(source.cost, "cacheRead") ||
     !valid_rates(target.cost, "input")
@@ -46,7 +46,7 @@ function cheaper_than_cache(source, target) {
   ];
   return boundaries.every(
     (tokens) =>
-      rate_at(target.cost, "input", tokens) <
+      rate_at(target.cost, "input", tokens) <=
       rate_at(source.cost, "cacheRead", tokens),
   );
 }
@@ -67,7 +67,7 @@ export function selectForkProbeSubstitute(request, services, manager) {
       target.provider !== source.provider ||
       !(target.contextWindow >= source.contextWindow) ||
       !source.input.every((kind) => target.input.includes(kind)) ||
-      !cheaper_than_cache(source, target)
+      !within_cached_input_cost(source, target)
     )
       continue;
     return {

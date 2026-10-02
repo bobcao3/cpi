@@ -212,7 +212,7 @@ try {
   const rule = (to: string, from = "probe-test") => ({ from, to });
   const cases: [string, unknown, string, string?][] = [
     ["cheap", [rule("cheap:medium")], "cheap"],
-    ["equal cache price", [rule("equal:medium")], "probe-test"],
+    ["equal cache price", [rule("equal:medium")], "equal"],
     ["expensive", [rule("expensive:medium")], "probe-test"],
     ["unknown price", [rule("unknown:medium")], "probe-test"],
     ["smaller context", [rule("small:medium")], "probe-test"],
@@ -228,7 +228,7 @@ try {
       Array.from({ length: 33 }, () => rule("cheap:medium")),
       "probe-test",
     ],
-    ["fallthrough", [rule("equal:medium"), rule("cheap:medium")], "cheap"],
+    ["fallthrough", [rule("expensive:medium"), rule("cheap:medium")], "cheap"],
     [
       "explicit model",
       [rule("cheap:medium")],
@@ -248,7 +248,7 @@ try {
     assert.equal(requests[0].model, expected, label);
     assert.equal(
       requests[0].reasoning_effort,
-      expected === "cheap" ? "medium" : "high",
+      ["cheap", "equal"].includes(expected) ? "medium" : "high",
       label,
     );
     assert.deepEqual(requests[0].tools, probeTools, label);
