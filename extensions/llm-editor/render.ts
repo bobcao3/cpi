@@ -1,12 +1,3 @@
-/**
- * TUI rendering for `edit`/`write`/`apply_patch`: one block per call, led by a
- * `<glyph> {command}: {file}` line carrying running/success/failure state. Its
- * body holds the editor subagent's live transcript tail while it runs and the
- * edit diff afterwards (old/new line-number columns, long deletion runs elided
- * per diff.collapseRemovals); a failure appends an indented `└` reason. The
- * surface keeps a neutral background; red text marks errors.
- */
-
 import {
   Box,
   Container,
@@ -17,8 +8,13 @@ import {
 } from "@earendil-works/pi-tui";
 import { collapseRemovals, type DiffOp } from "./diff.ts";
 import { fileLabel, oneLine } from "./read-batch.ts";
+import { record_block } from "../lib/tool-block.ts";
+import {
+  stream_tail,
+  type WriteDetails,
+  type WriteMember,
+} from "./write-record.ts";
 
-const STREAM_TAIL = 5;
 /** Partial-update throttle for the streaming transcript (ms). */
 export const STREAM_UPDATE_MS = 200;
 
@@ -50,7 +46,7 @@ interface EditorPanel {
 /** Neutral surface: full-width background, head flush left, body inset one column. */
 function editorView(
   theme: any,
-  build: (bodyWidth: number) => EditorPanel,
+  build: (bodyWidth: number) => EditorPanel[],
 ): Component {
   return {
     invalidate() {},
@@ -58,16 +54,13 @@ function editorView(
       const box = new Box(0, 0, (text: string) =>
         theme.bg("toolPendingBg", text),
       );
-      const panel = build(Math.max(1, width - 2));
-      const head = truncView([panel.head]);
-      const body = panel.body ?? [];
-      if (body.length === 0) {
-        box.addChild(head);
-      } else {
-        const bodyBox = new Box(1, 0);
-        bodyBox.addChild(truncView(body));
-        box.addChild(head);
-        box.addChild(bodyBox);
+      for (const panel of build(Math.max(1, width - 2))) {
+        box.addChild(truncView([panel.head]));
+        if (panel.body?.length) {
+          const bodyBox = new Box(1, 0);
+          bodyBox.addChild(truncView(panel.body));
+          box.addChild(bodyBox);
+        }
       }
       const lines = box.render(width);
       const bgAnsi = theme.getBgAnsi("toolPendingBg");
@@ -79,20 +72,20 @@ function editorView(
   };
 }
 
-interface EditorDetails {
-  kind?: "edit" | "create" | "error";
-  path?: string;
-  diffOps?: DiffOp[];
-  hunks?: number;
-  rewrite?: boolean;
-  bytes?: number;
-  message?: string;
-  failure?: unknown;
+interface WriteAction {
+  command: string;
+  details: WriteDetails;
+  status: "pending" | "success" | "error";
+  stream?: string[];
+  reason?: string;
+  limited?: boolean;
 }
 
-const HEAD_PENDING = "⏳ ";
-const HEAD_OK = " ✓ ";
-const HEAD_FAIL = " ✗ ";
+const ACTION_STYLE = {
+  pending: ["warning", "⏳ "],
+  success: ["success", " ✓ "],
+  error: ["error", " ✗ "],
+} as const;
 
 function gray(theme: any, t: string): string {
   return theme.fg("dim", t);
@@ -169,12 +162,18 @@ export function renderEditorCall(
   // The result owns the head line once it is in, so the call folds away.
   if (!context.isPartial) return new Container();
   const row = rowState(context);
-  return editorView(theme, () => ({
-    head:
-      theme.fg("warning", `${HEAD_PENDING}${command}: `) +
-      fileLabel(args?.path, theme),
-    body: row.stream?.map((line) => gray(theme, line)),
-  }));
+  return write_action_component(
+    () => [
+      {
+        command,
+        id: context.toolCallId ?? "",
+        path: args?.path,
+        isError: false,
+        stream: row.stream,
+      },
+    ],
+    theme,
+  );
 }
 
 function wrapReason(reason: string, width: number, theme: any): string[] {
@@ -199,50 +198,116 @@ export function renderEditorResult(
   // Running: hand the live transcript tail to the call renderer, which already
   // frames this row — a second frame here would stack a second block below it.
   if (opts.isPartial) {
-    const lines = fullText
-      .trimEnd()
-      .split("\n")
-      .filter((l: string) => l !== "" && !/^(jsonl:|summary:)/.test(l));
-    rowState(context).stream = lines.slice(-STREAM_TAIL);
+    rowState(context).stream = stream_tail(fullText);
     return new Container();
   }
 
-  const d = (result.details ?? {}) as EditorDetails;
-  const file = fileLabel(d.path, theme);
-  if (result.isError || d.kind === "error" || d.failure) {
-    const reason = oneLine(d.message ?? fullText) || "failed";
-    const head =
-      theme.fg("error", `${HEAD_FAIL}${command}: `) +
-      file +
-      theme.fg(
-        "error",
-        d.failure
-          ? ` · applied ${d.hunks} hunk${d.hunks === 1 ? "" : "s"} before failure`
-          : " failed",
-      );
-    return editorView(theme, (bodyWidth) => ({
-      head,
-      body: [
-        ...(d.diffOps?.length
-          ? renderDiffOps(d.diffOps, theme).split("\n")
-          : []),
-        ...wrapReason(reason, bodyWidth, theme),
-      ],
-    }));
-  }
+  return write_action_component(
+    () => [
+      {
+        command,
+        id: context.toolCallId ?? "",
+        path: context.args?.path,
+        result,
+        isError: Boolean(result.isError || context.isError),
+      },
+    ],
+    theme,
+  );
+}
 
-  const head =
-    theme.fg("success", `${HEAD_OK}${command}: `) +
-    file +
-    (d.kind === "edit"
-      ? gray(
-          theme,
-          ` · applied ${d.hunks} hunk${d.hunks !== 1 ? "s" : ""}${d.rewrite ? ", whole-file rewrite" : ""}`,
-        )
-      : d.kind === "create"
-        ? gray(theme, ` · created ${d.bytes} bytes`)
-        : "");
-  const body = d.kind === "edit" ? renderDiffOps(d.diffOps ?? [], theme) : "";
-  const lines = body ? body.split("\n").filter((l: string) => l !== "") : [];
-  return editorView(theme, () => ({ head, body: lines }));
+function write_action_block(
+  records: () => readonly WriteAction[],
+  theme: any,
+): Component {
+  return record_block(
+    records,
+    (actions) => [
+      {
+        component: editorView(theme, (body_width) =>
+          actions.map((action) => {
+            const d = action.details;
+            const [color, glyph] = ACTION_STYLE[action.status];
+            return {
+              head:
+                theme.fg(color, `${glyph}${action.command}: `) +
+                fileLabel(d.path, theme) +
+                theme.fg(
+                  action.status === "error" ? "error" : "dim",
+                  action_summary(action),
+                ),
+              body:
+                action.status === "pending"
+                  ? action.stream?.map((line) => gray(theme, line))
+                  : [
+                      ...renderDiffOps(d.diffOps ?? [], theme)
+                        .split("\n")
+                        .filter(Boolean),
+                      ...(action.reason
+                        ? wrapReason(action.reason, body_width, theme)
+                        : []),
+                      ...(action.limited
+                        ? [
+                            gray(
+                              theme,
+                              "  └ Nested rendering metadata was truncated",
+                            ),
+                          ]
+                        : []),
+                    ],
+            };
+          }),
+        ),
+      },
+    ],
+    theme,
+  );
+}
+
+function action_summary(action: WriteAction): string {
+  if (action.status === "pending") return "";
+  const d = action.details;
+  if (action.status === "error" && !d.failure) return " failed";
+  if (d.failure || d.kind === "edit") {
+    const suffix =
+      action.status === "error"
+        ? " before failure"
+        : d.rewrite
+          ? ", whole-file rewrite"
+          : "";
+    return ` · applied ${d.hunks} hunk${d.hunks === 1 ? "" : "s"}${suffix}`;
+  }
+  return d.kind === "create" ? ` · created ${d.bytes} bytes` : "";
+}
+
+export function write_action_component(
+  records: () => readonly WriteMember[],
+  theme: any,
+): Component {
+  return write_action_block(
+    () =>
+      records().map((member) => {
+        const details = {
+          ...member.result?.details,
+          path: member.result?.details?.path ?? member.path,
+        };
+        const failed = Boolean(
+          member.isError || details.kind === "error" || details.failure,
+        );
+        const text =
+          member.result?.content?.find((part) => part.type === "text")?.text ??
+          "";
+        return {
+          command: member.command,
+          details,
+          status: member.result ? (failed ? "error" : "success") : "pending",
+          stream: member.stream,
+          limited: member.limited,
+          reason: failed
+            ? oneLine(details.message ?? text) || "failed"
+            : undefined,
+        };
+      }),
+    theme,
+  );
 }

@@ -17,10 +17,9 @@ import type { AssistantMessage } from "@earendil-works/pi-ai";
 import {
   getCapabilities,
   hyperlink,
-  stripTerminalSequences,
   visibleWidth,
-  wrapTextWithAnsi,
 } from "@earendil-works/pi-tui";
+import { record_block, type LineGroup } from "../lib/tool-block.ts";
 import { sanitizeActivityText } from "../lib/activity.ts";
 import { getCwd } from "../lib/cwd.ts";
 import { displayPath } from "../lib/path-display.ts";
@@ -116,20 +115,17 @@ function memberKind(member: ReadMember): string {
   return member.result.details?.kind || "other";
 }
 
-interface ReadBlock {
-  head: string;
-  entries: string[];
-  desc?: string;
-}
-
-function groupedReadBlocks(batch: ReadBatch, theme: Theme): ReadBlock[] {
-  const members = batch.members
+function groupedReadBlocks(
+  records: readonly ReadMember[],
+  theme: Theme,
+): LineGroup[] {
+  const members = records
     .filter((member) => member.result?.details?.kind !== "image")
     .sort((a, b) => a.order - b.order);
   const pendingHasQuery = members.some(
     (member) => !member.result && member.query,
   );
-  const blocks: ReadBlock[] = [];
+  const blocks: LineGroup[] = [];
   let previous = "";
   let hasSuccess = false;
   const add = (head: string, entry: string, merge: boolean, desc?: string) => {
@@ -195,62 +191,12 @@ function errorText(member: ReadMember): string {
   );
 }
 
-function foldBlocks(
-  blocks: ReadBlock[],
-  width: number,
-  theme: Theme,
-): string[] {
-  const lines: string[] = [];
-  const dim = (text: string) => theme.fg("dim", text);
-  for (const block of blocks) {
-    const indent = " ".repeat(visibleWidth(block.head));
-    let line = block.head;
-    let used = visibleWidth(block.head);
-    block.entries.forEach((entry, index) => {
-      const separator = index ? ", " : "";
-      const size = visibleWidth(separator + entry);
-      if (index && used + size > width) {
-        lines.push(line);
-        line = indent + entry;
-        used = visibleWidth(line);
-      } else {
-        line += separator + entry;
-        used += size;
-      }
-    });
-    lines.push(line);
-    if (block.desc) {
-      const inline = ` ${dim(block.desc)}`;
-      if (visibleWidth(line) + visibleWidth(inline) <= width)
-        lines[lines.length - 1] += inline;
-      else lines.push(indent + dim(`└ ${block.desc}`));
-    }
-  }
-  return lines.flatMap((line) => wrapIndented(line, width));
-}
-
-function wrapIndented(line: string, width: number): string[] {
-  if (visibleWidth(line) <= width) return [line];
-  const indent = line.match(/^ */)?.[0] ?? "";
-  const rest = line.slice(indent.length);
-  const hanging =
-    indent + (stripTerminalSequences(rest).startsWith("└ ") ? "  " : "");
-  const wrapped = wrapTextWithAnsi(
-    rest,
-    Math.max(1, width - hanging.length),
-  ).filter((chunk) => visibleWidth(chunk));
-  return wrapped.map(
-    (chunk, index) => (index === 0 ? indent : hanging) + chunk,
-  );
-}
-
 export function groupedReadComponent(batch: ReadBatch, theme: Theme) {
-  return {
-    invalidate() {},
-    render(width: number): string[] {
-      return foldBlocks(groupedReadBlocks(batch, theme), width, theme);
-    },
-  };
+  return record_block(
+    () => batch.members,
+    (members) => groupedReadBlocks(members, theme),
+    theme,
+  );
 }
 
 const MAX_GROUPED_READS = 64;

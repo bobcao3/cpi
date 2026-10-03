@@ -33,6 +33,7 @@ import { withPathLock } from "./lock.ts";
 import { shortSha } from "./id.ts";
 import { resultXml, field } from "./result-xml.ts";
 import { lspFields } from "./lsp.ts";
+import { editDiffOps } from "./diff.ts";
 import { renderEditorCall, renderEditorResult } from "./render.ts";
 import { renderReadCall, renderReadResult } from "./read-render.ts";
 
@@ -152,6 +153,7 @@ async function executeWrite(params: WriteParams, id: string, abs: string) {
         kind: "create",
         path: abs,
         bytes: Buffer.byteLength(fileText, "utf-8"),
+        diffOps: editDiffOps("", fileText, 0, 0),
       },
       agents,
     );

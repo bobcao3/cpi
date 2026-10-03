@@ -103,6 +103,12 @@ test("edit result head carries status and reason", () => {
 
 test("streaming transcript tail lands in the pending block, tail of 5", () => {
   const context = { isPartial: true, state: {}, args: {} };
+  const pending = renderEditorCall(
+    "edit",
+    { path: "src/a.ts" },
+    theme,
+    context,
+  );
   const streamed = renderEditorResult(
     "edit",
     {
@@ -128,15 +134,12 @@ test("streaming transcript tail lands in the pending block, tail of 5", () => {
     context,
   );
   assert.deepEqual(rows(streamed), []);
-  assert.deepEqual(
-    panel(renderEditorCall("edit", { path: "src/a.ts" }, theme, context)),
-    [
-      "⏳ edit: src/a.ts",
-      " checking the file",
-      " hunk 1",
-      " + const a = 1;",
-      " applying",
-      " verifying",
-    ],
-  );
+  assert.deepEqual(panel(pending), [
+    "⏳ edit: src/a.ts",
+    " checking the file",
+    " hunk 1",
+    " + const a = 1;",
+    " applying",
+    " verifying",
+  ]);
 });
