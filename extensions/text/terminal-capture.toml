@@ -1,5 +1,5 @@
 [tool]
-description = "Capture the current screen of a live PTY shell and return the screenshot directly as an image in model context."
+description = "Capture the current screen of a live PTY shell and return the screenshot directly as an image in model context. Codemode calls return metadata and an image block; call image(result.image) to show the screenshot. Do not print or return the base64 image data as text."
 prompt_snippet = "Inspect an interactive terminal screen visually."
 guidelines = [
   "Start interactive terminal programs with sh(is_pty=true), then pass the returned shell id to sh_screenshot.",

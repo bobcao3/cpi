@@ -52,6 +52,7 @@ try {
     cwd: directory,
     agentDir: directory,
     noExtensions: true,
+    extensionFactories: [host.createCodemodeExtension()],
     additionalExtensionPaths: [join(installed, "extensions/shell.ts")],
     noSkills: true,
     noPromptTemplates: true,
@@ -69,6 +70,84 @@ try {
     noTools: true,
   }));
   await session.bindExtensions({});
+  session.setActiveToolsByName([...session.getActiveToolNames(), "codemode"]);
+  const call_codemode = async (id, code) => {
+    session.agent.state.messages.push({
+      role: "assistant",
+      content: [
+        { type: "toolCall", id, name: "codemode", arguments: { code } },
+      ],
+      api: session.model.api,
+      provider: session.model.provider,
+      model: session.model.id,
+      stopReason: "toolUse",
+      timestamp: Date.now(),
+      usage: {
+        input: 0,
+        output: 0,
+        cacheRead: 0,
+        cacheWrite: 0,
+        totalTokens: 0,
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+      },
+    });
+    return session.agent.state.tools
+      .find((tool) => tool.name === "codemode")
+      .execute(id, { code });
+  };
+  const structured = await call_codemode(
+    "installed-structured",
+    `
+    const results = await Promise.all([
+      tools.sh({ description: "Structured success", command: ${JSON.stringify(shellCommand("printf structured-ok", "[Console]::Write('structured-ok')"))}, waitfor: 2 }),
+      tools.sh({ description: "Structured failure", command: ${JSON.stringify(shellCommand("printf structured-error; exit 7", "[Console]::Write('structured-error'); exit 7"))}, waitfor: 2 }),
+      tools.sh({ description: "Structured blocked", command: "printf must-not-run", waitfor: 31 }),
+    ]);
+    return results;
+  `,
+  );
+  assert.notEqual(structured.isError, true, JSON.stringify(structured));
+  const values = JSON.parse(
+    structured.content
+      .slice(1)
+      .map((block) => block.text)
+      .join(""),
+  );
+  assert.equal(values[0].output, "structured-ok");
+  assert.equal(values[0].exit_code, 0);
+  assert.equal(values[0].is_error, false);
+  assert.equal(values[1].output, "structured-error");
+  assert.equal(values[1].exit_code, 7);
+  assert.equal(values[1].is_error, true);
+  assert.equal(values[2].status, "blocked");
+  assert.equal(values[2].id, null);
+  assert.equal(values[2].is_error, true);
+  assert.equal(
+    structured.details.calls.filter((call) => call.status === "error").length,
+    2,
+  );
+  const large_output = "START" + "x".repeat(100000) + "END";
+  const large_command = await nodeProgram(
+    directory,
+    "structured-large",
+    `process.stdout.write(${JSON.stringify(large_output)});`,
+  );
+  const large = await call_codemode(
+    "installed-large",
+    `
+    return await tools.sh({ description: "Structured bounded output", command: ${JSON.stringify(large_command)}, waitfor: 2 });
+  `,
+  );
+  assert.notEqual(large.isError, true, JSON.stringify(large));
+  const bounded = JSON.parse(
+    large.content
+      .slice(1)
+      .map((block) => block.text)
+      .join(""),
+  );
+  assert.equal(bounded.exit_code, 0);
+  assert(bounded.output.length < large_output.length);
+  assert.equal(await readFile(bounded.full_output_path, "utf8"), large_output);
   const sh = session._toolRegistry.get("sh");
   const result = await sh.execute(
     "installed-shell",
@@ -109,6 +188,8 @@ try {
     undefined,
   );
   assert.equal(interactive.details.status, "running");
+  assert.equal(interactive.structuredContent.status, "running");
+  assert.equal(interactive.structuredContent.id, interactive.details.id);
   const registered = resourceLoader
     .getExtensions()
     .extensions.flatMap((extension) => [...extension.tools.keys()]);
@@ -129,6 +210,30 @@ try {
         .toString(),
       "PNG",
     );
+    const forwarded = await call_codemode(
+      "installed-screen",
+      `
+      const screen = await tools.sh_screenshot({ id: ${JSON.stringify(interactive.details.id)}, font_size: 12 });
+      image(screen.image);
+      return { width: screen.width, height: screen.height };
+    `,
+    );
+    assert.notEqual(forwarded.isError, true);
+    const image = forwarded.content.find((block) => block.type === "image");
+    assert.ok(image);
+    assert.equal(
+      Buffer.from(image.data, "base64").subarray(1, 4).toString(),
+      "PNG",
+    );
+    const dimensions = JSON.parse(
+      forwarded.content
+        .filter((block) => block.type === "text")
+        .slice(1)
+        .map((block) => block.text)
+        .join(""),
+    );
+    assert.equal(dimensions.width, screenshot.details.width);
+    assert.equal(dimensions.height, screenshot.details.height);
   }
   const control = session._toolRegistry.get("sh_signal");
   const killed = await control.execute(

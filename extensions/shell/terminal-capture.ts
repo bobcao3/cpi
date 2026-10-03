@@ -9,6 +9,7 @@ import {
   type ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import { loadText, render, renderLines, textPath } from "../lib/text.ts";
+import { screenshot_output_schema } from "./result-schema.ts";
 
 interface CaptureText {
   tool: { description: string; prompt_snippet: string; guidelines: string[] };
@@ -58,6 +59,7 @@ export function registerTerminalCaptureTool(
         }),
       ),
     }),
+    outputSchema: screenshot_output_schema,
     async execute(_toolCallId, params, signal, _onUpdate, ctx) {
       if (!ctx.model?.input.includes("image"))
         throw new Error(text.results.non_vision);
@@ -87,21 +89,21 @@ export function registerTerminalCaptureTool(
         ]
           .filter(Boolean)
           .join("\n");
+        const image_block = {
+          type: "image" as const,
+          data: image.data,
+          mimeType: image.mimeType,
+        };
+        const metadata = {
+          id: params.id,
+          uid: target.uid,
+          width: image.width,
+          height: image.height,
+        };
         return {
-          content: [
-            { type: "text" as const, text: note },
-            {
-              type: "image" as const,
-              data: image.data,
-              mimeType: image.mimeType,
-            },
-          ],
-          details: {
-            id: params.id,
-            uid: target.uid,
-            width: image.width,
-            height: image.height,
-          },
+          content: [{ type: "text" as const, text: note }, image_block],
+          structuredContent: { ...metadata, image: image_block },
+          details: metadata,
         };
       } finally {
         await rm(directory, { recursive: true, force: true });

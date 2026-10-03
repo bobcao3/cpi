@@ -2,7 +2,7 @@
 
 # ── Tool metadata shown to the main agent ──
 [sh]
-description = "Run a command via `{{shell_invocation}}` ({{shell_name}}). Stateless: no env/cwd persistence. If the command runs longer than `waitfor`, sh backgrounds it and returns an id for signalling. Maximum waitfor is {{max_waitfor}}s."
+description = "Run a command via `{{shell_invocation}}` ({{shell_name}}). Stateless: no env/cwd persistence. If the command runs longer than `waitfor`, sh backgrounds it and returns an id for signalling. Maximum waitfor is {{max_waitfor}}s. Codemode calls return structured results: check is_error and status, read output for the bounded command preview, and use full_output_path for the complete output. Non-zero exits and blocked commands return is_error=true; execution exceptions still reject."
 prompt_snippet = "Run shell commands"
 
 [sh_signal]
@@ -36,6 +36,16 @@ id = "Background shell PID (as returned by sh)"
 windows_terminated = "Background {{id}} process tree terminated (requested {{signal}})."
 posix_killed = "Background {{id}} terminated (SIGKILL)."
 posix_sent = "Sent {{signal}} to {{id}}."
+
+[results.sh]
+aborted = "Aborted before start."
+
+[completion]
+repeat-breach = "Repeat monitor {{id}} breached on exit {{code}} (shell command time exceeded repeat interval)"
+repeat-stopped = "Repeat monitor {{id}} stopped on exit {{code}}"
+shell-complete = "Shell {{shell_label}} completed on exit {{code}}"
+shell-failed = "Shell {{shell_label}} command failed on exit {{code}}"
+summary = "{{base}}; log {{path}}{{#has_range}} lines {{start}}..{{end}}{{/has_range}}"
 
 [shutdown]
 summary = "Session shutdown interrupted background {{kind}} {{id}}{{#describe}} · {{describe}}{{/describe}}."

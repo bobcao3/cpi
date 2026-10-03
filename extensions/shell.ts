@@ -6,6 +6,7 @@
  */
 
 import { registerTerminalCaptureTool } from "./shell/terminal-capture.ts";
+import { shell_output_schema } from "./shell/result-schema.ts";
 import { surface_shell_shutdowns } from "./shell/shutdown.ts";
 import { Type } from "typebox";
 import {
@@ -19,8 +20,7 @@ import type {
 import { loadShellConfig } from "./lib/config.ts";
 import { getCwd } from "./lib/cwd.ts";
 import { checkShellPoll } from "./lib/poll-guard.ts";
-import { sendNotification, type NotificationKind } from "./lib/notification.ts";
-import { registerHoldSource, signalHoldEvent } from "./lib/session-hold.ts";
+import { registerHoldSource } from "./lib/session-hold.ts";
 import {
   ensureShellTools,
   buildShellEnvWithDotenv,
@@ -30,16 +30,18 @@ import {
 import {
   buildOutputText,
   getActiveBackgrounds,
-  getShellBackgrounds,
   hasActiveBackground,
   killAll,
   runShell,
   captureSessionScreenshot,
   resumeBackgroundShells,
   setCurrentScope,
-  setCompletionHook,
   type OutputTruncation,
 } from "./shell/exec.ts";
+import {
+  disable_builtin_bash,
+  register_shell_completion,
+} from "./shell/lifecycle.ts";
 import { createRepeatTool, resumeRepeats } from "./shell/repeat.ts";
 import { suspendRepeatWrites } from "./shell/repeat-persistence.ts";
 import {
@@ -63,7 +65,6 @@ import { analyzeCommand, unsupportedDialectMessage } from "./shell/analyze.ts";
 import { surfaceCdAgents } from "./shell/cd-targets.ts";
 import { runLspHook } from "./shell/lsp-hook.ts";
 import { formatAgentsBlock } from "./lib/agents.ts";
-import { cleanActivityDisplay } from "./lib/activity-details.ts";
 import { loadText, render, renderLines, textPath } from "./lib/text.ts";
 import {
   notifyOrphanedShells,
@@ -89,24 +90,10 @@ interface ShellText {
     sh_signal: Record<string, string>;
     sh_detach: Record<string, string>;
   };
-  results: { sh_signal: Record<string, string> };
+  results: { sh: Record<string, string>; sh_signal: Record<string, string> };
 }
 const SLEEP_UNITS: Record<string, number> = { s: 1, m: 60, h: 3600, d: 86400 };
 let shellStatus: ShellStatusRefresher | null = null;
-
-function disableBuiltinBash(pi: ExtensionAPI): void {
-  const active = pi.getActiveTools();
-  const all = pi.getAllTools();
-  const withoutBash = active.filter((name) => {
-    const tool = all.find(
-      (t) => t.name === name && t.sourceInfo?.source === "builtin",
-    );
-    return tool?.name !== "bash";
-  });
-  if (withoutBash.length !== active.length) {
-    pi.setActiveTools(withoutBash);
-  }
-}
 
 export default async function (pi: ExtensionAPI) {
   registerTerminalCaptureTool(pi, captureSessionScreenshot);
@@ -136,47 +123,7 @@ export default async function (pi: ExtensionAPI) {
         treeSitter: false,
       }) as ToolAvailability,
   );
-  setCompletionHook((id, cmd, code, reason, log) => {
-    signalHoldEvent();
-    const isRepeat = id.startsWith("rpt-");
-    const description = isRepeat
-      ? undefined
-      : getShellBackgrounds().find((entry) => entry.id === id)?.describe;
-    const shellLabel = `PID=${id}${description ? ` · ${truncateDescribe(cleanActivityDisplay(description))}` : ""}`;
-    const kind: NotificationKind = isRepeat
-      ? reason === "breach"
-        ? "repeat-breach"
-        : "repeat-stopped"
-      : code === 0
-        ? "shell-complete"
-        : "shell-failed";
-    const base = isRepeat
-      ? reason === "breach"
-        ? `Repeat monitor ${id} breached on exit ${code ?? "unknown"} (shell command time exceeded repeat interval)`
-        : `Repeat monitor ${id} stopped on exit ${code ?? "unknown"}`
-      : code === 0
-        ? `Shell ${shellLabel} completed on exit ${code}`
-        : `Shell ${shellLabel} command failed on exit ${code ?? "unknown"}`;
-    const hasRange =
-      log && log.startLine !== undefined && log.endLine !== undefined;
-    const summary = log
-      ? `${base}; log ${log.path}${hasRange ? ` lines ${log.startLine}..${log.endLine}` : ""}`
-      : base;
-    const payload: Record<string, unknown> = {
-      "shell-id": id,
-      "exit-code": code ?? -1,
-      summary,
-    };
-    const details = {
-      kind,
-      summary,
-      payload,
-      ...(log?.activityId && log.scope
-        ? { deliveryId: JSON.stringify([log.scope, log.activityId]) }
-        : {}),
-    };
-    sendNotification(pi, details, { deliverAs: "steer" });
-  });
+  register_shell_completion(pi, truncateDescribe);
 
   const T = loadText<ShellText>("shell", textPath("shell"));
   const switches = {
@@ -213,6 +160,7 @@ export default async function (pi: ExtensionAPI) {
     promptSnippet: T.sh.prompt_snippet,
     promptGuidelines: commonGuidelines,
     parameters: shSchema,
+    outputSchema: shell_output_schema,
     renderShell: "self",
     async execute(_toolCallId, params, signal, onUpdate, ctx) {
       const describe = params.description?.trim();
@@ -223,12 +171,27 @@ export default async function (pi: ExtensionAPI) {
       ) => ({
         content: [{ type: "text" as const, text }],
         details: { describe, blocked: reason, ...details },
+        structuredContent: {
+          status: "blocked" as const,
+          output: text,
+          error: reason,
+          is_error: true,
+          exit_code: null,
+          id: null,
+        },
         isError: true,
       });
       if (signal?.aborted)
         return {
-          content: [{ type: "text", text: "Aborted before start." }],
+          content: [{ type: "text", text: T.results.sh.aborted }],
           details: undefined,
+          structuredContent: {
+            status: "aborted",
+            output: T.results.sh.aborted,
+            is_error: true,
+            exit_code: null,
+            id: null,
+          },
           isError: true,
         };
       if (params.waitfor !== undefined && params.waitfor > MAX_WAITFOR)
@@ -317,8 +280,23 @@ export default async function (pi: ExtensionAPI) {
       text += formatAgentsBlock(cdAgents);
       text += await runLspHook(availability.treeSitter ? parse.node : null);
 
+      const is_error =
+        res.status === "completed" &&
+        res.exitCode !== 0 &&
+        res.exitCode !== null;
+      const elapsed_ms = Date.now() - startedAt;
       return {
         content: [{ type: "text", text }],
+        structuredContent: {
+          status: res.status,
+          output: res.text,
+          is_error,
+          exit_code: res.exitCode,
+          id: res.id,
+          full_output_path: res.fullOutputPath,
+          wall_time_seconds: elapsed_ms / 1000,
+          error: res.backendError,
+        },
         details: {
           id: res.id,
           uid: res.uid,
@@ -331,7 +309,7 @@ export default async function (pi: ExtensionAPI) {
           exitCode: res.exitCode,
           outputLines: res.outputLines,
           status: res.status,
-          elapsedMs: Date.now() - startedAt,
+          elapsedMs: elapsed_ms,
           fullOutputPath: res.fullOutputPath,
           cursor: res.cursor,
           describe,
@@ -340,10 +318,7 @@ export default async function (pi: ExtensionAPI) {
           tsAst: parse.ast,
           cdAgentsFiles: cdAgents.map((f) => f.path),
         },
-        isError:
-          res.status === "completed" &&
-          res.exitCode !== 0 &&
-          res.exitCode !== null,
+        isError: is_error,
       };
     },
     renderCall(args, theme, context) {
@@ -407,7 +382,7 @@ export default async function (pi: ExtensionAPI) {
     );
   });
 
-  pi.on("resources_discover", async () => disableBuiltinBash(pi));
+  pi.on("resources_discover", async () => disable_builtin_bash(pi));
 
   registerHoldSource({
     id: "shell",
