@@ -26,7 +26,7 @@ purge_old_symlinks() {
     [[ -d "$dir" ]] || return 0
     for link in "$dir"/*; do
         [[ -L "$link" ]] || continue
-        local target; target=$(readlink -f "$link" 2>/dev/null || true)
+        local target; target=$(readlink -f "$link" 2>/dev/null || readlink "$link")
         if [[ "$target" == "$CPI_DIR"/* ]]; then
             rm "$link"
             removed=$((removed + 1))
@@ -44,13 +44,13 @@ clean_settings() {
     # Build list of old per-file entries to also strip
     local ext_old skill_old
     ext_old=$(
-        for f in "$CPI_DIR"/extensions/*.ts; do
+        for f in "$CPI_DIR"/packages/extensions/extensions/*.ts; do
             [[ -f "$f" ]] || continue
             printf '"./extensions/%s"\n' "$(basename "$f")"
         done | jq -s '.'
     )
     skill_old=$(
-        for d in "$CPI_DIR"/skills/*/; do
+        for d in "$CPI_DIR"/packages/extensions/skills/*/; do
             [[ -d "$d" ]] || continue
             printf '"./skills/%s"\n' "$(basename "$d")"
         done | jq -s '.'

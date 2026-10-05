@@ -1,0 +1,47 @@
+{
+  "name": "@cpi/tree-sitter-wasm",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "exports": {
+    ".": {
+      "types": "./index.ts",
+      "default": "./index.ts"
+    },
+    "./resolve": {
+      "types": "./resolve.ts",
+      "default": "./resolve.ts"
+    },
+    "./package.json": "./package.json",
+    "./package": "./scripts/package-api.mjs"
+  },
+  "files": [
+    "index.mjs",
+    "resolve.mjs",
+    "runtime.mjs",
+    "index.d.ts",
+    "resolve.d.ts",
+    "index.ts",
+    "resolve.ts",
+    "minisig.ts",
+    "assets",
+    "src",
+    "build.zig",
+    "build.zig.zon",
+    "scripts",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "pack:release": "node scripts/package.mjs",
+    "build:wasm": "zig build -Drelease=true",
+    "test": "node --test artifact.test.mjs",
+    "sign": "node scripts/sign-wasm.mjs",
+    "compress": "node scripts/compress-wasm.mjs"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2"
+  }
+}

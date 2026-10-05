@@ -1,0 +1,29 @@
+{
+  "name": "@cpi/extensions",
+  "version": "0.0.1",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "exports": { "./package.json": "./package.json" },
+  "bin": { "subagent": "./bin/subagent" },
+  "pi": {
+    "extensions": ["./extensions/index.ts"],
+    "skills": ["./skills"]
+  },
+  "files": ["extensions", "skills", "bin", "tools", "NOTICE.md", "cpi-config.default.json", "LICENSE"],
+  "dependencies": {
+    "@cpi/ghostmux": "0.0.1",
+    "@cpi/tree-sitter-wasm": "0.0.1",
+    "mustache": "4.2.0",
+    "sharp": "0.35.4",
+    "smol-toml": "1.9.0"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-agent-core": "*",
+    "@earendil-works/pi-ai": "*",
+    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-tui": "*",
+    "typebox": "*"
+  },
+  "devDependencies": { "diff": "8.0.4" }
+}

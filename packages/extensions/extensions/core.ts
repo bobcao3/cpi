@@ -1,0 +1,271 @@
+/**
+ * cpi core — sole owner of all shared cpi plumbing; producers are pure
+ * clients of lib/*, registration unconditional at load.
+ */
+
+import type {
+  ExtensionAPI,
+  ExtensionContext,
+} from "@earendil-works/pi-coding-agent";
+import {
+  applySystemPromptTransforms,
+  getSystemPromptOverride,
+  unregisterSystemPromptTransform,
+} from "./lib/system-prompt.ts";
+import { buildCpiSystemPrompt } from "./lib/system-prompt-build.ts";
+import { getCwd } from "./lib/cwd.ts";
+import { withRulesContext } from "./lib/rules-context.ts";
+import { injectSourcePaths } from "./lib/skill-paths.ts";
+import { registerModelContext } from "./lib/model-context.ts";
+import { registerCompaction } from "./lib/compaction.ts";
+import { modelSupportsVision } from "./lib/media.ts";
+import { drainAfterTool, drainBeforeUser } from "./lib/prepend-message.ts";
+import { registerNotificationRenderer } from "./lib/notification.ts";
+import { registerExternalEvents } from "./lib/external-events.ts";
+import {
+  setupCpiFooter,
+  disposeCpiFooter,
+  registerRightSegment,
+  focusFooterActivity,
+  getFooterContent,
+} from "./lib/footer.ts";
+import { registerActivityBrowser } from "./lib/activity-ui.ts";
+import { startKittyProbe, stopKittyProbe } from "./lib/kitty-probe.ts";
+import { listActivities } from "./lib/activity.ts";
+import {
+  setupStatusReports,
+  disposeStatusReports,
+  statusReportTurnStarted,
+  statusReportTurnEnded,
+} from "./lib/status-report.ts";
+import { setSessionDir } from "./lib/session-dir.ts";
+import { getSubagentUsage } from "./lib/cost-ledger.ts";
+import { ensureSubagentRpc, stopSubagentRpc } from "./lib/subagent-rpc.ts";
+import {
+  awaitHoldInterval,
+  doubleHoldInterval,
+  getHoldInterval,
+  getHoldSources,
+  getLastStopReason,
+  resetHoldInterval,
+  resetHoldTracking,
+  setLastStopReason,
+} from "./lib/session-hold.ts";
+import {
+  armAntiStuckTimer,
+  disarmAntiStuckTimer,
+  markEventlessStart,
+  resetAntiStuck,
+} from "./lib/anti-stuck.ts";
+import {
+  achieveGoal,
+  budgetPauseGoal,
+  continueGoal,
+  evaluateGoal,
+  isGoalActive,
+} from "./lib/goal.ts";
+
+export default function coreExtension(pi: ExtensionAPI): void {
+  injectSourcePaths();
+  unregisterSystemPromptTransform("cpi-rules");
+  const external_events = registerExternalEvents(pi);
+  pi.on("before_agent_start", (event) => {
+    event.systemPromptOptions.contextFiles = withRulesContext(
+      event.systemPromptOptions.contextFiles,
+      getCwd(),
+    );
+  });
+  registerCompaction(pi);
+  const promptModel = registerModelContext(pi);
+  pi.on("session_start", async (_event, ctx: ExtensionContext) => {
+    startKittyProbe(ctx);
+    if (!process.env.PI_SUBAGENT) await ensureSubagentRpc();
+    setupCpiFooter(pi, ctx);
+    setupStatusReports(ctx);
+    setSessionDir(ctx.sessionManager?.getSessionDir());
+    registerRightSegment("subagent-cost", () =>
+      costSegment(ctx.sessionManager.getSessionId()),
+    );
+    // A session switch (new/resume/fork/tree) ends any in-flight stuck wait.
+    resetAntiStuck();
+    disarmAntiStuckTimer();
+  });
+  pi.on("session_tree", async (_event, ctx: ExtensionContext) => {
+    setupCpiFooter(pi, ctx);
+    setupStatusReports(ctx);
+    registerRightSegment("subagent-cost", () =>
+      costSegment(ctx.sessionManager.getSessionId()),
+    );
+  });
+  pi.on("session_shutdown", async () => {
+    stopKittyProbe();
+    disposeCpiFooter();
+    disposeStatusReports();
+  });
+
+  registerNotificationRenderer(pi);
+  registerActivityBrowser(pi, focusFooterActivity, getFooterContent);
+
+  pi.on("before_agent_start", (_event, ctx) => drainBeforeUser(pi, ctx));
+  pi.on("tool_execution_end", (_event, ctx) => drainAfterTool(pi, ctx));
+  pi.on("turn_start", (event, ctx) => statusReportTurnStarted(event, ctx));
+  pi.on("turn_end", (event, ctx) => statusReportTurnEnded(pi, event, ctx));
+
+  // Sole systemPrompt return across cpi — no other handler returns one.
+  pi.on("before_agent_start", async (event: any, ctx: any) => {
+    const override = getSystemPromptOverride();
+    if (override !== undefined) return { systemPrompt: override };
+    const model = ctx.model;
+    if (!model) throw new Error("cpi system prompt requires an active model");
+    return {
+      systemPrompt: applySystemPromptTransforms(
+        buildCpiSystemPrompt(event.systemPromptOptions, {
+          vision: modelSupportsVision(model),
+          ...promptModel(ctx),
+        }),
+        ctx,
+        event.systemPromptOptions,
+      ),
+    };
+  });
+
+  // The hold is a pure keep-alive; probing stuck waits and appending
+  // corrective messages is the anti-stuck timer's job, armed here in both modes.
+  pi.on("agent_start", () => {
+    resetHoldTracking();
+    // Every turn is a real event (input, completion, alarm, abort) — disarm the stuck clock.
+    disarmAntiStuckTimer();
+    resetAntiStuck();
+  });
+
+  pi.on("agent_end", async (event: any, ctx: any) => {
+    for (let i = event.messages.length - 1; i >= 0; i--) {
+      const m = event.messages[i];
+      if (m.role === "assistant") {
+        setLastStopReason(m.stopReason);
+        break;
+      }
+    }
+    if (!ctx.hasUI && ctx.signal?.aborted) setLastStopReason("aborted");
+    const reason = getLastStopReason();
+    if (reason === "error" || reason === "aborted") return;
+    if (external_events.hasQueued() || ctx.hasPendingMessages()) return;
+    const sources = getHoldSources(external_events.scope);
+    const pending = sources.filter((s) => s.hasPending());
+    if (isGoalActive() && pending.length === 0) {
+      if (ctx.hasUI) ctx.ui.setWidget("goal-eval", ["🎯 Evaluating goal…"]);
+      try {
+        const v = await evaluateGoal(pi, ctx);
+        if (v.status === "met") {
+          achieveGoal(pi, ctx);
+          return;
+        }
+        if (v.status === "failed") {
+          budgetPauseGoal(pi, ctx, v.reason);
+          return;
+        }
+        continueGoal(pi, ctx, v.reason);
+        return;
+      } finally {
+        if (ctx.hasUI) ctx.ui.setWidget("goal-eval", undefined);
+      }
+    }
+    if (pending.length === 0) return;
+    const pendingAlarm = pending.some((s) => s.id === "alarm");
+    const pendingNonAlarm = pending.some((s) => s.id !== "alarm" && !s.passive);
+    // An alarm is a deterministic wakeup, so don't arm the anti-stuck timer.
+    if (pendingNonAlarm && !pendingAlarm) {
+      markEventlessStart();
+      armAntiStuckTimer(pi, ctx, external_events.scope);
+    }
+    if (ctx.hasUI) return;
+    const signal = ctx.signal;
+    try {
+      while (
+        !(await awaitHoldInterval(
+          sources,
+          getHoldInterval(),
+          signal,
+          external_events.hasQueued,
+          external_events.scope,
+        ))
+      ) {
+        doubleHoldInterval();
+      }
+    } finally {
+      if (signal?.aborted) setLastStopReason("aborted");
+      resetHoldInterval();
+      disarmAntiStuckTimer();
+      resetAntiStuck();
+    }
+  });
+
+  pi.on("session_shutdown", async (event: any, ctx: any) => {
+    const reason = getLastStopReason();
+    const sources = getHoldSources(external_events.scope);
+    const abortAll = () => {
+      external_events.close();
+      for (const s of sources) {
+        if (event.reason === "reload" && s.id === "shell") continue;
+        try {
+          s.onAbort();
+        } catch {
+          // onAbort is best-effort; never let one failure skip the rest.
+        }
+      }
+    };
+    if (
+      ctx.hasUI ||
+      event.reason !== "quit" ||
+      reason === "error" ||
+      reason === "aborted"
+    ) {
+      abortAll();
+      return;
+    }
+    const pending = sources.filter((s) => s.hasPending());
+    if (pending.length === 0) {
+      abortAll();
+      return;
+    }
+    const deadline = Date.now() + Math.max(...pending.map((s) => s.deadlineMs));
+    await new Promise<void>((resolve) => {
+      const check = () => {
+        if (Date.now() >= deadline) return resolve();
+        const still = sources.some((s) => s.hasPending());
+        if (!still && ctx.isIdle()) {
+          // Grace beat: confirm no follow-up turn is starting before resolving.
+          setTimeout(
+            () =>
+              sources.some((s) => s.hasPending()) || !ctx.isIdle()
+                ? setTimeout(check, 100)
+                : resolve(),
+            500,
+          );
+        } else {
+          setTimeout(check, 100);
+        }
+      };
+      check();
+    });
+    abortAll();
+  });
+
+  pi.on("session_shutdown", async (event: any) => {
+    if (event.reason === "quit" && !process.env.PI_SUBAGENT) {
+      await stopSubagentRpc();
+    }
+  });
+}
+
+function costSegment(session_id: string): string | undefined {
+  const u = getSubagentUsage();
+  const entries = listActivities(session_id).filter(
+    (entry) => entry.kind === "subagent",
+  );
+  const live = entries.filter(
+    (entry) => entry.status === "running" || entry.status === "stopping",
+  ).length;
+  if (entries.length === 0 && u.count === 0 && u.cost === 0) return undefined;
+  return `sub:${live}`;
+}

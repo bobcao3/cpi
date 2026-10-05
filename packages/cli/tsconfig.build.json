@@ -1,0 +1,17 @@
+{
+  "compilerOptions": {
+    "target": "ES2024",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "skipLibCheck": true,
+    "outDir": "./dist",
+    "rootDir": "./src",
+    "declaration": true,
+    "rewriteRelativeImportExtensions": true,
+    "declarationMap": false,
+    "sourceMap": false
+  },
+  "include": ["src/**/*.ts", "bootstrap.d.mts"],
+  "exclude": ["node_modules", "dist", "test"]
+}

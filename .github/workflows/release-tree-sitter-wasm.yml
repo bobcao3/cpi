@@ -1,6 +1,12 @@
 name: Release tree-sitter-wasm
 
 on:
+  workflow_dispatch:
+    inputs:
+      publish_npm:
+        description: Publish verified package to npm (requires NPM_TOKEN)
+        type: boolean
+        default: false
   push:
     tags:
       - "[0-9][0-9][0-9][0-9].[0-9][0-9].[0-9][0-9]"
@@ -13,45 +19,75 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - name: Install Zig 0.16.0
-        run: |
-          curl -L https://ziglang.org/download/0.16.0/zig-x86_64-linux-0.16.0.tar.xz | tar -xJ -C /opt
-          echo "/opt/zig-x86_64-linux-0.16.0" >> "$GITHUB_PATH"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          registry-url: https://registry.npmjs.org
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.4.0"
+      - uses: mlugg/setup-zig@v2
+        with:
+          version: "0.16.0"
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
 
       - name: Build WASM
-        working-directory: tree-sitter-wasm
+        working-directory: packages/tree-sitter-wasm
         run: zig build -Drelease=true
 
       - name: Smoke test
         run: |
-          file tree-sitter-wasm/zig-out/bin/tree-sitter-wasm.wasm
-          file tree-sitter-wasm/zig-out/bin/tree-sitter-wasm.wasm | grep -q "WebAssembly" || exit 1
-          node --experimental-transform-types scripts/tree-sitter-wasm.integration.mjs
+          file packages/tree-sitter-wasm/zig-out/bin/tree-sitter-wasm.wasm
+          file packages/tree-sitter-wasm/zig-out/bin/tree-sitter-wasm.wasm | grep -q "WebAssembly" || exit 1
+          node packages/tree-sitter-wasm/scripts/tree-sitter-wasm.integration.mjs
 
       - name: Sign wasm (minisign)
         env:
           CPI_MINISIGN_SECRET: ${{ secrets.CPI_MINISIGN_SECRET }}
         run:
-          node scripts/sign-wasm.mjs
-          tree-sitter-wasm/zig-out/bin/tree-sitter-wasm.wasm
+          node packages/tree-sitter-wasm/scripts/sign-wasm.mjs
+          packages/tree-sitter-wasm/zig-out/bin/tree-sitter-wasm.wasm
 
       - name: Compress wasm (brotli)
         run:
-          node scripts/compress-wasm.mjs
-          tree-sitter-wasm/zig-out/bin/tree-sitter-wasm.wasm
+          node packages/tree-sitter-wasm/scripts/compress-wasm.mjs
+          packages/tree-sitter-wasm/zig-out/bin/tree-sitter-wasm.wasm
+
+      - name: Test npm and Bun installs of signed package
+        env:
+          CPI_TREE_SITTER_TEST_ARTIFACT: ${{ github.workspace }}/packages/tree-sitter-wasm/zig-out/bin
+        run: node --test packages/tree-sitter-wasm/artifact.test.mjs
+
+      - name: Pack npm package
+        run: node packages/tree-sitter-wasm/scripts/package.mjs packages/tree-sitter-wasm/zig-out/bin/tree-sitter-wasm.wasm npm-dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tree-sitter-wasm-npm
+          path: npm-dist/*.tgz
+          if-no-files-found: error
+
+      - name: Publish npm package
+        if: inputs.publish_npm
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish npm-dist/*.tgz --access public --ignore-scripts
 
       - name: Create GitHub Release
+        if: github.ref_type == 'tag'
         uses: softprops/action-gh-release@v2
         with:
           draft: false
           fail_on_unmatched_files: true
           files: |
-            tree-sitter-wasm/zig-out/bin/tree-sitter-wasm.wasm.br
-            tree-sitter-wasm/zig-out/bin/tree-sitter-wasm.wasm.minisig
+            packages/tree-sitter-wasm/zig-out/bin/tree-sitter-wasm.wasm.br
+            packages/tree-sitter-wasm/zig-out/bin/tree-sitter-wasm.wasm.minisig
           name: tree-sitter-wasm ${{ github.ref_name }}
           generate_release_notes: true
 
       - name: Verify public downloads
+        if: github.ref_type == 'tag'
         env:
           RELEASE_BASE:
             https://github.com/${{ github.repository }}/releases/download/${{
@@ -61,5 +97,5 @@ jobs:
             curl --fail --location --retry 3 --retry-all-errors \
               --max-time 60 --retry-max-time 180 \
               --output "$RUNNER_TEMP/$asset" "$RELEASE_BASE/$asset"
-            cmp "tree-sitter-wasm/zig-out/bin/$asset" "$RUNNER_TEMP/$asset"
+            cmp "packages/tree-sitter-wasm/zig-out/bin/$asset" "$RUNNER_TEMP/$asset"
           done

@@ -1,0 +1,34 @@
+name: Check cpi
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - uses: oven-sh/setup-bun@v2
+      - name: Install pinned artifacts
+        run: npm ci --ignore-scripts
+      - name: Check maintained source and installed SDK types
+        run: node scripts/check.mjs
+      - name: Verify Bun dependency lock and editable CLI
+        run: |
+          bun install --frozen-lockfile --ignore-scripts
+          node scripts/cpi-editable.integration.mjs
+      - name: Test CLI against installed SDK public exports
+        working-directory: packages/cli
+        run:
+          node ../../node_modules/vitest/dist/cli.js --run test/vcs.test.ts
+          test/footer-project.test.ts

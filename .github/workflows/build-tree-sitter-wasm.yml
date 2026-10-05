@@ -4,40 +4,41 @@ on:
   push:
     branches: [main, master]
     paths:
-      - "tree-sitter-wasm/**"
-      - "scripts/tree-sitter-wasm.integration.mjs"
+      - "packages/tree-sitter-wasm/**"
       - ".github/workflows/build-tree-sitter-wasm.yml"
   pull_request:
     paths:
-      - "tree-sitter-wasm/**"
-      - "scripts/tree-sitter-wasm.integration.mjs"
+      - "packages/tree-sitter-wasm/**"
       - ".github/workflows/build-tree-sitter-wasm.yml"
   workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
-
-      - name: Install Zig 0.16.0
-        run: |
-          curl -L https://ziglang.org/download/0.16.0/zig-x86_64-linux-0.16.0.tar.xz | tar -xJ -C /opt
-          echo "/opt/zig-x86_64-linux-0.16.0" >> "$GITHUB_PATH"
-
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - uses: mlugg/setup-zig@v2
+        with:
+          version: "0.16.0"
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
       - name: Build WASM
-        working-directory: tree-sitter-wasm
+        working-directory: packages/tree-sitter-wasm
         run: zig build -Drelease=true
-
+      - name: Smoke test
+        run: |
+          file packages/tree-sitter-wasm/zig-out/bin/tree-sitter-wasm.wasm
+          file packages/tree-sitter-wasm/zig-out/bin/tree-sitter-wasm.wasm | grep -q "WebAssembly" || exit 1
+          node packages/tree-sitter-wasm/scripts/tree-sitter-wasm.integration.mjs
       - name: Upload artifact
         uses: actions/upload-artifact@v7
         with:
           name: tree-sitter-wasm
-          path: tree-sitter-wasm/zig-out/bin/tree-sitter-wasm.wasm
+          path: packages/tree-sitter-wasm/zig-out/bin/tree-sitter-wasm.wasm
           if-no-files-found: error
-
-      - name: Smoke test
-        run: |
-          file tree-sitter-wasm/zig-out/bin/tree-sitter-wasm.wasm
-          file tree-sitter-wasm/zig-out/bin/tree-sitter-wasm.wasm | grep -q "WebAssembly" || exit 1
-          node --experimental-transform-types scripts/tree-sitter-wasm.integration.mjs

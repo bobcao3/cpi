@@ -31,8 +31,8 @@ import {
   renderLines,
   textPath,
   type ToolText,
-} from "../extensions/lib/text.ts";
-import { getCwd } from "../extensions/lib/cwd.ts";
+} from "../packages/extensions/extensions/lib/text.ts";
+import { getCwd } from "../packages/extensions/extensions/lib/cwd.ts";
 
 const TOOL = "backup-exec";
 const DEFAULT_TIMEOUT_MS = 30_000;

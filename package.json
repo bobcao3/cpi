@@ -1,68 +1,65 @@
 {
-  "name": "cpi",
+  "name": "cpi-workspace",
   "version": "0.1.0",
   "license": "MIT",
-  "description": "Cheng Cao's shared extensions and skills for the pi coding agent.",
+  "description": "The cpi CLI, extensions, skills, and supporting tools for the Pi fork.",
   "type": "module",
-  "keywords": [
-    "pi-package"
-  ],
   "scripts": {
-    "lint": "node scripts/comment-scan.mjs extensions scripts tools",
+    "install:dev": "bun install --frozen-lockfile --ignore-scripts && bun link --ignore-scripts --cwd packages/cli",
+    "check": "node scripts/check.mjs",
+    "lint": "node scripts/check.mjs",
     "typecheck": "tsc --noEmit",
-    "format": "bun scripts/format.mjs --write",
-    "format:check": "bun scripts/format.mjs --check",
-    "ghostmux:build": "cd tools/ghostmux && zig build --release=safe",
-    "ghostmux:test-install": "node scripts/ghostmux-install.test.mjs"
-  },
-  "files": [
-    "bin",
-    "extensions",
-    "skills",
-    "tools/ghostmux/build.zig",
-    "tools/ghostmux/build.zig.zon",
-    "tools/ghostmux/src/*.{zig,c,h}",
-    "tools/ghostmux/fonts/*.{zig,ttf,otf,txt,md,sha256,sh}",
-    "tools/ghostmux/THIRD_PARTY_NOTICES.md",
-    "cpi-config.default.json",
-    "fallback-providers.example.json"
-  ],
-  "bin": {
-    "subagent": "bin/subagent.js",
-    "ghostmux": "bin/ghostmux.mjs"
-  },
-  "pi": {
-    "extensions": [
-      "./extensions/index.ts"
-    ],
-    "skills": [
-      "./skills"
-    ]
+    "format": "node scripts/format.mjs --write",
+    "format:check": "node scripts/format.mjs --check",
+    "ghostmux:build": "cd packages/ghostmux && zig build --release=safe",
+    "ghostmux:test-install": "node packages/ghostmux/install.test.mjs",
+    "test:cli": "cd packages/cli && node ../../node_modules/vitest/dist/cli.js --run test/vcs.test.ts test/footer-project.test.ts",
+    "pack:release": "node packages/cli/scripts/package.mjs",
+    "verify:release": "node packages/cli/scripts/verify-installed.mjs"
   },
   "dependencies": {
-    "mustache": "^4.2.0",
-    "sharp": "^0.35.4",
-    "smol-toml": "^1.6.1"
+    "@earendil-works/pi-agent-core": "file:vendor/pi/0c1279fa29c6c1d7be1a63c2f33a1ed66b0edd4bf9014b678e4209e0f8d57226.tgz",
+    "@earendil-works/pi-ai": "file:vendor/pi/0f160d473f2e63a670fdcaa70c5075a9a3e1f79831b6901d7fd484da100b58af.tgz",
+    "@earendil-works/chord": "file:vendor/pi/2728ebb8610bb105791e4321bbe001f9486a3b6dc865b199e22f74e6ffa8df89.tgz",
+    "@earendil-works/pi-client": "file:vendor/pi/0b79fd581c64943f97a15327a0acda84f643d7d78e36b0e06d95ea1d6151e31d.tgz",
+    "@earendil-works/pi-codemode": "file:vendor/pi/828d03c194e8193bba0b57caf19ebcee4347e2da3c71e83489e6c8c758ffe8ca.tgz",
+    "@earendil-works/pi-coding-agent": "file:vendor/pi/a0b961ed210081d6290aa51a9c642a9104d8f1b5b87a193dfebdcbb8323cb30e.tgz",
+    "@earendil-works/pi-durable": "file:vendor/pi/c48bf1829f2114e74cc39dc74b8a75f2e474bbab47502d0b3a35be1c8ea9020b.tgz",
+    "@earendil-works/pi-mcp": "file:vendor/pi/e5dec40b9025754b6dba1db4bb4b69fefaf76e3af3eb09dec5cbafd1cbc8a2cd.tgz",
+    "@earendil-works/pi-protocol": "file:vendor/pi/4649f4694343f752c6df3eac3f2a85732f16cbc69b28f48ea7dbfbe909e7dd1b.tgz",
+    "@earendil-works/pi-server": "file:vendor/pi/16360d4d6cf6585f24a81f1c52ac5f6c6c6c8d46a3053c7c60157fd24205391b.tgz",
+    "@earendil-works/pi-telemetry": "file:vendor/pi/570d1df4f68157a2136768eddcd05966425349f4fd7a28c9cb6234826a707f13.tgz",
+    "@earendil-works/pi-tui": "file:vendor/pi/3e6e120efadeb45650f357bce3ad0060fd58971daf66e51b1512353c16e60d70.tgz"
   },
   "overrides": {
-    "@types/node": "$@types/node"
-  },
-  "peerDependencies": {
-    "@earendil-works/pi-ai": ">=0.85.1",
-    "@earendil-works/pi-coding-agent": ">=0.85.1",
-    "@earendil-works/pi-tui": ">=0.85.1",
-    "typebox": "*"
+    "@types/node": "$@types/node",
+    "@earendil-works/pi-agent-core": "$@earendil-works/pi-agent-core",
+    "@earendil-works/pi-ai": "$@earendil-works/pi-ai",
+    "@earendil-works/chord": "$@earendil-works/chord",
+    "@earendil-works/pi-client": "$@earendil-works/pi-client",
+    "@earendil-works/pi-codemode": "$@earendil-works/pi-codemode",
+    "@earendil-works/pi-coding-agent": "$@earendil-works/pi-coding-agent",
+    "@earendil-works/pi-durable": "$@earendil-works/pi-durable",
+    "@earendil-works/pi-mcp": "$@earendil-works/pi-mcp",
+    "@earendil-works/pi-protocol": "$@earendil-works/pi-protocol",
+    "@earendil-works/pi-server": "$@earendil-works/pi-server",
+    "@earendil-works/pi-telemetry": "$@earendil-works/pi-telemetry",
+    "@earendil-works/pi-tui": "$@earendil-works/pi-tui"
   },
   "devDependencies": {
-    "@earendil-works/pi-ai": "0.99.1",
-    "@earendil-works/pi-coding-agent": "0.99.1",
-    "@earendil-works/pi-tui": "0.99.1",
-    "@types/bun": "^1.4.2",
-    "@types/mustache": "^4.2.6",
-    "@types/node": "^24.0.0",
+    "@types/bun": "1.4.2",
+    "@types/mustache": "4.2.6",
+    "@types/node": "22.19.19",
     "diff": "8.0.4",
-    "prettier": "^3",
-    "typebox": "^1.1.0",
-    "typescript": "~5.9"
-  }
+    "es-module-lexer": "2.3.1",
+    "esbuild": "0.28.2",
+    "mustache": "4.2.0",
+    "prettier": "3.8.4",
+    "tar": "7.5.22",
+    "typebox": "1.3.27",
+    "typescript": "7.0.2",
+    "vitest": "4.1.11"
+  },
+  "private": true,
+  "workspaces": ["packages/*"]
 }

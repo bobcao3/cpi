@@ -1,32 +1,30 @@
+import { readFile, writeFile } from "node:fs/promises";
+import { join } from "node:path";
+import * as prettier from "prettier";
+import { root, sourceFiles } from "./source-files.mjs";
+
 const mode = process.argv[2];
-if (mode !== "--write" && mode !== "--check") {
-  throw new Error("expected --write or --check");
+if (!["--check", "--write"].includes(mode) || process.argv.length !== 3) {
+  throw new Error("Usage: node scripts/format.mjs --check|--write");
 }
-
-const listed = Bun.spawnSync(["jj", "file", "list"], {
-  stdout: "pipe",
-  stderr: "inherit",
-});
-if (listed.exitCode !== 0) process.exit(listed.exitCode);
-
-const ignorePaths = listed.stdout
-  .toString()
-  .split("\n")
-  .filter((path) => path === ".gitignore" || path.endsWith("/.gitignore"));
-if (!ignorePaths.includes(".gitignore") || ignorePaths.length > 256) {
-  throw new Error(`invalid gitignore count: ${ignorePaths.length}`);
+const files = [...sourceFiles(), "tsconfig.json", ".prettierrc"];
+let failures = 0;
+for (const file of files) {
+  const filepath = join(root, file);
+  const source = await readFile(filepath, "utf8");
+  const options = { ...(await prettier.resolveConfig(filepath)), filepath };
+  if (mode === "--write") {
+    const formatted = await prettier.format(source, options);
+    if (formatted !== source) {
+      await writeFile(filepath, formatted);
+      console.log(file);
+    }
+  } else if (!(await prettier.check(source, options))) {
+    console.error(file);
+    failures++;
+  }
 }
-
-const command = [
-  process.execPath,
-  "run",
-  "prettier",
-  mode,
-  ...ignorePaths.flatMap((path) => ["--ignore-path", path]),
-  "**/*.{ts,js,mjs,cjs,json,jsonc,md}",
-];
-const formatted = Bun.spawnSync(command, {
-  stdout: "inherit",
-  stderr: "inherit",
-});
-process.exit(formatted.exitCode);
+if (failures) {
+  console.error(`${failures} file(s) need formatting`);
+  process.exitCode = 1;
+}

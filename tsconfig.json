@@ -4,6 +4,7 @@
     "module": "ESNext",
     "moduleResolution": "bundler",
     "lib": ["ES2022", "DOM"],
+    "types": ["node", "bun"],
     "skipLibCheck": true,
     "noEmit": true,
     "allowJs": true,
@@ -15,8 +16,10 @@
     "allowImportingTsExtensions": true
   },
   "include": [
-    "extensions/**/*.ts",
-    "scripts/harness/**/*.ts",
-    "scripts/shell/**/*.ts"
+    "packages/cli/src/**/*.ts",
+    "packages/cli/bootstrap.d.mts",
+    "packages/extensions/extensions/**/*.ts",
+    "packages/extensions/scripts/harness/**/*.ts",
+    "packages/extensions/scripts/shell/**/*.ts"
   ]
 }

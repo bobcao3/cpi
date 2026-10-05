@@ -1,7 +1,7 @@
 # cpi: There are many agent harnesses,but this one is Cheng Cao's.
 
-This is the cpi repo which hosts custom extensions & skills for
-[pi-agent](https://pi.dev/docs/latest)
+This repo hosts the cpi CLI, custom extensions, skills, and supporting tool packages for our Pi fork.
+See the [upstream pi docs](https://pi.dev/docs/latest).
 
 Developing this repo means we want to materially improve the performance of the
 agent harness.
@@ -28,11 +28,11 @@ Hard rules:
 3. Do not write file/module trees in any documentation — the filesystem itself
    is already the tree, and the folder structure should be self-explanatory.
 4. No source code file exceeds 7% comment lines (AST-counted by
-   `scripts/comment-scan.mjs`, enforced via `bun lint`; formatting via
+   `packages/extensions/scripts/comment-scan.mjs`, enforced via `bun lint`; formatting via
    `bun format`).
 5. All model-facing prompt texts (tool descriptions, prompt snippets,
    guidelines, schema field descriptions) must live in the dedicated
-   `extensions/text/` folder as TOML templates (loaded via `loadText`/`render`),
+   `packages/extensions/extensions/text/` folder as TOML templates (loaded via `loadText`/`render`),
    never inlined in extension `.ts` source.
 6. Document _never_ repeat values or behavior that's encoded in default config
    or code. Refer reader to the actual source of truth.
@@ -44,6 +44,8 @@ Principal: Use the **simplest architecture**, not necessarily solution with
 least lines of code
 
 ## Working and debugging
+
+Pi core changes belong in the separate Pi fork. This repository consumes versioned fork artifacts through vendor/pi/manifest.json; do not import source from a neighboring checkout.
 
 **Research**: When user asks about "industry standard", "latest", or "what tool
 should we use", always research online to get first-hand, up-to-date
@@ -199,7 +201,7 @@ Do not rely on cpi's local `node_modules` copy of Pi's peer packages at runtime.
 scripts resolve imports from cpi's installed directory, where those peers may
 not exist. In workers and other standalone entry points, avoid bare runtime
 imports of Pi peer packages; load the **active host Pi** through
-[`bin/host-pi.mjs`](bin/host-pi.mjs) instead. Type-only imports are fine. Verify
+[`packages/extensions/bin/host-pi.mjs`](packages/extensions/bin/host-pi.mjs) instead. Type-only imports are fine. Verify
 changes against an installed-package layout without local Pi peers, not only a
 development checkout after `bun install`.
 
@@ -243,7 +245,7 @@ theoretical: it bit `ensureNotificationRenderer`, `ensureDrains`
   no queryable state (a renderer, a drain handler, a system-prompt transform
   owner, session-hold), it is registered unconditionally at load and
   re-registered on its own reload. Producers are pure clients — they never
-  register. All such owners live together in `extensions/core.ts` (footer,
+  register. All such owners live together in `packages/extensions/extensions/core.ts` (footer,
   notification renderer, prepend-message drains, system-prompt transforms,
   session-hold): one extension means the shared plumbing is present iff cpi is
   present at all — no producer can be left dangling without its owner, and a

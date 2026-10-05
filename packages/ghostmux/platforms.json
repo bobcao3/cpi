@@ -1,0 +1,7 @@
+{
+  "linux-x64": { "runner": "ubuntu-24.04", "target": "x86_64-linux-musl", "baseline": "x86_64_v3" },
+  "linux-arm64": { "runner": "ubuntu-24.04-arm", "target": "aarch64-linux-musl", "baseline": "neoverse_n1" },
+  "darwin-x64": { "runner": "macos-15-intel", "target": "x86_64-macos", "baseline": "x86_64_v3" },
+  "darwin-arm64": { "runner": "macos-15", "target": "aarch64-macos", "baseline": "apple_m1" },
+  "win32-x64": { "runner": "windows-2025", "target": "x86_64-windows", "baseline": "x86_64_v3" }
+}

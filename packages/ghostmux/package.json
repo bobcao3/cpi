@@ -1,0 +1,40 @@
+{
+  "name": "@cpi/ghostmux",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "exports": {
+    ".": "./bin/ghostmux-resolve.mjs",
+    "./resolve": "./bin/ghostmux-resolve.mjs",
+    "./source": "./bin/ghostmux-source.mjs",
+    "./signature": "./bin/ghostmux-signature.mjs",
+    "./package": "./bin/ghostmux-package.mjs",
+    "./package.json": "./package.json"
+  },
+  "bin": {
+    "ghostmux": "./bin/ghostmux.mjs"
+  },
+  "files": [
+    "bin/ghostmux.mjs",
+    "bin/ghostmux-resolve.mjs",
+    "bin/ghostmux-resolve.d.mts",
+    "bin/ghostmux-source.mjs",
+    "bin/ghostmux-source.d.mts",
+    "bin/ghostmux-signature.mjs",
+    "bin/ghostmux-signature.d.mts",
+    "platforms.json",
+    "native.json",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "zig build --release=safe",
+    "pack:release": "node scripts/package.mjs",
+    "test": "node install.test.mjs && node --test integration.test.mjs",
+    "release": "node bin/ghostmux-release.mjs"
+  },
+  "devDependencies": {
+    "sharp": "0.35.4"
+  }
+}

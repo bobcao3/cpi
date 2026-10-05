@@ -2,6 +2,11 @@ name: Release ghostmux
 
 on:
   workflow_dispatch:
+    inputs:
+      publish_npm:
+        description: Publish verified packages to npm (requires NPM_TOKEN)
+        type: boolean
+        default: false
   push:
     tags: ["ghostmux-*"]
 
@@ -22,6 +27,12 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "24"
+          registry-url: https://registry.npmjs.org
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.4.0"
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
       - uses: actions/download-artifact@v4
         with:
           pattern: ghostmux-*
@@ -43,7 +54,7 @@ jobs:
         env:
           CPI_MINISIGN_SECRET: ${{ secrets.CPI_MINISIGN_SECRET }}
         run: |
-          tag=$(node bin/ghostmux-release.mjs tag)
+          tag=$(node packages/ghostmux/bin/ghostmux-release.mjs tag)
           if [[ '${{ github.ref_type }}' == tag && '${{ github.ref_name }}' != "$tag" ]]; then
             echo "The requested tag does not match the checked-out ghostmux release." >&2
             exit 1
@@ -51,14 +62,31 @@ jobs:
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
           echo "name=ghostmux ${tag#ghostmux-}" >> "$GITHUB_OUTPUT"
           for metadata in dist/ghostmux-*.json; do
-            node bin/ghostmux-release.mjs sign "${metadata%.json}"
+            node packages/ghostmux/bin/ghostmux-release.mjs sign "${metadata%.json}"
           done
           tar -czf dist/ghostmux-licenses.tar.gz -C dist licenses
       - name: Test signed installed executable
         env:
           GHOSTMUX_TEST_ARTIFACT: ${{ github.workspace }}/dist
           GHOSTMUX_BIN: ${{ github.workspace }}/dist/ghostmux-linux-x64
-        run: node scripts/ghostmux-install.test.mjs
+        run: node packages/ghostmux/install.test.mjs
+      - name: Pack native npm packages and wrapper
+        run: node packages/ghostmux/scripts/package.mjs dist npm-dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ghostmux-npm
+          path: |
+            npm-dist/*.tgz
+            npm-dist/packages.json
+          if-no-files-found: error
+      - name: Publish native packages before wrapper
+        if: inputs.publish_npm
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          jq -r '.[].filename' npm-dist/packages.json | while IFS= read -r archive; do
+            npm publish "npm-dist/$archive" --access public --ignore-scripts
+          done
       - name: Publish release
         uses: softprops/action-gh-release@v2
         with:
@@ -82,18 +110,3 @@ jobs:
               "https://github.com/${{ github.repository }}/releases/download/$RELEASE_TAG/$name"
             cmp "$asset" "public-download/$name"
           done
-          export XDG_CACHE_HOME="$RUNNER_TEMP/ghostmux-fresh-cache"
-          unset GHOSTMUX_BIN GHOSTMUX_BUILD
-          node --input-type=module <<'NODE'
-          import { resolveGhostmux } from './bin/ghostmux-resolve.mjs';
-          import { resolve } from 'node:path';
-          const cache = resolve(process.env.XDG_CACHE_HOME);
-          const binary = await resolveGhostmux();
-          if (!resolve(binary).startsWith(`${cache}/`)) {
-            throw new Error(`Expected a fresh-cache artifact, got ${binary}`);
-          }
-          NODE
-          binary=$(node bin/ghostmux.mjs --resolve)
-          GHOSTMUX_BIN="$binary" \
-            GHOSTMUX_TEST_ARTIFACT="$GITHUB_WORKSPACE/dist" \
-            node scripts/ghostmux-install.test.mjs

@@ -7,6 +7,7 @@ A quiet log is not proof that a job is stuck. Detached shells are untracked, not
 completed. Recursive subagent totals must not be double-counted.
 
 For current interaction and rendering behavior, see
-[`activity-panel.ts`](../extensions/lib/activity-panel.ts) and
-[`activity-ui.ts`](../extensions/lib/activity-ui.ts). For current ordering and
-retention semantics, see [`activity.ts`](../extensions/lib/activity.ts).
+[`activity-panel.ts`](../packages/extensions/extensions/lib/activity-panel.ts)
+and [`activity-ui.ts`](../packages/extensions/extensions/lib/activity-ui.ts).
+For current ordering and retention semantics, see
+[`activity.ts`](../packages/extensions/extensions/lib/activity.ts).

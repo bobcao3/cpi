@@ -1,0 +1,68 @@
+#!/bin/sh
+set -eu
+
+SCRIPT=$0
+RUNTIME=${CPI_RUNTIME:-}
+case "$SCRIPT" in
+  */*) ;;
+  *) SCRIPT=$(command -v "$SCRIPT") ;;
+esac
+LINKS=0
+while :; do
+  BIN_DIR=$(CDPATH= cd -L "$(dirname "$SCRIPT")" && pwd -L)
+  if [ -z "$RUNTIME" ]; then
+    DIRECTORY=$BIN_DIR
+    while [ "$DIRECTORY" != / ]; do
+      if [ "${DIRECTORY##*/}" = node_modules ]; then
+        INSTALL_ROOT=$(dirname "$DIRECTORY")
+        # Logical paths retain the installer's metadata when packages link to source directories.
+        if [ -d "$DIRECTORY/.deno" ]; then
+          RUNTIME=deno
+        elif [ -d "$DIRECTORY/.bun" ]; then
+          RUNTIME=bun
+        elif [ -f "$DIRECTORY/.package-lock.json" ] || [ -d "$DIRECTORY/.pnpm" ] || [ -f "$DIRECTORY/.yarn-state.yml" ]; then
+          RUNTIME=node
+        elif [ -f "$INSTALL_ROOT/bun.lock" ] || [ -f "$INSTALL_ROOT/bun.lockb" ] || [ "$INSTALL_ROOT" = "${BUN_INSTALL_GLOBAL_DIR:-${BUN_INSTALL:-${HOME:-}/.bun}/install/global}" ]; then
+          RUNTIME=bun
+        elif [ -f "$INSTALL_ROOT/deno.lock" ]; then
+          RUNTIME=deno
+        fi
+        [ -z "$RUNTIME" ] || break
+      fi
+      DIRECTORY=$(dirname "$DIRECTORY")
+    done
+  fi
+  SCRIPT=$BIN_DIR/${SCRIPT##*/}
+  [ -L "$SCRIPT" ] || break
+  LINKS=$((LINKS + 1))
+  if [ "$LINKS" -gt 40 ]; then
+    printf '%s\n' 'cpi: too many launcher symlinks' >&2
+    exit 1
+  fi
+  TARGET=$(readlink "$SCRIPT")
+  case "$TARGET" in
+    /*) SCRIPT=$TARGET ;;
+    *) SCRIPT=$BIN_DIR/$TARGET ;;
+  esac
+done
+
+BIN_DIR=$(CDPATH= cd -P "$BIN_DIR" && pwd)
+RUNTIME=${RUNTIME:-node}
+
+case "$RUNTIME" in
+  node|bun|deno) ;;
+  *)
+    printf 'cpi: invalid CPI_RUNTIME: %s (expected node, bun, or deno)\n' "$RUNTIME" >&2
+    exit 1
+    ;;
+esac
+if ! command -v "$RUNTIME" >/dev/null 2>&1; then
+  printf 'cpi: selected runtime %s is not on PATH\n' "$RUNTIME" >&2
+  exit 127
+fi
+
+case "$RUNTIME" in
+  node) exec node "$BIN_DIR/cpi.mjs" "$@" ;;
+  bun) exec bun --bun "$BIN_DIR/cpi.mjs" -- "$@" ;;
+  deno) exec deno run -A --no-config --no-lock --node-modules-dir=manual "$BIN_DIR/cpi.mjs" "$@" ;;
+esac

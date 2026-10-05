@@ -1,0 +1,7 @@
+.zig-cache/
+zig-out/
+zig-pkg/
+assets/
+/index.mjs
+/resolve.mjs
+/runtime.mjs

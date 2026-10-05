@@ -6,12 +6,12 @@ tool after session startup. No cpi filesystem import, socket, or model client is
 needed.
 
 The public request/handle interfaces and resource limits are defined in
-[`external-events.ts`](../extensions/lib/external-events.ts). The channel is
-`cpi:register-event-source:v1`. `reply(handle)` is a **synchronous**
-acknowledgement: if `emit` returns without a reply, the bridge is unavailable or
-rejected the registration. Do not claim that notifications are armed in that
-case. Registration requires a unique source ID within the current owner; one
-source can represent several bounded subscriptions.
+[`external-events.ts`](../packages/extensions/extensions/lib/external-events.ts).
+The channel is `cpi:register-event-source:v1`. `reply(handle)` is a
+**synchronous** acknowledgement: if `emit` returns without a reply, the bridge
+is unavailable or rejected the registration. Do not claim that notifications are
+armed in that case. Registration requires a unique source ID within the current
+owner; one source can represent several bounded subscriptions.
 
 - `hasPending()` reports active subscriptions, not whether a notification is
   queued. It and `noticeText()` must be inexpensive synchronous functions.
@@ -105,11 +105,12 @@ tool avoids relying on relative `session_start` handler order.
 
 ## Delivery and ownership
 
-[`core.ts`](../extensions/core.ts) unconditionally owns the channel and the sole
-headless hold/shutdown wait. Notifications use cpi's existing renderer and
-`external-event` kind, with steering and `triggerTurn`. Payload keys are fixed;
-producer data is an escaped JSON string in `<data>`, never raw XML. Read JSON
-only after XML decoding. Summary and source are escaped separately.
+[`core.ts`](../packages/extensions/extensions/core.ts) unconditionally owns the
+channel and the sole headless hold/shutdown wait. Notifications use cpi's
+existing renderer and `external-event` kind, with steering and `triggerTurn`.
+Payload keys are fixed; producer data is an escaped JSON string in `<data>`,
+never raw XML. Read JSON only after XML decoding. Summary and source are escaped
+separately.
 
 The bridge tracks submitted notifications until pi emits their `message_start`.
 This matters because `ctx.hasPendingMessages()` tracks user input, not custom
@@ -127,7 +128,7 @@ queued events run before goal evaluation.
 Run the real pi runtime regression tests with:
 
 ```sh
-bun test extensions/lib/external-events.integration.test.ts extensions/lib/session-hold.integration.test.ts
+bun test packages/extensions/extensions/lib/external-events.integration.test.ts packages/extensions/extensions/lib/session-hold.integration.test.ts
 ```
 
 The tests replay finite assistant responses into the real Agent/AgentSession,

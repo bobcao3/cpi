@@ -1,0 +1,60 @@
+{
+  "name": "@cpi/cli",
+  "version": "0.0.1",
+  "private": true,
+  "description": "cpi coding agent and SDK",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "type": "module",
+  "bin": {
+    "cpi": "./bin/cpi"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./src/index.ts"
+    },
+    "./bootstrap": {
+      "types": "./bootstrap.d.mts",
+      "import": "./bootstrap.mjs"
+    },
+    "./package.json": "./package.json"
+  },
+  "piConfig": {
+    "name": "cpi",
+    "configDir": ".cpi",
+    "selfUpdate": false
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.31.0",
+    "@cpi/extensions": "0.0.1",
+    "@earendil-works/pi-coding-agent": "1.0.2-cpi.1",
+    "@earendil-works/pi-ai": "1.0.2-cpi.1",
+    "@earendil-works/pi-agent-core": "1.0.2-cpi.1",
+    "@earendil-works/chord": "1.0.2-cpi.1",
+    "@earendil-works/pi-client": "1.0.2-cpi.1",
+    "@earendil-works/pi-codemode": "1.0.2-cpi.1",
+    "@earendil-works/pi-durable": "1.0.2-cpi.1",
+    "@earendil-works/pi-mcp": "1.0.2-cpi.1",
+    "@earendil-works/pi-protocol": "1.0.2-cpi.1",
+    "@earendil-works/pi-server": "1.0.2-cpi.1",
+    "@earendil-works/pi-telemetry": "1.0.2-cpi.1",
+    "@earendil-works/pi-tui": "1.0.2-cpi.1"
+  },
+  "scripts": {
+    "check": "node scripts/check-boundaries.mjs",
+    "pack:release": "node scripts/package.mjs",
+    "verify:release": "node scripts/verify-installed.mjs"
+  },
+  "files": [
+    "bin",
+    "src",
+    "dist",
+    "bootstrap.mjs",
+    "bootstrap.d.mts",
+    "LICENSE",
+    "README.md"
+  ]
+}
