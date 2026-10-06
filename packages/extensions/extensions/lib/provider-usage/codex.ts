@@ -4,6 +4,7 @@ import type {
   ThemeColor,
 } from "@earendil-works/pi-coding-agent";
 import { mixColors } from "@earendil-works/pi-tui";
+import { token_account_id } from "./codex-auth.ts";
 import { fetchJson, isRecord, type UsageSource } from "./source.ts";
 
 const PROVIDER_ID = "openai-codex";
@@ -22,25 +23,6 @@ export interface UsageWindow {
 export interface UsageReport {
   primary?: UsageWindow;
   secondary?: UsageWindow;
-}
-
-function accountIdFromToken(token: string): string | undefined {
-  const parts = token.split(".");
-  if (parts.length !== 3) return undefined;
-  try {
-    const payload = JSON.parse(
-      Buffer.from(parts[1], "base64url").toString("utf8"),
-    );
-    if (!isRecord(payload)) return undefined;
-    const auth = payload["https://api.openai.com/auth"];
-    if (!isRecord(auth)) return undefined;
-    const accountId = auth.chatgpt_account_id;
-    return typeof accountId === "string" && accountId.length > 0
-      ? accountId
-      : undefined;
-  } catch {
-    return undefined;
-  }
 }
 
 function resetAtFromWindow(
@@ -212,7 +194,7 @@ async function fetchReport(
   const token = (await ctx.modelRegistry.getProviderAuth(PROVIDER_ID))?.auth
     .apiKey;
   if (!token) return undefined;
-  const accountId = accountIdFromToken(token);
+  const accountId = token_account_id(token);
   const payload = await fetchJson(
     USAGE_URL,
     token,

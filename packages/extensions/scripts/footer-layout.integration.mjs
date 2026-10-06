@@ -25,6 +25,7 @@ import {
   codexUsage,
   parseUsageReport,
 } from "../extensions/lib/provider-usage/codex.ts";
+import { openaiUsage } from "../extensions/lib/provider-usage/openai.ts";
 import {
   deepseekBalance,
   parseBalance,
@@ -264,6 +265,11 @@ await fixture(async ({ directory, runtime, config, modelsPath, apiKey }) => {
         / • openai-codex\s+60%\s+6d 3h /,
       ],
       [
+        "openai",
+        openaiUsage.format(codex_report, now, theme),
+        / • openai-codex\s+60%\s+6d 3h /,
+      ],
+      [
         "deepseek",
         deepseekBalance.format(balance, now, theme),
         / • deepseek \$25 /,
@@ -287,7 +293,7 @@ await fixture(async ({ directory, runtime, config, modelsPath, apiKey }) => {
       );
       assert.equal(visibleWidth(text[1]), 140);
       assert.doesNotMatch(text[0], /openai-codex|deepseek|60%|6d 3h/);
-      if (provider !== "openai-codex")
+      if (provider !== "openai-codex" && provider !== "openai")
         assert.doesNotMatch(
           rendered.join("\n"),
           /\x1b\[(?:48;|4[0-7]m|10[0-7]m)/,

@@ -9,6 +9,7 @@ import {
 } from "./lib/footer.ts";
 import { codexUsage } from "./lib/provider-usage/codex.ts";
 import { deepseekBalance } from "./lib/provider-usage/deepseek.ts";
+import { openaiUsage } from "./lib/provider-usage/openai.ts";
 import {
   sourceForProvider,
   type UsageSource,
@@ -19,7 +20,11 @@ const RPC_STATUS_KEY = "provider-usage";
 const REQUEST_TIMEOUT_MS = 10_000;
 const POLL_MS = 30_000;
 
-const SOURCES: readonly UsageSource<unknown>[] = [codexUsage, deepseekBalance];
+const SOURCES: readonly UsageSource<unknown>[] = [
+  codexUsage,
+  openaiUsage,
+  deepseekBalance,
+];
 
 interface CachedReport {
   source: UsageSource<unknown>;
