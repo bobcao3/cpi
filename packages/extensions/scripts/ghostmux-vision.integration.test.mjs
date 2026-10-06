@@ -28,6 +28,7 @@ const resourceLoader = new sdk.DefaultResourceLoader({
     join(root, "extensions/lsp.ts"),
     join(root, "extensions/shell.ts"),
   ],
+  noExtensions: true,
   noSkills: true,
   noPromptTemplates: true,
   noThemes: true,

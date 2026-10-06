@@ -5,6 +5,7 @@ on:
     branches: ["**"]
     paths:
       - "packages/ghostmux/**"
+      - "packages/cli/**"
       - "packages/extensions/scripts/ghostmux*"
       - "packages/extensions/scripts/shell*"
       - "packages/extensions/scripts/shell/**"
@@ -19,6 +20,7 @@ on:
   pull_request:
     paths:
       - "packages/ghostmux/**"
+      - "packages/cli/**"
       - "packages/extensions/scripts/ghostmux*"
       - "packages/extensions/scripts/shell*"
       - "packages/extensions/scripts/shell/**"
@@ -90,11 +92,8 @@ jobs:
         run: node packages/ghostmux/install.test.mjs
       - name: Exercise cpi shell and installed Pi integration
         shell: bash
-        env:
-          CPI_PI_HOST_ENTRY:
-            ${{ github.workspace
-            }}/node_modules/@earendil-works/pi-coding-agent/dist/cli.js
         run: |
+          export NODE_OPTIONS="--import=$(node -p 'require("node:url").pathToFileURL(process.cwd() + "/packages/cli/bootstrap.mjs").href')"
           node --experimental-transform-types packages/extensions/scripts/shell-native-lifecycle.integration.ts
           node --experimental-transform-types packages/extensions/scripts/shell-large-output.integration.ts
           node --experimental-transform-types packages/extensions/scripts/shell/test-cancellation.ts
