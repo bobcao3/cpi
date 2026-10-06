@@ -76,6 +76,8 @@ jobs:
       - uses: mlugg/setup-zig@v2
         with:
           version: "0.16.0"
+          cache-key: ${{ matrix.artifact }}
+          cache-size-limit: 4096
       - name: Install reviewed dependencies
         run: npm ci --ignore-scripts
       - name: Build Ghostmux
