@@ -13,12 +13,14 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { registry_server } from "./registry-server.mjs";
 import { archive_manifest } from "./registry-archive.mjs";
+import { registry_repository } from "./registry-manifest.mjs";
 
-assert.equal(
-  process.argv.length,
-  3,
-  "Usage: verify-registry.mjs PACKAGE_DIRECTORY",
+assert(
+  process.argv.length === 3 ||
+    (process.argv.length === 4 && process.argv[3] === "--public"),
+  "Usage: verify-registry.mjs PACKAGE_DIRECTORY [--public]",
 );
+const public_registry = process.argv[3] === "--public";
 const directory = resolve(process.argv[2]);
 const here = dirname(fileURLToPath(import.meta.url));
 const packages = JSON.parse(
@@ -36,6 +38,17 @@ for (const pkg of packages) {
   assert.equal(manifest.version, pkg.version);
   assert.equal(manifest.scripts, undefined);
   assert.equal(manifest.private, undefined);
+  assert.equal(manifest.repository?.url, registry_repository);
+  if (public_registry) {
+    const response = await fetch(
+      `https://registry.npmjs.org/${encodeURIComponent(pkg.name)}/${pkg.version}`,
+      {
+        signal: AbortSignal.timeout(30000),
+      },
+    );
+    assert(response.ok, `${pkg.name}: HTTP ${response.status}`);
+    assert.equal((await response.json()).dist.integrity, pkg.integrity);
+  }
   assert(
     !JSON.stringify(manifest.dependencies ?? {}).includes(
       "https://github.com/",
@@ -43,7 +56,9 @@ for (const pkg of packages) {
   );
 }
 const consumer = await mkdtemp(join(tmpdir(), "cpi-registry-consumer-"));
-const server = await registry_server(directory, packages);
+const server = public_registry
+  ? undefined
+  : await registry_server(directory, packages);
 const cli = packages.find((pkg) => pkg.name === "@bobcao3/cpi");
 async function execute(command, args, env, cwd) {
   return new Promise((resolve, reject) => {
@@ -92,6 +107,8 @@ try {
     };
     for (const key of Object.keys(env))
       if (/^(?:CPI_|PI_|GHOSTMUX_)/.test(key)) delete env[key];
+    delete env.NODE_AUTH_TOKEN;
+    delete env.NPM_TOKEN;
     env.PI_OFFLINE = "1";
     env.PI_SKIP_VERSION_CHECK = "1";
     const args = [
@@ -100,7 +117,7 @@ try {
       "--ignore-scripts",
       `${cli.name}@${cli.version}`,
       "--registry",
-      server.url,
+      server?.url ?? "https://registry.npmjs.org",
     ];
     if (manager === "npm")
       args.push(
@@ -137,7 +154,7 @@ try {
     );
   }
   assert(
-    !server.requests.some(
+    !server?.requests.some(
       (name) => name.startsWith("@earendil-works/") || name.startsWith("@cpi/"),
     ),
     "An internal dependency escaped its exact registry alias",
@@ -152,6 +169,7 @@ try {
         arch: process.arch,
         managers: ["npm", "bun"],
         lifecycleScripts: false,
+        registry: public_registry ? "https://registry.npmjs.org" : "local",
         consumer,
         packagesSha256: createHash("sha256")
           .update(await readFile(join(directory, "packages.json")))
@@ -165,5 +183,5 @@ try {
     `Registry installs passed. Isolated consumers retained at ${consumer}`,
   );
 } finally {
-  await server.close();
+  await server?.close();
 }

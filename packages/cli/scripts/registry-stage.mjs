@@ -94,5 +94,11 @@ export async function stage_pi(artifact, fork, destination, cache) {
   );
   assert.equal(manifest.name, artifact.name);
   assert.equal(manifest.version, artifact.version);
+  manifest.cpiFork = {
+    repository: "https://github.com/bobcao3/pi",
+    revision: fork.forkRevision,
+    upstreamRevision: fork.upstreamRevision,
+    integrity: artifact.integrity,
+  };
   return manifest;
 }

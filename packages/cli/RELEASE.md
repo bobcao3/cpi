@@ -5,11 +5,20 @@ verify, and publish the package set. Its platform matrix installs the CLI by
 registry name with npm and Bun, with lifecycle scripts disabled, and exercises
 the SDK, extensions, Ghostmux, Tree-sitter WASM, and codemode worker.
 
-Run the workflow manually with its publishing input enabled after configuring
-the `NPM_TOKEN` Actions secret and the `npm-publish` environment. Review the
+Configure each public package's npm trusted publisher to match the publishing
+job's GitHub repository, workflow filename, and environment. Allow direct
+publishing. The job authenticates through GitHub Actions OIDC; no npm publishing
+secret is used. Initial trust configuration requires the owner's interactive
+npm two-factor authentication. For new packages, npm's staged publishing can
+create the package before configuring trust.
+
+Run the workflow manually with its publishing input enabled. Review the
 package archives, `packages.json`, `SHA256SUMS`, and `fork-provenance.json` from
 the packaging job before approving publication. The publisher requires matching
 verification reports and publishes the CLI only after its dependencies.
+After publishing, the job repeats installation checks against the public registry.
+Package repository metadata identifies the distribution builder for provenance;
+the generated Pi manifests also retain their pinned fork source and integrity.
 
 The distribution builder consumes the pinned Pi artifact manifest and verified,
 signed native artifacts. Registry aliases retain original Pi import names while

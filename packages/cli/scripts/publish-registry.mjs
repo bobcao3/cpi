@@ -4,6 +4,7 @@ import { createHash } from "node:crypto";
 import { readFile, readdir } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { archive_manifest } from "./registry-archive.mjs";
+import { registry_repository } from "./registry-manifest.mjs";
 
 assert.equal(
   process.argv.length,
@@ -11,6 +12,16 @@ assert.equal(
   "Usage: publish-registry.mjs VERIFIED_PACKAGE_DIRECTORY",
 );
 const directory = resolve(process.argv[2]);
+assert.equal(
+  process.env.GITHUB_ACTIONS,
+  "true",
+  "Publish through GitHub Actions OIDC",
+);
+assert(
+  process.env.ACTIONS_ID_TOKEN_REQUEST_URL &&
+    process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN,
+  "The publishing job requires id-token: write",
+);
 const packages = JSON.parse(
   await readFile(join(directory, "packages.json"), "utf8"),
 );
@@ -61,6 +72,7 @@ for (const pkg of packages) {
   assert.equal(manifest.name, pkg.name);
   assert.equal(manifest.version, pkg.version);
   assert.equal(manifest.scripts, undefined);
+  assert.equal(manifest.repository?.url, registry_repository);
   const response = await fetch(
     `https://registry.npmjs.org/${encodeURIComponent(pkg.name)}/${pkg.version}`,
     {
@@ -91,6 +103,7 @@ for (const pkg of pending) {
     ],
     {
       stdio: "inherit",
+      env: { ...process.env, npm_config_provenance: "true" },
       timeout: 120000,
     },
   );

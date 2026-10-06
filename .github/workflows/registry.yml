@@ -85,13 +85,17 @@ jobs:
     needs: verify
     runs-on: ubuntu-24.04
     environment: npm-publish
+    permissions:
+      contents: read
+      id-token: write
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v6
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: "24"
           registry-url: https://registry.npmjs.org
+          package-manager-cache: false
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: "1.4.0"
@@ -105,8 +109,10 @@ jobs:
           pattern: registry-verification-*
           path: ${{ runner.temp }}/registry/verification
       - name: Publish dependencies before the CLI
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run:
           node packages/cli/scripts/publish-registry.mjs "${{ runner.temp
           }}/registry"
+      - name: Verify installation from the public registry
+        run:
+          node packages/cli/scripts/verify-registry.mjs "${{ runner.temp
+          }}/registry" --public

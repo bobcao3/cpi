@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 
+export const registry_repository = "git+https://github.com/bobcao3/cpi.git";
+
 export function registry_name(name) {
   if (name === "@cpi/cli") return "@bobcao3/cpi";
   if (name.startsWith("@cpi/")) return `@bobcao3/cpi-${name.slice(5)}`;
@@ -25,6 +27,7 @@ export function registry_manifest(source, versions) {
     access: "public",
     registry: "https://registry.npmjs.org/",
   };
+  manifest.repository = { type: "git", url: registry_repository };
   for (const field of [
     "dependencies",
     "optionalDependencies",
