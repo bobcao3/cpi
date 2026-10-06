@@ -28,15 +28,20 @@ const packages = JSON.parse(
   await readFile(join(directory, "packages.json"), "utf8"),
 );
 const registry_deadline = Date.now() + 300000;
-async function public_manifest(pkg) {
+async function public_manifest(pkg, accept) {
   for (let attempt = 0; attempt < 31; attempt++) {
     const response = await fetch(
-      `https://registry.npmjs.org/${encodeURIComponent(pkg.name)}/${pkg.version}`,
-      { signal: AbortSignal.timeout(30000) },
+      `https://registry.npmjs.org/${encodeURIComponent(pkg.name)}`,
+      { headers: { accept }, signal: AbortSignal.timeout(30000) },
     );
-    if (response.ok) return response.json();
-    assert.equal(response.status, 404, `${pkg.name}: HTTP ${response.status}`);
-    await response.body?.cancel();
+    assert(
+      response.ok || response.status === 404,
+      `${pkg.name}: HTTP ${response.status}`,
+    );
+    if (response.ok) {
+      const manifest = (await response.json()).versions?.[pkg.version];
+      if (manifest) return manifest;
+    } else await response.body?.cancel();
     assert(
       Date.now() < registry_deadline,
       `${pkg.name}: not publicly available before the registry deadline`,
@@ -60,7 +65,14 @@ for (const pkg of packages) {
   assert.equal(manifest.private, undefined);
   assert.equal(manifest.repository?.url, registry_repository);
   if (public_registry) {
-    assert.equal((await public_manifest(pkg)).dist.integrity, pkg.integrity);
+    for (const accept of [
+      "application/json",
+      "application/vnd.npm.install-v1+json",
+    ])
+      assert.equal(
+        (await public_manifest(pkg, accept)).dist.integrity,
+        pkg.integrity,
+      );
   }
   assert(
     !JSON.stringify(manifest.dependencies ?? {}).includes(
