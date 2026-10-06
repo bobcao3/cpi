@@ -12,6 +12,12 @@ secret is used. Initial trust configuration requires the owner's interactive
 npm two-factor authentication. For new packages, npm's staged publishing can
 create the package before configuring trust.
 
+If release archives were staged to create package records, reject those temporary
+stages after configuring trust and before running the direct publisher: npm
+reserves staged version numbers. Keep the verified archives and reports; rejecting
+a stage removes its registry copy, not the local or CI artifacts. Subsequent
+releases of an established package do not need this bootstrap step.
+
 Run the workflow manually with its publishing input enabled. Review the
 package archives, `packages.json`, `SHA256SUMS`, and `fork-provenance.json` from
 the packaging job before approving publication. The publisher requires matching
