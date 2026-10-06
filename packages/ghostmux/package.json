@@ -26,12 +26,7 @@
     "platforms.json",
     "native.json",
     "README.md",
-    "LICENSE",
-    "build.zig",
-    "build.zig.zon",
-    "THIRD_PARTY_NOTICES.md",
-    "src",
-    "fonts"
+    "LICENSE"
   ],
   "scripts": {
     "build": "zig build --release=safe",
