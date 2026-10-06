@@ -206,10 +206,22 @@ try {
     "Native shell status, immediate exits, scoped identity, reaping, and daemon failure passed without per-command Node processes",
   );
 } finally {
+  if (process.platform === "win32") {
+    await execute(
+      await resolveGhostmuxBinary(),
+      ["-S", ghostmuxSocket(env), "kill-server"],
+      { timeout: 10000 },
+    );
+  }
   if (crashPid) {
     try {
       process.kill(-crashPid, "SIGKILL");
     } catch {}
   }
-  await rm(directory, { recursive: true, force: true });
+  await rm(directory, {
+    recursive: true,
+    force: true,
+    maxRetries: 10,
+    retryDelay: 100,
+  });
 }
