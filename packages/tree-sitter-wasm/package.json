@@ -43,5 +43,8 @@
   },
   "devDependencies": {
     "esbuild": "0.28.2"
+  },
+  "dependencies": {
+    "@bobcao3/cpi-tree-sitter-wasm": "0.0.1"
   }
 }

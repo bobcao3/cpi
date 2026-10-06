@@ -4,26 +4,45 @@
   "private": true,
   "license": "MIT",
   "type": "module",
-  "exports": { "./package.json": "./package.json" },
-  "bin": { "subagent": "./bin/subagent" },
-  "pi": {
-    "extensions": ["./extensions/index.ts"],
-    "skills": ["./skills"]
+  "exports": {
+    "./package.json": "./package.json"
   },
-  "files": ["extensions", "skills", "bin", "tools", "NOTICE.md", "cpi-config.default.json", "LICENSE"],
+  "bin": {
+    "subagent": "./bin/subagent"
+  },
+  "pi": {
+    "extensions": [
+      "./extensions/index.ts"
+    ],
+    "skills": [
+      "./skills"
+    ]
+  },
+  "files": [
+    "extensions",
+    "skills",
+    "bin",
+    "tools",
+    "NOTICE.md",
+    "cpi-config.default.json",
+    "LICENSE"
+  ],
   "dependencies": {
-    "@cpi/ghostmux": "0.0.1",
-    "@cpi/tree-sitter-wasm": "0.0.1",
+    "@cpi/ghostmux": "file:../ghostmux",
+    "@cpi/tree-sitter-wasm": "file:../tree-sitter-wasm",
     "mustache": "4.2.0",
     "sharp": "0.35.4",
-    "smol-toml": "1.9.0"
+    "smol-toml": "1.9.0",
+    "jiti": "2.7.0"
   },
   "peerDependencies": {
-    "@earendil-works/pi-agent-core": "*",
-    "@earendil-works/pi-ai": "*",
-    "@earendil-works/pi-coding-agent": "*",
-    "@earendil-works/pi-tui": "*",
+    "@earendil-works/pi-agent-core": "npm:@bobcao3/pi-agent-core@1.0.2-cpi.1",
+    "@earendil-works/pi-ai": "npm:@bobcao3/pi-ai@1.0.2-cpi.1",
+    "@earendil-works/pi-coding-agent": "npm:@bobcao3/pi-coding-agent@1.0.2-cpi.1",
+    "@earendil-works/pi-tui": "npm:@bobcao3/pi-tui@1.0.2-cpi.1",
     "typebox": "*"
   },
-  "devDependencies": { "diff": "8.0.4" }
+  "devDependencies": {
+    "diff": "8.0.4"
+  }
 }

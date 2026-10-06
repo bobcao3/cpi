@@ -114,7 +114,12 @@ export function createReleaseLock(rootLock, rootManifest, stagedWorkspaces) {
     rootManifest.devDependencies ||
     rootManifest.scripts ||
     JSON.stringify(sorted(rootManifest.dependencies)) !==
-      JSON.stringify({ "@cpi/cli": cli.manifest.version }) ||
+      JSON.stringify(
+        sorted({
+          ...source[""].dependencies,
+          "@cpi/cli": cli.manifest.version,
+        }),
+      ) ||
     !Array.isArray(rootManifest.workspaces) ||
     JSON.stringify([...rootManifest.workspaces].sort()) !==
       JSON.stringify([...directories].sort())
@@ -241,10 +246,7 @@ export function createReleaseLock(rootLock, rootManifest, stagedWorkspaces) {
         `External package lacks reviewed version, resolution, or integrity: ${path}`,
       );
     }
-    if (
-      !/^https?:\/\//.test(original.resolved) &&
-      !/^file:vendor\/pi\/[a-f0-9]{64}\.tgz$/.test(original.resolved)
-    ) {
+    if (!/^https:\/\//.test(original.resolved)) {
       throw new Error(
         `Unsupported external package resolution: ${path}: ${original.resolved}`,
       );

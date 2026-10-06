@@ -23,6 +23,7 @@ import { emitDeclarations } from "./release-declarations.mjs";
 import { createReleaseLock } from "./release-lock.mjs";
 import { bundleGhostmux, archiveRelease } from "./release-archive.mjs";
 import { prepareReleaseSources } from "./release-sources.mjs";
+import { registry_name } from "./registry-manifest.mjs";
 import { stage_wasm } from "@cpi/tree-sitter-wasm/package";
 import { resolveTreeSitterWasm } from "@cpi/tree-sitter-wasm/resolve";
 
@@ -104,7 +105,9 @@ async function main() {
       ...workspace.manifest.optionalDependencies,
     })) {
       if (workspaces.has(dependency)) queue.push(dependency);
-      else if (!/^\d+\.\d+\.\d+(?:-[\w.-]+)?$/.test(version))
+      else if (
+        !/^(?:npm:@[^/]+\/[^@]+@)?\d+\.\d+\.\d+(?:-[\w.-]+)?$/.test(version)
+      )
         throw new Error(
           `External runtime dependency must be exact: ${name}: ${dependency}@${version}`,
         );
@@ -182,21 +185,21 @@ async function main() {
     const fork = await json(join(root, "vendor/pi/manifest.json"));
     const sourceLock = await json(join(root, "package-lock.json"));
     for (const artifact of fork.artifacts) {
-      const buffer = await readFile(join(root, "vendor/pi", artifact.filename));
-      if (
-        createHash("sha256").update(buffer).digest("hex") !== artifact.sha256 ||
-        `sha512-${createHash("sha512").update(buffer).digest("base64")}` !==
-          artifact.integrity
-      )
-        throw new Error(`Vendored artifact changed: ${artifact.name}`);
+      const installed = await json(
+        join(root, "node_modules", artifact.name, "package.json"),
+      );
       const entries = Object.entries(sourceLock.packages).filter(([path]) =>
         path.endsWith(`node_modules/${artifact.name}`),
       );
       if (
         entries.length !== 1 ||
         entries[0][1].version !== artifact.version ||
-        entries[0][1].integrity !== artifact.integrity ||
-        entries[0][1].resolved !== `file:vendor/pi/${artifact.filename}`
+        entries[0][1].name !== registry_name(artifact.name) ||
+        !entries[0][1].integrity?.startsWith("sha512-") ||
+        sourceManifest.dependencies[artifact.name] !==
+          `npm:${registry_name(artifact.name)}@${artifact.version}` ||
+        installed.cpiFork?.integrity !== artifact.integrity ||
+        installed.cpiFork?.revision !== fork.forkRevision
       )
         throw new Error(`Mixed or unpinned fork graph: ${artifact.name}`);
     }
@@ -206,7 +209,10 @@ async function main() {
       private: true,
       type: "module",
       workspaces: [...selected.values()].map((workspace) => workspace.original),
-      dependencies: { "@cpi/cli": selected.get("@cpi/cli").manifest.version },
+      dependencies: {
+        ...sourceManifest.dependencies,
+        "@cpi/cli": selected.get("@cpi/cli").manifest.version,
+      },
       overrides: Object.fromEntries(
         Object.entries(sourceManifest.overrides ?? {}).map(([name, spec]) => [
           name,
@@ -218,9 +224,6 @@ async function main() {
       ),
     };
     await saveJson(join(destination, "package.json"), manifest);
-    await cp(join(root, "vendor"), join(destination, "vendor"), {
-      recursive: true,
-    });
     const reviewedLock = await readFile(join(root, "package-lock.json"));
     await saveJson(
       join(destination, "package-lock.json"),

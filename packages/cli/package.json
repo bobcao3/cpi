@@ -20,7 +20,8 @@
       "types": "./bootstrap.d.mts",
       "import": "./bootstrap.mjs"
     },
-    "./package.json": "./package.json"
+    "./package.json": "./package.json",
+    "./cli": "./src/cli.ts"
   },
   "piConfig": {
     "name": "cpi",
@@ -29,19 +30,20 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.31.0",
-    "@cpi/extensions": "0.0.1",
-    "@earendil-works/pi-coding-agent": "1.0.2-cpi.1",
-    "@earendil-works/pi-ai": "1.0.2-cpi.1",
-    "@earendil-works/pi-agent-core": "1.0.2-cpi.1",
-    "@earendil-works/chord": "1.0.2-cpi.1",
-    "@earendil-works/pi-client": "1.0.2-cpi.1",
-    "@earendil-works/pi-codemode": "1.0.2-cpi.1",
-    "@earendil-works/pi-durable": "1.0.2-cpi.1",
-    "@earendil-works/pi-mcp": "1.0.2-cpi.1",
-    "@earendil-works/pi-protocol": "1.0.2-cpi.1",
-    "@earendil-works/pi-server": "1.0.2-cpi.1",
-    "@earendil-works/pi-telemetry": "1.0.2-cpi.1",
-    "@earendil-works/pi-tui": "1.0.2-cpi.1"
+    "@cpi/extensions": "file:../extensions",
+    "@earendil-works/pi-coding-agent": "npm:@bobcao3/pi-coding-agent@1.0.2-cpi.1",
+    "@earendil-works/pi-ai": "npm:@bobcao3/pi-ai@1.0.2-cpi.1",
+    "@earendil-works/pi-agent-core": "npm:@bobcao3/pi-agent-core@1.0.2-cpi.1",
+    "@earendil-works/chord": "npm:@bobcao3/pi-chord@1.0.2-cpi.1",
+    "@earendil-works/pi-client": "npm:@bobcao3/pi-client@1.0.2-cpi.1",
+    "@earendil-works/pi-codemode": "npm:@bobcao3/pi-codemode@1.0.2-cpi.1",
+    "@earendil-works/pi-durable": "npm:@bobcao3/pi-durable@1.0.2-cpi.1",
+    "@earendil-works/pi-mcp": "npm:@bobcao3/pi-mcp@1.0.2-cpi.1",
+    "@earendil-works/pi-protocol": "npm:@bobcao3/pi-protocol@1.0.2-cpi.1",
+    "@earendil-works/pi-server": "npm:@bobcao3/pi-server@1.0.2-cpi.1",
+    "@earendil-works/pi-telemetry": "npm:@bobcao3/pi-telemetry@1.0.2-cpi.1",
+    "@earendil-works/pi-tui": "npm:@bobcao3/pi-tui@1.0.2-cpi.1",
+    "jiti": "2.7.0"
   },
   "scripts": {
     "check": "node scripts/check-boundaries.mjs",

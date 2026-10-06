@@ -78,6 +78,7 @@ export async function stage_wasm(destination, artifact) {
   delete manifest.private;
   delete manifest.scripts;
   delete manifest.devDependencies;
+  delete manifest.dependencies;
   delete manifest.exports["./package"];
   manifest.exports["."].types = "./index.d.ts";
   manifest.exports["."].default = "./index.mjs";

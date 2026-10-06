@@ -60,5 +60,5 @@ __pycache__/
 
 /dist/
 !packages/extensions/bin/*.js
-!vendor/pi/*.tgz
+/vendor/pi/*.tgz
 !vendor/pi/*.json

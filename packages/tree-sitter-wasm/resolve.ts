@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { createRequire } from "node:module";
 import { parsePubKey, parseSig, verifyMinisign } from "./minisig.ts";
 
 export const packageRoot = fileURLToPath(new URL("./", import.meta.url));
@@ -31,7 +32,23 @@ export function getTreeSitterWasmPath(): string | null {
     return bundled;
   }
   const development = join(packageRoot, "zig-out/bin", filename);
-  return existsSync(development) ? development : null;
+  if (existsSync(development)) return development;
+  let release: string;
+  try {
+    release = createRequire(import.meta.url).resolve(
+      "@bobcao3/cpi-tree-sitter-wasm/package.json",
+    );
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "MODULE_NOT_FOUND")
+      return null;
+    throw error;
+  }
+  const artifact = join(release, "../assets", filename);
+  verifyArtifact(
+    readFileSync(artifact),
+    readFileSync(`${artifact}.minisig`, "utf8"),
+  );
+  return artifact;
 }
 
 export async function resolveTreeSitterWasm(): Promise<string> {

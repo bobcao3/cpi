@@ -26,7 +26,12 @@
     "platforms.json",
     "native.json",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "build.zig",
+    "build.zig.zon",
+    "THIRD_PARTY_NOTICES.md",
+    "src",
+    "fonts"
   ],
   "scripts": {
     "build": "zig build --release=safe",
@@ -36,5 +41,12 @@
   },
   "devDependencies": {
     "sharp": "0.35.4"
+  },
+  "optionalDependencies": {
+    "@cpi/ghostmux-linux-x64": "npm:@bobcao3/cpi-ghostmux-linux-x64@0.0.1",
+    "@cpi/ghostmux-linux-arm64": "npm:@bobcao3/cpi-ghostmux-linux-arm64@0.0.1",
+    "@cpi/ghostmux-darwin-x64": "npm:@bobcao3/cpi-ghostmux-darwin-x64@0.0.1",
+    "@cpi/ghostmux-darwin-arm64": "npm:@bobcao3/cpi-ghostmux-darwin-arm64@0.0.1",
+    "@cpi/ghostmux-win32-x64": "npm:@bobcao3/cpi-ghostmux-win32-x64@0.0.1"
   }
 }

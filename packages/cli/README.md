@@ -14,12 +14,20 @@ bun install --global @bobcao3/cpi
 cpi
 ```
 
-The scoped npm name matters: `bobcao3/cpi` without `@` selects the GitHub
-source repository, not the published CLI. First-party packages have no lifecycle
-scripts; installation also works with `--ignore-scripts`. The package manager
-selects the native Ghostmux package; Tree-sitter WASM is a regular dependency.
-Pi dependencies alias the published fork packages, not upstream releases.
-Git and JJ remain external programs.
+Install the current repository source instead of the npm release with:
+
+```sh
+bun install --global bobcao3/cpi
+# or: npm install --global bobcao3/cpi
+```
+
+GitHub installs run the repository's CLI and extensions and use published native
+assets. They are installed snapshots; use the editable setup below to work on a
+local checkout. First-party packages have no installation lifecycle scripts;
+installation also works with `--ignore-scripts`. The package manager selects the
+native Ghostmux package; Tree-sitter WASM is a regular dependency. Pi
+dependencies alias the published fork packages, not upstream releases. Git and
+JJ remain external programs.
 
 The POSIX shell entrypoint selects Node for npm installations and Bun for Bun
 installations. The launcher resolves installation symlinks and inspects the
@@ -49,9 +57,9 @@ Rerun after moving the checkout to update Bun's source link.
 
 CLI and supporting-tool JavaScript/TypeScript edits apply on the next invocation
 without a build. Native Ghostmux and WASM source changes require their packages'
-build scripts. For extension and TOML prompt edits in a running session, use `/reload`.
-Pi core still comes from the pinned fork artifacts; update those artifacts to
-bring in changes from the separate fork repository.
+build scripts. For extension and TOML prompt edits in a running session, use
+`/reload`. Pi core still comes from the pinned fork artifacts; update those
+artifacts to bring in changes from the separate fork repository.
 
 ## SDK
 

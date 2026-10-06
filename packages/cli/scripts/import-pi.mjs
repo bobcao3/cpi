@@ -1,16 +1,20 @@
 #!/usr/bin/env node
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { registry_name } from "./registry-manifest.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 const input = resolve(process.argv[2] ?? "");
 assert(
-  process.argv.length === 3,
-  "Usage: node packages/cli/scripts/import-pi.mjs ARTIFACT_DIRECTORY",
+  process.argv.length === 4,
+  "Usage: node packages/cli/scripts/import-pi.mjs ARTIFACT_DIRECTORY RELEASE_BASE_URL",
 );
+const base = new URL(`${process.argv[3].replace(/\/$/, "")}/`);
+assert(base.protocol === "https:" && !base.username && !base.password);
+assert(!base.search && !base.hash);
 const manifest = JSON.parse(
   await readFile(join(input, "manifest.json"), "utf8"),
 );
@@ -41,20 +45,13 @@ for (const artifact of manifest.artifacts) {
     `sha512-${createHash("sha512").update(bytes).digest("base64")}`,
     artifact.integrity,
   );
-  try {
-    assert.deepEqual(await readFile(join(vendor, artifact.filename)), bytes);
-  } catch (error) {
-    if (error.code !== "ENOENT") throw error;
-    await copyFile(
-      join(input, artifact.filename),
-      join(vendor, artifact.filename),
-    );
-  }
+  artifact.url = new URL(artifact.filename, base).href;
   pkg.dependencies ??= {};
   pkg.overrides ??= {};
-  pkg.dependencies[artifact.name] = `file:vendor/pi/${artifact.filename}`;
+  pkg.dependencies[artifact.name] =
+    `npm:${registry_name(artifact.name)}@${artifact.version}`;
   pkg.overrides[artifact.name] = `$${artifact.name}`;
-  cli.dependencies[artifact.name] = manifest.version;
+  cli.dependencies[artifact.name] = pkg.dependencies[artifact.name];
 }
 for (const artifact of manifest.artifacts) {
   for (const name of Object.keys(artifact.dependencies)) {
