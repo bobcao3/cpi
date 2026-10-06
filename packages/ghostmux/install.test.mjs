@@ -3,6 +3,7 @@ import { spawnSync } from "node:child_process";
 import {
   access,
   chmod,
+  mkdir,
   mkdtemp,
   readFile,
   rename,
@@ -64,6 +65,7 @@ try {
             ),
         );
     const launcher = join(installed, "bin/ghostmux.mjs");
+    await mkdir(join(consumer, "local"));
     const environment = {
       ...process.env,
       GHOSTMUX_BIN: signed ? "" : realBinary,
