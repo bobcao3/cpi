@@ -19,6 +19,9 @@ jobs:
         with:
           node-version: "24"
       - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.4.0"
+      - uses: ./.github/actions/setup-jj
       - name: Install pinned artifacts
         run: npm ci --ignore-scripts
       - name: Check maintained source and installed SDK types
