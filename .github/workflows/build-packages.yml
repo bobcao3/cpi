@@ -1,0 +1,138 @@
+name: Package builds
+
+on:
+  push:
+    branches: ["**"]
+    paths:
+      - "packages/**"
+      - "scripts/**"
+      - ".github/**"
+      - "package.json"
+      - "package-lock.json"
+      - "bun.lock"
+      - ".npmrc"
+      - "vendor/pi/manifest.json"
+  pull_request:
+    paths:
+      - "packages/**"
+      - "scripts/**"
+      - ".github/**"
+      - "package.json"
+      - "package-lock.json"
+      - "bun.lock"
+      - ".npmrc"
+      - "vendor/pi/manifest.json"
+  workflow_dispatch:
+    inputs:
+      package:
+        description: Package to build
+        type: choice
+        options: [all, ghostmux, tree-sitter-wasm]
+        default: all
+  workflow_call:
+    inputs:
+      package:
+        description: Package to build
+        type: string
+        default: all
+
+permissions:
+  contents: read
+
+concurrency:
+  group: packages-${{ github.workflow }}-${{ github.ref }}-${{ inputs.package || 'all' }}
+  cancel-in-progress: true
+
+jobs:
+  platforms:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      matrix: ${{ steps.matrix.outputs.value }}
+    steps:
+      - uses: actions/checkout@v6
+      - id: matrix
+        env:
+          PACKAGE: ${{ inputs.package || 'all' }}
+        run: echo "value=$(node scripts/package-build-matrix.mjs "$PACKAGE")" >> "$GITHUB_OUTPUT"
+  build:
+    name: ${{ matrix.package }} (${{ matrix.platform }})
+    needs: platforms
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.platforms.outputs.matrix) }}
+    runs-on: ${{ matrix.runner }}
+    env:
+      GHOSTMUX_BIN: ${{ github.workspace }}/packages/ghostmux/zig-out/bin/ghostmux${{ startsWith(matrix.platform, 'win32-') && '.exe' || '' }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.4.0"
+      - uses: mlugg/setup-zig@v2
+        with:
+          version: "0.16.0"
+      - name: Install reviewed dependencies
+        run: npm ci --ignore-scripts
+      - name: Build Ghostmux
+        if: matrix.package == 'ghostmux'
+        id: ghostmux
+        working-directory: packages/ghostmux
+        run: zig build --release=safe -Dtarget=${{ matrix.target }} -Dcpu=${{ matrix.baseline }} --summary all
+      - name: Test Ghostmux native code
+        if: matrix.package == 'ghostmux'
+        working-directory: packages/ghostmux
+        run: zig build test --release=safe -Dtarget=${{ matrix.target }} -Dcpu=${{ matrix.baseline }}
+      - name: Verify static Linux linkage
+        if: matrix.package == 'ghostmux' && runner.os == 'Linux'
+        shell: bash
+        run: |
+          headers=$(readelf --program-headers "$GHOSTMUX_BIN")
+          if grep -q INTERP <<< "$headers"; then
+            echo "The Linux release must not require a dynamic loader." >&2
+            exit 1
+          fi
+      - name: Test Ghostmux npm and Bun installs without Pi peers or Zig
+        if: ${{ !cancelled() && steps.ghostmux.outcome == 'success' }}
+        run: node packages/ghostmux/install.test.mjs
+      - name: Test cpi shell and installed host integration
+        if: matrix.package == 'ghostmux'
+        shell: bash
+        run: |
+          export NODE_OPTIONS="--import=$(node -p 'require("node:url").pathToFileURL(process.cwd() + "/packages/cli/bootstrap.mjs").href')"
+          node --experimental-transform-types packages/extensions/scripts/shell-native-lifecycle.integration.ts
+          node --experimental-transform-types packages/extensions/scripts/shell-large-output.integration.ts
+          node --experimental-transform-types packages/extensions/scripts/shell/test-cancellation.ts
+          node packages/extensions/scripts/shell-install.integration.mjs
+          node packages/extensions/scripts/ghostmux-vision.integration.test.mjs
+      - name: Test Windows shell concurrency and process trees
+        if: matrix.package == 'ghostmux' && runner.os == 'Windows'
+        run: node --experimental-transform-types packages/extensions/scripts/shell/test-windows.ts
+      - name: Stage Ghostmux binary and provenance
+        if: matrix.package == 'ghostmux'
+        shell: bash
+        run: node packages/ghostmux/bin/ghostmux-release.mjs stage "$GHOSTMUX_BIN" dist '${{ matrix.platform }}'
+      - name: Build portable WASM
+        if: matrix.package == 'tree-sitter-wasm'
+        working-directory: packages/tree-sitter-wasm
+        run: zig build -Drelease=true --summary all
+      - name: Test WASM parsers with Node and Bun
+        if: matrix.package == 'tree-sitter-wasm'
+        run: |
+          node packages/tree-sitter-wasm/scripts/tree-sitter-wasm.integration.mjs
+          bun --bun packages/tree-sitter-wasm/scripts/tree-sitter-wasm.integration.mjs
+      - name: Stage WASM
+        if: matrix.package == 'tree-sitter-wasm'
+        run: |
+          mkdir -p dist
+          cp packages/tree-sitter-wasm/zig-out/bin/tree-sitter-wasm.wasm dist/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: dist/
+          if-no-files-found: error
+          retention-days: 14

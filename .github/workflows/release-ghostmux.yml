@@ -15,7 +15,9 @@ permissions:
 
 jobs:
   build:
-    uses: ./.github/workflows/build-ghostmux.yml
+    uses: ./.github/workflows/build-packages.yml
+    with:
+      package: ghostmux
   release:
     needs: build
     runs-on: ubuntu-24.04
