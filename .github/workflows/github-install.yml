@@ -26,6 +26,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "24"
+      - name: Use npm with script-free Git dependency support
+        run: npm install --global --ignore-scripts npm@12.1.0
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: "1.3.14"

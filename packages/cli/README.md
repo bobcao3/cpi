@@ -18,11 +18,10 @@ Install the current repository source instead of the npm release with:
 
 ```sh
 bun install --global bobcao3/cpi
-# or: npm install --global bobcao3/cpi
 ```
 
-With npm 12, explicitly allow this Git dependency:
-`npm install --global --allow-git=root bobcao3/cpi`.
+For a script-free GitHub install with npm, use npm 12 or newer:
+`npm install --global --ignore-scripts --allow-git=root bobcao3/cpi`.
 
 GitHub installs run the repository's CLI and extensions and use published native
 assets. They are installed snapshots; use the editable setup below to work on a
