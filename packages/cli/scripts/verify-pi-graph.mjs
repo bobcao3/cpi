@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
 import { readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
+import { registry_name } from "./registry-manifest.mjs";
 
 export async function verifyPiGraph(installed, artifacts) {
   const expected = new Map(
-    artifacts.map((artifact) => [artifact.name, artifact.version]),
+    artifacts.map((artifact) => [registry_name(artifact.name), artifact]),
   );
   const found = new Set();
   const queue = [installed];
@@ -24,7 +25,11 @@ export async function verifyPiGraph(installed, artifacts) {
         /\/node_modules\/(?:@[^/]+\/)?[^/]+$/.test(directory)
       ) {
         const manifest = JSON.parse(await readFile(path, "utf8"));
-        if (!manifest.name?.startsWith("@earendil-works/")) continue;
+        if (
+          !manifest.name?.startsWith("@earendil-works/") &&
+          !manifest.name?.startsWith("@bobcao3/pi-")
+        )
+          continue;
         assert(
           expected.has(manifest.name),
           `Unexpected upstream runtime: ${manifest.name}`,
@@ -35,8 +40,13 @@ export async function verifyPiGraph(installed, artifacts) {
         );
         assert.equal(
           manifest.version,
-          expected.get(manifest.name),
+          expected.get(manifest.name).version,
           `Wrong fork version: ${manifest.name}`,
+        );
+        assert.equal(
+          manifest.cpiFork?.integrity,
+          expected.get(manifest.name).integrity,
+          `Wrong fork provenance: ${manifest.name}`,
         );
         found.add(manifest.name);
       }

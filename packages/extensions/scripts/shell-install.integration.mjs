@@ -37,6 +37,7 @@ try {
   }
   await mkdir(join(installed, "node_modules", "@cpi"), { recursive: true });
   for (const dependency of [
+    "jiti",
     "mustache",
     "sharp",
     "smol-toml",

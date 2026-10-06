@@ -145,6 +145,7 @@ if (!phase) {
     onError: (error) => errors.push(error),
   });
   assert.equal(session.extensionRunner.hasUI(), true);
+  assert.deepEqual(errors, [], "Extension lifecycle initialization failed");
   try {
     if (restoring) {
       const notices = notifications(session);

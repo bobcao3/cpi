@@ -81,13 +81,22 @@ export async function archiveRelease(destination, selected, metadata, env) {
   const manifest = await json(join(bundle, "package.json"));
   manifest.private = false;
   manifest.dependencies = Object.fromEntries(
-    roots.map(({ name, version }) => [name, version]),
+    roots.map(({ path, name, version }) => {
+      const installed = path.slice("node_modules/".length);
+      return [
+        installed,
+        installed === name ? version : `npm:${name}@${version}`,
+      ];
+    }),
   );
-  manifest.bundledDependencies = roots.map(({ name }) => name);
+  manifest.bundledDependencies = roots.map(({ path }) =>
+    path.slice("node_modules/".length),
+  );
   manifest.files = [
     "dist",
     "bin",
     "bootstrap.mjs",
+    "source.mjs",
     "bootstrap.d.mts",
     "LICENSE",
     "README.md",
