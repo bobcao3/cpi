@@ -11,15 +11,16 @@ import {
   initTreeSitterWasm,
   ensureTreeSitterReady,
 } from "../lib/tree-sitter.ts";
-import {
-  getTreeSitterWasmPath,
-  resolveTreeSitterWasm,
-} from "@cpi/tree-sitter-wasm/resolve";
+import { toolPackage } from "../lib/tool-package.ts";
 import { parseDotEnv } from "../lib/dotenv.ts";
 import { resolveCwdPath } from "../lib/cwd.ts";
 import { runtimeEnv } from "../lib/runtime.ts";
 import { CPI_SUBAGENT_RPC, getSubagentRpc } from "../lib/subagent-rpc.ts";
 import { fileURLToPath } from "node:url";
+
+const { getTreeSitterWasmPath, resolveTreeSitterWasm } = await toolPackage(
+  "@cpi/tree-sitter-wasm/resolve",
+);
 
 const execFileAsync = promisify(execFile);
 const DL_TIMEOUT = 60_000;

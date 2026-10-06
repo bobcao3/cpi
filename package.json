@@ -30,15 +30,11 @@
     "@earendil-works/pi-server": "npm:@bobcao3/pi-server@1.0.2-cpi.1",
     "@earendil-works/pi-telemetry": "npm:@bobcao3/pi-telemetry@1.0.2-cpi.1",
     "@earendil-works/pi-tui": "npm:@bobcao3/pi-tui@1.0.2-cpi.1",
-    "@cpi/cli": "file:packages/cli",
     "@modelcontextprotocol/sdk": "1.31.0",
     "jiti": "2.7.0",
-    "@cpi/extensions": "file:packages/extensions",
     "mustache": "4.2.0",
     "sharp": "0.35.4",
     "smol-toml": "1.9.0",
-    "@cpi/ghostmux": "file:packages/ghostmux",
-    "@cpi/tree-sitter-wasm": "file:packages/tree-sitter-wasm",
     "@bobcao3/cpi-tree-sitter-wasm": "0.0.1"
   },
   "overrides": {
@@ -71,7 +67,10 @@
   },
   "private": true,
   "workspaces": [
-    "packages/*"
+    "packages/cli",
+    "packages/extensions",
+    "packages/ghostmux",
+    "packages/tree-sitter-wasm"
   ],
   "bin": {
     "cpi": "packages/cli/bin/cpi"

@@ -30,7 +30,7 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.31.0",
-    "@cpi/extensions": "file:../extensions",
+    "@cpi/extensions": "0.0.1",
     "@earendil-works/pi-coding-agent": "npm:@bobcao3/pi-coding-agent@1.0.2-cpi.1",
     "@earendil-works/pi-ai": "npm:@bobcao3/pi-ai@1.0.2-cpi.1",
     "@earendil-works/pi-agent-core": "npm:@bobcao3/pi-agent-core@1.0.2-cpi.1",
@@ -55,6 +55,7 @@
     "src",
     "dist",
     "bootstrap.mjs",
+    "source.mjs",
     "bootstrap.d.mts",
     "LICENSE",
     "README.md"

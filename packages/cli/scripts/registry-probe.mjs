@@ -3,16 +3,19 @@ import { createRequire } from "node:module";
 import { pathToFileURL } from "node:url";
 import { dirname, join } from "node:path";
 import { readFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { CodemodeSandbox } from "@earendil-works/pi-codemode";
 
 const installed = process.argv[2];
+if (existsSync(join(installed, "source.mjs")))
+  await import(pathToFileURL(join(installed, "source.mjs")));
 const require = createRequire(join(installed, "package.json"));
 async function load(path) {
   const url = pathToFileURL(path).href;
-  if (process.versions.bun || !url.endsWith(".ts")) return import(url);
+  if (!url.endsWith(".ts")) return import(url);
   const { createJiti } = await import("jiti");
-  return createJiti(import.meta.url).import(url);
+  return createJiti(import.meta.url, { tryNative: false }).import(url);
 }
 const manifest = JSON.parse(
   await readFile(join(installed, "package.json"), "utf8"),
@@ -20,10 +23,12 @@ const manifest = JSON.parse(
 const sdk = await load(join(installed, manifest.exports["."].import));
 assert.equal(sdk.APP_NAME, "cpi");
 const extensions = createRequire(
-  require.resolve("@cpi/extensions/package.json"),
+  JSON.parse(process.env.JITI_ALIAS || "{}")["@cpi/extensions/package.json"] ??
+    require.resolve("@cpi/extensions/package.json"),
 );
-const ghostmux = await import(
-  pathToFileURL(extensions.resolve("@cpi/ghostmux"))
+const aliases = JSON.parse(process.env.JITI_ALIAS || "{}");
+const ghostmux = await load(
+  aliases["@cpi/ghostmux"] ?? extensions.resolve("@cpi/ghostmux"),
 );
 const binary = await ghostmux.resolveGhostmux();
 const native = JSON.parse(
@@ -45,7 +50,10 @@ const captured = spawnSync(binary, ["--history", "--join"], {
 assert.ifError(captured.error);
 assert.equal(captured.status, 0, captured.stderr);
 assert.equal(captured.stdout, "registry 中文\n");
-const wasm = await load(extensions.resolve("@cpi/tree-sitter-wasm"));
+const wasm = await load(
+  aliases["@cpi/tree-sitter-wasm"] ??
+    extensions.resolve("@cpi/tree-sitter-wasm"),
+);
 const parsed = await wasm.parseCommand("printf registry");
 assert.equal(parsed.available, true);
 assert.equal(parsed.node.descendantsOfType("command_name")[0].text, "printf");
@@ -60,7 +68,10 @@ assert.deepEqual(loader.getExtensions().errors, []);
 const host = await import(
   pathToFileURL(
     join(
-      dirname(extensions.resolve("@cpi/extensions/package.json")),
+      dirname(
+        aliases["@cpi/extensions/package.json"] ??
+          extensions.resolve("@cpi/extensions/package.json"),
+      ),
       "bin/host-pi.mjs",
     ),
   )

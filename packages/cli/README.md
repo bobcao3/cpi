@@ -21,6 +21,9 @@ bun install --global bobcao3/cpi
 # or: npm install --global bobcao3/cpi
 ```
 
+With npm 12, explicitly allow this Git dependency:
+`npm install --global --allow-git=root bobcao3/cpi`.
+
 GitHub installs run the repository's CLI and extensions and use published native
 assets. They are installed snapshots; use the editable setup below to work on a
 local checkout. First-party packages have no installation lifecycle scripts;

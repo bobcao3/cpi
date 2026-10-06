@@ -15,9 +15,9 @@ export function piExecutableOnPath() {
 
 export async function hostCodingAgent() {
   const url = required("CPI_APP_SDK_URL");
-  if (process.versions.bun || !url.endsWith(".ts")) return import(url);
+  if (!url.endsWith(".ts")) return import(url);
   const { createJiti } = await import("jiti");
-  return createJiti(import.meta.url).import(url);
+  return createJiti(import.meta.url, { tryNative: false }).import(url);
 }
 
 export async function hostAi() {

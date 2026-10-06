@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { realpathSync } from "node:fs";
+import { readFileSync, realpathSync } from "node:fs";
 import { dirname, isAbsolute, join, relative } from "node:path";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
@@ -15,6 +15,20 @@ const compiler = join(
   "bin/tsc",
 );
 let failures = 0;
+const repository = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
+const workspaces = repository.workspaces.map((folder) =>
+  JSON.parse(readFileSync(join(root, folder, "package.json"), "utf8")),
+);
+const local_names = new Set(workspaces.map((manifest) => manifest.name));
+for (const manifest of workspaces)
+  for (const field of ["dependencies", "optionalDependencies"])
+    for (const [name, spec] of Object.entries(manifest[field] ?? {})) {
+      if (local_names.has(name)) continue;
+      if (repository[field]?.[name] !== spec)
+        throw new Error(
+          `GitHub installation lacks ${manifest.name}'s ${name}@${spec}`,
+        );
+    }
 for (const name of ["pi-coding-agent", "pi-agent-core", "pi-ai", "pi-tui"]) {
   const entry = realpathSync(
     fileURLToPath(import.meta.resolve(`@earendil-works/${name}`)),

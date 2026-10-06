@@ -15,7 +15,9 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
 import { ghostmuxRequest, type NativeResponse } from "./ghostmux-transport.ts";
-import { resolveGhostmux } from "@cpi/ghostmux/resolve";
+import { toolPackage } from "../lib/tool-package.ts";
+
+const { resolveGhostmux } = await toolPackage("@cpi/ghostmux/resolve");
 
 const execute = promisify(execFile);
 const name = process.platform === "win32" ? "ghostmux.exe" : "ghostmux";

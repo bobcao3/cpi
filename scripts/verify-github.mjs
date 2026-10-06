@@ -63,6 +63,11 @@ for (const manager of ["npm", "bun"]) {
   const args = ["install", "--global", "--ignore-scripts", spec];
   if (manager === "npm")
     args.push("--prefix", prefix, "--no-audit", "--no-fund");
+  if (
+    manager === "npm" &&
+    Number(execute("npm", ["--version"]).split(".")[0]) >= 12
+  )
+    args.push("--allow-git=root");
   console.log(execute(manager, args));
   const installed = join(
     prefix,
