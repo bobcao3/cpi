@@ -250,6 +250,6 @@ The rendering checks use `sharp` to independently decode PNG output. The
 remaining JavaScript daemon suites require POSIX and Python. Set `GHOSTMUX_BIN`
 to test a relocated executable.
 
-The cpi shell, installed-package, and native runtime checks run on Linux and
-Windows. See [the build workflow](../../.github/workflows/build-ghostmux.yml)
-for the platform matrix and integration commands.
+See [the shared package build workflow](../../.github/workflows/build-packages.yml)
+for the platform matrix and cpi shell, installed-package, and native runtime
+integration commands.
