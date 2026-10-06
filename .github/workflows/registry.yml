@@ -1,0 +1,109 @@
+name: Registry installation
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      publish_npm:
+        description: Publish verified packages under @bobcao3 on npm
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: registry-${{ github.ref }}-${{ inputs.publish_npm || false }}
+  cancel-in-progress: ${{ !inputs.publish_npm }}
+
+jobs:
+  package:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.14"
+      - run: bun install --frozen-lockfile --ignore-scripts
+      - name: Fetch and verify release-native inputs
+        run:
+          node scripts/ci-native-artifacts.mjs "${{ runner.temp }}/native" --all
+      - name: Prepare portable packages and platform-selected binaries
+        run:
+          node packages/cli/scripts/package-registry.mjs "${{ runner.temp
+          }}/native" "${{ runner.temp }}/registry"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: registry-packages
+          path: |
+            ${{ runner.temp }}/registry/*.tgz
+            ${{ runner.temp }}/registry/*.json
+            ${{ runner.temp }}/registry/SHA256SUMS
+          if-no-files-found: error
+          retention-days: 14
+  verify:
+    needs: package
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-24.04, ubuntu-24.04-arm, macos-15, macos-15-intel]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.14"
+      - run: bun install --frozen-lockfile --ignore-scripts
+      - uses: actions/download-artifact@v4
+        with:
+          name: registry-packages
+          path: ${{ runner.temp }}/registry
+      - name: Install by name with npm and Bun, with lifecycle scripts disabled
+        run:
+          node packages/cli/scripts/verify-registry.mjs "${{ runner.temp
+          }}/registry"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: registry-verification-${{ matrix.runner }}
+          path: ${{ runner.temp }}/registry/registry-verification.json
+          if-no-files-found: error
+  publish:
+    if: github.event_name == 'workflow_dispatch' && inputs.publish_npm
+    needs: verify
+    runs-on: ubuntu-24.04
+    environment: npm-publish
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          registry-url: https://registry.npmjs.org
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.4.0"
+      - run: bun install --frozen-lockfile --ignore-scripts
+      - uses: actions/download-artifact@v4
+        with:
+          name: registry-packages
+          path: ${{ runner.temp }}/registry
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: registry-verification-*
+          path: ${{ runner.temp }}/registry/verification
+      - name: Publish dependencies before the CLI
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run:
+          node packages/cli/scripts/publish-registry.mjs "${{ runner.temp
+          }}/registry"

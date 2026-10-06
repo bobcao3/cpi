@@ -1,49 +1,34 @@
-# Release preparation
+# Registry release
 
-These commands prepare Node package artifacts without publishing. Do not use the
-upstream Pi publishing workflow to distribute cpi.
+Use [Registry installation](../../.github/workflows/registry.yml) to prepare,
+verify, and publish the package set. Its platform matrix installs the CLI by
+registry name with npm and Bun, with lifecycle scripts disabled, and exercises
+the SDK, extensions, Ghostmux, Tree-sitter WASM, and codemode worker.
 
-From the repository root:
+Run the workflow manually with its publishing input enabled after configuring
+the `NPM_TOKEN` Actions secret and the `npm-publish` environment. Review the
+package archives, `packages.json`, `SHA256SUMS`, and `fork-provenance.json` from
+the packaging job before approving publication. The publisher requires matching
+verification reports and publishes the CLI only after its dependencies.
+
+The distribution builder consumes the pinned Pi artifact manifest and verified,
+signed native artifacts. Registry aliases retain original Pi import names while
+selecting our public fork packages; no upstream source edits are needed to rename
+them. Public names are defined in
+[registry-manifest.mjs](scripts/registry-manifest.mjs). First-party package
+manifests contain no lifecycle scripts. Third-party hooks are not required.
+
+For local preparation and verification, use new output directories:
 
 ```sh
-npm ci --ignore-scripts
-npm run check
-node packages/cli/scripts/check-boundaries.mjs
-node packages/cli/scripts/package.mjs /tmp/cpi-release-a
-node packages/cli/scripts/verify-installed.mjs /tmp/cpi-release-a --tui
-node packages/cli/scripts/package.mjs /tmp/cpi-release-b
-cmp /tmp/cpi-release-a/SHA256SUMS /tmp/cpi-release-b/SHA256SUMS
+bun install --frozen-lockfile --ignore-scripts
+bun run check
+node scripts/ci-native-artifacts.mjs /tmp/cpi-native --all
+node packages/cli/scripts/package-registry.mjs /tmp/cpi-native /tmp/cpi-registry
+node packages/cli/scripts/verify-registry.mjs /tmp/cpi-registry
 ```
 
-Keep source, lockfile, platform, and toolchain unchanged between builds. The
-builder consumes the fork artifact set recorded in `vendor/pi/manifest.json`,
-locked dependency archives, and verified supporting-tool artifacts. Pi-specific
-build inputs, including the model catalog, belong to fork artifact preparation;
-this builder must not hydrate them from a Pi source checkout. The
-builder requires signed Ghostmux and WASM inputs; use the tool resolvers'
-explicit artifact overrides to select them. The installed-consumer verifier
-requires tmux and JJ for terminal checks and uses
-local model fixtures rather than paid providers.
-
-Review `release-manifest.json`, `runtime-lock.json`, and `SHA256SUMS` alongside
-the tarball. The manifest identifies the source revision, compiler, model
-catalog, native binary, package versions, and license inventory. Distribute the
-tarball and these records together. Keep the staging directory private.
-
-The tarball targets the builder's platform. Verify every supported target on
-that target before distribution. Install Bun on the verification host to
-exercise the Bun global-install verification; the verifier reports a skip when Bun
-is unavailable. Both installers are tested with the registry inaccessible;
-provider requests and other shell-tool provisioning can still require network
-access. Ghostmux and Tree-sitter are included in the archive. Consumers install the tarball as
-described in `README.md` and replace the tarball for upgrades.
-
-The builder uses npm's pack file list, then archives the complete application
-with no install-time dependencies. The dependency inventory remains in
-`release.json` and `runtime-lock.json`. This avoids Bun resolving bundled,
-unpublished fork versions from the registry when installing a local tarball.
-
-Before publishing, obtain authorization for the destination and release version.
-Public upstream package versions do not identify the fork's source; the bundled
-fork and release provenance do. This procedure does not publish npm packages,
-push revisions, or build standalone Bun executables.
+Never republish different bytes under an existing version. The publisher verifies
+existing archive integrity before resuming a partially completed release. Pi
+source updates must first pass the separate fork's artifact workflow; this
+builder never imports from a neighboring checkout.

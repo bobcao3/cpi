@@ -1,22 +1,25 @@
 # cpi
 
-Install the release tarball matching your operating system, CPU, and C library:
+Install the public CLI package:
 
 ```sh
-npm install --global --ignore-scripts ./cpi-VERSION-PLATFORM.tgz
+npm install --global @bobcao3/cpi
 cpi
 ```
 
 Alternatively, install with Bun:
 
 ```sh
-bun install --global --ignore-scripts ./cpi-VERSION-PLATFORM.tgz
+bun install --global @bobcao3/cpi
 cpi
 ```
 
-The tarball bundles the tested Pi fork and its locked dependencies. Installation
-does not substitute the upstream npm release. Git and JJ remain external
-programs.
+The scoped npm name matters: `bobcao3/cpi` without `@` selects the GitHub
+source repository, not the published CLI. First-party packages have no lifecycle
+scripts; installation also works with `--ignore-scripts`. The package manager
+selects the native Ghostmux package; Tree-sitter WASM is a regular dependency.
+Pi dependencies alias the published fork packages, not upstream releases.
+Git and JJ remain external programs.
 
 The POSIX shell entrypoint selects Node for npm installations and Bun for Bun
 installations. The launcher resolves installation symlinks and inspects the
@@ -52,12 +55,12 @@ bring in changes from the separate fork repository.
 
 ## SDK
 
-Import `@cpi/cli` for cpi's CLI and session defaults. Import
-`@cpi/cli/bootstrap` before any separate Pi imports. The package includes
+Import `@bobcao3/cpi` for cpi's CLI and session defaults. Import
+`@bobcao3/cpi/bootstrap` before any separate Pi imports. The package includes
 TypeScript declarations.
 
 ```ts
-import { createAgentSession, SessionManager } from "@cpi/cli";
+import { createAgentSession, SessionManager } from "@bobcao3/cpi";
 
 const { session } = await createAgentSession({
   sessionManager: SessionManager.inMemory(),
