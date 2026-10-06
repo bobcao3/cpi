@@ -11,6 +11,7 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { setTimeout } from "node:timers/promises";
 import { registry_server } from "./registry-server.mjs";
 import { archive_manifest } from "./registry-archive.mjs";
 import { registry_repository } from "./registry-manifest.mjs";
@@ -26,6 +27,25 @@ const here = dirname(fileURLToPath(import.meta.url));
 const packages = JSON.parse(
   await readFile(join(directory, "packages.json"), "utf8"),
 );
+const registry_deadline = Date.now() + 300000;
+async function public_manifest(pkg) {
+  for (let attempt = 0; attempt < 31; attempt++) {
+    const response = await fetch(
+      `https://registry.npmjs.org/${encodeURIComponent(pkg.name)}/${pkg.version}`,
+      { signal: AbortSignal.timeout(30000) },
+    );
+    if (response.ok) return response.json();
+    assert.equal(response.status, 404, `${pkg.name}: HTTP ${response.status}`);
+    await response.body?.cancel();
+    assert(
+      Date.now() < registry_deadline,
+      `${pkg.name}: not publicly available before the registry deadline`,
+    );
+    console.log(`Waiting for npm to expose ${pkg.name}@${pkg.version}...`);
+    await setTimeout(10000);
+  }
+  assert.fail(`${pkg.name}: registry availability attempts exhausted`);
+}
 for (const pkg of packages) {
   assert.equal(
     createHash("sha256")
@@ -40,14 +60,7 @@ for (const pkg of packages) {
   assert.equal(manifest.private, undefined);
   assert.equal(manifest.repository?.url, registry_repository);
   if (public_registry) {
-    const response = await fetch(
-      `https://registry.npmjs.org/${encodeURIComponent(pkg.name)}/${pkg.version}`,
-      {
-        signal: AbortSignal.timeout(30000),
-      },
-    );
-    assert(response.ok, `${pkg.name}: HTTP ${response.status}`);
-    assert.equal((await response.json()).dist.integrity, pkg.integrity);
+    assert.equal((await public_manifest(pkg)).dist.integrity, pkg.integrity);
   }
   assert(
     !JSON.stringify(manifest.dependencies ?? {}).includes(
