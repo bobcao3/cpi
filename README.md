@@ -21,6 +21,20 @@ Checks resolve the installed fork packages, not a neighboring source checkout.
 Formatting is limited to maintained application and tool source; historical
 documents and benchmarks are not formatter inputs.
 
+### Editing the fork
+
+`CPI_FORK` points the CLI at a Pi fork checkout: `@earendil-works/*` resolves
+through the fork's TypeScript sources, so core edits run with no build or
+artifact install.
+
+```sh
+node scripts/dev.mjs            # this checkout against a sibling cpi-fork
+CPI_FORK=/path/to/fork cpi      # any cpi; export to persist
+```
+
+[scripts/dev.mjs](scripts/dev.mjs) also runs under `bun` and defaults `CPI_FORK`
+to the sibling `cpi-fork`. Unset `CPI_FORK` to use the pinned artifacts.
+
 The fork artifact set is recorded in `vendor/pi/manifest.json`. Update that set
 and its dependency pins using
 [the artifact importer](packages/cli/scripts/import-pi.mjs). Use durable release
