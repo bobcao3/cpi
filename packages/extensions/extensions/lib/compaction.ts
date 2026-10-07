@@ -1,4 +1,12 @@
-import { contentText, retryAssistantCall, uuidv7 } from "@earendil-works/pi-ai";
+import {
+  contentText,
+  retryAssistantCall,
+  uuidv7,
+  type AssistantMessage,
+  type Tool,
+  type ToolCall,
+} from "@earendil-works/pi-ai";
+import { Type } from "typebox";
 import {
   convertToLlm,
   estimateTokens,
@@ -18,6 +26,11 @@ import {
   stripReferenceBodies,
   type ReferenceBundle,
 } from "./compaction-references.ts";
+import {
+  beginCompaction,
+  finishCompaction,
+  reportCompactionTokens,
+} from "./compaction-progress.ts";
 import { collectRuntimeState } from "./compaction-state.ts";
 import {
   buildCheckpoint,
@@ -30,6 +43,9 @@ type CompactionText = {
   summary: {
     system: string;
     prompt: string;
+    tool_name: string;
+    tool: { description: string };
+    schema: { summary: string; relevant_skills: string };
     file_lists: string;
     selected_skills: string;
   };
@@ -42,23 +58,18 @@ type CompactionText = {
   };
 };
 
-export function parseSkillSummary(
-  output: string,
+type SummaryFields = { summary: string; relevant_skills: string[] };
+
+function validateSummary(
+  value: unknown,
   skills: readonly Skill[],
   invalid: string,
-): { summary: string; relevant_skills: string[] } {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(output);
-  } catch {
+): SummaryFields {
+  if (!value || typeof value !== "object" || Array.isArray(value))
     throw new Error(invalid);
-  }
-  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed))
-    throw new Error(invalid);
-  const result = parsed as Record<string, unknown>;
+  const result = value as Record<string, unknown>;
   const names = new Set(skills.map((skill) => skill.name));
   if (
-    Object.keys(result).sort().join(",") !== "relevant_skills,summary" ||
     typeof result.summary !== "string" ||
     !result.summary.trim() ||
     !Array.isArray(result.relevant_skills) ||
@@ -69,7 +80,55 @@ export function parseSkillSummary(
     new Set(result.relevant_skills).size !== result.relevant_skills.length
   )
     throw new Error(invalid);
-  return result as { summary: string; relevant_skills: string[] };
+  return {
+    summary: result.summary,
+    relevant_skills: result.relevant_skills as string[],
+  };
+}
+
+export function parseSkillSummary(
+  output: string,
+  skills: readonly Skill[],
+  invalid: string,
+): SummaryFields {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(output);
+  } catch {
+    throw new Error(invalid);
+  }
+  return validateSummary(parsed, skills, invalid);
+}
+
+function summaryTool(text: CompactionText): Tool {
+  return {
+    name: text.summary.tool_name,
+    description: text.summary.tool.description,
+    parameters: Type.Object({
+      summary: Type.String({ description: text.summary.schema.summary }),
+      relevant_skills: Type.Array(Type.String(), {
+        description: text.summary.schema.relevant_skills,
+      }),
+    }),
+    constrainedSampling: { type: "json_schema", strict: "prefer" },
+  };
+}
+
+function readSummary(
+  response: AssistantMessage,
+  skills: readonly Skill[],
+  tool_name: string,
+  text: CompactionText,
+): SummaryFields {
+  const call = response.content.find(
+    (block): block is ToolCall =>
+      block.type === "toolCall" && block.name === tool_name,
+  );
+  if (call) return validateSummary(call.arguments, skills, text.errors.invalid);
+  const output = contentText(response.content);
+  if (response.stopReason !== "stop" || !output.trim())
+    throw new Error(response.errorMessage || text.errors.empty);
+  return parseSkillSummary(output, skills, text.errors.invalid);
 }
 
 function summaryBudget(
@@ -146,6 +205,7 @@ async function summarizeTask(
 ) {
   const { preparation } = event;
   const model = ctx.model!;
+  const tool = summaryTool(text);
   const history = serializeConversation(
     convertToLlm(
       stripReferenceBodies(
@@ -171,6 +231,7 @@ async function summarizeTask(
     history,
     prefix,
     focus: event.customInstructions ?? "",
+    tool_name: tool.name,
     skills: JSON.stringify(
       skills.map(({ name, description }) => ({ name, description })),
     ),
@@ -178,48 +239,48 @@ async function summarizeTask(
   const signal = AbortSignal.any([event.signal, AbortSignal.timeout(300_000)]);
   const sessionId = uuidv7();
   const retry = SettingsManager.create(ctx.cwd).getRetrySettings();
-  const response = await retryAssistantCall(
-    () =>
-      ctx.modelRegistry.complete(
-        model,
-        {
-          systemPrompt: text.summary.system,
-          messages: [
-            {
-              role: "user",
-              content: [{ type: "text", text: prompt }],
-              timestamp: Date.now(),
-            },
-          ],
-        },
-        {
-          maxTokens,
-          signal,
-          cacheRetention: "none",
-          sessionId,
-          ...(model.reasoning &&
-          ctx.thinkingLevel &&
-          ctx.thinkingLevel !== "off"
-            ? { reasoning: ctx.thinkingLevel }
-            : {}),
-        },
-      ),
-    retry,
-    signal,
-  );
-  const output = contentText(response.content);
+  const produce = async () => {
+    const stream = ctx.modelRegistry.stream(
+      model,
+      {
+        systemPrompt: render(text.summary.system, { tool_name: tool.name }),
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: prompt }],
+            timestamp: Date.now(),
+          },
+        ],
+        tools: [tool],
+      },
+      {
+        maxTokens,
+        signal,
+        cacheRetention: "none",
+        sessionId,
+        ...(model.reasoning && ctx.thinkingLevel && ctx.thinkingLevel !== "off"
+          ? { reasoning: ctx.thinkingLevel }
+          : {}),
+      },
+    );
+    beginCompaction();
+    try {
+      for await (const streamEvent of stream) {
+        if ("partial" in streamEvent)
+          reportCompactionTokens(estimateTokens(streamEvent.partial));
+      }
+      return await stream.result();
+    } finally {
+      finishCompaction();
+    }
+  };
+  const response = await retryAssistantCall(produce, retry, signal);
   if (signal.aborted) throw signal.reason;
-  if (
-    response.stopReason !== "stop" ||
-    !output.trim() ||
-    response.content.some((block) => block.type === "toolCall")
-  ) {
-    throw new Error(response.errorMessage || text.errors.empty);
-  }
-  const { summary, relevant_skills } = parseSkillSummary(
-    output,
+  const { summary, relevant_skills } = readSummary(
+    response,
     skills,
-    text.errors.invalid,
+    tool.name,
+    text,
   );
   const modifiedFiles = [
     ...new Set([...preparation.fileOps.written, ...preparation.fileOps.edited]),

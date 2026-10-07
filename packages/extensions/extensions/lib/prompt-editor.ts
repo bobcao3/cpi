@@ -12,6 +12,10 @@ import {
   type TUI,
   type TuiMouseEvent,
 } from "@earendil-works/pi-tui";
+import {
+  compactionTokens,
+  setCompactionRender,
+} from "./compaction-progress.ts";
 
 export class PromptEditor extends CustomEditor {
   private readonly content: () => FooterContent | undefined;
@@ -27,13 +31,12 @@ export class PromptEditor extends CustomEditor {
     super(tui, theme, keys, { embedWorkingStatus: true });
     this.content = content;
     this.app_theme = app_theme;
+    setCompactionRender(() => tui.requestRender());
   }
 
   private has_notice(): boolean {
-    return (
-      !!this.workingStatusIndicator &&
-      this.workingStatusIndicator.kind !== "working"
-    );
+    const kind = this.workingStatusIndicator?.kind;
+    return !!kind && kind !== "working" && kind !== "compaction";
   }
 
   override render(width: number): string[] {
@@ -61,10 +64,12 @@ export class PromptEditor extends CustomEditor {
     if (!content || width < 1)
       return super.renderTopBorder(width, hiddenLineCount);
     const { usage } = content;
-    const telemetry =
-      `↑${formatTokens(usage.input)} ↓${formatTokens(usage.output)} R${formatTokens(usage.cacheRead)}` +
-      (usage.cacheWrite ? ` W${formatTokens(usage.cacheWrite)}` : "") +
-      ` CH${(content.cacheHitRate ?? 0).toFixed(1)}%`;
+    const compacting = this.workingStatusIndicator?.kind === "compaction";
+    const status = compacting
+      ? `Compacting (${formatTokens(compactionTokens() ?? 0)} tokens)`
+      : `↑${formatTokens(usage.input)} ↓${formatTokens(usage.output)} R${formatTokens(usage.cacheRead)}` +
+        (usage.cacheWrite ? ` W${formatTokens(usage.cacheWrite)}` : "") +
+        ` CH${(content.cacheHitRate ?? 0).toFixed(1)}%`;
     const percent =
       content.contextPercent === null
         ? "?"
@@ -80,8 +85,10 @@ export class PromptEditor extends CustomEditor {
       this.workingStatusIndicator?.renderSpinnerInBorder(2) ??
       this.borderColor("💤");
     const slot = spinner + " ".repeat(2 - visibleWidth(spinner)) + " ";
-    const left =
-      this.borderColor("── ") + slot + this.borderColor(telemetry) + " ";
+    const colored_status = compacting
+      ? this.app_theme().fg("muted", status)
+      : this.borderColor(status);
+    const left = this.borderColor("── ") + slot + colored_status + " ";
     const right = ` ${context} ${this.borderColor("──")}`;
     const right_width = visibleWidth(right);
     if (width < visibleWidth(left) + right_width + 1) {
