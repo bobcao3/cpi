@@ -1,11 +1,10 @@
 import assert from "node:assert/strict";
 import { readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
-import { registry_name } from "./registry-manifest.mjs";
 
 export async function verifyPiGraph(installed, artifacts) {
   const expected = new Map(
-    artifacts.map((artifact) => [registry_name(artifact.name), artifact]),
+    artifacts.map((artifact) => [artifact.name, artifact]),
   );
   const found = new Set();
   const queue = [installed];

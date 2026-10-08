@@ -67,7 +67,7 @@ for (const manager of ["npm", "bun"]) {
     manager === "npm" &&
     Number(execute("npm", ["--version"]).split(".")[0]) >= 12
   )
-    args.push("--allow-git=root");
+    args.push("--allow-git=root", "--allow-remote=all");
   console.log(execute(manager, args));
   const installed = join(
     prefix,

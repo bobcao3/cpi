@@ -247,6 +247,7 @@ await mkdir(scripts, { recursive: true });
 for (const name of [
   "codemode-render.integration.mjs",
   "codemode-render-probe.mjs",
+  "codemode-render-context.mjs",
   "shell-platform.mjs",
   "structured-output-fixture.mjs",
   "tool-tree.integration.mjs",

@@ -23,7 +23,6 @@ import { emitDeclarations } from "./release-declarations.mjs";
 import { createReleaseLock } from "./release-lock.mjs";
 import { bundleGhostmux, archiveRelease } from "./release-archive.mjs";
 import { prepareReleaseSources } from "./release-sources.mjs";
-import { registry_name } from "./registry-manifest.mjs";
 import { stage_wasm } from "@cpi/tree-sitter-wasm/package";
 import { resolveTreeSitterWasm } from "@cpi/tree-sitter-wasm/resolve";
 
@@ -80,6 +79,10 @@ async function main() {
     throw new Error("Release sources require JJ or Git revision provenance");
   snapshot = await prepareReleaseSources(checkout, dirname(destination));
   root = snapshot.root;
+  const fork = await json(join(root, "vendor/pi/manifest.json"));
+  const forkPins = new Map(
+    fork.artifacts.map((artifact) => [artifact.name, artifact.url]),
+  );
   const workspaces = new Map();
   for (const directory of [
     "packages/cli",
@@ -106,7 +109,8 @@ async function main() {
     })) {
       if (workspaces.has(dependency)) queue.push(dependency);
       else if (
-        !/^(?:npm:@[^/]+\/[^@]+@)?\d+\.\d+\.\d+(?:-[\w.-]+)?$/.test(version)
+        !/^(?:npm:@[^/]+\/[^@]+@)?\d+\.\d+\.\d+(?:-[\w.-]+)?$/.test(version) &&
+        version !== forkPins.get(dependency)
       )
         throw new Error(
           `External runtime dependency must be exact: ${name}: ${dependency}@${version}`,
@@ -182,7 +186,6 @@ async function main() {
       }
     }
     const sourceManifest = await json(join(root, "package.json"));
-    const fork = await json(join(root, "vendor/pi/manifest.json"));
     const sourceLock = await json(join(root, "package-lock.json"));
     for (const artifact of fork.artifacts) {
       const installed = await json(
@@ -194,12 +197,12 @@ async function main() {
       if (
         entries.length !== 1 ||
         entries[0][1].version !== artifact.version ||
-        entries[0][1].name !== registry_name(artifact.name) ||
-        !entries[0][1].integrity?.startsWith("sha512-") ||
-        sourceManifest.dependencies[artifact.name] !==
-          `npm:${registry_name(artifact.name)}@${artifact.version}` ||
-        installed.cpiFork?.integrity !== artifact.integrity ||
-        installed.cpiFork?.revision !== fork.forkRevision
+        (entries[0][1].name ?? artifact.name) !== artifact.name ||
+        entries[0][1].integrity !== artifact.integrity ||
+        entries[0][1].resolved !== artifact.url ||
+        sourceManifest.dependencies[artifact.name] !== artifact.url ||
+        installed.name !== artifact.name ||
+        installed.version !== artifact.version
       )
         throw new Error(`Mixed or unpinned fork graph: ${artifact.name}`);
     }
@@ -260,6 +263,22 @@ async function main() {
       throw new Error(
         `npm install failed: ${result.error?.message ?? result.status}`,
       );
+    for (const artifact of fork.artifacts) {
+      const path = join(
+        destination,
+        "node_modules",
+        artifact.name,
+        "package.json",
+      );
+      const installed = await json(path);
+      installed.cpiFork = {
+        repository: "https://github.com/bobcao3/pi",
+        revision: fork.forkRevision,
+        upstreamRevision: fork.upstreamRevision,
+        integrity: artifact.integrity,
+      };
+      await saveJson(path, installed);
+    }
     for (const name of ["@cpi/ghostmux", "@cpi/tree-sitter-wasm"])
       await rm(selected.get(name).staged, { recursive: true });
     const native = await bundleGhostmux(selected.get("@cpi/ghostmux").staged);
