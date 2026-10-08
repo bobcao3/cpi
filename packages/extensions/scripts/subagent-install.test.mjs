@@ -44,7 +44,7 @@ test("installed subagent worker uses the active Pi SDK without a local Pi peer",
       );
       await writeFile(join(install, "package.json"), '{"type":"module"}');
       await mkdir(join(install, "node_modules"));
-      for (const name of ["mustache", "smol-toml"]) {
+      for (const name of ["jiti", "mustache", "smol-toml"]) {
         const dependency = createRequire(import.meta.url)
           .resolve.paths(name)
           .map((directory) => join(directory, name))

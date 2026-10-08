@@ -31,6 +31,15 @@ try {
   const platform = platformKey();
   const wrapper = join(directory, "wrapper");
   await stage_wrapper(wrapper);
+  const wrapper_manifest_path = join(wrapper, "package.json");
+  const wrapper_manifest = JSON.parse(
+    await readFile(wrapper_manifest_path, "utf8"),
+  );
+  wrapper_manifest.version += "-wrapper";
+  await writeFile(
+    wrapper_manifest_path,
+    `${JSON.stringify(wrapper_manifest, null, 2)}\n`,
+  );
   const artifacts = [{ directory: wrapper, archive: pack(wrapper, directory) }];
   const signed = process.env.GHOSTMUX_TEST_ARTIFACT;
   if (signed) {

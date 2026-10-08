@@ -61,7 +61,10 @@ export async function resolveGhostmux() {
   const expected_name = spec?.startsWith("npm:")
     ? spec.slice(4, spec.lastIndexOf("@"))
     : name;
-  if (manifest.name !== expected_name || manifest.version !== wrapper.version)
+  const expected_version = spec?.startsWith("npm:")
+    ? spec.slice(spec.lastIndexOf("@") + 1)
+    : spec;
+  if (manifest.name !== expected_name || manifest.version !== expected_version)
     throw new Error(`Ghostmux binary package version mismatch: ${name}`);
   const binary = join(dirname(manifestPath), "bin", filename);
   if (!(await executable(binary)))
