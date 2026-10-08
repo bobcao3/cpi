@@ -1,3 +1,6 @@
+import { createJiti } from "jiti";
+import { join } from "node:path";
+
 function required(name) {
   const value = process.env[name];
   if (!value)
@@ -14,12 +17,23 @@ export function piExecutableOnPath() {
 }
 
 export async function hostCodingAgent() {
-  const url = required("CPI_APP_SDK_URL");
+  return loadHost(required("CPI_APP_SDK_URL"));
+}
+
+async function loadHost(url) {
   if (!url.endsWith(".ts")) return import(url);
-  const { createJiti } = await import("jiti");
-  return createJiti(import.meta.url, { tryNative: false }).import(url);
+  return createJiti(import.meta.url, {
+    tryNative: false,
+    ...(process.env.CPI_FORK
+      ? { tsconfigPaths: join(process.env.CPI_FORK, "tsconfig.json") }
+      : {}),
+  }).import(url);
 }
 
 export async function hostAi() {
-  return import(required("CPI_HOST_AI_URL"));
+  return loadHost(required("CPI_HOST_AI_URL"));
+}
+
+export async function hostTui() {
+  return loadHost(required("CPI_HOST_TUI_URL"));
 }

@@ -60,8 +60,9 @@ Rerun after moving the checkout to update Bun's source link.
 CLI and supporting-tool JavaScript/TypeScript edits apply on the next invocation
 without a build. Native Ghostmux and WASM source changes require their packages'
 build scripts. For extension and TOML prompt edits in a running session, use
-`/reload`. Pi core still comes from the pinned fork artifacts; update those
-artifacts to bring in changes from the separate fork repository.
+`/reload`. See the repository's
+[editable-development policy](https://github.com/bobcao3/cpi/blob/main/AGENTS.md#editable-development)
+for working directly against the Pi fork.
 
 ## SDK
 

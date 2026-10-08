@@ -45,7 +45,38 @@ least lines of code
 
 ## Working and debugging
 
-Pi core changes belong in the separate Pi fork. This repository consumes versioned fork artifacts through vendor/pi/manifest.json; do not import source from a neighboring checkout.
+Pi core changes belong in the separate Pi fork.
+
+### Editable development
+
+Keep both cpi and the Pi fork editable. Use `node scripts/dev.mjs` for this
+checkout against the sibling `cpi-fork`, or `CPI_FORK=/path/to/fork cpi` for
+another fork checkout. The CLI resolves the fork's TypeScript sources directly.
+Run development checks and integration scripts with the same `CPI_FORK`
+selection. For Bun tests, also pass the fork's `tsconfig.json` through
+`--tsconfig-override` so test imports resolve against the same source checkout.
+
+Normal edit-and-test work does not require builds, dependency reinstallation,
+artifact installation, a temporary installed copy, or publication. Perform
+[initial PATH and link setup](packages/cli/README.md#editable-development-install)
+only when needed or requested. Unset `CPI_FORK` to use the pinned artifacts.
+
+Formatting covers maintained application and tool source, not historical
+documents or benchmarks.
+
+### Published packages
+
+Installation verification applies to published packages. After pushing package
+changes, verify an independent installed-package layout without local Pi peers.
+Development verification does not replace that publication check.
+
+Published packages consume the versioned artifact set in `vendor/pi/manifest.json`.
+Update the artifacts and dependency pins through the
+[artifact importer](packages/cli/scripts/import-pi.mjs), using durable release
+assets rather than expiring CI downloads. Do not commit package archives or
+replace published dependencies with source links. See
+[release packaging](packages/cli/RELEASE.md) for the publication checks.
+Publishing remains a separate authorized operation.
 
 **Research**: When user asks about "industry standard", "latest", or "what tool
 should we use", always research online to get first-hand, up-to-date
@@ -201,9 +232,9 @@ Do not rely on cpi's local `node_modules` copy of Pi's peer packages at runtime.
 scripts resolve imports from cpi's installed directory, where those peers may
 not exist. In workers and other standalone entry points, avoid bare runtime
 imports of Pi peer packages; load the **active host Pi** through
-[`packages/extensions/bin/host-pi.mjs`](packages/extensions/bin/host-pi.mjs) instead. Type-only imports are fine. Verify
-changes against an installed-package layout without local Pi peers, not only a
-development checkout after `bun install`.
+[`packages/extensions/bin/host-pi.mjs`](packages/extensions/bin/host-pi.mjs)
+instead. Type-only imports are fine. Use the editable active host during
+development and the independent installed host for publication verification.
 
 cpi extensions run inside pi, which loads each via jiti with
 `moduleCache: false` and can hot-reload a single extension file mid-session. Two
