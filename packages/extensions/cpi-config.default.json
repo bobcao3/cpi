@@ -22,10 +22,10 @@
       { "from": "gpt-6.1-sol", "to": "gpt-6-luna:medium" },
       { "from": "gpt-6-sol", "to": "gpt-6-luna:medium" },
       { "from": "gpt-6-astra", "to": "gpt-6-luna:medium" },
-      { "from": "claude-opus-5", "to": "claude-sonnet-5-5:medium" },
-      { "from": "claude-opus-5-5", "to": "claude-sonnet-5-5:medium" },
-      { "from": "claude-fable-5", "to": "claude-sonnet-5-5:medium" },
-      { "from": "claude-fable-5-1", "to": "claude-sonnet-5-5:medium" }
+      { "from": "claude-opus-5", "to": "claude-haiku-5-5:medium" },
+      { "from": "claude-opus-5-5", "to": "claude-haiku-5-5:medium" },
+      { "from": "claude-fable-5", "to": "claude-haiku-5-5:medium" },
+      { "from": "claude-fable-5-1", "to": "claude-haiku-5-5:medium" }
     ]
   },
   "editor": {
@@ -38,11 +38,11 @@
     "chain": [
       {
         "search": "(claude-)(fable|opus)[0-9.-]*:xhigh",
-        "replace": "$1sonnet-5.5:medium"
+        "replace": "$1haiku-5-5:medium"
       },
       {
-        "search": "(claude-)(fable|opus)[0-9.-]*",
-        "replace": "$1sonnet-5.5:low"
+        "search": "(claude-)(fable|opus)[0-9.-]*:[^:]*",
+        "replace": "$1haiku-5-5:low"
       },
       {
         "search": "gpt-[^:/]*-(terra|sol|astra)[^:]*:[^:]*",
