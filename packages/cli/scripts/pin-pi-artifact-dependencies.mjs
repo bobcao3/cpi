@@ -16,7 +16,7 @@ import { extract, list } from "tar";
 const [inputArg, outputArg, baseArg] = process.argv.slice(2);
 assert(
   inputArg && outputArg && baseArg && process.argv.length === 5,
-  "Usage: close-pi-artifacts.mjs VERIFIED_ARTIFACT_DIRECTORY NEW_DESTINATION RELEASE_BASE_URL",
+  "Usage: pin-pi-artifact-dependencies.mjs VERIFIED_ARTIFACT_DIRECTORY NEW_DESTINATION RELEASE_BASE_URL",
 );
 const input = resolve(inputArg);
 const output = resolve(outputArg);
