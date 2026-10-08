@@ -14,7 +14,8 @@ bun install --global @bobcao3/cpi
 cpi
 ```
 
-Install the current repository source instead of the npm release with:
+To install the current repository source instead of the npm release, use the
+Bun version required by the [repository manifest](../../package.json):
 
 ```sh
 bun install --global bobcao3/cpi

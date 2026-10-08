@@ -4,6 +4,9 @@
   "license": "MIT",
   "description": "The cpi CLI, extensions, skills, and supporting tools for the Pi fork.",
   "type": "module",
+  "engines": {
+    "bun": ">=1.4.0"
+  },
   "scripts": {
     "install:dev": "bun install --frozen-lockfile --ignore-scripts && bun link --ignore-scripts --cwd packages/cli",
     "check": "node scripts/check.mjs",
