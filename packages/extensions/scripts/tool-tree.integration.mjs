@@ -3,11 +3,11 @@ import assert from "node:assert/strict";
 import { readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import * as tui from "@earendil-works/pi-tui";
-import { hostCodingAgent } from "../bin/host-pi.mjs";
+import { hostCodingAgent, hostTui } from "../bin/host-pi.mjs";
 import { fixture } from "./fast-fixture.mjs";
 
 const host = await hostCodingAgent();
+const tui = await hostTui();
 host.initTheme("dark", false);
 const values = [
   { marker: "GENERIC_TYPED_ONLY", enabled: false },
@@ -77,7 +77,7 @@ function click(component, pattern) {
   const lines = plain(component).split("\n");
   const y = lines.findIndex((line) => pattern.test(line));
   assert(y >= 0, `${pattern}\n${lines.join("\n")}`);
-  const x = lines[y].indexOf("▸");
+  const x = lines[y].search(/[▸▾]/);
   assert.equal(
     component.handleMouse({
       type: "click",
@@ -129,12 +129,12 @@ await fixture(
       session.extensionRunner.resolveToolRenderers(name, () =>
         session.getToolDefinition(name),
       );
-    const component_for = (name, args, result) => {
+    const component_for = (name, args, result, outputPad = 1) => {
       const component = new host.ToolExecutionComponent(
         name,
         result.toolCallId,
         args,
-        { showImages: false },
+        { showImages: false, outputPad },
         resolve(name),
         ui,
         directory,
@@ -156,6 +156,39 @@ await fixture(
           { type: "text", text: "GENERIC_MODEL_TEXT" },
         ]);
         const component = component_for(target, arguments_value, result);
+        if (index === 0) {
+          for (const padding of [0, 1, 3]) {
+            const padded = component_for(
+              target,
+              arguments_value,
+              result,
+              padding,
+            );
+            assert(
+              plain(padded)
+                .split("\n")
+                .find((line) => line.trim())
+                .startsWith(`${" ".repeat(padding)}✓ ▸ tree_direct`),
+              JSON.stringify(plain(padded)),
+            );
+            click(padded, /▸ tree_direct/);
+            click(padded, /▸ result/);
+            assert.match(plain(padded), /GENERIC_TYPED_ONLY/);
+            for (const width of [1, 2, 3, 12, 120])
+              assert(
+                padded
+                  .render(width)
+                  .every((line) => tui.visibleWidth(line) <= width),
+              );
+            padded.setOutputPad(0);
+            assert(
+              plain(padded)
+                .split("\n")
+                .find((line) => line.trim())
+                .startsWith("✓ ▾ tree_direct"),
+            );
+          }
+        }
         assert.equal(
           plain(component)
             .split("\n")

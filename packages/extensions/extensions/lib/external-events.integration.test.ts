@@ -174,6 +174,47 @@ test("last subscription cleared or disposed releases hold without generating a m
   expect(notifications()).toHaveLength(0);
 }, 10000);
 
+test("settled cancellation stops observers even after the Agent releases its signal", async () => {
+  const r = (runtime = await openEventRuntime());
+  r.setReplay(async () => "stop");
+  const watch = r.watch();
+  watch.clear();
+  const entered = gate();
+  const release = gate();
+  let signal: AbortSignal | undefined;
+  let settled: boolean | undefined;
+  r.session.subscribe((event) => {
+    if (event.type === "agent_start") signal = r.session.agent.signal;
+    if (event.type === "agent_settled") settled = event.aborted;
+  });
+  r.beforeSettle(async () => {
+    entered.resolve();
+    await release.promise;
+  });
+  const running = r.session.prompt("finish");
+  await entered.promise;
+  expect(r.session.agent.signal).toBeUndefined();
+  expect(signal!.aborted).toBe(false);
+  expect(watch.aborts).toBe(0);
+  const aborted = r.session.abort();
+  release.resolve();
+  await aborted;
+  await running;
+  expect(signal!.aborted).toBe(false);
+  expect(settled).toBe(true);
+  expect(watch.aborts).toBe(1);
+  expect(watch.handle.notify("stale", {})).toBe(false);
+  expect(getEventListeners(signal!, "abort")).toHaveLength(0);
+  r.beforeSettle();
+  const next = r.watch("next");
+  next.clear();
+  await r.session.prompt("finish again");
+  expect(settled).toBe(false);
+  expect(next.aborts).toBe(0);
+  expect(getEventListeners(signal!, "abort")).toHaveLength(0);
+  expect(r.errors).toEqual([]);
+}, 10000);
+
 test("reload unconditionally re-registers channel; stale handles cannot wake replacement hold", async () => {
   const r = (runtime = await openEventRuntime());
   const old = r.watch();

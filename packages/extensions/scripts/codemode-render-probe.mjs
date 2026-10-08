@@ -21,9 +21,11 @@ export function create_render_probe({ session, manager, theme, work }) {
     };
     manager.appendMessage(assistant);
     session.agent.state.messages.push(assistant);
-    const result = await session.agent.state.tools
+    const started = performance.now();
+    const output = await session.agent.state.tools
       .find((tool) => tool.name === name)
       .execute(id, args, undefined, on_update);
+    const result = { ...output, durationMs: performance.now() - started };
     manager.appendMessage({
       role: "toolResult",
       toolCallId: id,
@@ -48,6 +50,17 @@ export function create_render_probe({ session, manager, theme, work }) {
     expanded,
     isPartial: partial,
     isError: is_error,
+    outputPad: 1,
+    durationMs: partial
+      ? undefined
+      : manager
+          .getBranch()
+          .findLast(
+            (entry) =>
+              entry.type === "message" &&
+              entry.message.role === "toolResult" &&
+              entry.message.toolCallId === id,
+          )?.message.durationMs,
     showImages: false,
     cwd: work,
     executionStarted: true,

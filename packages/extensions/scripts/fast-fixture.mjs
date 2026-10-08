@@ -45,6 +45,10 @@ export async function fixture(
       status: "completed",
       content: [{ type: "output_text", text: "OK", annotations: [] }],
     };
+    if (item.type === "error") {
+      response.end(`event: error\ndata: ${JSON.stringify(item)}\n\n`);
+      return;
+    }
     const event = {
       type: "response.completed",
       response: {

@@ -1,5 +1,6 @@
 import { Container, Text } from "@earendil-works/pi-tui";
 import type { Theme } from "@earendil-works/pi-coding-agent";
+import type { ToolRenderContext } from "../lib/tool-block.ts";
 import { renderBlocked } from "./blocked.ts";
 import { cleanActivityDisplay } from "../lib/activity-details.ts";
 
@@ -12,7 +13,6 @@ interface CompactDetails {
   status?: string;
   exitCode?: number | null;
   outputLines?: number;
-  elapsedMs?: number;
 }
 
 interface ShellRenderState {
@@ -20,14 +20,15 @@ interface ShellRenderState {
   timer?: ReturnType<typeof setInterval>;
 }
 
-interface ShellRenderContext {
-  args?: { description?: string; waitfor?: number };
-  isError: boolean;
-  isPartial?: boolean;
-  executionStarted?: boolean;
-  state?: ShellRenderState;
-  invalidate?: () => void;
-}
+type ShellRenderContext = Partial<
+  Pick<
+    ToolRenderContext<ShellRenderState>,
+    "isPartial" | "executionStarted" | "state" | "invalidate" | "durationMs"
+  >
+> &
+  Pick<ToolRenderContext, "isError"> & {
+    args?: { description?: string; waitfor?: number };
+  };
 
 interface SignalRenderDetails {
   id?: string;
@@ -136,7 +137,7 @@ export function renderCompactShellResult(
   const description = cleanActivityDisplay(
     details?.describe?.trim() || args?.description?.trim() || "shell",
   );
-  const suffix = elapsedSuffix(details?.elapsedMs, undefined, theme);
+  const suffix = elapsedSuffix(context.durationMs, undefined, theme);
   const blockedReason =
     details?.blocked ??
     (details?.shuckBlocked
@@ -149,11 +150,11 @@ export function renderCompactShellResult(
     return new Text(
       theme.fg("warning", `⏳ backgrounded ${name}: `) +
         backgroundShellLabel(theme, details.id ?? "unknown", description) +
-        (details.elapsedMs === undefined
+        (context.durationMs === undefined
           ? ""
           : theme.fg(
               "muted",
-              ` (backgrounded after ${formatElapsed(details.elapsedMs)})`,
+              ` (backgrounded after ${formatElapsed(context.durationMs)})`,
             )),
       0,
       0,

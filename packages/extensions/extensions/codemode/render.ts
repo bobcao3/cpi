@@ -114,7 +114,7 @@ export function codemode_renderers(
               theme.fg(color, `${glyph} Code mode: `) +
                 theme.fg(
                   "dim",
-                  `JavaScript · ${lines} lines${context.state.duration ? ` · ${context.state.duration}s` : ""}${context.state.cost ? ` · $${context.state.cost.toPrecision(2)}` : ""}`,
+                  `JavaScript · ${lines} lines${context.durationMs === undefined ? "" : ` · ${(context.durationMs / 1000).toFixed(2)}s`}${context.state.cost ? ` · $${context.state.cost.toPrecision(2)}` : ""}`,
                 ) +
                 theme.fg(
                   "muted",
@@ -130,9 +130,6 @@ export function codemode_renderers(
       );
     },
     renderResult(result, options, theme, context) {
-      const first = result.content[0];
-      context.state.duration =
-        first?.type === "text" ? HEADER.exec(first.text)?.[2] : undefined;
       context.state.cost =
         result.details?.calls.reduce(
           (total, call) => total + (call.cost ?? 0),

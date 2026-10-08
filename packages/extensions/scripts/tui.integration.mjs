@@ -20,7 +20,7 @@ const send = (text) => {
   tmux("send-keys", "-t", name, "Enter");
 };
 let resume;
-const response_ready = new Promise((resolve) => {
+let response_ready = new Promise((resolve) => {
   resume = resolve;
 });
 const telemetry_line = (screen) =>
@@ -28,11 +28,29 @@ const telemetry_line = (screen) =>
 async function until(check) {
   for (let index = 0; index < 100; index++) {
     const screen = capture();
-    if (check(screen)) return screen;
+    if (await check(screen)) return screen;
     await new Promise((resolve) => setTimeout(resolve, 150));
   }
   throw new Error(`Timed out: ${capture()}`);
 }
+const statuses = async () =>
+  [
+    ...(await readFile(record, "utf8")).matchAll(
+      /\x1b\]7501;([^\x07\x1b]*)\x1b\\/g,
+    ),
+  ].map((match) => {
+    const status = Object.fromEntries(
+      match[1].split(":").map((pair) => {
+        const index = pair.indexOf("=");
+        return [pair.slice(0, index), pair.slice(index + 1)];
+      }),
+    );
+    if (status.msg)
+      status.msg = Buffer.from(status.msg, "base64").toString("utf8");
+    return status;
+  });
+const until_status = (state) =>
+  until(async () => (await statuses()).at(-1)?.state === state);
 await fixture(
   async ({ directory, requests }) => {
     const extension = join(directory, "footer-fixture.mjs");
@@ -40,7 +58,11 @@ await fixture(
       .href;
     await writeFile(
       extension,
-      `import { registerLineSegment } from ${JSON.stringify(footer_url)};\nexport default function(pi) { pi.on("before_agent_start", () => { registerLineSegment("summary", () => ${JSON.stringify(summary)}); }); }\n`,
+      `import { registerLineSegment } from ${JSON.stringify(footer_url)};\nexport default function(pi) { pi.on("before_agent_start", () => { registerLineSegment("summary", () => ${JSON.stringify(summary)}); }); pi.registerCommand("status-dialog", {description: "Program status fixture", handler: async (_args, ctx) => { await ctx.ui.confirm("Status question", "Proceed?"); }}); }\n`,
+    );
+    await writeFile(
+      join(directory, "settings.json"),
+      JSON.stringify({ retry: { enabled: false } }),
     );
     execute("jj", ["git", "init", directory]);
     execute("jj", ["-R", directory, "bookmark", "create", "app-first-frame"]);
@@ -61,7 +83,7 @@ await fixture(
     try {
       tmux("pipe-pane", "-o", "-t", name, `cat > ${quote(record)}`);
       send(
-        `env NODE_OPTIONS=${quote(process.env.NODE_OPTIONS ?? "")} NODE_PATH='' PI_OFFLINE=1 PI_SKIP_VERSION_CHECK=1 CPI_CODING_AGENT_DIR=${quote(directory)} ${quote(process.execPath)} ${quote(piExecutableOnPath())} --approve --no-session --no-context-files --provider openai --model gpt-5.5 -e ${quote(extension)}`,
+        `env NODE_OPTIONS=${quote(process.env.NODE_OPTIONS ?? "")} CPI_FORK=${quote(process.env.CPI_FORK ?? "")} NODE_PATH='' PI_PROGRAM_STATUS=1 PI_OFFLINE=1 PI_SKIP_VERSION_CHECK=1 CPI_CODING_AGENT_DIR=${quote(directory)} ${quote(process.execPath)} ${quote(piExecutableOnPath())} --approve --no-session --no-context-files --provider openai --model gpt-5.5 -e ${quote(extension)}`,
       );
       await until((screen) => screen.includes("jj:app-first-frame"));
       await until((screen) => screen.includes("Subagent model guide"));
@@ -74,6 +96,17 @@ await fixture(
       assert.match(idle_header, /↑0 ↓0 R0 CH0\.0%/);
       assert.match(idle_header, /💤/u);
       assert.doesNotMatch(idle_header, /\(auto\)|Working/);
+      await until_status("idle");
+      send("/status-dialog");
+      await until_status("blocked");
+      assert.deepEqual((await statuses()).at(-1), {
+        state: "blocked",
+        app: "cpi",
+        kind: "permission",
+        msg: "Status question",
+      });
+      tmux("send-keys", "-t", name, "Escape");
+      await until_status("idle");
       send("Reply OK");
       const active = await until(
         (screen) =>
@@ -88,10 +121,12 @@ await fixture(
         /[^─\s]/u,
       );
       assert.doesNotMatch(active_header, /Working|💤/u);
+      await until_status("working");
       resume();
       await until(
         (screen) => requests.length >= 1 && /^\s*OK\s*$/m.test(screen),
       );
+      await until_status("done");
       execute("jj", [
         "--ignore-working-copy",
         "-R",
@@ -131,6 +166,28 @@ await fixture(
       );
       assert.doesNotMatch(footer.join("\n"), /CH[\d.]+%|\(auto\)/);
       assert.match(telemetry_line(screen), /CH20\.0%/);
+      await until_status("done");
+      send("PRIVATE_PROMPT: report the fixture failure");
+      await until_status("error");
+      assert.match((await statuses()).at(-1).msg, /STATUS_FAILURE$/);
+      response_ready = new Promise((resolve) => {
+        resume = resolve;
+      });
+      send("PRIVATE_PROMPT: cancel this request");
+      await until(
+        (screen) =>
+          requests.length >= 4 && !telemetry_line(screen)?.includes("💤"),
+      );
+      await until_status("working");
+      tmux("send-keys", "-t", name, "Escape");
+      await until_status("idle");
+      resume();
+      const reports = await statuses();
+      assert(reports.every((status) => status.app === "cpi"));
+      assert.doesNotMatch(
+        JSON.stringify(reports),
+        /PRIVATE_PROMPT|PRIVATE_ERROR_DETAIL|Reply OK|I'm finishing/,
+      );
       tmux("resize-window", "-t", name, "-x", "80", "-y", "35");
       await until(
         (screen) => !!telemetry_line(screen) && screen.includes("Subagents:"),
@@ -141,7 +198,7 @@ await fixture(
       assert.match(output, /jj:app-after-refresh/);
       assert.doesNotMatch(output, /\(detached\)|Extension issues/);
       console.log(
-        `Live TUI passed first-frame JJ, refresh, replies, reload, and unique extension ownership. Recording: ${record}`,
+        `Live TUI passed JJ, reload, extension ownership, and upstream program statuses including dialogs, errors, and cancellation. Recording: ${record}`,
       );
     } finally {
       resume();
@@ -150,5 +207,13 @@ await fixture(
   },
   100,
   () => response_ready,
+  (requests) =>
+    requests.length === 3
+      ? {
+          type: "error",
+          code: "fixture_failure",
+          message: "STATUS_FAILURE\nPRIVATE_ERROR_DETAIL",
+        }
+      : undefined,
 );
 process.exit(0);

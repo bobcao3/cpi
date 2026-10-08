@@ -1,3 +1,5 @@
+import type { AgentActivityOutcome } from "@earendil-works/pi-coding-agent";
+
 /** Single-owner invariant: core.ts performs one await; pi runs session_shutdown handlers sequentially. */
 
 export interface HoldSource {
@@ -12,7 +14,7 @@ export interface HoldSource {
 
 interface HoldState {
   sources: HoldSource[];
-  lastStopReason: string | undefined;
+  outcome: AgentActivityOutcome;
   holdNoticeSent: boolean;
   reminderDelivered: boolean;
   holdIntervalMs: number;
@@ -27,7 +29,7 @@ function state(): HoldState {
   if (!g[GLOBAL_KEY]) {
     g[GLOBAL_KEY] = {
       sources: [],
-      lastStopReason: undefined,
+      outcome: "completed",
       holdNoticeSent: false,
       reminderDelivered: false,
       holdIntervalMs: 60000,
@@ -61,7 +63,7 @@ export function getHoldSources(scope?: object): HoldSource[] {
 
 export function resetHoldTracking(): void {
   const s = state();
-  s.lastStopReason = undefined;
+  s.outcome = "completed";
   s.holdNoticeSent = false;
   s.holdIntervalMs = 60000;
 }
@@ -78,12 +80,12 @@ export function doubleHoldInterval(): void {
   state().holdIntervalMs *= 2;
 }
 
-export function setLastStopReason(reason: string | undefined): void {
-  state().lastStopReason = reason;
+export function setLastOutcome(outcome: AgentActivityOutcome): void {
+  state().outcome = outcome;
 }
 
-export function getLastStopReason(): string | undefined {
-  return state().lastStopReason;
+export function getLastOutcome(): AgentActivityOutcome {
+  return state().outcome;
 }
 
 /** First caller per turn emits the notice. */

@@ -19,13 +19,18 @@ const plain = (component: { render(width: number): string[] }) =>
 
 test("shell durations use milliseconds below 1.5 seconds", () => {
   const args = { description: "Timing", waitfor: 30 };
-  const context = { args, isError: false };
-  for (const [elapsedMs, duration] of [
+  for (const [durationMs, duration] of [
+    [undefined, undefined],
     [0, "0ms"],
     [1499, "1499ms"],
     [1500, "2s"],
   ] as const) {
-    const details = { describe: args.description, elapsedMs, exitCode: 0 };
+    const details = {
+      describe: args.description,
+      elapsedMs: 999999,
+      exitCode: 0,
+    };
+    const context = { args, isError: false, durationMs };
     assert.equal(
       plain(
         renderCompactShellResult(
@@ -36,7 +41,7 @@ test("shell durations use milliseconds below 1.5 seconds", () => {
           "bash",
         ),
       ),
-      ` ✓ bash: Timing (${duration})`,
+      ` ✓ bash: Timing${duration === undefined ? "" : ` (${duration})`}`,
     );
   }
   const pending = renderCompactShellCall(
@@ -115,9 +120,9 @@ test("shell TUI shows only description and execution summary", async () => {
     status: result.status,
     exitCode: result.exitCode,
     outputLines: result.outputLines,
-    elapsedMs: Date.now() - startedAt,
   };
-  const context = { args, isError: false };
+  const durationMs = Date.now() - startedAt;
+  const context = { args, isError: false, durationMs };
   assert.equal(
     plain(
       renderCompactShellResult(
@@ -140,9 +145,9 @@ test("shell TUI shows only description and execution summary", async () => {
     ),
   );
   const duration =
-    details.elapsedMs < 1500
-      ? `${Math.round(details.elapsedMs)}ms`
-      : `${Math.round(details.elapsedMs / 1000)}s`;
+    durationMs < 1500
+      ? `${Math.round(durationMs)}ms`
+      : `${Math.round(durationMs / 1000)}s`;
   const suffix = ` (${duration})`;
   assert.equal(rendered, ` ✓ bash: Check shell summary${suffix}`);
   assert.equal(
@@ -263,12 +268,12 @@ test("backgrounded shell shows time until backgrounding", async () => {
       ...result,
       describe: args.description,
       shellName: "bash",
-      elapsedMs: Date.now() - startedAt,
     };
+    const durationMs = Date.now() - startedAt;
     const duration =
-      details.elapsedMs < 1500
-        ? `${Math.round(details.elapsedMs)}ms`
-        : `${Math.round(details.elapsedMs / 1000)}s`;
+      durationMs < 1500
+        ? `${Math.round(durationMs)}ms`
+        : `${Math.round(durationMs / 1000)}s`;
     renderCompactShellCall(
       args,
       theme,
@@ -281,7 +286,7 @@ test("backgrounded shell shows time until backgrounding", async () => {
       { details },
       { isPartial: false },
       theme,
-      context,
+      { ...context, isPartial: false, durationMs },
       "bash",
     );
     assert.equal(

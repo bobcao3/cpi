@@ -67,17 +67,23 @@ export function record_block<Record>(
   records: () => readonly Record[],
   format: (records: readonly Record[]) => ToolBlock[],
   theme: Theme,
+  padding = 0,
 ): Component {
   let blocks: ToolBlock[] = [];
   let regions: { component: Component; start: number; height: number }[] = [];
+  let inset = 0;
+  let innerWidth = 0;
   return {
     handleMouse(event) {
+      if (event.x < inset || event.x >= inset + innerWidth) return undefined;
       const region = regions.find(
         ({ start, height }) => event.y >= start && event.y < start + height,
       );
       return region
         ? dispatchMouseEvent(region.component, {
             ...event,
+            x: event.x - inset,
+            width: innerWidth,
             y: event.y - region.start,
             height: region.height,
           })
@@ -90,19 +96,21 @@ export function record_block<Record>(
     render(width: number): string[] {
       regions = [];
       if (width <= 0) return [];
+      inset = Math.min(padding, Math.max(0, Math.floor((width - 1) / 2)));
+      innerWidth = width - 2 * inset;
       blocks = format(records());
       let start = 0;
       return blocks.flatMap((block) => {
         const lines =
           "component" in block
             ? block.component
-                .render(width)
+                .render(innerWidth)
                 .map((line) =>
-                  visibleWidth(line) > width
-                    ? truncateToWidth(line, width, "")
+                  visibleWidth(line) > innerWidth
+                    ? truncateToWidth(line, innerWidth, "")
                     : line,
                 )
-            : render_group(block, width, theme);
+            : render_group(block, innerWidth, theme);
         if ("component" in block)
           regions.push({
             component: block.component,
@@ -110,7 +118,7 @@ export function record_block<Record>(
             height: lines.length,
           });
         start += lines.length;
-        return lines;
+        return lines.map((line) => " ".repeat(inset) + line);
       });
     },
   };
@@ -138,6 +146,7 @@ export function with_record_renderers<
                 () => [args],
                 () => [{ component }],
                 theme,
+                tool.renderShell === "self" ? context.outputPad : 0,
               ),
               { source_component: component },
             );
@@ -164,6 +173,7 @@ export function with_record_renderers<
                 () => [result],
                 () => [{ component }],
                 theme,
+                tool.renderShell === "self" ? context.outputPad : 0,
               ),
               { source_component: component },
             );

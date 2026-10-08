@@ -9,7 +9,10 @@ import {
   SettingsManager,
   type ExtensionAPI,
 } from "@earendil-works/pi-coding-agent";
-import { createAssistantMessageEventStream } from "@earendil-works/pi-ai";
+import {
+  createAssistantMessageEventStream,
+  type AssistantMessage,
+} from "@earendil-works/pi-ai";
 import {
   EVENT_SOURCE_CHANNEL,
   type EventSourceHandle,
@@ -66,6 +69,7 @@ export async function openEventRuntime() {
   });
   let producer!: ExtensionAPI;
   let before_end: (() => void) | undefined;
+  let before_settle: (() => void | Promise<void>) | undefined;
   const loader = new DefaultResourceLoader({
     cwd: root,
     agentDir,
@@ -81,6 +85,9 @@ export async function openEventRuntime() {
       (pi) => {
         producer = pi;
         pi.on("agent_end", () => before_end?.());
+        pi.on("agent_before_settle", async () => {
+          await before_settle?.();
+        });
       },
     ],
     extensionsOverride: (loaded) => ({
@@ -111,12 +118,13 @@ export async function openEventRuntime() {
     onError: (error) => errors.push(error),
   });
   let turns = 0;
-  let replay: (turn: number) => Promise<"wait" | "stop"> = async () => "wait";
+  let replay: (turn: number) => Promise<"wait" | "stop" | "error"> = async () =>
+    "wait";
   session.agent.streamFunction = (model, _context, options) => {
     const stream = createAssistantMessageEventStream();
     void (async () => {
       const outcome = await replay(++turns);
-      const message: any = {
+      const message: AssistantMessage = {
         role: "assistant",
         api: model.api,
         provider: model.provider,
@@ -124,9 +132,13 @@ export async function openEventRuntime() {
         timestamp: Date.now(),
         stopReason: options?.signal?.aborted
           ? "aborted"
-          : outcome === "wait"
-            ? "toolUse"
-            : "stop",
+          : outcome === "error"
+            ? "error"
+            : outcome === "wait"
+              ? "toolUse"
+              : "stop",
+        errorMessage:
+          outcome === "error" ? "Replay provider failed" : undefined,
         content:
           outcome === "wait"
             ? [
@@ -147,9 +159,18 @@ export async function openEventRuntime() {
           cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
         },
       };
-      if (message.stopReason === "aborted")
-        stream.push({ type: "error", reason: "aborted", error: message });
-      else stream.push({ type: "done", reason: message.stopReason, message });
+      if (message.stopReason === "aborted" || message.stopReason === "error")
+        stream.push({
+          type: "error",
+          reason: message.stopReason,
+          error: message,
+        });
+      else
+        stream.push({
+          type: "done",
+          reason: outcome === "wait" ? "toolUse" : "stop",
+          message,
+        });
       stream.end();
     })();
     return stream;
@@ -205,6 +226,9 @@ export async function openEventRuntime() {
     },
     beforeEnd: (fn?: () => void) => {
       before_end = fn;
+    },
+    beforeSettle: (fn?: () => void | Promise<void>) => {
+      before_settle = fn;
     },
     async close() {
       await session.abort();

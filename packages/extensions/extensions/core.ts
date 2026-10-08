@@ -46,10 +46,10 @@ import {
   doubleHoldInterval,
   getHoldInterval,
   getHoldSources,
-  getLastStopReason,
+  getLastOutcome,
   resetHoldInterval,
   resetHoldTracking,
-  setLastStopReason,
+  setLastOutcome,
 } from "./lib/session-hold.ts";
 import {
   armAntiStuckTimer,
@@ -109,10 +109,13 @@ export default function coreExtension(pi: ExtensionAPI): void {
   pi.on("before_agent_start", (_event, ctx) => drainBeforeUser(pi, ctx));
   pi.on("tool_execution_end", (_event, ctx) => drainAfterTool(pi, ctx));
   pi.on("turn_start", (event, ctx) => statusReportTurnStarted(event, ctx));
-  pi.on("turn_end", (event, ctx) => statusReportTurnEnded(pi, event, ctx));
+  pi.on("turn_end", (event, ctx) => {
+    setLastOutcome(event.outcome);
+    statusReportTurnEnded(pi, event, ctx);
+  });
 
   // Sole systemPrompt return across cpi — no other handler returns one.
-  pi.on("before_agent_start", async (event: any, ctx: any) => {
+  pi.on("before_agent_start", async (event, ctx) => {
     const override = getSystemPromptOverride();
     if (override !== undefined) return { systemPrompt: override };
     const model = ctx.model;
@@ -129,8 +132,6 @@ export default function coreExtension(pi: ExtensionAPI): void {
     };
   });
 
-  // The hold is a pure keep-alive; probing stuck waits and appending
-  // corrective messages is the anti-stuck timer's job, armed here in both modes.
   pi.on("agent_start", () => {
     resetHoldTracking();
     // Every turn is a real event (input, completion, alarm, abort) — disarm the stuck clock.
@@ -138,17 +139,11 @@ export default function coreExtension(pi: ExtensionAPI): void {
     resetAntiStuck();
   });
 
-  pi.on("agent_end", async (event: any, ctx: any) => {
-    for (let i = event.messages.length - 1; i >= 0; i--) {
-      const m = event.messages[i];
-      if (m.role === "assistant") {
-        setLastStopReason(m.stopReason);
-        break;
-      }
-    }
-    if (!ctx.hasUI && ctx.signal?.aborted) setLastStopReason("aborted");
-    const reason = getLastStopReason();
-    if (reason === "error" || reason === "aborted") return;
+  // The hold needs agent_end because agent_before_settle runs after the Agent releases its abort signal.
+  pi.on("agent_end", async (_event, ctx) => {
+    const reason = getLastOutcome();
+    if (reason === "error" || reason === "aborted" || ctx.signal?.aborted)
+      return;
     if (external_events.hasQueued() || ctx.hasPendingMessages()) return;
     const sources = getHoldSources(external_events.scope);
     const pending = sources.filter((s) => s.hasPending());
@@ -193,15 +188,22 @@ export default function coreExtension(pi: ExtensionAPI): void {
         doubleHoldInterval();
       }
     } finally {
-      if (signal?.aborted) setLastStopReason("aborted");
       resetHoldInterval();
       disarmAntiStuckTimer();
       resetAntiStuck();
     }
   });
 
-  pi.on("session_shutdown", async (event: any, ctx: any) => {
-    const reason = getLastStopReason();
+  pi.on("agent_settled", (event) => {
+    if (event.aborted) {
+      setLastOutcome("aborted");
+      disarmAntiStuckTimer();
+      resetAntiStuck();
+    }
+  });
+
+  pi.on("session_shutdown", async (event, ctx) => {
+    const reason = getLastOutcome();
     const sources = getHoldSources(external_events.scope);
     const abortAll = () => {
       external_events.close();
@@ -251,7 +253,7 @@ export default function coreExtension(pi: ExtensionAPI): void {
     abortAll();
   });
 
-  pi.on("session_shutdown", async (event: any) => {
+  pi.on("session_shutdown", async (event) => {
     if (event.reason === "quit" && !process.env.PI_SUBAGENT) {
       await stopSubagentRpc();
     }

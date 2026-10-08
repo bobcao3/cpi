@@ -27,7 +27,6 @@ export interface CodeState {
   source?: string;
   highlighted?: string[];
   theme?: Theme;
-  duration?: string;
   cost?: number;
   stdout?: { expanded: boolean; open: boolean };
 }
@@ -157,6 +156,8 @@ export function render_calls(
           argsComplete: true,
           isError: is_error,
           showImages: false,
+          durationMs: call.durationMs,
+          outputPad: 0,
         };
         try {
           const call_component = tool?.renderCall?.(

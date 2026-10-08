@@ -24,7 +24,7 @@ function tree_renderers(label: string, mcp: boolean): ToolRenderers {
         call: {},
         result: {},
       });
-      return new ObjectTreeComponent(
+      const component = new ObjectTreeComponent(
         {
           label,
           value: args,
@@ -41,6 +41,12 @@ function tree_renderers(label: string, mcp: boolean): ToolRenderers {
           invalidate: context.invalidate,
         },
         theme,
+      );
+      return record_block(
+        () => [args],
+        () => [{ component }],
+        theme,
+        context.outputPad,
       );
     },
     renderResult(result, options, theme, context) {
@@ -113,6 +119,7 @@ function tree_renderers(label: string, mcp: boolean): ToolRenderers {
           return blocks;
         },
         theme,
+        context.outputPad,
       );
     },
   };

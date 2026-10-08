@@ -95,7 +95,10 @@ export function registerExternalEvents(pi: ExtensionAPI) {
     else if (sources.size > 0)
       abort_signal?.addEventListener("abort", abort, { once: true });
   });
-  pi.on("agent_settled", unbindAbort);
+  pi.on("agent_settled", (event) => {
+    if (event.aborted) abort();
+    unbindAbort();
+  });
   pi.on("message_start", (event) => {
     const message = event.message;
     if (message.role !== "custom" || message.customType !== "notification")

@@ -309,7 +309,6 @@ export default async function (pi: ExtensionAPI) {
           exitCode: res.exitCode,
           outputLines: res.outputLines,
           status: res.status,
-          elapsedMs: elapsed_ms,
           fullOutputPath: res.fullOutputPath,
           cursor: res.cursor,
           describe,

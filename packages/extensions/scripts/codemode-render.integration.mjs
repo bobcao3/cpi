@@ -3,10 +3,15 @@ import assert from "node:assert/strict";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import * as tui from "@earendil-works/pi-tui";
-import { activePiRoot, hostCodingAgent, hostAi } from "../bin/host-pi.mjs";
+import {
+  activePiRoot,
+  hostCodingAgent,
+  hostAi,
+  hostTui,
+} from "../bin/host-pi.mjs";
 import { resolveGhostmux } from "@cpi/ghostmux/resolve";
 import { create_render_probe } from "./codemode-render-probe.mjs";
+import { verify_render_context } from "./codemode-render-context.mjs";
 import { nodeProgram, shellCommand } from "./shell-platform.mjs";
 import {
   register_schema_fixture,
@@ -18,6 +23,7 @@ process.env.CPI_CODING_AGENT_DIR = join(work, "agent");
 process.env.PI_OFFLINE = "1";
 process.env.GHOSTMUX_BIN = await resolveGhostmux();
 const host = await hostCodingAgent();
+const tui = await hostTui();
 const { getModel } = await hostAi();
 host.initTheme("dark", false);
 let session;
@@ -185,6 +191,7 @@ text({files:files.length, exit:failure.exit_code, blocked:blocked.status});
     "",
     "Rendering metadata must not retain successful shell output",
   );
+  verify_render_context({ host, tui, definition, result, script, work });
   const expanded = render(definition, "render-main", script, result, true);
   assert(expanded.length > collapsed.length);
   assert.ok(
