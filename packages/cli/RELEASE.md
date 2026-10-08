@@ -47,3 +47,9 @@ Never republish different bytes under an existing version. The publisher verifie
 existing archive integrity before resuming a partially completed release. Pi
 source updates must first pass the separate fork's artifact workflow; this
 builder never imports from a neighboring checkout.
+
+Before importing a fork artifact set for repository-source installations, run
+[close-pi-artifacts.mjs](scripts/close-pi-artifacts.mjs) against the verified
+archives and the durable release URL. Upload the resulting hash-named archives
+without replacing existing release assets, then run the
+[artifact importer](scripts/import-pi.mjs) and refresh the reviewed locks.

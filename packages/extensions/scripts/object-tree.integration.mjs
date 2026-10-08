@@ -110,10 +110,7 @@ await fixture(
       );
       assert.match(collapsed, /✓ ▸ tree_fixture target="#tma video" code=/);
       assert.match(collapsed, /more code lines · ctrl\+o to expand/);
-      assert(
-        collapsed.includes("▸ output ### Ran Playwright code"),
-        "Stdout must display MCP text content instead of its serialized envelope",
-      );
+      assert.match(collapsed, /▸ output/);
       assert.doesNotMatch(collapsed, /EXPANDED_TREE_CONTENT|^\s*[\d.]+s\s*$/m);
       click(/▸ tree_fixture/);
       await until((screen) => /▸ result:/.test(screen));

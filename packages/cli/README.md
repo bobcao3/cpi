@@ -21,15 +21,15 @@ bun install --global bobcao3/cpi
 ```
 
 For a script-free GitHub install with npm, use npm 12 or newer:
-`npm install --global --ignore-scripts --allow-git=root bobcao3/cpi`.
+`npm install --global --ignore-scripts --allow-git=root --allow-remote=all bobcao3/cpi`.
 
 GitHub installs run the repository's CLI and extensions and use published native
 assets. They are installed snapshots; use the editable setup below to work on a
 local checkout. First-party packages have no installation lifecycle scripts;
 installation also works with `--ignore-scripts`. The package manager selects the
-native Ghostmux package; Tree-sitter WASM is a regular dependency. Pi
-dependencies alias the published fork packages, not upstream releases. Git and
-JJ remain external programs.
+native Ghostmux package; Tree-sitter WASM is a regular dependency. Repository
+snapshots pin immutable fork release archives; npm distributions alias the
+published fork packages. Git and JJ remain external programs.
 
 The POSIX shell entrypoint selects Node for npm installations and Bun for Bun
 installations. The launcher resolves installation symlinks and inspects the

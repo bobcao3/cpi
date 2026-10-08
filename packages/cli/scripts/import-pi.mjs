@@ -56,9 +56,15 @@ for (const artifact of manifest.artifacts) {
     extensions.peerDependencies[artifact.name] = artifact.version;
 }
 for (const artifact of manifest.artifacts) {
-  for (const name of Object.keys(artifact.dependencies)) {
-    if (name.startsWith("@earendil-works/"))
+  for (const [name, spec] of Object.entries(artifact.dependencies)) {
+    if (name.startsWith("@earendil-works/")) {
       assert(names.has(name), `Incomplete fork closure: ${name}`);
+      assert.equal(
+        spec,
+        manifest.artifacts.find((dependency) => dependency.name === name).url,
+        `Fork dependency must pin its release archive: ${name}`,
+      );
+    }
   }
 }
 await writeFile(
