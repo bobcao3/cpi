@@ -19,6 +19,7 @@
   "forkProbe": {
     "substitutions": [
       { "from": "gpt-5.6-sol", "to": "gpt-6-luna:medium" },
+      { "from": "gpt-6.1-sol", "to": "gpt-6-luna:medium" },
       { "from": "gpt-6-sol", "to": "gpt-6-luna:medium" },
       { "from": "gpt-6-astra", "to": "gpt-6-luna:medium" },
       { "from": "claude-opus-5", "to": "claude-haiku-5-5:medium" },
