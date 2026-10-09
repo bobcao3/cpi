@@ -13,6 +13,7 @@ import {
   SettingsManager,
 } from "@cpi/cli";
 import {
+  COMPACT_WIDTH_THRESHOLD,
   ProcessTerminal,
   TuiMainScreen,
   getKeybindings,
@@ -155,7 +156,22 @@ await fixture(async ({ directory, runtime, config, modelsPath, apiKey }) => {
     );
     assert(rows[1].endsWith(`gpt-5.5 • ${session.thinkingLevel}`));
     assert.equal(visibleWidth(rows[1]), 140);
+    for (const width of [
+      COMPACT_WIDTH_THRESHOLD - 1,
+      COMPACT_WIDTH_THRESHOLD,
+      Math.floor(COMPACT_WIDTH_THRESHOLD / 2),
+    ]) {
+      const usage = stripTerminalSequences(footer.render(width)[1]);
+      assert.match(usage, /^\$1\.7500 /);
+      if (width < COMPACT_WIDTH_THRESHOLD) {
+        assert.match(usage, /^\$1\.7500 • openai/);
+        assert.doesNotMatch(usage, /Subagents/);
+      } else {
+        assert.match(usage, /\(Subagents: \$0\.5000\)/);
+      }
+    }
     assert.doesNotMatch(rows.join("\n"), /↑2\.5M|CH0\.0%|\(auto\)/);
+    footer.render(140);
     for (const [token, kind] of [
       ["shell:2", "shell"],
       ["mon:1", "monitor"],

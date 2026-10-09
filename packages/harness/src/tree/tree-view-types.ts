@@ -13,11 +13,20 @@ export type TreeStatus =
 export interface TreeNode {
   id: string;
   label: string;
+  labelJoined?: boolean;
+  bodyInline?: boolean;
   summary?: string;
   metadata?: readonly string[];
   status?: TreeStatus;
   children?: readonly TreeNode[];
   body?: Component;
+  bodyPreview?: Component;
+  bodyExpansionHint?: (
+    expanded: boolean,
+    keyboardToggle: boolean,
+    large: boolean,
+  ) => string;
+  collapseHint?: string;
   defaultOpen?: boolean;
   surface?: {
     background: (text: string) => string;
@@ -28,6 +37,8 @@ export interface TreeNode {
 export interface TreeState {
   open: Map<string, boolean>;
   shownChildren: Map<string, number>;
+  fullBodies?: Map<string, boolean>;
+  lastExpansion?: { id: string; body: boolean; at: number };
   selectedId?: string;
   expanded?: boolean;
   frame?: number;

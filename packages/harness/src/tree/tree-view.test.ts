@@ -1,5 +1,5 @@
 import { TREE_KEYBINDINGS } from "./keybindings.ts";
-import { MAX_DEPTH, MAX_NODES } from "./tree-view-helpers.ts";
+import { CHILD_PAGE, MAX_DEPTH, MAX_NODES } from "./tree-view-helpers.ts";
 import assert from "node:assert";
 import { describe, it } from "node:test";
 import { type TreeNode, TreeView } from "./tree-view.ts";
@@ -9,13 +9,25 @@ import type {
   TuiMouseEvent,
   TuiMouseEventType,
 } from "@earendil-works/pi-tui";
-import { stripTerminalSequences, visibleWidth } from "@earendil-works/pi-tui";
+import {
+  COMPACT_WIDTH_THRESHOLD,
+  stripTerminalSequences,
+  visibleWidth,
+} from "@earendil-works/pi-tui";
+
+const wide_width = COMPACT_WIDTH_THRESHOLD;
+const compact_width = COMPACT_WIDTH_THRESHOLD - 1;
+const layout_cases = [
+  { width: Math.floor(wide_width / 2), compact: true },
+  { width: compact_width, compact: true },
+  { width: wide_width, compact: false },
+];
 
 function mouse(
   type: TuiMouseEventType,
   x: number,
   y: number,
-  width = 80,
+  width = wide_width,
   height = 20,
 ): TuiMouseEvent {
   return {
@@ -53,19 +65,173 @@ const plain = (lines: string[]): string[] =>
 
 describe("TreeView", () => {
   it("expands forest roots independently", () => {
-    const tree = new TreeView([
-      { id: "a", label: "A", children: [{ id: "a.1", label: "A child" }] },
-      { id: "b", label: "B", children: [{ id: "b.1", label: "B child" }] },
-    ]);
+    for (const { width, compact } of layout_cases) {
+      const tree = new TreeView([
+        {
+          id: "a",
+          label: "A",
+          children: [
+            { id: "a.1", label: "A child" },
+            { id: "a.2", label: "A second" },
+          ],
+        },
+        {
+          id: "b",
+          label: "B",
+          children: [
+            { id: "b.1", label: "B child" },
+            { id: "b.2", label: "B second" },
+          ],
+        },
+      ]);
 
-    assert.deepEqual(plain(tree.render(40)), ["  ▸ A", "  ▸ B"]);
-    assert.equal(tree.handleMouse(mouse("click", 2, 0))?.handled, true);
-    assert.deepEqual(plain(tree.render(40)), [
-      "  ▾ A",
-      "  │ └─  A child",
-      "  ▸ B",
+      assert.deepEqual(
+        plain(tree.render(width)),
+        compact ? [" ▸A", " ▸B"] : ["  ▸ A", "  ▸ B"],
+      );
+      assert.equal(
+        tree.handleMouse(mouse("click", compact ? 1 : 2, 0, width))?.handled,
+        true,
+      );
+      assert.deepEqual(
+        plain(tree.render(width)),
+        compact
+          ? [" ▾A", " │├ A child", " │└ A second", " ▸B"]
+          : ["  ▾ A", "  │ ├─  A child", "  │ └─  A second", "  ▸ B"],
+      );
+      assert.equal(tree.getRowPosition("b.1"), undefined);
+    }
+  });
+
+  it("compacts status spacing and nested indentation below the shared threshold", () => {
+    const tree = new TreeView([
+      {
+        id: "root",
+        label: "Root",
+        status: "success",
+        defaultOpen: true,
+        children: [
+          {
+            id: "child",
+            label: "Child",
+            status: "warning",
+            defaultOpen: true,
+            children: [
+              {
+                id: "leaf",
+                label: "Leaf",
+                status: "error",
+                children: [
+                  { id: "hidden", label: "Hidden" },
+                  { id: "hidden2", label: "Hidden second" },
+                ],
+              },
+              { id: "child-sibling", label: "Child sibling" },
+            ],
+          },
+          { id: "root-sibling", label: "Root sibling" },
+        ],
+      },
     ]);
-    assert.equal(tree.getRowPosition("b.1"), undefined);
+    assert.deepEqual(plain(tree.render(compact_width)), [
+      "✓▾Root",
+      "! ├▾Child",
+      "× │├▸Leaf",
+      "  │└ Child sibling",
+      "  └ Root sibling",
+    ]);
+    assert.deepEqual(plain(tree.render(wide_width)), [
+      "✓ ▾ Root",
+      "!   ├─▾ Child",
+      "×   │ ├─▸ Leaf",
+      "    │ └─  Child sibling",
+      "    └─  Root sibling",
+    ]);
+    tree.render(compact_width);
+    tree.handleMouse(mouse("click", 5, 2, compact_width));
+    assert.ok(
+      !plain(tree.render(compact_width)).some((line) =>
+        line.includes("Hidden"),
+      ),
+    );
+    assert.equal(
+      tree.handleMouse(mouse("click", 4, 2, compact_width))?.handled,
+      true,
+    );
+    assert.ok(
+      plain(tree.render(compact_width)).some((line) => line.includes("Hidden")),
+    );
+  });
+
+  it("flattens single-child headers and bodies while retaining interaction and sibling layout", () => {
+    for (const { width, compact } of layout_cases) {
+      const body = new ProbeBody();
+      const content: TreeNode = {
+        id: "content",
+        label: "Content",
+        body,
+        defaultOpen: true,
+      };
+      const root: TreeNode = {
+        id: "write",
+        label: "write",
+        status: "success",
+        defaultOpen: true,
+        children: [content],
+      };
+      const tree = new TreeView([root]);
+      const indent = compact ? "  " : "    ";
+      assert.deepEqual(plain(tree.render(width)), [
+        compact ? "✓-write" : "✓ - write",
+        `${indent}Content:`,
+        `${indent}body`,
+      ]);
+      tree.handleMouse(mouse("click", indent.length, 2, width));
+      assert.equal(body.events[0].x, 0);
+      assert.equal(body.events[0].width, width - indent.length);
+      tree.handleMouse(mouse("click", indent.length, 1, width));
+      assert.equal(tree.render(width).length, 3);
+      tree.reveal("content");
+      tree.handleAction("open");
+      assert.equal(tree.render(width).length, 3);
+      tree.update([
+        { ...root, children: [content, { id: "error", label: "Error" }] },
+      ]);
+      assert.deepEqual(
+        plain(tree.render(width)),
+        compact
+          ? ["✓▾write", "  ├▾Content", "  │ body", "  └ Error"]
+          : ["✓ ▾ write", "    ├─▾ Content", "    │   body", "    └─  Error"],
+      );
+      assert.equal(tree.getSelectedId(), "content");
+      tree.update([root]);
+      assert.equal(plain(tree.render(width))[2], `${indent}body`);
+      tree.update([
+        {
+          ...root,
+          children: [
+            {
+              id: "wrapper",
+              label: "Wrapper",
+              defaultOpen: true,
+              children: [content],
+            },
+            { id: "sibling", label: "Sibling" },
+          ],
+        },
+      ]);
+      assert.deepEqual(
+        plain(tree.render(width)),
+        compact
+          ? ["✓▾write", "  ├ Wrapper.Content", "  │ body", "  └ Sibling"]
+          : [
+              "✓ ▾ write",
+              "    ├─  Wrapper.Content",
+              "    │   body",
+              "    └─  Sibling",
+            ],
+      );
+    }
   });
 
   it("preserves open descendants and selection through update, reorder, and resize", () => {
@@ -78,7 +244,15 @@ describe("TreeView", () => {
         id: "a",
         label: "A",
         children: [
-          { id: "b", label: "B", children: [{ id: "c", label: "C" }] },
+          {
+            id: "b",
+            label: "B",
+            children: [
+              { id: "c", label: "C" },
+              { id: "f", label: "F" },
+            ],
+          },
+          { id: "e", label: "E" },
         ],
       },
       { id: "d", label: "D" },
@@ -156,7 +330,8 @@ describe("TreeView", () => {
   });
 
   it("paginates large child sets and asserts duplicate ids", () => {
-    const children = Array.from({ length: 205 }, (_, index) => ({
+    const extra = 5;
+    const children = Array.from({ length: CHILD_PAGE + extra }, (_, index) => ({
       id: `child-${index}`,
       label: `Child ${index}`,
     }));
@@ -164,20 +339,25 @@ describe("TreeView", () => {
       { id: "root", label: "Root", defaultOpen: true, children },
     ]);
 
-    let rendered = plain(tree.render(80));
+    let rendered = plain(tree.render(wide_width));
     assert.equal(
-      rendered.some((line) => line.includes("Child 204")),
+      rendered.some((line) => line.includes(children.at(-1)!.label)),
       false,
     );
+    const moreRow = rendered.findIndex((line) =>
+      line.includes(`${extra} more`),
+    );
     assert.equal(
-      rendered.some((line) => line.includes("5 more")),
+      plain(tree.render(compact_width))[moreRow],
+      `  └▸${extra} more`,
+    );
+    assert.equal(
+      tree.handleMouse(mouse("click", 1, moreRow, compact_width))?.handled,
       true,
     );
-    const moreRow = rendered.findIndex((line) => line.includes("5 more"));
-    assert.equal(tree.handleMouse(mouse("click", 1, moreRow))?.handled, true);
-    rendered = plain(tree.render(80));
+    rendered = plain(tree.render(wide_width));
     assert.equal(
-      rendered.some((line) => line.includes("Child 204")),
+      rendered.some((line) => line.includes(children.at(-1)!.label)),
       true,
     );
     assert.throws(
@@ -206,27 +386,36 @@ describe("TreeView", () => {
   });
 
   it("keeps mouse toggling on the marker and dispatches body clicks with translated coordinates", () => {
-    const body = new ProbeBody();
-    const tree = new TreeView([{ id: "a", label: "A", body }]);
+    for (const { width, compact } of layout_cases) {
+      const body = new ProbeBody();
+      const tree = new TreeView([{ id: "a", label: "A", body }]);
 
-    tree.render(40);
-    assert.equal(tree.handleMouse(mouse("click", 5, 0))?.handled, true);
-    assert.equal(tree.getSelectedId(), "a");
-    assert.deepEqual(plain(tree.render(40)), ["  ▸ A"]);
-    assert.equal(tree.handleMouse(mouse("click", 2, 0))?.handled, true);
-    assert.deepEqual(plain(tree.render(40)).slice(0, 2), [
-      "  ▾ A",
-      "      body",
-    ]);
+      tree.render(width);
+      assert.equal(tree.handleMouse(mouse("click", 5, 0))?.handled, true);
+      assert.equal(tree.getSelectedId(), "a");
+      assert.deepEqual(plain(tree.render(width)), [compact ? " ▸A" : "  ▸ A"]);
+      tree.handleMouse(mouse("click", compact ? 2 : 4, 0, width));
+      assert.equal(tree.render(width).length, 1);
+      assert.equal(
+        tree.handleMouse(mouse("click", compact ? 1 : 2, 0, width))?.handled,
+        true,
+      );
+      assert.deepEqual(
+        plain(tree.render(width)).slice(0, 2),
+        compact ? [" ▾A", "  body"] : ["  ▾ A", "      body"],
+      );
 
-    const result = tree.handleMouse(mouse("click", 8, 1));
-    assert.equal(result?.handled, true);
-    assert.equal(result?.focus, false);
-    assert.equal(body.events[0]?.x, 2);
-    assert.equal(body.events[0]?.y, 0);
-    assert.equal(
-      tree.handleMouse({ ...mouse("wheel", 1, 1), wheelDelta: 1 }),
-      undefined,
-    );
+      const result = tree.handleMouse(
+        mouse("click", compact ? 4 : 8, 1, width),
+      );
+      assert.equal(result?.handled, true);
+      assert.equal(result?.focus, false);
+      assert.equal(body.events[0]?.x, 2);
+      assert.equal(body.events[0]?.y, 0);
+      assert.equal(
+        tree.handleMouse({ ...mouse("wheel", 1, 1), wheelDelta: 1 }),
+        undefined,
+      );
+    }
   });
 });

@@ -17,6 +17,19 @@ const send = (v) => {
   tmux("send-keys", "-t", name, "-l", v);
   tmux("send-keys", "-t", name, "Enter");
 };
+const click = (screen, pattern) => {
+  const rows = screen.split("\n");
+  const y = rows.findIndex((line) => pattern.test(line));
+  assert.ok(y >= 0, screen);
+  const x = rows[y].search(pattern);
+  tmux(
+    "send-keys",
+    "-t",
+    name,
+    "-l",
+    `\x1b[<0;${x + 1};${y + 1}M\x1b[<0;${x + 1};${y + 1}m`,
+  );
+};
 async function until(check) {
   for (let n = 0; n < 150; n++) {
     const screen = capture();
@@ -82,7 +95,38 @@ await fixture(
       assert.match(compact, /Terminal shell success/);
       assert.match(compact, /Failed shell remains compact.*exit 7/);
       assert.doesNotMatch(compact, /VERBOSE_SHELL_DETAIL|[▄▀]{10}/);
+      assert.match(compact, /\.\.\. Click or Ctrl-O to expand/);
+      assert.doesNotMatch(compact, /Full content|more code lines/);
       assert.equal(await readFile(target, "utf8"), "after\n");
+      if (mode === "fullscreen") {
+        click(compact, /Click or Ctrl-O to expand/);
+        const expanded_script = await until(
+          (s) =>
+            !s.includes("Click or Ctrl-O to expand") &&
+            s.includes("VERBOSE_SHELL_DETAIL") &&
+            s.includes("[-] Click or Ctrl-Minus to collapse"),
+        );
+        click(expanded_script, /\[-\] Click.*to collapse/);
+        const collapsed_script = await until(
+          (s) =>
+            s.includes("Click or Ctrl-O to expand") &&
+            !s.includes("VERBOSE_SHELL_DETAIL"),
+        );
+        click(collapsed_script, /Click or Ctrl-O to expand/);
+        await until((s) => s.includes("[-] Click or Ctrl-Minus to collapse"));
+        tmux("send-keys", "-t", name, "-l", "\x1f");
+        await until(
+          (s) =>
+            s.includes("Click or Ctrl-O to expand") &&
+            !s.includes("VERBOSE_SHELL_DETAIL"),
+        );
+        tmux("send-keys", "-t", name, "C-o", "C-o");
+        await until(
+          (s) =>
+            s.includes("Click or Ctrl-O to expand") &&
+            !s.includes("VERBOSE_SHELL_DETAIL"),
+        );
+      }
       send("/inspect-tools");
       const inspector = await until((s) => s.includes("tool root"));
       assert.match(inspector, /Code mode/);
@@ -97,18 +141,129 @@ await fixture(
       await until(
         (s) =>
           s.includes("Tool output: expanded") &&
-          s.includes("VERBOSE_SHELL_DETAIL"),
+          s.includes("VERBOSE_SHELL_DETAIL") &&
+          !s.includes("Click or Ctrl-O to expand"),
+      );
+      const large_expanded = capture();
+      assert.match(large_expanded, /\[-\] Click or Ctrl-Minus to collapse/);
+      tmux("send-keys", "-t", name, "-l", "\x1f");
+      await until(
+        (s) => /▸ Code mode/.test(s) && !s.includes("VERBOSE_SHELL_DETAIL"),
       );
       tmux("send-keys", "-t", name, "C-o");
       await until(
         (s) =>
           !s.includes("VERBOSE_SHELL_DETAIL") &&
+          s.includes("Click or Ctrl-O to expand") &&
           !s.includes("read alpha.txt") &&
           !s.includes("read beta.txt"),
       );
+      tmux("send-keys", "-t", name, "-l", "UNDO_SENTINEL");
+      await until((s) => s.includes("UNDO_SENTINEL"));
+      tmux("send-keys", "-t", name, "-l", "\x1f");
+      await until((s) => !s.includes("UNDO_SENTINEL"));
+      for (const context of ["one", "two"]) {
+        const count = requests.length;
+        script = Array.from(
+          { length: 40 },
+          (_, index) => `const context_${context}_${index} = ${index};`,
+        ).join("\n");
+        send(`Run the large ${context} context fixture`);
+        await until(
+          (s) =>
+            requests.length >= count + 2 &&
+            s.includes(`context_${context}_0`) &&
+            /^\s*OK\s*$/m.test(s),
+        );
+      }
+      tmux("send-keys", "-t", name, "C-o");
+      await until(
+        (s) =>
+          s.includes("context_two_39") &&
+          s.includes("[-] Click or Ctrl-Minus to collapse"),
+      );
+      send("/inspect-tools");
+      await until(
+        (s) => s.includes("tool root") && s.includes("context_two_0"),
+      );
+      tmux("send-keys", "-t", name, "BTab");
+      await until((s) =>
+        s.slice(s.indexOf("tool root")).includes("context_one_0"),
+      );
+      tmux("send-keys", "-t", name, "-l", "\x1f");
+      await until(
+        (s) =>
+          /▸ Code mode/.test(s.slice(s.indexOf("tool root"))) &&
+          !s.slice(s.indexOf("tool root")).includes("context_one_0"),
+      );
+      tmux("send-keys", "-t", name, "Escape");
+      await until(
+        (s) => !s.includes("tool root") && s.includes("context_two_39"),
+      );
+      tmux("send-keys", "-t", name, "C-o");
+      await until(
+        (s) =>
+          s.includes("Run the large two context fixture") &&
+          !s.includes("context_two_39"),
+      );
       send("/new");
       await until(
-        (s) => !s.includes("Run the boundary fixture") && s.includes("gpt-5.5"),
+        (s) =>
+          !s.includes("Run the large two context fixture") &&
+          s.includes("New session started"),
+      );
+      const written = join(directory, "singleton.txt");
+      script = `await tools.write({path:${JSON.stringify(written)},file_text:"SINGLE_CHILD_CONTENT\\n"});`;
+      send("Run the single-child write fixture");
+      const flattened = await until(
+        (s) => s.includes("SINGLE_CHILD_CONTENT") && /^\s*OK\s*$/m.test(s),
+      );
+      const write_lines = flattened.split("\n");
+      const write_header = write_lines.find((line) =>
+        /write .*singleton\.txt/.test(line),
+      );
+      const content_header = write_lines.find((line) => /Content:/.test(line));
+      assert.ok(write_header, flattened);
+      assert.ok(content_header, flattened);
+      assert.equal(
+        content_header.indexOf("Content:"),
+        write_header.indexOf("write "),
+      );
+      assert.doesNotMatch(content_header, /[└├▾▸]/);
+      assert.equal(await readFile(written, "utf8"), "SINGLE_CHILD_CONTENT\n");
+      console.log(flattened);
+      send("/new");
+      await until(
+        (s) =>
+          !s.includes("Run the single-child write fixture") &&
+          s.includes("gpt-5.5"),
+      );
+      script = `await tools.read({path:${JSON.stringify(alpha)}});`;
+      send("Run the read expansion fixture");
+      const read_collapsed = await until(
+        (s) => /▸ read .*alpha\.txt/.test(s) && /^\s*OK\s*$/m.test(s),
+      );
+      assert.doesNotMatch(read_collapsed, /ALPHA_DETAIL/);
+      if (mode === "fullscreen") click(read_collapsed, /▸ read .*alpha\.txt/);
+      else {
+        send("/inspect-tools");
+        await until((s) => s.includes("tool root"));
+        tmux("send-keys", "-t", name, "Down", "Down", "Down", "Right");
+      }
+      const read_expanded = await until(
+        (s) => s.includes("Preview:") && s.includes("ALPHA_DETAIL"),
+      );
+      assert.doesNotMatch(read_expanded, /▸ Preview/);
+      if (mode !== "fullscreen") {
+        tmux("send-keys", "-t", name, "Escape");
+        await until((s) => !s.includes("tool root"));
+      }
+      console.log(read_expanded);
+      send("/new");
+      await until(
+        (s) =>
+          !s.includes("Run the read expansion fixture") &&
+          s.includes("gpt-5.5"),
       );
       script = `await tools.sh({command:${JSON.stringify(`${quote(process.execPath)} ${quote(completionWorker)} 0`)},description:"Async shell success",waitfor:1});\nawait tools.sh({command:${JSON.stringify(`${quote(process.execPath)} ${quote(completionWorker)} 7`)},description:"Async shell failure",waitfor:1});`;
       send("Run the completion fixture");
@@ -134,12 +289,12 @@ await fixture(
       send("List backgrounds");
       await until((s) => /▸ sh_background_ps · No background shells/.test(s));
       tmux("send-keys", "-t", name, "C-o");
-      await until((s) => s.includes("0 background shells, 0 monitors"));
+      await until((s) => s.includes("no active background shells or monitors"));
       tmux("send-keys", "-t", name, "C-o");
       await until(
         (s) =>
           /▸ sh_background_ps · No background shells/.test(s) &&
-          !s.includes("0 background shells, 0 monitors"),
+          !s.includes("no active background shells or monitors"),
       );
       assert.ok(
         requests.some((request) => {

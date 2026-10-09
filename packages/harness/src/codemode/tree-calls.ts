@@ -62,19 +62,20 @@ export function call_nodes(
         : arguments_value(call?.args ?? ""));
     const result = pending
       ? undefined
-      : preview
-        ? {
-            content: [
-              {
-                type: "text" as const,
-                text: preview.text || call?.error || "",
-              },
-            ],
-            details: preview.details,
-            structuredContent: preview.structuredContent,
-            isError: failed,
-          }
-        : live?.result;
+      : (live?.result ??
+        (preview
+          ? {
+              content: [
+                {
+                  type: "text" as const,
+                  text: preview.text || call?.error || "",
+                },
+              ],
+              details: preview.details,
+              structuredContent: preview.structuredContent,
+              isError: failed,
+            }
+          : undefined));
     const state = states.get(id) ?? {};
     state.toolRenderers = context.state.toolRenderers;
     states.set(id, state);

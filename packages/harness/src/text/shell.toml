@@ -54,6 +54,7 @@ guidance = "cpi stopped tracking this background action during session shutdown 
 # ── promptGuidelines ──
 [guidelines]
 sh = [
+  "Ghostmux is cpi's headless terminal manager. Like tmux, Ghostmux manages terminal sessions and supports sending input and capturing panes; Ghostmux also renders screenshots. Ghostmux uses its own CLI and protocol, not tmux's.",
   "Interactive terminals require is_pty=true. sh has no stdin parameter; send input with ghostmux send-input --uid UID --text TEXT.",
   "Shell results provide UID/socketPath; the environment provides CPI_GHOSTMUX_SOCKET and ghostmux on PATH. Always select the daemon explicitly: ghostmux -S SOCKET COMMAND.",
   "Read rendered text with ghostmux -S SOCKET capture-pane --uid UID --history --join; raw bytes with ghostmux -S SOCKET read-output --uid UID --offset N --limit N. Save live PTY screenshots with ghostmux -S SOCKET screenshot --uid UID --output PATH. Completed sessions lose terminal state; read their durable logs.",

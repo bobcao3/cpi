@@ -1,10 +1,11 @@
-import { isImageLine } from "@earendil-works/pi-tui";
+import { isCompactWidth, isImageLine } from "@earendil-works/pi-tui";
 import {
   truncateToWidth,
   visibleWidth,
   wrapTextWithAnsi,
 } from "@earendil-works/pi-tui";
 import type { TreeNode, TreeState, TreeViewTheme } from "./tree-view.ts";
+import { hasExpandableContent } from "./tree-view-contract.ts";
 import {
   type FlatNode,
   type HitRow,
@@ -20,12 +21,25 @@ export function renderTreeLayout(
   theme: Required<TreeViewTheme>,
   isOpen: (node: TreeNode) => boolean,
   shownCount: (id: string, total: number) => number,
+  screenHeight: number,
 ): { lines: string[]; hits: HitRow[]; positions: Map<string, number> } {
   const lines: string[] = [];
   const hits: HitRow[] = [];
   const positions = new Map<string, number>();
+  let limited = false;
+  const compact = isCompactWidth(width);
+  const space = compact ? " " : "  ";
+  const vertical = compact ? "│" : "│ ";
+  const branchLast = compact ? "└" : "└─";
+  const branchNext = compact ? "├" : "├─";
   const fit = (text: string) => truncateToWidth(text, width, "");
   const pending: FlatNode[] = [];
+  const disclosures: {
+    item: FlatNode;
+    start: number;
+    prefix: string;
+    bodyFooter: boolean;
+  }[] = [];
   const surfaces: {
     depth: number;
     surface: NonNullable<TreeNode["surface"]>;
@@ -53,10 +67,10 @@ export function renderTreeLayout(
     )
       return;
     const guide = item.ancestorLast
-      .map((last) => (last ? "  " : "│ "))
+      .map((last) => (last ? space : vertical))
       .join("");
     const prefix = truncateToWidth(
-      `  ${theme.guide(`${guide}  └─`)}▸ `,
+      `${space}${theme.guide(`${guide}${space}${branchLast}`)}${"▸".padEnd(space.length)}`,
       Math.max(0, width - 1),
       "",
     );
@@ -69,13 +83,62 @@ export function renderTreeLayout(
     });
     lines.push(paint(fit(`${prefix}${children.length - shown} more`)));
   };
+  const control = (
+    kind: "collapse" | "body-toggle",
+    id: string,
+    prefix: string,
+    hint: string,
+    large: boolean,
+  ) => {
+    if (lines.length >= MAX_ROWS - 1) {
+      limited = true;
+      lines.pop();
+      while (hits.at(-1) && hits.at(-1)!.y >= lines.length) hits.pop();
+    }
+    hits.push({
+      kind,
+      id,
+      y: lines.length,
+      markerStart: visibleWidth(prefix),
+      markerEnd: width,
+      large,
+    });
+    lines.push(paint(fit(prefix + hint)));
+  };
+  const closeDisclosure = () => {
+    const frame = disclosures.pop()!;
+    if (
+      lines.length - frame.start <= screenHeight / 2 ||
+      (frame.bodyFooter && !frame.item.node.children?.length)
+    )
+      return;
+    control(
+      "collapse",
+      frame.item.node.id,
+      frame.prefix,
+      frame.item.node.collapseHint ?? "[-] Click or Ctrl-Minus to collapse",
+      true,
+    );
+  };
+  const closeThrough = (depth: number) => {
+    let closing: number;
+    while (
+      (closing = Math.max(
+        pending.at(-1)?.depth ?? -1,
+        disclosures.at(-1)?.item.depth ?? -1,
+        surfaces.at(-1)?.depth ?? -1,
+      )) >= depth
+    ) {
+      if (pending.at(-1)?.depth === closing) more(pending.pop()!);
+      if (disclosures.at(-1)?.item.depth === closing) closeDisclosure();
+      if (surfaces.at(-1)?.depth === closing) closeSurface();
+    }
+  };
   for (const item of flat) {
-    while (pending.length && pending[pending.length - 1]!.depth >= item.depth)
-      more(pending.pop()!);
-    while (surfaces.length && surfaces.at(-1)!.depth >= item.depth)
-      closeSurface();
+    closeThrough(item.depth);
     if (lines.length >= MAX_ROWS - 1) break;
     const node = item.node;
+    const visualDepth = item.ancestorLast.length;
     if (node.surface) {
       surfaces.push({ depth: item.depth, surface: node.surface });
       if (node.surface.edge) lines.push(fit(node.surface.edge("top", width)));
@@ -87,35 +150,62 @@ export function renderTreeLayout(
           ? STATUS_TEXT[node.status]
           : " ";
     const status = node.status
-      ? `${theme.status(truncateToWidth(rawStatus, 1, ""), node.status)} `
-      : "  ";
+      ? theme.status(truncateToWidth(rawStatus, 1, ""), node.status) +
+        (compact ? "" : " ")
+      : space;
+    const minimumHeaderWidth =
+      2 * space.length + 1 + (visualDepth ? space.length : 0);
     const maxGuides = Math.max(
       0,
-      Math.floor((width - (item.depth ? 7 : 5)) / 2),
+      Math.floor((width - minimumHeaderWidth) / space.length),
     );
     const ancestors = item.ancestorLast.slice(
       -maxGuides || item.ancestorLast.length,
     );
     const guide = theme.guide(
-      ancestors.map((last) => (last ? "  " : "│ ")).join(""),
+      ancestors.map((last) => (last ? space : vertical)).join(""),
     );
     const last = item.childIndex === item.childCount - 1;
     const branch = theme.guide(
-      item.depth && width >= 7 ? (last ? "└─" : "├─") : "",
+      visualDepth && width >= minimumHeaderWidth
+        ? item.flattened
+          ? last
+            ? space
+            : vertical
+          : last
+            ? branchLast
+            : branchNext
+        : "",
     );
-    const expandable = Boolean(node.body || node.children?.length);
-    const marker = expandable ? (isOpen(node) ? "▾ " : "▸ ") : "  ";
-    const statusPrefix = width >= 4 ? status : "";
+    const expandable = hasExpandableContent(node, item.flattened);
+    const section = item.flattened && !node.status;
+    const caption = section && !node.labelJoined && !node.metadata?.length;
+    const marker = (
+      section
+        ? " "
+        : expandable
+          ? isOpen(node)
+            ? "▾"
+            : "▸"
+          : item.depth === 0 || node.status
+            ? "-"
+            : " "
+    ).padEnd(space.length);
+    const statusPrefix = width >= space.length + space.length ? status : "";
     const prefix = truncateToWidth(
       statusPrefix + guide + branch + marker,
       Math.max(0, width - 1),
       "",
     );
-    const markerStart = visibleWidth(statusPrefix + guide + branch);
-    const markerEnd = Math.min(width, markerStart + 2);
-    const text = [node.label, node.summary]
+    const markerStart = visibleWidth(
+      section ? prefix : statusPrefix + guide + branch,
+    );
+    const markerEnd = section
+      ? width
+      : Math.min(width, markerStart + marker.length);
+    const text = [caption ? `${node.label}:` : node.label, node.summary]
       .filter(Boolean)
-      .join(" · ")
+      .join(caption ? " " : " · ")
       .replace(/[\r\n\t]+/g, " ");
     const contentWidth = Math.max(1, width - visibleWidth(prefix));
     const header = wrapTextWithAnsi(text, contentWidth).slice(0, 3);
@@ -136,8 +226,14 @@ export function renderTreeLayout(
     const continuation = truncateToWidth(
       " ".repeat(visibleWidth(statusPrefix)) +
         guide +
-        theme.guide(item.depth && width >= 7 ? (last ? "  " : "│ ") : "") +
-        "  ",
+        theme.guide(
+          visualDepth && width >= minimumHeaderWidth
+            ? last
+              ? space
+              : vertical
+            : "",
+        ) +
+        space,
       visibleWidth(prefix),
       "",
     );
@@ -157,29 +253,50 @@ export function renderTreeLayout(
           : paint(line),
       );
     }
-    if (!isOpen(node)) continue;
+    if (!item.flattened && !isOpen(node)) continue;
+    const disclosure =
+      !item.flattened && expandable
+        ? {
+            item,
+            start: positions.get(node.id)!,
+            prefix: continuation,
+            bodyFooter: false,
+          }
+        : undefined;
+    if (disclosure) disclosures.push(disclosure);
     if (node.body) {
       const bodyGuide =
-        item.depth === 0 ? "  " : guide + theme.guide(last ? "  " : "│ ");
+        visualDepth === 0
+          ? compact
+            ? ""
+            : space
+          : guide + theme.guide(last ? space : vertical);
       const bodyPrefix = truncateToWidth(
-        `  ${bodyGuide}  `,
+        item.flattened || node.bodyInline
+          ? continuation
+          : `${space}${bodyGuide}${space}`,
         Math.max(0, width - 1),
         "",
       );
       const bodyWidth = Math.max(0, width - visibleWidth(bodyPrefix));
-      const bodyLines = node.body.render(bodyWidth);
-      for (
-        let i = 0;
-        i < bodyLines.length && lines.length < MAX_ROWS - 1;
-        i++
-      ) {
+      const expanded =
+        state.fullBodies?.get(node.id) ?? Boolean(state.expanded);
+      const previewLines = node.bodyPreview?.render(bodyWidth);
+      const fullLines = node.body.render(bodyWidth);
+      const body = node.bodyPreview && !expanded ? node.bodyPreview : node.body;
+      const bodyLines = body === node.body ? fullLines : previewLines!;
+      const truncated =
+        previewLines !== undefined && fullLines.length > previewLines.length;
+      const bodyStart = lines.length;
+      const bodyLimit = MAX_ROWS - 1 - disclosures.length - Number(truncated);
+      for (let i = 0; i < bodyLines.length && lines.length < bodyLimit; i++) {
         hits.push({
           kind: "body",
           id: node.id,
           y: lines.length,
           markerStart: 0,
           markerEnd: visibleWidth(bodyPrefix),
-          body: node.body,
+          body,
           bodyY: i,
           bodyWidth,
           bodyHeight: bodyLines.length,
@@ -190,6 +307,17 @@ export function renderTreeLayout(
             : paint(fit(bodyPrefix + bodyLines[i]!)),
         );
       }
+      limited ||= lines.length - bodyStart < bodyLines.length;
+      if (truncated) {
+        const large =
+          expanded && bodyLines.length + header.length + 1 > screenHeight / 2;
+        const keyboardToggle = expanded === Boolean(state.expanded);
+        const hint =
+          node.bodyExpansionHint?.(expanded, keyboardToggle, large) ??
+          `${expanded ? "[-]" : "..."} Click${large ? " or Ctrl-Minus" : keyboardToggle ? " or Ctrl-O" : ""} to ${expanded ? "collapse" : "expand"}`;
+        control("body-toggle", node.id, bodyPrefix, hint, large);
+        if (disclosure) disclosure.bodyFooter = expanded;
+      }
     }
     if (
       shownCount(node.id, node.children?.length ?? 0) <
@@ -197,9 +325,8 @@ export function renderTreeLayout(
     )
       pending.push(item);
   }
-  while (pending.length) more(pending.pop()!);
-  while (surfaces.length) closeSurface();
-  if (lines.length >= MAX_ROWS - 1)
+  closeThrough(0);
+  if (limited || lines.length >= MAX_ROWS - 1)
     lines.push(fit("… display row limit; retained content remains available"));
   return { lines, hits, positions };
 }

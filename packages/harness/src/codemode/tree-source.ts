@@ -31,28 +31,20 @@ export function script_node(
     ...(code
       ? {
           content: numbered_code_content(
-            lines.slice(0, PREVIEW_LINES).join("\n"),
+            lines.join("\n"),
             theme,
             "javascript",
             { foreground: "muted", gutter: "dim" },
           ),
+          contentPreview: numbered_code_content(
+            lines.slice(0, PREVIEW_LINES).join("\n"),
+            theme,
+            "javascript",
+            { foreground: "muted", gutter: "dim", wrap: false },
+          ),
         }
       : {}),
     children: [
-      ...(lines.length > PREVIEW_LINES
-        ? [
-            {
-              id: `${id}/script/full`,
-              label: `${lines.length - PREVIEW_LINES} more code lines`,
-              content: numbered_code_content(
-                lines.join("\n"),
-                theme,
-                "javascript",
-                { foreground: "muted", gutter: "dim" },
-              ),
-            },
-          ]
-        : []),
       ...(limited
         ? [{ id: `${id}/script/limit`, label: "Code display limited" }]
         : []),

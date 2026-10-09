@@ -11,6 +11,7 @@ import {
 } from "@earendil-works/pi-tui";
 import type { ToolTreeNode } from "../tree/index.ts";
 import { render } from "../lib/text.ts";
+import { matchesTreeKey } from "../tree/keybindings.ts";
 import {
   getToolTreeComponents,
   presentationState,
@@ -79,8 +80,9 @@ export class ToolInspector implements Component {
 
   render(width: number): string[] {
     if (this.closed) return [];
+    const rendered = this.tool?.render(width) ?? [];
     const tree = this.tree();
-    const lines = this.tool?.render(width) ?? [];
+    const lines = tree?.render(width, this.ui.terminal.rows) ?? rendered;
     const id = tree?.getSelectedId();
     const row = id ? (tree?.getRowPosition(id) ?? 0) : 0;
     this.height = Math.max(1, Math.min(500, this.ui.terminal.rows - 7));
@@ -95,15 +97,22 @@ export class ToolInspector implements Component {
     const keys = Object.fromEntries(
       (
         ["up", "down", "toggle", "nextRoot", "previousRoot", "leave"] as const
-      ).map((action) => [
-        action,
-        [
+      ).map((action) => {
+        const keys = [
           ...(bindings[action]
             ? this.keybindings.getKeys(bindings[action]!)
             : []),
           ...(this.text.keys?.[action] ?? []),
-        ].join("/"),
-      ]),
+        ];
+        return [
+          action,
+          action === "leave"
+            ? keys.includes("escape")
+              ? "ESC"
+              : (keys[0] ?? "")
+            : keys.join("/"),
+        ];
+      }),
     );
     const hint = truncateToWidth(
       render(this.text.inspector.hint, keys),
@@ -130,6 +139,11 @@ export class ToolInspector implements Component {
 
   handleInput(data: string): void {
     if (this.matches(data, "leave")) return this.close();
+    if (matchesTreeKey(data, "collapseLarge")) {
+      this.tree()?.collapseLarge();
+      this.ui.requestRender();
+      return;
+    }
     if (
       this.keybindings.matches(data, "tui.select.pageUp") ||
       this.keybindings.matches(data, "tui.select.pageDown")

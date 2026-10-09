@@ -1,6 +1,7 @@
 import type { Component } from "@earendil-works/pi-tui";
 import type { ToolTreeComponent } from "../tree/index.ts";
 import { ToolTreeTicker } from "./tool-tree-ticker.ts";
+import { resetTreeCollapse } from "../tree/tree-view-collapse.ts";
 
 export interface ToolTreeInspectionTarget extends Component {
   getTreeComponent(): ToolTreeComponent | undefined;
@@ -45,6 +46,7 @@ export function getToolTreeComponents(): readonly ToolTreeInspectionTarget[] {
 }
 
 export function resetToolTreePresentation(): void {
+  resetTreeCollapse();
   presentationState.closeInspector?.();
   toolTreeTicker.dispose();
   presentationState.tools.clear();

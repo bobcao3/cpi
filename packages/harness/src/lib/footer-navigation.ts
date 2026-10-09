@@ -4,6 +4,7 @@ import type {
   ReadonlyFooter,
 } from "@earendil-works/pi-coding-agent";
 import {
+  isCompactWidth,
   matchesKey,
   truncateToWidth,
   visibleWidth,
@@ -152,7 +153,9 @@ export class FooterNavigation implements Component {
       "…",
     );
     const subagent_cost = getSubagentUsage().cost;
-    const cost = `$${(content.usage.cost + subagent_cost).toFixed(4)} (Subagents: $${subagent_cost.toFixed(4)})`;
+    let cost = `$${(content.usage.cost + subagent_cost).toFixed(4)}`;
+    if (!isCompactWidth(width))
+      cost += ` (Subagents: $${subagent_cost.toFixed(4)})`;
     const provider =
       content_sections.find((section) => section.name.toLowerCase() === "usage")
         ?.value ??

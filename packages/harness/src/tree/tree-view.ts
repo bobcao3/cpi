@@ -1,7 +1,6 @@
 import { matchesTreeKey } from "./keybindings.ts";
 import {
   type Component,
-  dispatchMouseEvent,
   type TuiMouseEvent,
   type TuiMouseEventResult,
 } from "@earendil-works/pi-tui";
@@ -25,10 +24,25 @@ import {
   emptyTheme,
   type FlatNode,
   type HitRow,
-  MAX_ROWS,
 } from "./tree-view-helpers.ts";
 import { renderTreeLayout } from "./tree-view-layout.ts";
 import { buildTreeIndex } from "./tree-view-index.ts";
+import { contractTree, hasExpandableContent } from "./tree-view-contract.ts";
+import { flattenTree } from "./tree-view-flat.ts";
+import { dispatchTreeMouse } from "./tree-view-mouse.ts";
+import {
+  collapseTreeHit,
+  largeCollapseHit,
+  registerTreeCollapse,
+  screenRows,
+  unregisterTreeCollapse,
+} from "./tree-view-collapse.ts";
+import {
+  markExpansion,
+  expansionOwner,
+  pruneTreeState,
+  replacementSelection,
+} from "./tree-view-state.ts";
 
 export class TreeView implements Component {
   private roots: readonly TreeNode[];
@@ -40,10 +54,13 @@ export class TreeView implements Component {
   private flat: FlatNode[] = [];
   private ids = new Map<string, TreeNode>();
   private parents = new Map<string, string>();
+  private aliases = new Map<string, string>();
   private hitRows: HitRow[] = [];
   private rowPositions = new Map<string, number>();
   private renderedWidth?: number;
+  private renderedHeight?: number;
   private renderedLines?: string[];
+  private collapseActive = false;
 
   constructor(roots: readonly TreeNode[], options: TreeViewOptions = {}) {
     this.roots = roots;
@@ -62,12 +79,19 @@ export class TreeView implements Component {
     const oldSelected = this.state.selectedId;
     this.roots = roots;
     this.rebuildIndex();
-    this.pruneState();
-    if (oldSelected && !this.ids.has(oldSelected))
-      this.state.selectedId = this.replacementSelection(
+    while (this.state.selectedId && this.aliases.has(this.state.selectedId))
+      this.state.selectedId = this.aliases.get(this.state.selectedId)!;
+    pruneTreeState(this.state, this.ids);
+    if (
+      oldSelected &&
+      !this.ids.has(oldSelected) &&
+      !this.aliases.has(oldSelected)
+    )
+      this.state.selectedId = replacementSelection(
         oldSelected,
         oldParents,
         oldRows,
+        this.ids,
       );
     this.ensureSelection();
     const visible = new Set(this.visibleHeaderIds());
@@ -82,6 +106,9 @@ export class TreeView implements Component {
     if (!force && this.state.expanded === expanded) return;
     this.state.expanded = expanded;
     this.state.open.clear();
+    this.state.fullBodies?.clear();
+    if (expanded && this.state.selectedId)
+      markExpansion(this.state, this.state.selectedId, false);
     this.changed();
   }
 
@@ -93,6 +120,7 @@ export class TreeView implements Component {
   }
 
   reveal(id: string): void {
+    while (this.aliases.has(id)) id = this.aliases.get(id)!;
     if (!this.ids.has(id)) return;
     let child = id;
     let parent = this.parents.get(id);
@@ -114,6 +142,7 @@ export class TreeView implements Component {
   }
 
   getRowPosition(id: string): number | undefined {
+    while (this.aliases.has(id)) id = this.aliases.get(id)!;
     if (!this.renderedLines) this.render(this.renderedWidth ?? 80);
     return this.rowPositions.get(id);
   }
@@ -129,7 +158,10 @@ export class TreeView implements Component {
   invalidate(): void {
     this.renderedWidth = undefined;
     this.renderedLines = undefined;
-    for (const node of this.ids.values()) node.body?.invalidate();
+    for (const node of this.ids.values()) {
+      node.body?.invalidate();
+      node.bodyPreview?.invalidate();
+    }
   }
 
   private invalidateHeaders(): void {
@@ -137,15 +169,24 @@ export class TreeView implements Component {
     this.renderedLines = undefined;
   }
 
-  render(width: number): string[] {
-    if (this.renderedLines && this.renderedWidth === width)
+  render(width: number, screenHeight = screenRows()): string[] {
+    if (
+      this.renderedLines &&
+      this.renderedWidth === width &&
+      this.renderedHeight === screenHeight
+    ) {
+      registerTreeCollapse(this.state, this, this.collapseActive);
       return this.renderedLines;
+    }
     const safeWidth = Math.max(0, width);
     if (safeWidth === 0) {
       this.hitRows = [];
+      this.collapseActive = false;
       this.rowPositions.clear();
       this.renderedWidth = width;
+      this.renderedHeight = screenHeight;
       this.renderedLines = [];
+      registerTreeCollapse(this.state, this, false);
       return this.renderedLines;
     }
     this.flat = this.buildFlat();
@@ -158,16 +199,46 @@ export class TreeView implements Component {
       this.theme,
       (node) => this.isOpen(node),
       (id, count) => this.shownCount(id, count),
+      screenHeight,
     );
     const lines = layout.lines;
     this.hitRows = layout.hits;
+    this.collapseActive = this.hitRows.some((hit) => hit.large);
     this.rowPositions = layout.positions;
     this.renderedWidth = width;
+    this.renderedHeight = screenHeight;
     this.renderedLines = lines;
+    registerTreeCollapse(this.state, this, this.collapseActive);
     return this.renderedLines;
   }
 
+  dispose(): void {
+    unregisterTreeCollapse(this.state, this);
+  }
+
+  collapseLarge(): boolean {
+    if (!this.renderedLines)
+      this.render(
+        this.renderedWidth ?? process.stdout.columns ?? 80,
+        this.renderedHeight,
+      );
+    const hit = largeCollapseHit(this.hitRows, this.state);
+    if (!hit) return false;
+    this.collapseHit(hit);
+    return true;
+  }
+
+  private collapseHit(hit: HitRow): void {
+    collapseTreeHit(hit, this.state);
+    if (hit.kind === "collapse") this.moveSelectionToVisibleAncestor(hit.id);
+    this.changed();
+  }
+
   handleInput(data: string): void {
+    if (matchesTreeKey(data, "collapseLarge")) {
+      this.collapseLarge();
+      return;
+    }
     if (matchesTreeKey(data, "cancel")) {
       this.onCancel?.();
       return;
@@ -191,110 +262,51 @@ export class TreeView implements Component {
   }
 
   handleMouse(event: TuiMouseEvent): TuiMouseEventResult | undefined {
-    if (
-      event.type === "wheel" ||
-      event.type === "drag" ||
-      event.type === "move"
-    )
-      return undefined;
-    const hit = this.hitRows.find((row) => event.y === row.y);
-    if (!hit) return undefined;
-    if (
-      hit.kind === "body" &&
-      hit.body &&
-      hit.bodyY !== undefined &&
-      hit.bodyWidth !== undefined
-    ) {
-      if (event.x < hit.markerEnd || event.x >= hit.markerEnd + hit.bodyWidth)
-        return undefined;
-      const result = dispatchMouseEvent(hit.body, {
-        ...event,
-        x: event.x - hit.markerEnd,
-        y: hit.bodyY,
-        width: hit.bodyWidth,
-        height: hit.bodyHeight ?? event.height,
-      });
-      if (!result) return undefined;
-      return { ...result, focus: result.focus && Boolean(this.onCancel) };
-    }
-    if (
-      event.button !== "left" ||
-      (event.type !== "press" && event.type !== "click")
-    )
-      return undefined;
-    if (hit.kind === "more") {
-      if (event.type === "click") this.showMore(hit.id);
-      return {
-        handled: true,
-        render: event.type === "click",
-        focus: Boolean(this.onCancel),
-      };
-    }
-    const onMarker = event.x >= hit.markerStart && event.x < hit.markerEnd;
-    if (onMarker && this.canExpand(this.ids.get(hit.id)!)) {
-      if (event.type === "click") this.toggle(hit.id);
-      return { handled: true, focus: Boolean(this.onCancel) };
-    }
-    if (event.type === "press") return undefined;
-    if (event.type === "click") this.select(hit.id);
-    return { handled: true, focus: Boolean(this.onCancel) };
+    return dispatchTreeMouse(this.hitRows, event, this.state, {
+      canFocus: Boolean(this.onCancel),
+      canExpand: (id) => this.canExpand(this.ids.get(id)!),
+      toggle: (id) => this.toggle(id),
+      more: (id) => this.showMore(id),
+      collapse: (hit) => this.collapseHit(hit),
+      select: (id) => this.select(id),
+      changed: () => this.changed(),
+    });
   }
 
   private rebuildIndex(): void {
+    buildTreeIndex(this.roots);
+    const contracted = contractTree(this.roots);
+    this.roots = contracted.roots;
+    this.aliases = contracted.aliases;
     const { ids, parents } = buildTreeIndex(this.roots);
     this.ids = ids;
     this.parents = parents;
   }
 
   private buildFlat(): FlatNode[] {
-    const result: FlatNode[] = [];
-    const stack = [...this.roots].reverse().map((node, index) => ({
-      node,
-      depth: 0,
-      ancestorLast: [] as boolean[],
-      childIndex: this.roots.length - 1 - index,
-      childCount: this.roots.length,
-    }));
-    while (stack.length > 0 && result.length < MAX_ROWS) {
-      const item = stack.pop()!;
-      result.push({
-        node: item.node,
-        depth: item.depth,
-        ancestorLast: item.ancestorLast,
-        childIndex: item.childIndex,
-        childCount: item.childCount,
-        parentId: this.parents.get(item.node.id),
-      });
-      if (!this.isOpen(item.node)) continue;
-      const children = item.node.children ?? [];
-      const shown = this.shownCount(item.node.id, children.length);
-      const hasMore = shown < children.length;
-      for (let i = shown - 1; i >= 0; i--) {
-        const ancestorLast = [
-          ...item.ancestorLast,
-          item.childIndex === item.childCount - 1,
-        ];
-        stack.push({
-          node: children[i]!,
-          depth: item.depth + 1,
-          ancestorLast,
-          childIndex: i,
-          childCount: hasMore ? shown + 1 : shown,
-        });
-      }
-    }
-    return result;
+    return flattenTree(
+      this.roots,
+      this.parents,
+      (node) => this.isOpen(node),
+      (id, total) => this.shownCount(id, total),
+    );
+  }
+
+  private expansionOwner(node: TreeNode): TreeNode {
+    return expansionOwner(node, this.ids, this.parents);
   }
 
   private isOpen(node: TreeNode): boolean {
+    node = this.expansionOwner(node);
     return (
-      this.state.open.get(node.id) ??
-      (this.state.expanded || Boolean(node.defaultOpen))
+      !this.canExpand(node) ||
+      (this.state.open.get(node.id) ??
+        (this.state.expanded || Boolean(node.defaultOpen)))
     );
   }
 
   private canExpand(node: TreeNode): boolean {
-    return Boolean(node.body || (node.children && node.children.length > 0));
+    return hasExpandableContent(this.expansionOwner(node));
   }
 
   private shownCount(id: string, total: number): number {
@@ -308,6 +320,7 @@ export class TreeView implements Component {
       id,
       Math.min(total, this.shownCount(id, total) + CHILD_PAGE),
     );
+    markExpansion(this.state, id, false);
     this.changed();
   }
 
@@ -338,9 +351,11 @@ export class TreeView implements Component {
   }
 
   private setSelectedOpen(open: boolean): void {
-    const node = this.selectedNode();
-    if (!node || !this.canExpand(node)) return;
+    const selected = this.selectedNode();
+    if (!selected || !this.canExpand(selected)) return;
+    const node = this.expansionOwner(selected);
     this.state.open.set(node.id, open);
+    if (open) markExpansion(this.state, node.id, false);
     if (!open) this.moveSelectionToVisibleAncestor(node.id);
     this.changed();
   }
@@ -358,10 +373,13 @@ export class TreeView implements Component {
   }
 
   private toggle(id: string): void {
-    const node = this.ids.get(id);
-    if (!node || !this.canExpand(node)) return;
+    const selected = this.ids.get(id);
+    if (!selected || !this.canExpand(selected)) return;
+    const node = this.expansionOwner(selected);
+    id = node.id;
     const open = !this.isOpen(node);
     this.state.open.set(id, open);
+    if (open) markExpansion(this.state, id, false);
     if (!open) this.moveSelectionToVisibleAncestor(id);
     this.changed();
   }
@@ -379,37 +397,8 @@ export class TreeView implements Component {
     }
   }
 
-  private pruneState(): void {
-    for (const id of this.state.open.keys())
-      if (!this.ids.has(id)) this.state.open.delete(id);
-    for (const id of this.state.shownChildren.keys())
-      if (!this.ids.has(id)) this.state.shownChildren.delete(id);
-  }
-
-  private replacementSelection(
-    oldSelected: string,
-    oldParents: Map<string, string>,
-    oldRows: string[],
-  ): string | undefined {
-    let ancestor = oldParents.get(oldSelected);
-    while (ancestor) {
-      if (this.ids.has(ancestor)) return ancestor;
-      ancestor = oldParents.get(ancestor);
-    }
-    const index = oldRows.indexOf(oldSelected);
-    for (let offset = 1; index >= 0 && offset < oldRows.length; offset++) {
-      const next = oldRows[index + offset];
-      if (next && this.ids.has(next)) return next;
-      const previous = oldRows[index - offset];
-      if (previous && this.ids.has(previous)) return previous;
-    }
-    return undefined;
-  }
-
   private selectedNode(): TreeNode | undefined {
-    return this.state.selectedId
-      ? this.ids.get(this.state.selectedId)
-      : undefined;
+    return this.ids.get(this.state.selectedId ?? "");
   }
 
   private select(id: string | undefined): void {
@@ -424,6 +413,8 @@ export class TreeView implements Component {
   }
 
   private ensureSelection(): void {
+    while (this.state.selectedId && this.aliases.has(this.state.selectedId))
+      this.state.selectedId = this.aliases.get(this.state.selectedId)!;
     if (this.state.selectedId && this.ids.has(this.state.selectedId)) return;
     this.state.selectedId = this.roots[0]?.id;
   }

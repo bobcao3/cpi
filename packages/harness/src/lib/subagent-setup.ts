@@ -3,7 +3,12 @@ import type {
   ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import { fileURLToPath } from "node:url";
-import { type Component, Text, Container } from "@earendil-works/pi-tui";
+import {
+  type Component,
+  Text,
+  Container,
+  matchesKey,
+} from "@earendil-works/pi-tui";
 import {
   subagentModelEfforts,
   subagentGuidePath,
@@ -114,10 +119,10 @@ async function pickProviders(
   ctx: ExtensionContext,
   text: SetupText,
   providers: ProviderChoice[],
-): Promise<Set<string>> {
+): Promise<Set<string> | undefined> {
   const enabled = new Set(providers.map((provider) => provider.id));
   let index = 0;
-  return ctx.ui.custom<Set<string>>((tui, theme, _keybindings, done) => {
+  return ctx.ui.custom<Set<string> | undefined>((tui, theme, _keys, done) => {
     const container = new Container();
     container.addChild(
       new Text(
@@ -163,8 +168,8 @@ async function pickProviders(
         } else if (data === "\r" || data === "\n") {
           done(new Set(enabled));
           return;
-        } else if (data === "\x1b") {
-          done(new Set());
+        } else if (matchesKey(data, "escape")) {
+          done(undefined);
           return;
         } else {
           return;
@@ -215,6 +220,7 @@ export async function prepareWorkflow(
     return undefined;
   }
   const selected = await pickProviders(ctx, text, providers);
+  if (!selected) return undefined;
   if (selected.size === 0) {
     ctx.ui.notify(text.command.no_providers, "warning");
     return undefined;

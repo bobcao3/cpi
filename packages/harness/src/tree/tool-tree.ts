@@ -9,7 +9,10 @@ import {
   type TuiMouseEventResult,
   truncateToWidth,
 } from "@earendil-works/pi-tui";
-import { renderDiff } from "@earendil-works/pi-coding-agent";
+import { Diff } from "@earendil-works/pi-coding-agent";
+import { treeBodyHint } from "../presentation/tree-hints.ts";
+import { createTreeState } from "./tree-view-state.ts";
+export { createTreeState } from "./tree-view-state.ts";
 import {
   getMarkdownTheme,
   highlightCode,
@@ -43,6 +46,7 @@ export interface ToolTreeNode {
   status?: TreeStatus;
   children?: readonly ToolTreeNode[];
   content?: ToolTreeContent;
+  contentPreview?: ToolTreeContent;
   defaultOpen?: boolean;
   surface?: {
     background: "toolPendingBg" | "toolSuccessBg" | "toolErrorBg";
@@ -99,14 +103,6 @@ const MAX_NODES = 2000;
 const MAX_DEPTH = 48;
 const MAX_TEXT = 200_000;
 
-export function createTreeState(state?: Partial<TreeState>): TreeState {
-  return {
-    open: state?.open ?? new Map(),
-    shownChildren: state?.shownChildren ?? new Map(),
-    ...(state?.selectedId ? { selectedId: state.selectedId } : {}),
-  };
-}
-
 export class ToolTreeComponent implements Component {
   private roots: readonly ToolTreeNode[];
   private theme: Theme;
@@ -153,6 +149,7 @@ export class ToolTreeComponent implements Component {
       if (seen.has(node)) continue;
       seen.add(node);
       ids.add(node.id);
+      if (node.contentPreview) ids.add(`${node.id}\0preview`);
       stack.push(...(node.children ?? []).slice(0, MAX_NODES));
     }
     for (const [id, entry] of this.bodyCache)
@@ -163,6 +160,7 @@ export class ToolTreeComponent implements Component {
   }
 
   dispose(): void {
+    this.tree.dispose();
     for (const entry of this.bodyCache.values())
       (entry.body as Component & { dispose?: () => void }).dispose?.();
     this.bodyCache.clear();
@@ -236,8 +234,15 @@ export class ToolTreeComponent implements Component {
     return this.tree.getSelectedId();
   }
 
-  render(width: number): string[] {
-    const lines = this.tree.render(Math.max(0, width - this.padding));
+  collapseLarge(): boolean {
+    return this.tree.collapseLarge();
+  }
+
+  render(width: number, screenHeight?: number): string[] {
+    const lines = this.tree.render(
+      Math.max(0, width - this.padding),
+      screenHeight,
+    );
     if (this.padding === 0) return lines;
     const prefix = " ".repeat(Math.min(this.padding, Math.max(0, width)));
     return lines.map((line: string) =>
@@ -344,6 +349,14 @@ export class ToolTreeComponent implements Component {
       status: node.status,
       children,
       body: node.content ? this.bodyFor(node.id, node.content) : undefined,
+      bodyPreview: node.contentPreview
+        ? this.bodyFor(`${node.id}\0preview`, node.contentPreview)
+        : undefined,
+      bodyExpansionHint: node.contentPreview
+        ? (expanded, keyboardToggle, large) =>
+            treeBodyHint(this.theme, expanded, keyboardToggle, large)
+        : undefined,
+      collapseHint: treeBodyHint(this.theme, true, false, true),
       defaultOpen: node.defaultOpen,
       surface: surface
         ? {
@@ -397,15 +410,11 @@ export class ToolTreeComponent implements Component {
     if (format === "markdown")
       return new Markdown(text, 0, 0, getMarkdownTheme());
     if (format === "diff")
-      return new Text(
-        renderDiff(text, {
-          theme: this.theme,
-          language,
-          lineNumbers: content.diffLineNumbers,
-        }),
-        0,
-        0,
-      );
+      return new Diff(text, {
+        theme: this.theme,
+        language,
+        lineNumbers: content.diffLineNumbers,
+      });
     if (format === "code")
       return new Text(
         highlightCode(text, language, {

@@ -2,7 +2,7 @@
 description = "Inspect rendered tool trees"
 shortcut = "ctrl+shift+i"
 empty = "No rendered tool trees are available in this session."
-hint = "{{up}}/{{down}} select · {{toggle}} toggle · {{previousRoot}}/{{nextRoot}} tool root · {{leave}} close"
+hint = "{{leave}} to dismiss · {{up}}/{{down}} select · {{toggle}} toggle · {{previousRoot}}/{{nextRoot}} tool root"
 
 [keys]
 previousRoot = ["shift+tab"]

@@ -173,7 +173,7 @@ for (const name of ["dark", "light"]) {
     const script = roots[0].children!.find(
       (node) => stripTerminalSequences(node.label) === "Script",
     )!;
-    for (const content of [script.content!, script.children![0].content!]) {
+    for (const content of [script.contentPreview!, script.content!]) {
       const body = content.component!.render(120).join("\n");
       assert.equal(
         body

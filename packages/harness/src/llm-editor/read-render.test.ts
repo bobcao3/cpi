@@ -79,8 +79,9 @@ test("real reads stay compact and reveal content and errors independently", asyn
       state: successContext.viewState,
     });
     assert.ok(!visible(component).includes("secret file contents"));
-    successContext.viewState.open.set("read-one/preview", true);
-    component.reveal("read-one/preview");
+    component.reveal("read-one");
+    component.handleAction("open");
+    assert.ok(visible(component).includes("Preview:"));
     assert.ok(visible(component).includes("secret file contents"));
     assert.ok(!component.getVisibleIds().includes("read-two/error"));
     component.reveal("read-two/error");

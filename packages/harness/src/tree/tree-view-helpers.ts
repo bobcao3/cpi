@@ -5,13 +5,14 @@ import type { TreeNode, TreeStatus, TreeViewTheme } from "./tree-view.ts";
 export interface FlatNode {
   node: TreeNode;
   depth: number;
+  flattened: boolean;
   ancestorLast: boolean[];
   childIndex: number;
   childCount: number;
   parentId?: string;
 }
 
-export type RowKind = "header" | "body" | "more";
+export type RowKind = "header" | "body" | "more" | "body-toggle" | "collapse";
 
 export interface HitRow {
   kind: RowKind;
@@ -19,6 +20,7 @@ export interface HitRow {
   y: number;
   markerStart: number;
   markerEnd: number;
+  large?: boolean;
   body?: Component;
   bodyY?: number;
   bodyWidth?: number;

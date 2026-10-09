@@ -11,11 +11,19 @@ export const TREE_KEYBINDINGS = {
   "tui.tree.close": { defaultKeys: "left" },
   "tui.tree.toggle": { defaultKeys: ["enter", "space"] },
   "tui.tree.cancel": { defaultKeys: ["escape", "ctrl+c"] },
+  "tui.tree.collapseLarge": { defaultKeys: "ctrl+-" },
 } as const satisfies KeybindingDefinitions;
 
 export function matchesTreeKey(
   data: string,
-  action: "up" | "down" | "open" | "close" | "toggle" | "cancel",
+  action:
+    | "up"
+    | "down"
+    | "open"
+    | "close"
+    | "toggle"
+    | "cancel"
+    | "collapseLarge",
 ): boolean {
   const id = `tui.tree.${action}` as const;
   const configured = getKeybindings().getUserBindings()[id];
