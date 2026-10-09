@@ -60,15 +60,27 @@ export function buildCpiSystemPrompt(
   );
   const {
     customPrompt,
-    promptGuidelines,
+    selectedTools = ["read", "bash", "edit", "write"],
+    hiddenTools = [],
+    toolGuidelines = {},
+    promptGuidelines = [],
     appendSystemPrompt,
     contextFiles = [],
   } = options;
 
-  const guidelines = (promptGuidelines ?? [])
-    .map((g) => render(g, renderCtx).trim())
-    .filter((g) => g.length > 0);
-  guidelines.push(...text.guidelines.always);
+  const guidelines = [
+    ...new Set(
+      [
+        ...selectedTools
+          .filter((name) => !hiddenTools.includes(name))
+          .flatMap((name) => toolGuidelines[name] ?? []),
+        ...promptGuidelines,
+        ...text.guidelines.always,
+      ]
+        .map((g) => render(g, renderCtx).trim())
+        .filter((g) => g.length > 0),
+    ),
+  ];
   const identity = render(text.identity.prompt, renderCtx).trim();
 
   // A custom --system-prompt replaces the identity/guidelines/pi-docs baseline; appended content remains.

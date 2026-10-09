@@ -1,7 +1,7 @@
 # Model-facing text for the lsp tool.
 
 [tool]
-description = "Manage LSP sessions: list_sessions, list_supported_servers, start (resolve project + provision), stop, check (file diagnostics)."
+description = "Manage language server sessions and retrieve file diagnostics."
 prompt_snippet = "LSP sessions: start/check/stop"
 
 [schema]
@@ -11,11 +11,8 @@ env = "Path to a .env file to load for the server (restart on change)."
 
 [guidelines]
 bullets = [
-  "Run `lsp list_supported_servers` to list supported servers and how each is provisioned.",
-  "`lsp start file=<path>` searches upwards for a project root and starts a session.",
-  "After env-capture, you can restart lsp in that env by running `lsp start file=<path> env=<dotenv>`.",
-  "`lsp list_sessions` lists active sessions; `lsp stop file=<path>` stops one.",
-  "write/edit/apply_patch writes will auto-start an LSP session in the discovered project root. Without a running LSP session diagnostics (including `lsp check`) are not available.",
-  "zls is matched to the project's Zig version pin (`.zigversion`, else `build.zig.zon` `minimum_zig_version`, else the `zig` on `PATH`). To switch servers after changing the pin, run `lsp stop` then `lsp start`.",
-  "zls surfaces syntax diagnostics only; run `zig build` to check for type errors (zls build-on-save is opt-in).",
+  "Use lsp list_supported_servers for servers/provisioning, list_sessions for active sessions, and stop file=<path> to stop one.",
+  "lsp start file=<path> finds the project root upwards and starts a session. project_dir applies to start/stop; file to start/stop/check. After env-capture, restart with start file=<path> env=<dotenv>; changing env restarts the server.",
+  "write/edit/apply_patch auto-start LSP at the discovered root; diagnostics (including lsp check) require a running session.",
+  "zls follows .zigversion, else build.zig.zon minimum_zig_version, else zig on PATH. After a pin change, stop then start to switch servers. zls reports syntax only; use zig build for type errors. Build-on-save is opt-in.",
 ]

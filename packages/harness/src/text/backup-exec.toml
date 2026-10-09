@@ -1,7 +1,7 @@
 # Model-facing text for the backup-exec tool (cpi dev-only fallback runner).
 
 [tool]
-description = "Dead-simple argv runner (Codex exec semantics): spawns `command` (an argv vector) directly with NO shell — e.g. [`make`, `test`] or [`bash`, `-c`, `ls -la`]. Use ONLY when the `sh` tool malfunctions. Optional `workdir` (default: cwd) and `timeout_ms` (default 30000, max 120000). If `command` is omitted or empty it defaults to [$SHELL] (argv[0] = $SHELL). Returns combined stdout+stderr and the exit code."
+description = "Execute an argv vector and return combined stdout and stderr, plus the exit code."
 prompt_snippet = "Fallback argv runner — use only when sh is broken"
 
 [schema]
@@ -11,7 +11,6 @@ timeout_ms = "Kill the process after this many milliseconds and return partial o
 
 [guidelines]
 bullets = [
-  "Use backup-exec ONLY when the `sh` tool is malfunctioning; otherwise always prefer `sh` (it lints, backgrounds, and notifies on completion).",
-  "`command` is an argv vector exec'd directly with NO shell — pipes, globs, redirects, and `&&` do not work. For shell features, run through your shell: [`bash`, `-c`, `...`] or [`$SHELL`, `-c`, `...`].",
-  "Set `timeout_ms` for anything that may hang; on timeout the process is killed and partial output is returned.",
+  "Use backup-exec ONLY if sh malfunctions; otherwise use sh for linting, backgrounding, and completion notices.",
+  "command executes argv without a shell: no pipes/globs/redirects/&&. For shell syntax, use [`bash`, `-c`, `...`] or [`$SHELL`, `-c`, `...`]. Set timeout_ms for possible hangs; timeout kills the process and returns partial output.",
 ]

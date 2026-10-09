@@ -2,11 +2,11 @@
 
 # ── Tool metadata shown to the main agent ──
 [sh]
-description = "Run a command via `{{shell_invocation}}` ({{shell_name}}). Stateless: no env/cwd persistence. If the command runs longer than `waitfor`, sh backgrounds it and returns an id for signalling. Maximum waitfor is {{max_waitfor}}s. Codemode calls return structured results: check is_error and status, read output for the bounded command preview, and use full_output_path for the complete output. Non-zero exits and blocked commands return is_error=true; execution exceptions still reject."
+description = "Run a shell command; if still running after `waitfor`, background it and return a signalling id. Codemode returns structured results: check is_error/status, read the bounded output preview, and use full_output_path for complete output. Nonzero exits and blocked commands set is_error=true; execution exceptions reject."
 prompt_snippet = "Run shell commands"
 
 [sh_signal]
-description = "Signal a background shell command by its PID (sh-returned). {{#windows}}On Windows, this terminates the background process tree; POSIX signal names are treated as forced termination.{{/windows}}{{^windows}}Send SIGKILL to terminate background shell process-group.{{/windows}}"
+description = "Signal a background shell command by its sh-returned ID."
 prompt_snippet = "Signal background shell commands"
 
 [sh_background_ps]
@@ -14,7 +14,7 @@ description = "List active background shells and repeat_until monitors."
 prompt_snippet = "List active background jobs"
 
 [sh_detach]
-description = "Release a background shell (by sh-returned PID) to run on its own, untracked: it survives this pi process, no completion notification fires, and sh_signal/killAll will not touch it. Output keeps draining to its log file. The child never receives SIGPIPE because pi never held its pipe (ghostmux does)."
+description = "Detach a background shell to survive pi shutdown, like nohup/tmux. Output still drains to its log; Ghostmux retains the child's output pipe, avoiding SIGPIPE."
 prompt_snippet = "Detach background shells to run untracked"
 
 [schema.sh]
@@ -54,33 +54,28 @@ guidance = "cpi stopped tracking this background action during session shutdown 
 # ── promptGuidelines ──
 [guidelines]
 sh = [
-  "Use is_pty=true for interactive terminal applications. Send input with ghostmux send-input --uid UID --text TEXT; sh has no stdin tool parameter.",
-  "Shell results include UID and socketPath. Select the target daemon with ghostmux -S SOCKET COMMAND. The shell environment includes CPI_GHOSTMUX_SOCKET and ghostmux on PATH; pass the socket explicitly with -S.",
-  "Read rendered terminal text with ghostmux -S SOCKET capture-pane --uid UID --history --join. Read raw bytes with ghostmux -S SOCKET read-output --uid UID --offset N --limit N. Save a live PTY image with ghostmux -S SOCKET screenshot --uid UID --output PATH. Completed sessions no longer retain terminal state; read their durable log instead.",
-  "The returned log path contains the recorded raw output, including terminal escape sequences. Replay completed PTY logs with ghostmux --input LOG --text capture.txt --history --join --png screen.png; supply the terminal's --cols and --rows when replaying a non-default geometry.",
-  "Each sh call = fresh `{{shell_invocation}}` ({{shell_name}}). No session reuse; env/cwd/shell state don't persist. Use `env-capture` to capture the current environment as a dotenv file that you can load in later `sh` sessions.",
-  "For sh & sh_repeat_until, a short `description` parameter is required (a few words explaining the command's purpose).",
-  "For sh tool, the maximum legal `waitfor` time is {{max_waitfor}}s; any longer the command will be rejected.",
-  "Signal a background shell via sh_signal with its PID; send SIGKILL to terminate.",
-  "A completion notification will fire once a background shell finishes and returns control to agent.",
-  "Avoid polling or busy waiting: do not set up repeated `alarm`s to poll a backgrounded shell (a completion notification fires on its own), and try to avoid writing `sleep N && ...` commands; use the `alarm` tool instead for scheduled wake-ups.",
-  "If a background shell completes and no follow-up is needed, feel free to end the turn.",
+  "Interactive terminals require is_pty=true. sh has no stdin parameter; send input with ghostmux send-input --uid UID --text TEXT.",
+  "Shell results provide UID/socketPath; the environment provides CPI_GHOSTMUX_SOCKET and ghostmux on PATH. Always select the daemon explicitly: ghostmux -S SOCKET COMMAND.",
+  "Read rendered text with ghostmux -S SOCKET capture-pane --uid UID --history --join; raw bytes with ghostmux -S SOCKET read-output --uid UID --offset N --limit N. Save live PTY screenshots with ghostmux -S SOCKET screenshot --uid UID --output PATH. Completed sessions lose terminal state; read their durable logs.",
+  "Logs contain raw output, including escapes. Replay completed PTY logs: ghostmux --input LOG --text capture.txt --history --join --png screen.png; include --cols/--rows for nondefault geometry.",
+  "Each sh call starts fresh `{{shell_invocation}}` ({{shell_name}}); no env/cwd/shell state persists between calls. Use `env-capture` to save an environment as dotenv for later sh calls.",
+  "sh/sh_repeat_until require a brief purpose in `description`. sh rejects waitfor > {{max_waitfor}} seconds.",
+  "Use sh_signal with the returned PID; SIGKILL terminates. Background completion notifies and returns control; if no follow-up is needed, end the turn.",
+  "Avoid polling/busy waiting: never poll background shells with repeated alarms; completion notifies automatically. Prefer alarm for scheduled wake-ups over `sleep N && ...`.",
   "{{#fd}}Search files with the faster `$ fd` command not `$ find`: fd [OPTS] [-H] [-I] [pattern] [path]...{{/fd}}",
   "{{#rg}}Search content with the faster `$ rg` command not `$ grep`: rg [OPTS] [--hidden] [--no-ignore] PATTERN [path]...{{/rg}}",
-  "If an LSP session is running, `sh` tool editing commands will trigger LSP auto-lint.",
+  "sh edits trigger auto-lint when an LSP session is running.",
 ]
 sh_signal = [
-  "{{^windows}}sh_signal defaults to SIGINT, and signal is always delivered to the whole process group.{{/windows}}",
-  "{{^windows}}Do not run `kill` via sh on background PIDs; use `sh_signal` instead.{{/windows}}",
-  "{{^windows}}SIGKILL terminates the process group and suppresses the completion notice; no completion notification will fire for that shell, so do not call wait_any expecting one; any other signal (SIGINT, SIGTERM, …) may be caught or ignored, so the process is not guaranteed to stop. Its completion notification will still fire when the process eventually exits; call wait_any to yield until then.{{/windows}}",
+  "{{^windows}}sh_signal defaults to SIGINT and signals the whole process group. Never run shell `kill` on background PIDs; use sh_signal.{{/windows}}",
+  "{{^windows}}SIGKILL terminates the group and suppresses completion notification; never wait_any expecting that notice. Other signals (SIGINT, SIGTERM, …) may be caught/ignored and need not stop the process; eventual exit still notifies, so wait_any until then.{{/windows}}",
   "{{#windows}}Every signal request forcibly terminates the entire background process tree and suppresses the completion notice.{{/windows}}",
   "{{#windows}}Windows does not provide POSIX signal delivery.{{/windows}}"
 ]
 sh_detach = [
-  "After detach, the PID is gone from sh_background_ps and unreachable by sh_signal, no completion notification fires afterward, but the process will continue to run as if it's in nohup",
-  "For a process you know that must outlive current session (such as a service or web server), you should invoke sh_detach after backgrounding to make it a detached daemon.",
-  "Never use sh_detach for the subagent launcher: detaching only its RPC client cannot detach the root-owned Worker thread, and root pi shutdown cancels the agent.",
-  "Detaching a background shell is basically equivalent to runnint it in a nohup / tmux."
+  "Detach removes the PID from sh_background_ps and sh_signal and prevents later completion notifications; the process keeps running.",
+  "After backgrounding a service/web server that must outlive this session, use sh_detach.",
+  "Never detach subagent launchers: only the RPC client detaches, not the root-owned Worker; root pi shutdown cancels the agent."
 ]
 sh_background_ps = [
   "Use sh_background_ps to list running background shells and monitors.",

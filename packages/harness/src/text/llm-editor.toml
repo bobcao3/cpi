@@ -138,41 +138,39 @@ one {{open}} line and one {{close}} line.
 '''
 # ── Tool metadata shown to the main agent (one tool per command) ──
 [tool.read]
-description = "Read files and directories. On a directory, lists a non-hidden 2-level tree. On a file with a query, a Viewer subagent returns only the relevant line ranges (AI-filtered) with line numbers; without a query, a plain full-file read (no line numbers). Prefer this over sh for reading."
+description = "Read files and directories. Directory reads list a non-hidden 2-level tree. File reads without a query return plain text without line numbers."
 prompt_snippet = "Read files/dirs (AI-filtered)"
 guidelines = [
-	"`read` is for file and directory reads; prefer it over sh for reading (use sh for git, build, test, search, process control).",
-	"`read`: pass `query` to receive only the relevant line ranges (AI-filtered, with line numbers) instead of the whole file — less context, less noise.",
-	"{{#vision}}`read` on an image file (jpg/png/gif/webp/avif) shows the image to the agent, never cat/sed/base64 images.{{/vision}}",
+	"Prefer read for files/directories; use sh for git, builds, tests, searches, and process control.",
+	"Use absolute paths for read/edit/write/apply_patch; read also accepts its declared path prefixes.",
+	"Pass read.query for AI-filtered relevant ranges with line numbers instead of the whole file.",
+	"{{#vision}}Use `read` tool to view an image file (jpg/png/gif/webp/avif) & show it to the user.{{/vision}}",
 ]
 
 [tool.edit]
-description = "Edit an existing file via a natural-language instruction. An editor subagent generates a patch, meaning diff text describing changes to one existing file. A hunk is one diff header and the following context, removal, and addition lines. Errors number hunks from 1 in submission order and identify lines of patch text, not source-file lines. The tool stops at the first failed hunk; editor.partialApply controls whether preceding hunks persist. A partial application ends the editor attempt and reports the applied hunks, failed hunk, and later hunks that the tool did not attempt. Concurrent same-path edits serialize."
+description = "Edit an existing file from a natural-language instruction. A hunk is a diff header plus context/removal/addition lines. Errors count hunks from 1 in submission order and cite patch-text lines, not source lines. Stop at the first failed hunk; editor.partialApply controls whether earlier hunks persist. Partial application ends the attempt and reports applied/failed/unattempted later hunks. Same-path edits serialize."
 prompt_snippet = "Edit files via natural-language instruction"
 guidelines = [
-	"`edit` takes a natural-language `instruction` naming the function/class/method to change; the subagent emits unified-diff hunks. Be specific: 'In MyClass.my_method, change X to Y' beats 'fix the bug'.",
-	"`edit`: decompose edit tasks into concrete actions, editor subagent will refuse creative synthesis work",
-	"Review the resulting diff: a matching patch does not guarantee instruction compliance or logical correctness.",
-	"`edit` cannot create a new file; use `write` for that.",
+	"Name the function/class/method and concrete actions in edit.instruction; the subagent emits unified-diff hunks and refuses creative synthesis. Prefer 'In MyClass.my_method, change X to Y' over 'fix the bug'.",
+	"Review the diff for instruction compliance and logical correctness; matching source is insufficient. edit cannot create files; use write.",
 ]
 
 [tool.apply_patch]
 description = """
-Apply a patch to one existing file. A patch is submitted diff text; a hunk is one header and the following context, removal, and addition lines. Hunk numbers start at 1 in submission order, including context-only hunks. Error line numbers refer to patch text, not source-file lines. Headers: `@@`, `@@ exact source line`, or `@@ -OLD,COUNT +NEW,COUNT @@`. Prefix context with a space, removals with -, additions with +.
-A context-only hunk contains unchanged lines without removals or additions. The tool matches later hunks after those unchanged lines. An exact-source-line header (`@@ exact source line`) selects a source line; the tool matches the hunk body after that line. Exact-source-line headers and unnumbered hunks must match uniquely within the remaining source lines. At least one hunk must change lines. The tool stops at the first failed hunk. The editor.partialApply setting controls whether preceding hunks persist; failure feedback identifies applied hunks, the failed hunk, and later hunks that the tool did not attempt. The tool checks file headers, surrounding patch markers, and input-size limits before applying hunks. Failure in those checks leaves the file unchanged. Re-read after a partial application and retry only the remaining changes.
-The tool accepts optional patch marker lines, such as *** Begin Patch and *** End Patch, or Markdown fences around the hunks. File headers must identify the path argument. Text after the closing @@ in a numbered hunk header does not select a source location. The tool does not create, delete, or rename files.
+Apply diff text to one existing file; never create, delete, or rename. A hunk is a header plus context/removal/addition lines. Count hunks from 1 in submission order, including context-only hunks; error lines refer to patch text, not source lines.
+Headers: `@@`, `@@ exact source line`, or `@@ -OLD,COUNT +NEW,COUNT @@`. Prefix context with a space, removals with -, additions with +. A context-only hunk has no additions/removals; later hunks match after its unchanged lines. Exact-source headers select a source line; the body matches after it. Exact-source headers and unnumbered hunks require unique matches within remaining source lines. At least one hunk must change lines. Text after a numbered header's closing @@ does not select a location.
+Stop at the first failed hunk. editor.partialApply controls whether earlier hunks persist; feedback identifies applied/failed/unattempted later hunks. After partial application, re-read and retry only remaining changes. Validate file headers, surrounding markers, and input-size limits before applying; validation failure leaves the file unchanged. Optional *** Begin Patch/*** End Patch markers or Markdown fences are accepted; file headers must name the path argument.
 """
 prompt_snippet = "Apply single-file diff hunks directly"
 guidelines = [
-	"Prefer `apply_patch` when you already know the exact change and have the current source; use `edit` to delegate producing the change. Re-read after a mismatch rather than guessing context.",
+	"Use apply_patch for a known exact change with current source, or edit to delegate the change. After a mismatch, re-read; never guess context.",
 ]
 
 [tool.write]
-description = "Write a new file. Fails if the path already exists (use apply_patch or edit to modify an existing file). Creates parent directories as needed."
+description = "Write a new file and create parent directories as needed."
 prompt_snippet = "Write new files"
 guidelines = [
-	"`write` writes a new file from `file_text`; it fails if the path already exists — use `apply_patch` or `edit` to modify an existing file.",
-	"`write` is preferred over `sh` heredocs for new files; it is atomic and shares `edit`'s per-path locking.",
+	"write creates from file_text and fails if the path exists; use apply_patch/edit for existing files. Prefer write over sh heredocs: writes are atomic and share edit's per-path lock.",
 ]
 
 # ── Schema field descriptions (injected into the TypeBox tool schemas) ──
@@ -266,4 +264,3 @@ section_completion = "## Completion"
 section_completion_turn = "## Completion {{turn}}"
 section_correction_turn = "## Correction {{turn}}"
 section_stderr = "## stderr"
-

@@ -1,11 +1,10 @@
 # Model-facing text for the wait_any tool.
 
 [tool]
-description = "Yield and wait until any event triggers (user message, shell completion or error, alarm wakeups, registered external-event subscriptions)."
+description = "Yield until an event wakes the agent."
 prompt_snippet = "Yield control until an event wakes you"
 
 [guidelines]
 bullets = [
-  "After wait_any the turn ends; you are woken by the next event — a user message, a shell-completion/error notification, an alarm firing, or a registered external-event notification.",
-  "Use wait_any when waiting for a background shell, active alarm, or registered external-event subscription. Otherwise just end your turn. Subscriptions must be explicitly armed with bounded expiry; wait_any does not create one."
+  "wait_any ends the turn until a user message, shell completion/error, alarm, or registered external event wakes you. Use it only for pending background shells, active alarms, or registered subscriptions; otherwise end your turn. Explicitly arm subscriptions with bounded expiry; wait_any creates none."
 ]

@@ -12,6 +12,5 @@ path = "Target directory, absolute, or relative to cwd"
 
 [guidelines]
 bullets = [
-  "Use set_cwd when the user switches projects, or when the current CWD is no longer the right root for shell commands.",
-  "Use set_cwd to avoid repeatedly prefixing `cd path/to/project && ...` on every sh call.",
+  "Use set_cwd for project switches or a wrong shell root, instead of repeating `cd path/to/project && ...` in sh calls.",
 ]
