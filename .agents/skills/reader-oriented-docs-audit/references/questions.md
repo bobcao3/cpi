@@ -16,14 +16,14 @@ already answers the question.
 2. What are Pi, the Pi fork, and cpi, and which repository owns which code? —
    home: `docs/package-boundary.md`, opening.
 3. What does cpi add over upstream Pi, and what is deliberately left out? —
-   home: `README.md`; the authoritative feature list is `packages/extensions/`.
+   home: `README.md`; the authoritative feature list is `packages/harness/`.
 4. What are the moving parts at runtime, and which process talks to which? —
    home: `docs/package-boundary.md`, prose; the tree itself is the filesystem.
 5. Which packages are first-party and which are pinned fork or third-party
    artifacts? — home: `docs/package-boundary.md`; pins in
    `vendor/pi/manifest.json`.
 6. What is the license, and what must I ship when redistributing? — home:
-   `README.md` plus `LICENSE` and `packages/extensions/NOTICE.md`.
+   `README.md` plus `LICENSE` and `packages/harness/NOTICE.md`.
 7. How do I tell whether a behavior comes from the pinned Pi artifact set or
    from cpi extension code? — home: `docs/package-boundary.md`, package boundary.
 
@@ -53,7 +53,7 @@ already answers the question.
 ## C. Shells and background work
 
 16. How does the `sh` tool decide to background a command, and what does it
-    return? — home: `extensions/text/shell.toml` is model-facing; a human
+    return? — home: `src/text/shell.toml` is model-facing; a human
     summary belongs in `docs/background-work.md`.
 17. What is the lifecycle of a background shell from launch to completion
     notification? — home: `docs/background-work.md`.
@@ -84,7 +84,7 @@ already answers the question.
     anti-stuck? — home: `docs/session-events.md`;
     `docs/external-event-subscriptions.md` covers producers only.
 28. How do goals and their budgets work? — home: `docs/goals.md`.
-29. How do I use the LLM editor tools, and what are their limits? — home: `docs/editor-tools.md`; model-facing rules in `extensions/text/`.
+29. How do I use the LLM editor tools, and what are their limits? — home: `docs/editor-tools.md`; model-facing rules in `src/text/`.
 30. How do LSP sessions start, lint, and react to shell edits? — home: `docs/lsp.md`; keys in `cpi-config.default.json`.
 31. Where does cost data come from, and where is it reported? — home: out of
     scope; the ledger (`lib/cost-ledger.ts`) is the authority.
@@ -95,7 +95,7 @@ already answers the question.
 
 33. Where in the tree do I change a given behavior: tool text, tool logic, a
     skill, or the CLI? — home: `README.md` and `AGENTS.md`.
-34. Why must model-facing text live in `extensions/text/*.toml`, and how is it
+34. Why must model-facing text live in `src/text/*.toml`, and how is it
     rendered? — home: `AGENTS.md`, coding rules.
 35. How does extension hot reload work, and what must not be cached across
     reloads? — home: `AGENTS.md`, developing extensions.
@@ -108,7 +108,7 @@ already answers the question.
     root `package.json`.
 39. How do I add a skill, and how are skills discovered, routed, and
     disabled? — home: `$PI_AGENT_SRC/docs/skills.md`; wiring in
-    `packages/extensions/package.json`.
+    `packages/harness/package.json`.
 40. How do I run checks, formatting, and integration scripts, and which honor
     `CPI_FORK`? — home: `AGENTS.md`, development and verification.
 41. How should a new tool render, given the tool-tree presentation contract? —

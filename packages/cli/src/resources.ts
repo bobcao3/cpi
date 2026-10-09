@@ -11,7 +11,7 @@ type DefaultResourceLoaderOptions = ConstructorParameters<
 >[0];
 
 const packageJsonPath = fileURLToPath(
-  import.meta.resolve("@cpi/extensions/package.json"),
+  import.meta.resolve("@cpi/harness/package.json"),
 );
 const packageDirectory = dirname(packageJsonPath);
 const packageManifest = JSON.parse(readFileSync(packageJsonPath, "utf8")) as {

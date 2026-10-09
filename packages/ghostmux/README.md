@@ -8,7 +8,7 @@ PTY, maintains terminal state, captures text, and renders PNG screenshots
 without a display server or installed fonts.
 
 For the shell-tool integration, see
-[`monitor.ts`](../extensions/extensions/shell/monitor.ts).
+[`monitor.ts`](../harness/src/shell/monitor.ts).
 
 The package API is `@cpi/ghostmux/resolve`; release provenance and verification
 are exported through `@cpi/ghostmux/source` and `@cpi/ghostmux/signature`.
@@ -146,7 +146,7 @@ and signals work for both session types. Pipe sessions reject terminal captures,
 screenshots, resizing, and input with `NotPty`. Session status exposes `is_pty`.
 
 See [`src/managed_process.zig`](src/managed_process.zig) for backend selection
-and [`shell.toml`](../extensions/extensions/text/shell.toml) for
+and [`shell.toml`](../harness/src/text/shell.toml) for
 model-facing shell and capture guidance.
 
 Launch short-lived commands with an atomic output subscription:

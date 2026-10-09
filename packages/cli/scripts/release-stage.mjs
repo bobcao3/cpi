@@ -79,7 +79,7 @@ export function manifestPaths(value) {
   if (typeof value === "string") {
     if (/\.d\.(ts|mts|cts)$/.test(value)) return value;
     return value
-      .replace(/^(\.\/)?src\//, "$1dist/")
+      .replace(/^(\.\/)?src(?=\/|$)/, "$1dist")
       .replace(/dist\/bundle\/(cli|rpc-entry)\.js$/, "dist/$1.js")
       .replace(/\.(ts|tsx|mts|cts)$/, (_, ext) =>
         ext === "mts" ? ".mjs" : ext === "cts" ? ".cjs" : ".js",

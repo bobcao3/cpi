@@ -1,0 +1,48 @@
+{
+  "name": "@cpi/harness",
+  "version": "0.0.3",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    "./package.json": "./package.json"
+  },
+  "bin": {
+    "subagent": "./bin/subagent"
+  },
+  "pi": {
+    "extensions": [
+      "./src/index.ts"
+    ],
+    "skills": [
+      "./skills"
+    ]
+  },
+  "files": [
+    "src",
+    "skills",
+    "bin",
+    "tools",
+    "NOTICE.md",
+    "cpi-config.default.json",
+    "LICENSE"
+  ],
+  "dependencies": {
+    "@cpi/ghostmux": "0.0.3",
+    "@cpi/tree-sitter-wasm": "0.0.3",
+    "mustache": "4.2.0",
+    "sharp": "0.35.4",
+    "smol-toml": "1.9.0",
+    "jiti": "2.7.0"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-agent-core": "1.1.1-cpi.37998908067",
+    "@earendil-works/pi-ai": "1.1.1-cpi.37998908067",
+    "@earendil-works/pi-coding-agent": "1.1.1-cpi.37998908067",
+    "@earendil-works/pi-tui": "1.1.1-cpi.37998908067",
+    "typebox": "*"
+  },
+  "devDependencies": {
+    "diff": "8.0.4"
+  }
+}

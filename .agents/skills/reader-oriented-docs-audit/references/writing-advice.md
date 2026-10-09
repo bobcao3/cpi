@@ -15,15 +15,15 @@ pointer and a contract statement.
 
 | Fact class | Authoritative home | What a doc may say |
 |---|---|---|
-| Tool descriptions, prompt snippets, guidelines, schema text | `extensions/text/*.toml` | nothing; docs may say which tool owns the behavior |
+| Tool descriptions, prompt snippets, guidelines, schema text | `src/text/*.toml` | nothing; docs may say which tool owns the behavior |
 | CLI flags, defaults, usage | flag definitions and `--help` | one canonical invocation per task; never a flag reference table |
-| Config keys, types, defaults | `cpi-config.default.json` and `extensions/lib/config.ts` | where files live, precedence, one annotated minimal example; link for the key list |
+| Config keys, types, defaults | `cpi-config.default.json` and `src/lib/config.ts` | where files live, precedence, one annotated minimal example; link for the key list |
 | Shell, ghostmux, and protocol limits | `cpi-config.default.json`, `packages/ghostmux/src/wire.zig`, tests | the user-visible consequence; a number users must obey, stated once, in one doc |
 | Pi artifact versions and fork revision | `vendor/pi/manifest.json`, `packages/cli/package.json`, `bun.lock` | "pinned; see the manifest" plus the bump procedure |
 | Coding rules and source metrics | `AGENTS.md` and `scripts/check.mjs` | never restated in docs or code comments |
 | Test, check, and format commands | root `package.json` scripts | one canonical command list in one place; other docs link to it |
 | Directory layout | the repository tree | the role of each component in prose; never a file tree |
-| Skills and their trigger phrases | `packages/extensions/skills/` | how to write one, not an enumerated catalog |
+| Skills and their trigger phrases | `packages/harness/skills/` | how to write one, not an enumerated catalog |
 | Session and cache paths, environment variables | code (`getAgentDir`, `PI_SESSION_DIR`) and fork `docs/environment-variables.md` | the location a reader must use |
 | Rendering and presentation contracts | `docs/tool-tree-presentation-design.md` and the renderers | the contract and the user-visible consequence, not the implementation |
 | Third-party components and licenses | `NOTICE.md` and package `LICENSE` files | a link |
@@ -97,7 +97,7 @@ publishing format.
 - [ ] First screen names audience, purpose, and primary task.
 - [ ] Every question the doc targets is answered in the doc or one link away.
 - [ ] No restated defaults, flags, keys, versions, directory trees, or
-      `extensions/text/*.toml` prompt text; the drift test passes line by line.
+      `src/text/*.toml` prompt text; the drift test passes line by line.
 - [ ] Index entry and TOC match the doc's actual content.
 - [ ] Links resolve and anchors exist; `$CPI_HARNESS_SRC/` and
       `$PI_AGENT_SRC/` prefixes and cross-repo `cpi-fork` links are correct.

@@ -49,12 +49,7 @@ try {
     fork.artifacts.map((artifact) => [artifact.name, artifact.version]),
   );
   const entries = [];
-  for (const directory of [
-    "cli",
-    "extensions",
-    "ghostmux",
-    "tree-sitter-wasm",
-  ]) {
+  for (const directory of ["cli", "harness", "ghostmux", "tree-sitter-wasm"]) {
     const manifest = JSON.parse(
       await readFile(join(root, "packages", directory, "package.json"), "utf8"),
     );
@@ -70,7 +65,7 @@ try {
     });
   }
   await init;
-  for (const name of ["extensions", "cli"]) {
+  for (const name of ["harness", "cli"]) {
     const directory = join(destination, name);
     entries.push({
       directory,

@@ -24,7 +24,7 @@ assert(
 );
 const destination = resolve(process.argv[2]);
 const here = dirname(fileURLToPath(import.meta.url));
-const source = resolve(here, "../../extensions/scripts");
+const source = resolve(here, "../../harness/scripts");
 const metadata = JSON.parse(
   await readFile(join(destination, "release-manifest.json"), "utf8"),
 );
@@ -157,7 +157,7 @@ const verifyBun = async () => {
       0,
       bunEnv,
     );
-    const bunExtensions = join(bunInstalled, "node_modules/@cpi/extensions");
+    const bunExtensions = join(bunInstalled, "node_modules/@cpi/harness");
     await cp(scripts, join(bunExtensions, "scripts"), { recursive: true });
     for (const name of [
       "codemode-render.integration.mjs",
@@ -188,7 +188,7 @@ await copyFile(
   join(installed, "native-probe.mjs"),
 );
 execute(process.execPath, [join(installed, "native-probe.mjs")]);
-const extensions = join(installed, "node_modules/@cpi/extensions");
+const extensions = join(installed, "node_modules/@cpi/harness");
 for (const { name } of metadata.workspacePackages)
   assert(
     !(

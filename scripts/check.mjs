@@ -8,7 +8,7 @@ import { ScriptTarget } from "typescript/unstable/ast";
 import {
   sourceMetrics,
   withSourceFiles,
-} from "../packages/extensions/scripts/source-metrics.mjs";
+} from "../packages/harness/scripts/source-metrics.mjs";
 import { root, sourceFiles } from "./source-files.mjs";
 import { forkDir, isForkCheckout } from "./fork.mjs";
 

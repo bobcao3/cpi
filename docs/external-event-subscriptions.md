@@ -6,7 +6,7 @@ tool after session startup. No cpi filesystem import, socket, or model client is
 needed.
 
 The public request/handle interfaces and resource limits are defined in
-[`external-events.ts`](../packages/extensions/extensions/lib/external-events.ts).
+[`external-events.ts`](../packages/harness/src/lib/external-events.ts).
 The channel is `cpi:register-event-source:v1`. `reply(handle)` is a
 **synchronous** acknowledgement: if `emit` returns without a reply, the bridge
 is unavailable or rejected the registration. Do not claim that notifications are
@@ -114,7 +114,7 @@ tool avoids relying on relative `session_start` handler order.
 
 ## Delivery and ownership
 
-[`core.ts`](../packages/extensions/extensions/core.ts) unconditionally owns the
+[`core.ts`](../packages/harness/src/core.ts) unconditionally owns the
 channel and the sole headless hold/shutdown wait. Notifications use cpi's
 existing renderer and `external-event` kind, with steering and `triggerTurn`.
 Payload keys are fixed; producer data is an escaped JSON string in `<data>`,
@@ -137,7 +137,7 @@ queued events run before goal evaluation.
 Run the real pi runtime regression tests with:
 
 ```sh
-bun test packages/extensions/extensions/lib/external-events.integration.test.ts packages/extensions/extensions/lib/session-hold.integration.test.ts
+bun test packages/harness/src/lib/external-events.integration.test.ts packages/harness/src/lib/session-hold.integration.test.ts
 ```
 
 The tests replay finite assistant responses into the real Agent/AgentSession,

@@ -106,14 +106,14 @@ jobs:
         shell: bash
         run: |
           export NODE_OPTIONS="--import=$(node -p 'require("node:url").pathToFileURL(process.cwd() + "/packages/cli/bootstrap.mjs").href')"
-          node --experimental-transform-types packages/extensions/scripts/shell-native-lifecycle.integration.ts
-          node --experimental-transform-types packages/extensions/scripts/shell-large-output.integration.ts
-          node --experimental-transform-types packages/extensions/scripts/shell/test-cancellation.ts
-          node packages/extensions/scripts/shell-install.integration.mjs
-          node packages/extensions/scripts/ghostmux-vision.integration.test.mjs
+          node --experimental-transform-types packages/harness/scripts/shell-native-lifecycle.integration.ts
+          node --experimental-transform-types packages/harness/scripts/shell-large-output.integration.ts
+          node --experimental-transform-types packages/harness/scripts/shell/test-cancellation.ts
+          node packages/harness/scripts/shell-install.integration.mjs
+          node packages/harness/scripts/ghostmux-vision.integration.test.mjs
       - name: Test Windows shell concurrency and process trees
         if: matrix.package == 'ghostmux' && runner.os == 'Windows'
-        run: node --experimental-transform-types packages/extensions/scripts/shell/test-windows.ts
+        run: node --experimental-transform-types packages/harness/scripts/shell/test-windows.ts
       - name: Stage Ghostmux binary and provenance
         if: matrix.package == 'ghostmux'
         shell: bash

@@ -36,11 +36,11 @@ Hard rules:
 3. Do not write file/module trees in any documentation — the filesystem itself
    is already the tree, and the folder structure should be self-explanatory.
 4. No source code file exceeds 7% comment lines (AST-counted by
-   `packages/extensions/scripts/comment-scan.mjs`, enforced via `bun lint`; formatting via
+   `packages/harness/scripts/comment-scan.mjs`, enforced via `bun lint`; formatting via
    `bun format`).
 5. All model-facing prompt texts (tool descriptions, prompt snippets,
    guidelines, schema field descriptions) must live in the dedicated
-   `packages/extensions/extensions/text/` folder as TOML templates (loaded via `loadText`/`render`),
+   `packages/harness/src/text/` folder as TOML templates (loaded via `loadText`/`render`),
    never inlined in extension `.ts` source.
 6. Document _never_ repeat values or behavior that's encoded in default config
    or code. Refer reader to the actual source of truth.
@@ -249,7 +249,7 @@ Do not rely on cpi's local `node_modules` copy of Pi's peer packages at runtime.
 scripts resolve imports from cpi's installed directory, where those peers may
 not exist. In workers and other standalone entry points, avoid bare runtime
 imports of Pi peer packages; load the **active host Pi** through
-[`packages/extensions/bin/host-pi.mjs`](packages/extensions/bin/host-pi.mjs)
+[`packages/harness/bin/host-pi.mjs`](packages/harness/bin/host-pi.mjs)
 instead. Type-only imports are fine. Use the editable active host during
 development and the independent installed host for publication verification.
 
@@ -293,7 +293,7 @@ theoretical: it bit `ensureNotificationRenderer`, `ensureDrains`
   no queryable state (a renderer, a drain handler, a system-prompt transform
   owner, session-hold), it is registered unconditionally at load and
   re-registered on its own reload. Producers are pure clients — they never
-  register. All such owners live together in `packages/extensions/extensions/core.ts` (footer,
+  register. All such owners live together in `packages/harness/src/core.ts` (footer,
   notification renderer, prepend-message drains, system-prompt transforms,
   session-hold): one extension means the shared plumbing is present iff cpi is
   present at all — no producer can be left dangling without its owner, and a

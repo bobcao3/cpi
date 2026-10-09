@@ -9,7 +9,7 @@ A quiet log is not proof that a job is stuck. Detached shells are untracked, not
 completed. Recursive subagent totals must not be double-counted.
 
 Behavior lives in
-[`activity-panel.ts`](../packages/extensions/extensions/lib/activity-panel.ts)
-and [`activity-ui.ts`](../packages/extensions/extensions/lib/activity-ui.ts);
+[`activity-panel.ts`](../packages/harness/src/lib/activity-panel.ts)
+and [`activity-ui.ts`](../packages/harness/src/lib/activity-ui.ts);
 ordering and retention live in
-[`activity.ts`](../packages/extensions/extensions/lib/activity.ts).
+[`activity.ts`](../packages/harness/src/lib/activity.ts).

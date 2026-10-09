@@ -27,7 +27,7 @@ await mkdir(vendor, { recursive: true });
 const pkg = JSON.parse(await readFile(join(root, "package.json"), "utf8"));
 const cliPath = join(root, "packages/cli/package.json");
 const cli = JSON.parse(await readFile(cliPath, "utf8"));
-const extensionsPath = join(root, "packages/extensions/package.json");
+const extensionsPath = join(root, "packages/harness/package.json");
 const extensions = JSON.parse(await readFile(extensionsPath, "utf8"));
 assert(
   manifest.upstreamPackages && typeof manifest.upstreamPackages === "object",

@@ -23,8 +23,8 @@ const manifest = JSON.parse(
 const sdk = await load(join(installed, manifest.exports["."].import));
 assert.equal(sdk.APP_NAME, "cpi");
 const extensions = createRequire(
-  JSON.parse(process.env.JITI_ALIAS || "{}")["@cpi/extensions/package.json"] ??
-    require.resolve("@cpi/extensions/package.json"),
+  JSON.parse(process.env.JITI_ALIAS || "{}")["@cpi/harness/package.json"] ??
+    require.resolve("@cpi/harness/package.json"),
 );
 const aliases = JSON.parse(process.env.JITI_ALIAS || "{}");
 const ghostmux = await load(
@@ -69,8 +69,8 @@ const host = await import(
   pathToFileURL(
     join(
       dirname(
-        aliases["@cpi/extensions/package.json"] ??
-          extensions.resolve("@cpi/extensions/package.json"),
+        aliases["@cpi/harness/package.json"] ??
+          extensions.resolve("@cpi/harness/package.json"),
       ),
       "bin/host-pi.mjs",
     ),

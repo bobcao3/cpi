@@ -30,7 +30,7 @@ export function sourceFiles() {
   const pending = [
     "scripts",
     "packages/cli",
-    "packages/extensions",
+    "packages/harness",
     "packages/ghostmux",
     "packages/tree-sitter-wasm",
   ];

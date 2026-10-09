@@ -18,8 +18,8 @@
   "include": [
     "packages/cli/src/**/*.ts",
     "packages/cli/bootstrap.d.mts",
-    "packages/extensions/extensions/**/*.ts",
-    "packages/extensions/scripts/harness/**/*.ts",
-    "packages/extensions/scripts/shell/**/*.ts"
+    "packages/harness/src/**/*.ts",
+    "packages/harness/scripts/harness/**/*.ts",
+    "packages/harness/scripts/shell/**/*.ts"
   ]
 }

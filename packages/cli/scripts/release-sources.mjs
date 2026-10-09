@@ -84,7 +84,7 @@ export async function prepareReleaseSources(checkout, cache) {
     const locals = new Map();
     for (const folder of [
       "packages/cli",
-      "packages/extensions",
+      "packages/harness",
       "packages/ghostmux",
       "packages/tree-sitter-wasm",
     ]) {

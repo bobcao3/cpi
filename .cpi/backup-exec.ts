@@ -9,7 +9,7 @@
  * Dev-only — NOT part of the shipped cpi package:
  *   - Registered as a single extension FILE via ~/cpi/.pi/settings.json
  *     (project scope), so it loads only when pi runs inside the cpi repo.
- *   - The cpi package manifest (`pi.extensions: ["./extensions/index.ts"]`)
+ *   - The cpi package manifest (`pi.extensions: ["./src/index.ts"]`)
  *     does not include .pi/, and .pi/ is absent from the npm `files` set, so
  *     `pi install npm:cpi` / `pi install -l .` consumers never see this tool.
  *
@@ -31,8 +31,8 @@ import {
   renderLines,
   textPath,
   type ToolText,
-} from "../packages/extensions/extensions/lib/text.ts";
-import { getCwd } from "../packages/extensions/extensions/lib/cwd.ts";
+} from "../packages/harness/src/lib/text.ts";
+import { getCwd } from "../packages/harness/src/lib/cwd.ts";
 
 const TOOL = "backup-exec";
 const DEFAULT_TIMEOUT_MS = 30_000;

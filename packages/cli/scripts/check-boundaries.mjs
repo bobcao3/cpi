@@ -34,7 +34,7 @@ for (const entry of await readdir(packages, { withFileTypes: true })) {
       );
     }
   }
-  const queue = owned ? ["src", "extensions", "bin"] : ["src"];
+  const queue = owned ? ["src", "bin"] : ["src"];
   for (const folder of queue) {
     let children;
     try {

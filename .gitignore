@@ -62,6 +62,6 @@ __pycache__/
 /tools/tuidos/docs/research/
 
 /dist/
-!packages/extensions/bin/*.js
+!packages/harness/bin/*.js
 /vendor/pi/*.tgz
 !vendor/pi/*.json

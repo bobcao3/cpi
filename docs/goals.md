@@ -10,6 +10,6 @@ the loop with a reason and a resume hint. Evaluation happens between turns and
 never starts a new turn by itself.
 
 Behavior, budgets, and model-facing text live in
-[`goal.toml`](../packages/extensions/extensions/text/goal.toml) and
-[`goal.ts`](../packages/extensions/extensions/lib/goal.ts); do not restate
+[`goal.toml`](../packages/harness/src/text/goal.toml) and
+[`goal.ts`](../packages/harness/src/lib/goal.ts); do not restate
 their values here.

@@ -14,10 +14,10 @@ An idle agent wakes on the next event, not on a timer. The event sources are:
 `wait_any` ends the turn and yields: it produces no work of its own, and the
 next event starts a new turn. Polling is never required. The model-facing rules
 are the authorities in
-[`wait-any.toml`](../packages/extensions/extensions/text/wait-any.toml) and
-[`alarm.toml`](../packages/extensions/extensions/text/alarm.toml).
+[`wait-any.toml`](../packages/harness/src/text/wait-any.toml) and
+[`alarm.toml`](../packages/harness/src/text/alarm.toml).
 
 While a headless session holds for pending work, the hold ends on an event, on
 user input, or on the anti-stuck probe; scheduling lives in
-[`core.ts`](../packages/extensions/extensions/core.ts) and
-[`anti-stuck.ts`](../packages/extensions/extensions/lib/anti-stuck.ts).
+[`core.ts`](../packages/harness/src/core.ts) and
+[`anti-stuck.ts`](../packages/harness/src/lib/anti-stuck.ts).

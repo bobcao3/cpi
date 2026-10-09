@@ -86,7 +86,7 @@ async function main() {
   const workspaces = new Map();
   for (const directory of [
     "packages/cli",
-    "packages/extensions",
+    "packages/harness",
     "packages/ghostmux",
     "packages/tree-sitter-wasm",
   ]) {

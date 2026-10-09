@@ -14,11 +14,11 @@ Configuration merges over the shipped defaults in two steps: the user config in
 the agent directory (see [storage](storage.md)), then the project config at
 `.cpi/cpi-config.json`. Project settings win, nested objects merge, and arrays
 replace. Keys and defaults live in
-[`cpi-config.default.json`](../packages/extensions/cpi-config.default.json);
+[`cpi-config.default.json`](../packages/harness/cpi-config.default.json);
 the merge implementation is the authority in
-[`config.ts`](../packages/extensions/extensions/lib/config.ts). Copy only the
+[`config.ts`](../packages/harness/src/lib/config.ts). Copy only the
 settings you want to override. Provider fallback examples are in
-[`fallback-providers.example.json`](../packages/extensions/fallback-providers.example.json).
+[`fallback-providers.example.json`](../packages/harness/fallback-providers.example.json).
 
 ## Topics
 
@@ -37,13 +37,13 @@ When the context window fills, compaction summarizes the conversation and
 restores two things: managed project instructions and a runtime-state
 checkpoint. Skill bodies are not restored — reload the skills the continuing
 work needs by name. The lifecycle lives in
-[`compaction.ts`](../packages/extensions/extensions/lib/compaction.ts); verify
+[`compaction.ts`](../packages/harness/src/lib/compaction.ts); verify
 with the
-[context integration coverage](../packages/extensions/scripts/harness/test-compaction-context.ts)
-and [live-provider check](../packages/extensions/scripts/harness/test-compaction-live.ts).
+[context integration coverage](../packages/harness/scripts/harness/test-compaction-context.ts)
+and [live-provider check](../packages/harness/scripts/harness/test-compaction-live.ts).
 
 ## Develop locally
 
 Read [AGENTS.md](../AGENTS.md) and the [artifact workflow](../README.md). Local
-extension development uses `packages/extensions`, not the repository root as a
+extension development uses `packages/harness`, not the repository root as a
 Pi extension package. Release verification uses installed fork artifacts.

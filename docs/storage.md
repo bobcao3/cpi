@@ -17,6 +17,6 @@ cpi keeps state in user-scoped directories, all owner-only (0700 directories,
 
 Resolve paths from these variables rather than copying examples. The
 authorities are
-[`runtime-dir.ts`](../packages/extensions/extensions/lib/runtime-dir.ts),
-[`config.ts`](../packages/extensions/extensions/lib/config.ts), and the Pi
+[`runtime-dir.ts`](../packages/harness/src/lib/runtime-dir.ts),
+[`config.ts`](../packages/harness/src/lib/config.ts), and the Pi
 `getAgentDir` implementation in the pinned artifacts.

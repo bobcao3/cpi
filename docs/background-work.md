@@ -5,14 +5,14 @@ is still running, cpi backgrounds it and returns a running id, the log path, and
 a bounded output preview, then wakes the agent when the command completes. The
 defaults and hard limits are configuration, not documentation: see the `shell`
 section of
-[`cpi-config.default.json`](../packages/extensions/cpi-config.default.json).
+[`cpi-config.default.json`](../packages/harness/cpi-config.default.json).
 
 Each background shell is a session in the
 [Ghostmux daemon](../packages/ghostmux/README.md). Its exit status, drained
 output, and log file survive agent turns; completion wakes the agent with a
 notification carrying the exit code and a log line range. What the agent is
 told is the authority in
-[`shell.toml`](../packages/extensions/extensions/text/shell.toml).
+[`shell.toml`](../packages/harness/src/text/shell.toml).
 
 - **Signals.** `sh_signal` targets the whole process group. SIGKILL suppresses
   the completion notice; other signals do not guarantee termination and still

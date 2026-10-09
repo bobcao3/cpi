@@ -58,7 +58,7 @@ screen; long lines fold, blank lines count) and heading offsets.
 - Triage findings instead of applying them wholesale: content is often in the
   wrong place rather than worthless.
 - Docs never restate values encoded in code, config, tests, or generated
-  files. cpi's authorities: tool text in `extensions/text/*.toml`, tunables in
+  files. cpi's authorities: tool text in `src/text/*.toml`, tunables in
   `cpi-config.default.json`, pins in `vendor/pi/manifest.json`, rules in
   `AGENTS.md`. See the one-home rule in `references/writing-advice.md`.
 - Never write a file tree into a doc; the filesystem is the tree.

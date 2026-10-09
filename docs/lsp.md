@@ -13,8 +13,8 @@ pin, so changing the pin needs `lsp stop` followed by `lsp start`.
 
 Server choices, versions, and timeouts are configuration, not documentation:
 see the `lsp` section of
-[`cpi-config.default.json`](../packages/extensions/cpi-config.default.json).
+[`cpi-config.default.json`](../packages/harness/cpi-config.default.json).
 Model-facing rules are the authority in
-[`lsp.toml`](../packages/extensions/extensions/text/lsp.toml); the subsystem
+[`lsp.toml`](../packages/harness/src/text/lsp.toml); the subsystem
 design is in
-[`DESIGN.md`](../packages/extensions/extensions/lib/lsp/DESIGN.md).
+[`DESIGN.md`](../packages/harness/src/lib/lsp/DESIGN.md).
