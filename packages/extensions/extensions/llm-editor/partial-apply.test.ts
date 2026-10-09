@@ -1,3 +1,4 @@
+import { createTreeState, ToolTreeComponent } from "../tree/index.ts";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
@@ -17,7 +18,7 @@ import {
   MAX_DIFF_BLOCKS,
   MAX_DIFF_LINES,
 } from "./udiff.ts";
-import { renderEditorResult } from "./render.ts";
+import { renderEditorTree } from "./editor-tree.ts";
 import { getThemeByName } from "@earendil-works/pi-coding-agent";
 import { stripVTControlCharacters } from "node:util";
 
@@ -139,21 +140,35 @@ for (const example of cases) {
           message.includes(`Applied hunks: ${example.applied.join(", ")}`),
         );
         const theme = getThemeByName("dark")!;
-        const rendered = renderEditorResult(
-          "apply_patch",
-          {
-            details: {
-              kind: "edit",
-              path,
-              hunks: result.applied,
-              diffOps: result.diffOps,
-              failure: result.failure,
-              message,
+        const rendered = new ToolTreeComponent(
+          renderEditorTree(
+            "apply_patch",
+            {
+              args: { path },
+              result: {
+                content: [],
+                details: {
+                  kind: "edit",
+                  path,
+                  hunks: result.applied,
+                  diffOps: result.diffOps,
+                  failure: result.failure,
+                  message,
+                },
+              },
+              phase: "complete",
+              isError: true,
             },
-          },
-          { isPartial: false },
+            theme,
+            {
+              toolCallId: "partial",
+              cwd,
+              state: {},
+              viewState: createTreeState(),
+              invalidate() {},
+            },
+          ),
           theme,
-          {},
         )
           .render(100)
           .map(stripVTControlCharacters)

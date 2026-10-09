@@ -1,13 +1,11 @@
-// Run cpi from this checkout against a local Pi fork checkout (default sibling `cpi-fork`).
+// Run cpi from this checkout against the in-repo Pi fork checkout (ensuring it exists first).
 import { spawnSync } from "node:child_process";
-import { dirname, isAbsolute, join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { ensureFork } from "./fork.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const requested = process.env.CPI_FORK ?? join(root, "..", "cpi-fork");
-const fork = isAbsolute(requested)
-  ? requested
-  : resolve(process.cwd(), requested);
+const fork = ensureFork();
 const result = spawnSync(
   process.execPath,
   [join(root, "packages/cli/bin/cpi.mjs"), ...process.argv.slice(2)],

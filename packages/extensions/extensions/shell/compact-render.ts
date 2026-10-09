@@ -1,251 +1,263 @@
-import { Container, Text } from "@earendil-works/pi-tui";
+import {
+  type ToolTreeContext,
+  type ToolTreeNode,
+  type ToolTreeSnapshot,
+} from "../tree/index.ts";
 import type { Theme } from "@earendil-works/pi-coding-agent";
-import type { ToolRenderContext } from "../lib/tool-block.ts";
-import { renderBlocked } from "./blocked.ts";
+import { style_tool_tree } from "../lib/tool-style.ts";
 import { cleanActivityDisplay } from "../lib/activity-details.ts";
 
-interface CompactDetails {
+export interface ShellTreeArgs {
+  description?: string;
+  command?: string;
+  waitfor?: number;
+  env?: string;
+  is_pty?: boolean;
+  id?: string;
+  signal?: string;
+}
+
+export interface ShellTreeDetails {
   id?: string;
   describe?: string;
+  shellName?: string;
   blocked?: string;
   shuckBlocked?: boolean;
-  shellName?: string;
+  shuckWarnings?: string;
   status?: string;
   exitCode?: number | null;
   outputLines?: number;
-}
-
-interface ShellRenderState {
-  startedAt?: number;
-  timer?: ReturnType<typeof setInterval>;
-}
-
-type ShellRenderContext = Partial<
-  Pick<
-    ToolRenderContext<ShellRenderState>,
-    "isPartial" | "executionStarted" | "state" | "invalidate" | "durationMs"
-  >
-> &
-  Pick<ToolRenderContext, "isError"> & {
-    args?: { description?: string; waitfor?: number };
-  };
-
-interface SignalRenderDetails {
-  id?: string;
+  fullOutputPath?: string;
+  logPath?: string;
+  backendError?: string;
+  uid?: string;
+  socketPath?: string;
+  isPty?: boolean;
+  detached?: boolean;
   signal?: string;
-  describe?: string;
+  cdAgentsFiles?: string[];
+  slowDown?: string;
 }
 
-interface BackgroundPsEntry {
+export interface BackgroundTreeEntry {
   id: string;
   describe?: string;
+  command?: string;
+  logPath?: string;
+  intervalSec?: number;
+  uid?: string;
+  socketPath?: string;
+  isPty?: boolean;
 }
 
-interface SignalRenderContext {
-  args?: { id?: string; signal?: string };
-  isError: boolean;
-  isPartial?: boolean;
+type TreeContext = Pick<ToolTreeContext, "toolCallId">;
+
+export function shellTreeText(snapshot: ToolTreeSnapshot<any, any>): string {
+  return (snapshot.result?.content ?? [])
+    .flatMap((part) => (part.type === "text" ? [part.text] : []))
+    .join("\n");
 }
 
-interface BackgroundPsDetails {
-  backgrounds?: BackgroundPsEntry[];
-  repeats?: BackgroundPsEntry[];
+export function shellTreeStatus(
+  snapshot: ToolTreeSnapshot<any, any>,
+): "error" | "success" | "running" | "queued" {
+  if (
+    snapshot.isError ||
+    (snapshot.result as { isError?: boolean } | undefined)?.isError
+  )
+    return "error";
+  if (snapshot.phase === "complete") return "success";
+  if (snapshot.phase === "running") return "running";
+  return "queued";
 }
 
-function faintWarning(theme: Theme, text: string): string {
-  return `\x1b[2m${theme.fg("warning", text)}\x1b[22m`;
+export function shellTreeVisible(value: string): string {
+  return cleanActivityDisplay(value).trim();
 }
 
-export function backgroundShellLabel(
-  theme: Theme,
+export function shellTreeDetail(
+  owner: string,
+  section: string,
+  label: string,
+  text: string,
+  status?: ToolTreeNode["status"],
+): ToolTreeNode {
+  return {
+    id: `${owner}/${section}`,
+    label,
+    content: { text: cleanActivityDisplay(text, true).trim() },
+    defaultOpen: false,
+    ...(status ? { status } : {}),
+  };
+}
+
+export function faintWarning(theme: Theme, text: string): string {
+  return `\x1b[2m${theme.fg("warning", shellTreeVisible(text))}\x1b[22m`;
+}
+
+function elapsed(value: number): string {
+  return value < 1500
+    ? `${Math.round(value)}ms`
+    : `${Math.round(value / 1000)}s`;
+}
+
+function makeNode(
   id: string,
-  description?: string,
-): string {
-  const pid = faintWarning(theme, `PID=${cleanActivityDisplay(id)}`);
-  const text = cleanActivityDisplay(description?.trim() ?? "");
-  return pid + (text ? theme.fg("dim", ` · ${text}`) : "");
+  label: string,
+  fields: Partial<ToolTreeNode> = {},
+): ToolTreeNode {
+  return { id, label, ...fields };
 }
 
-function formatElapsed(elapsedMs: number): string {
-  return elapsedMs < 1500
-    ? `${Math.round(elapsedMs)}ms`
-    : `${Math.round(elapsedMs / 1000)}s`;
-}
-
-function elapsedSuffix(
-  elapsedMs: number | undefined,
-  waitfor: number | undefined,
-  theme: Theme,
-): string {
-  return elapsedMs === undefined
-    ? ""
-    : theme.fg(
-        "muted",
-        ` (${formatElapsed(elapsedMs)}${waitfor === undefined ? "" : `, wait for ${waitfor}s`})`,
-      );
-}
-
-export function renderCompactShellCall(
-  args: { description?: string; waitfor?: number },
-  theme: Theme,
-  context: ShellRenderContext,
-  defaultWaitfor: number,
-  shellName: string,
-) {
-  const state = context.state;
-  if (!context.isPartial) {
-    if (state?.timer) clearInterval(state.timer);
-    if (state) state.timer = undefined;
-    return new Container();
-  }
-  if (context.executionStarted && state && state.startedAt === undefined) {
-    state.startedAt = Date.now();
-    state.timer = setInterval(() => context.invalidate?.(), 1000);
-    state.timer.unref();
-  }
-  const description = cleanActivityDisplay(args.description?.trim() || "shell");
-  return new Text(
-    theme.fg("warning", `⏳ ${shellName}: `) +
-      theme.fg("dim", description) +
-      elapsedSuffix(
-        state?.startedAt === undefined
-          ? undefined
-          : Date.now() - state.startedAt,
-        args.waitfor ?? defaultWaitfor,
-        theme,
-      ),
-    0,
-    0,
-  );
-}
-
-export function renderCompactShellResult(
-  result: {
-    details?: CompactDetails;
-    isError?: boolean;
-    content?: ReadonlyArray<{ type?: string; text?: string }>;
-  },
-  options: { isPartial: boolean },
-  theme: Theme,
-  context: ShellRenderContext,
-  shellName: string,
-) {
-  if (options.isPartial) return new Container();
-  const details = result.details;
-  const args = context.args;
-  const name = details?.shellName ?? shellName;
-  const description = cleanActivityDisplay(
-    details?.describe?.trim() || args?.description?.trim() || "shell",
-  );
-  const suffix = elapsedSuffix(context.durationMs, undefined, theme);
-  const blockedReason =
-    details?.blocked ??
-    (details?.shuckBlocked
-      ? result.content
-          ?.find((section) => section.type === "text")
-          ?.text?.split("\n---\n")[0]
-      : undefined);
-  if (blockedReason) return renderBlocked(description, blockedReason, theme);
-  if (details?.status === "running")
-    return new Text(
-      theme.fg("warning", `⏳ backgrounded ${name}: `) +
-        backgroundShellLabel(theme, details.id ?? "unknown", description) +
-        (context.durationMs === undefined
-          ? ""
-          : theme.fg(
-              "muted",
-              ` (backgrounded after ${formatElapsed(context.durationMs)})`,
-            )),
-      0,
-      0,
-    );
-  const failed =
-    context.isError ||
-    result.isError ||
-    (details?.exitCode != null && details.exitCode !== 0);
-  const heading =
-    theme.fg(
-      failed ? "error" : "success",
-      `${failed ? " ✗" : " ✓"} ${name}: `,
-    ) + theme.fg("dim", description);
-  if (!failed && details?.exitCode === 0)
-    return new Text(heading + suffix, 0, 0);
-  const code = details?.exitCode == null ? "—" : String(details.exitCode);
-  const lines =
-    details?.outputLines == null
-      ? ""
-      : theme.fg("muted", ` · ${details.outputLines} lines`);
-  return new Text(
-    `${heading}\n   ${theme.fg(failed ? "error" : "muted", `Exit ${code}`)}${lines}${suffix}`,
-    0,
-    0,
-  );
-}
-
-export function renderCompactSignalResult(
-  result: {
-    details?: SignalRenderDetails;
-    isError?: boolean;
-    content?: ReadonlyArray<{ type?: string; text?: string }>;
-  },
-  options: { isPartial: boolean },
-  theme: Theme,
-  context: SignalRenderContext,
-) {
-  if (options.isPartial) return new Container();
-  const details = result.details;
-  const args = context.args;
-  const id = details?.id ?? args?.id ?? "";
-  const sig = details?.signal ?? args?.signal ?? "SIGINT";
-  if (context.isError || result.isError) {
-    const raw =
-      result.content?.find((section) => section.type === "text")?.text ??
-      `Background ${id} not active.`;
-    return new Text(
-      theme.fg("error", ` ✗ ${sig}: `) +
-        theme.fg("dim", cleanActivityDisplay(raw)),
-      0,
-      0,
-    );
-  }
-  return new Text(
-    theme.fg("text", ` → Sent ${sig} to `) +
-      (id.startsWith("rpt-")
-        ? faintWarning(theme, id) +
-          (details?.describe
-            ? theme.fg("dim", ` · ${cleanActivityDisplay(details.describe)}`)
-            : "")
-        : backgroundShellLabel(theme, id, details?.describe)),
-    0,
-    0,
-  );
-}
-
-export function renderCompactBackgroundPsResult(
-  result: { details?: BackgroundPsDetails },
-  options: { isPartial: boolean },
-  theme: Theme,
-) {
-  if (options.isPartial) return new Container();
-  const bgs = result.details?.backgrounds ?? [];
-  const rpts = result.details?.repeats ?? [];
-  if (bgs.length === 0 && rpts.length === 0)
-    return new Text(theme.fg("text", " ○ No background shells"), 0, 0);
-  const rows = [theme.fg("text", " ○ Listed background shells:")];
-  const items = [
-    ...bgs.map((e) => backgroundShellLabel(theme, e.id, e.describe)),
-    ...rpts.map((e) => {
-      const d = cleanActivityDisplay(e.describe?.trim() ?? "");
-      return (
-        faintWarning(theme, e.id) +
-        theme.fg("accent", " [repeating]") +
-        (d ? theme.fg("muted", ` ${d}`) : "")
-      );
-    }),
-  ];
-  items.forEach((body, i) => {
-    const branch = i === items.length - 1 ? "└─" : "├─";
-    rows.push(theme.fg("dim", `   ${branch} `) + body);
+function warningNode(
+  owner: string,
+  section: string,
+  text: string,
+): ToolTreeNode {
+  return makeNode(`${owner}/${section}`, section, {
+    status: "warning",
+    summary: shellTreeVisible(text).split("\n")[0] ?? "",
+    content: { text: cleanActivityDisplay(text, true).trim() },
+    defaultOpen: true,
   });
-  return new Text(rows.join("\n"), 0, 0);
+}
+
+export function renderShellTree(
+  snapshot: ToolTreeSnapshot<ShellTreeArgs, ShellTreeDetails>,
+  theme: Theme,
+  context: TreeContext,
+  defaultWaitfor = 30,
+  shellName = "shell",
+): readonly ToolTreeNode[] {
+  const args = snapshot.args;
+  const details = snapshot.result?.details;
+  const owner = context.toolCallId;
+  const text = shellTreeText(snapshot);
+  const blocked =
+    details?.blocked ??
+    (details?.shuckBlocked ? text.split("\n---\n")[0] : undefined);
+  const failed =
+    shellTreeStatus(snapshot) === "error" ||
+    details?.backendError !== undefined ||
+    (details?.exitCode != null && details.exitCode !== 0);
+  const warnings = details?.shuckWarnings;
+  const children: ToolTreeNode[] = [];
+  if (args?.command)
+    children.push(
+      makeNode(`${owner}/command`, "Command", {
+        content: { format: "code", language: "shell", text: args.command },
+      }),
+    );
+  if (args?.env)
+    children.push(
+      shellTreeDetail(owner, "environment", "Environment", args.env),
+    );
+  if (blocked)
+    children.push(
+      shellTreeDetail(owner, "blocked", "Blocked", blocked, "error"),
+    );
+  if (warnings) children.push(warningNode(owner, "warnings", warnings));
+  if (details?.slowDown)
+    children.push(warningNode(owner, "poll-warning", details.slowDown));
+  if (details?.backendError)
+    children.push(
+      shellTreeDetail(
+        owner,
+        "backend-error",
+        "Backend failure",
+        details.backendError,
+        "error",
+      ),
+    );
+  if (failed && !blocked && text)
+    children.push(shellTreeDetail(owner, "failure", "Failure", text, "error"));
+  if (details?.id && details.status === "running")
+    children.push(
+      makeNode(`${owner}/process`, `Background shell ${details.id}`, {
+        summary: "running at launch",
+        metadata: [
+          details.uid ? `UID=${details.uid}` : "",
+          details.isPty ? "PTY" : "not PTY",
+        ].filter(Boolean),
+      }),
+    );
+  if (details?.fullOutputPath)
+    children.push(
+      shellTreeDetail(
+        owner,
+        "full-output",
+        "Full output",
+        details.fullOutputPath,
+      ),
+    );
+  if (details?.logPath)
+    children.push(shellTreeDetail(owner, "log", "Log", details.logPath));
+  if (details?.socketPath)
+    children.push(
+      shellTreeDetail(owner, "socket", "Socket", details.socketPath),
+    );
+  details?.cdAgentsFiles?.forEach((path) =>
+    children.push(
+      shellTreeDetail(
+        owner,
+        `instructions/${encodeURIComponent(path)}`,
+        path,
+        path,
+      ),
+    ),
+  );
+  const complete = snapshot.phase === "complete";
+  const summary = shellTreeVisible(
+    details?.describe || args?.description || "shell",
+  );
+  const metadata: string[] = [];
+  if (blocked) metadata.push("Blocked");
+  else if (details?.backendError) metadata.push("Backend failure");
+  if (snapshot.durationMs !== undefined)
+    metadata.push(elapsed(snapshot.durationMs));
+  if (!complete) metadata.push(`wait for ${args?.waitfor ?? defaultWaitfor}s`);
+  if (complete && details?.status === "running")
+    metadata.push(
+      theme.fg("warning", "backgrounded") +
+        " " +
+        faintWarning(theme, `PID=${details.id ?? "unknown"}`),
+    );
+  else if (complete && details?.exitCode != null && details.exitCode !== 0) {
+    metadata.push(`exit ${details.exitCode}`);
+    if (details.exitCode !== 0 && details.outputLines != null)
+      metadata.push(`${details.outputLines} output lines`);
+  }
+  return [
+    makeNode(
+      owner,
+      theme.fg(
+        failed || blocked
+          ? "error"
+          : details?.status === "running" || !complete
+            ? "warning"
+            : "success",
+        details?.shellName ?? shellName,
+      ),
+      {
+        summary: theme.fg("dim", summary),
+        status:
+          blocked ||
+          details?.backendError ||
+          (details?.exitCode != null && details.exitCode !== 0)
+            ? "error"
+            : shellTreeStatus(snapshot),
+        metadata: metadata.map((value) =>
+          value.includes("\x1b")
+            ? value
+            : theme.fg(
+                failed && value.startsWith("exit ") ? "error" : "muted",
+                value,
+              ),
+        ),
+        children: style_tool_tree(children, theme),
+        defaultOpen:
+          !failed && !blocked && Boolean(warnings || details?.slowDown),
+      },
+    ),
+  ];
 }

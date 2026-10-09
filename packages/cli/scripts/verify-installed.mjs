@@ -161,6 +161,7 @@ const verifyBun = async () => {
     await cp(scripts, join(bunExtensions, "scripts"), { recursive: true });
     for (const name of [
       "codemode-render.integration.mjs",
+      "mcp-startup.integration.mjs",
       "tool-tree.integration.mjs",
       "footer-layout.integration.mjs",
       ...(process.argv[3] === "--tui"
@@ -246,6 +247,7 @@ const scripts = join(extensions, "scripts");
 await mkdir(scripts, { recursive: true });
 for (const name of [
   "codemode-render.integration.mjs",
+  "mcp-startup.integration.mjs",
   "codemode-render-probe.mjs",
   "codemode-render-context.mjs",
   "shell-platform.mjs",
@@ -270,6 +272,7 @@ for (const name of [
   await writeFile(join(scripts, name), text);
 }
 run([join(scripts, "codemode-render.integration.mjs")]);
+run([join(scripts, "mcp-startup.integration.mjs")]);
 run([join(scripts, "tool-tree.integration.mjs")]);
 run([join(scripts, "footer-layout.integration.mjs")]);
 run([

@@ -11,6 +11,12 @@ Install the npm release or the GitHub repository and run `cpi`. See
 runtime requirements are defined in the
 [CLI manifest](packages/cli/package.json).
 
+cpi layers application wiring, extension tooling, skills, and supporting tools
+on the pinned Pi packages; it does not patch Pi core in-tree. cpi is
+MIT-licensed: redistribution must carry [`LICENSE`](LICENSE) and package
+notices such as
+[`packages/extensions/NOTICE.md`](packages/extensions/NOTICE.md).
+
 ## Development
 
 See [AGENTS.md](AGENTS.md) for editable development, checks, and publication
@@ -19,7 +25,9 @@ verification. For one-time PATH and link setup, see
 
 ## References
 
-- [Usage](docs/usage.md)
+- [Using cpi](docs/using-cpi.md) · [Background work](docs/background-work.md) ·
+  [Session events](docs/session-events.md) · [Storage](docs/storage.md) ·
+  [Activity browser](docs/activity-browser.md)
 - [Configuration](packages/extensions/cpi-config.default.json)
 - [Skills](packages/extensions/skills/)
-- [Package boundary](docs/CPI_PROTOTYPE.md)
+- [Package boundary](docs/package-boundary.md)

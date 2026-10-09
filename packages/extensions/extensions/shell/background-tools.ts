@@ -1,7 +1,6 @@
+import type { ExtensionAPI } from "../lib/tree-api.ts";
 import { Type } from "typebox";
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { Container, Text } from "@earendil-works/pi-tui";
-import { cleanActivityDisplay } from "../lib/activity-details.ts";
+
 import {
   detachChild,
   getSessionTarget,
@@ -11,10 +10,10 @@ import {
 } from "./exec.ts";
 import { getActiveRepeats } from "./repeat.ts";
 import {
-  backgroundShellLabel,
-  renderCompactBackgroundPsResult,
-  renderCompactSignalResult,
-} from "./compact-render.ts";
+  renderBackgroundListTree,
+  renderSignalTree,
+  renderDetachTree,
+} from "./background-render.ts";
 import { render, renderLines } from "../lib/text.ts";
 
 interface BackgroundToolText {
@@ -101,12 +100,7 @@ export function registerBackgroundControlTools(
         },
       };
     },
-    renderCall() {
-      return new Container();
-    },
-    renderResult(result, options, theme, context) {
-      return renderCompactSignalResult(result, options, theme, context);
-    },
+    renderTree: renderSignalTree,
   });
 
   pi.registerTool({
@@ -151,42 +145,7 @@ export function registerBackgroundControlTools(
         },
       };
     },
-    renderCall(args, theme, context) {
-      if (!context.isPartial) return new Container();
-      const describe = getShellBackgrounds().find(
-        (entry) => entry.id === args.id,
-      )?.describe;
-      return new Text(
-        theme.fg("warning", "⏳ Detaching ") +
-          backgroundShellLabel(theme, args.id ?? "", describe),
-        0,
-        0,
-      );
-    },
-    renderResult(result, options, theme, context) {
-      if (options.isPartial) return new Container();
-      const details = result.details as
-        | { id?: string; describe?: string; logPath?: string }
-        | undefined;
-      const id = cleanActivityDisplay(details?.id ?? context.args?.id ?? "");
-      if (context.isError)
-        return new Text(
-          theme.fg("error", " ✗ Detach PID=") +
-            theme.fg("dim", id) +
-            theme.fg("text", " · background not active"),
-          0,
-          0,
-        );
-      return new Text(
-        theme.fg("text", " → Detached ") +
-          backgroundShellLabel(theme, id, details?.describe) +
-          (options.expanded && details?.logPath
-            ? "\n   " + theme.fg("muted", cleanActivityDisplay(details.logPath))
-            : ""),
-        0,
-        0,
-      );
-    },
+    renderTree: renderDetachTree,
   });
 }
 
@@ -234,11 +193,6 @@ export function registerBackgroundListTool(
         isError: false,
       };
     },
-    renderCall() {
-      return new Container();
-    },
-    renderResult(result, options, theme) {
-      return renderCompactBackgroundPsResult(result, options, theme);
-    },
+    renderTree: renderBackgroundListTree,
   });
 }

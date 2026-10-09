@@ -8,7 +8,9 @@
     "bun": ">=1.4.0"
   },
   "scripts": {
-    "install:dev": "bun install --frozen-lockfile --ignore-scripts && bun link --ignore-scripts --cwd packages/cli",
+    "prepare:fork": "node scripts/fork.mjs",
+    "install:dev": "bun install --frozen-lockfile --ignore-scripts && node scripts/fork.mjs && bun link --ignore-scripts --cwd packages/cli",
+    "dev": "node scripts/dev.mjs",
     "check": "node scripts/check.mjs",
     "lint": "node scripts/check.mjs",
     "typecheck": "tsc --noEmit",

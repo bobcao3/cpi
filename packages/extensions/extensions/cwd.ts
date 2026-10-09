@@ -1,3 +1,4 @@
+import type { ExtensionAPI } from "./lib/tree-api.ts";
 /**
  * Keeps the model oriented to the working directory: set_cwd changes cpi's
  * logical context cwd and delivers reminders after the tool result or turn.
@@ -7,9 +8,8 @@
  * discovery do not automatically follow; the reminder carries truth.
  */
 
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { Container, Text } from "@earendil-works/pi-tui";
+import { Text } from "@earendil-works/pi-tui";
 import { statSync } from "node:fs";
 import { discardQueuedMessages } from "./lib/prepend-message.ts";
 import { getCwd, resolveCwdPath, setCwd } from "./lib/cwd.ts";
@@ -27,8 +27,7 @@ import {
 } from "./lib/text.ts";
 
 import { compactedNotificationFilter } from "./lib/compaction-display.ts";
-import { cleanActivityDisplay } from "./lib/activity-details.ts";
-import { fileLabel } from "./llm-editor/read-batch.ts";
+import { renderCwdTree } from "./cwd-render.ts";
 
 export { getCwd, resolveCwdPath } from "./lib/cwd.ts";
 
@@ -171,55 +170,7 @@ export default function (pi: ExtensionAPI): void {
         },
       };
     },
-    renderCall(args, theme, context) {
-      if (!context.isPartial) return new Container();
-      return new Text(
-        theme.fg("warning", "⏳ cwd: ") +
-          theme.fg("dim", cleanActivityDisplay(args.path ?? "")),
-        0,
-        0,
-      );
-    },
-    renderResult(result, { isPartial }, theme, context) {
-      if (isPartial) return new Container();
-      const details = result.details as
-        | { cwd?: string; newAgentsFiles?: string[] }
-        | undefined;
-      if (context.isError) {
-        const raw =
-          result.content.find((entry) => entry.type === "text")?.text ??
-          "failed";
-        const reason = raw.startsWith("path not found:")
-          ? "path not found"
-          : raw.startsWith("not a directory:")
-            ? "not a directory"
-            : raw;
-        return new Text(
-          theme.fg("error", " ✗ cwd: ") +
-            theme.fg("dim", cleanActivityDisplay(context.args?.path ?? "")) +
-            theme.fg("text", ` · ${cleanActivityDisplay(reason)}`),
-          0,
-          0,
-        );
-      }
-      const files = details?.newAgentsFiles ?? [];
-      const shown = files.slice(0, 3);
-      const instructions = files.length
-        ? "\n   " +
-          theme.fg("warning", "└─ New project instructions: ") +
-          shown.map((file) => fileLabel(file, theme)).join(", ") +
-          (files.length > shown.length
-            ? theme.fg("muted", ` +${files.length - shown.length} more`)
-            : "")
-        : "";
-      return new Text(
-        theme.fg("success", " ✓ cwd: ") +
-          theme.fg("dim", cleanActivityDisplay(details?.cwd ?? "")) +
-          instructions,
-        0,
-        0,
-      );
-    },
+    renderTree: renderCwdTree,
   });
 
   pi.on("turn_end", async (_event, ctx) => {

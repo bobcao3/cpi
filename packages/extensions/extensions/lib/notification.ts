@@ -1,8 +1,14 @@
 /** Delivers async events to the LLM as user-role messages wrapped in <notification> XML, distinct from user input. */
 
-import type { ExtensionAPI, ThemeColor } from "@earendil-works/pi-coding-agent";
-import { Text } from "@earendil-works/pi-tui";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import {
+  ToolTreeComponent,
+  createTreeState,
+  type ToolTreeNode,
+  type TreeState,
+} from "../tree/index.ts";
 import { compactedNotificationFilter } from "./compaction-display.ts";
+import { style_tool_tree } from "./tool-style.ts";
 
 export const NOTIFICATION_TYPE = "notification";
 
@@ -27,6 +33,8 @@ export interface NotificationDetails {
   /** Human-readable summary for TUI display (not included in XML) */
   summary: string;
   payload: Record<string, unknown>;
+  description?: string;
+  log?: { path: string; startLine?: number; endLine?: number };
 }
 
 /** Nested objects become child elements; __rawXml values are inserted verbatim. */
@@ -98,54 +106,86 @@ export function sendNotification(
 /** Re-register because renderers are transient per extension instance. */
 export function registerNotificationRenderer(pi: ExtensionAPI): void {
   const compacted = compactedNotificationFilter(pi);
-  pi.registerMessageRenderer(NOTIFICATION_TYPE, (message, _options, theme) => {
-    const hidden = compacted(message);
-    if (hidden) return hidden;
-    const details = message.details as NotificationDetails | undefined;
-    const kind = details?.kind ?? "unknown";
-    const summary =
-      details?.summary ??
-      (typeof message.content === "string"
-        ? message.content
-        : (message.content.find((part) => part.type === "text")?.text ?? ""));
-
-    let icon: string;
-    let iconColor: ThemeColor;
-    // Leading space pads narrow glyphs to the two columns of the wide ⏰.
-    if (kind === "alarm") {
-      icon = "⏰";
-      iconColor = "warning";
-    } else if (kind === "shell-complete") {
-      icon = " ✓";
-      iconColor = "success";
-    } else if (kind === "shell-failed") {
-      icon = " ✗";
-      iconColor = "error";
-    } else if (kind === "repeat-stopped") {
-      icon = " •";
-      iconColor = "muted";
-    } else if (kind === "repeat-breach") {
-      icon = " ⚠";
-      iconColor = "warning";
-    } else if (kind === "orphaned-shells") {
-      icon = " ⛓";
-      iconColor = "muted";
-    } else if (kind === "interrupted-shells") {
-      icon = " ⚠";
-      iconColor = "warning";
-    } else if (kind === "completed-shells") {
-      icon = " ✓";
-      iconColor = "muted";
-    } else {
-      icon = " •";
-      iconColor = "muted";
-    }
-
-    const text = new Text(
-      `${theme.fg(iconColor, icon)} ${theme.fg("muted", summary)}`,
-      0,
-      0,
-    );
-    return text;
-  });
+  const states = new WeakMap<object, TreeState>();
+  const statuses: Partial<Record<NotificationKind, ToolTreeNode["status"]>> = {
+    alarm: "warning",
+    "shell-complete": "success",
+    "shell-failed": "error",
+    "repeat-stopped": "paused",
+    "repeat-breach": "warning",
+    "interrupted-shells": "warning",
+    "completed-shells": "success",
+  };
+  pi.registerMessageRenderer<NotificationDetails>(
+    NOTIFICATION_TYPE,
+    (message, options, theme) => {
+      const hidden = compacted(message);
+      if (hidden) return hidden;
+      const details = message.details;
+      const content =
+        typeof message.content === "string"
+          ? message.content
+          : message.content
+              .filter((part) => part.type === "text")
+              .map((part) => part.text)
+              .join("\n");
+      const summary = details?.summary ?? content;
+      const shell_id = details?.payload?.["shell-id"];
+      const exit_code = details?.payload?.["exit-code"];
+      const shell =
+        typeof shell_id === "string" &&
+        [
+          "shell-complete",
+          "shell-failed",
+          "repeat-stopped",
+          "repeat-breach",
+        ].includes(details?.kind ?? "");
+      const repeat =
+        details?.kind === "repeat-stopped" || details?.kind === "repeat-breach";
+      const children: ToolTreeNode[] = [];
+      if (details?.log)
+        children.push({
+          id: "notification/log",
+          label: "Log",
+          summary:
+            details.log.startLine !== undefined &&
+            details.log.endLine !== undefined
+              ? `lines ${details.log.startLine}..${details.log.endLine}`
+              : undefined,
+          content: { text: details.log.path },
+        });
+      children.push({
+        id: "notification/details",
+        label: "Details",
+        content: { text: content },
+      });
+      let state = states.get(message);
+      if (!state) states.set(message, (state = createTreeState()));
+      const tree = new ToolTreeComponent(
+        style_tool_tree(
+          [
+            {
+              id: "notification",
+              label: shell ? (repeat ? "Monitor" : "Shell") : summary,
+              summary: shell ? details?.description : undefined,
+              metadata: shell
+                ? [
+                    `${repeat ? "ID" : "PID"}=${shell_id}`,
+                    `exit ${exit_code ?? "unknown"}`,
+                  ]
+                : [],
+              status: details ? statuses[details.kind] : undefined,
+              children,
+              defaultOpen: false,
+            },
+          ],
+          theme,
+        ),
+        theme,
+        { padding: 0, state },
+      );
+      tree.setExpanded(options.expanded);
+      return tree;
+    },
+  );
 }

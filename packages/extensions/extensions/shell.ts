@@ -1,3 +1,4 @@
+import type { ExtensionAPI } from "./lib/tree-api.ts";
 /**
  * cpi shell extension: `sh`, `sh_signal`, and `sh_repeat_until`.
  *
@@ -9,14 +10,8 @@ import { registerTerminalCaptureTool } from "./shell/terminal-capture.ts";
 import { shell_output_schema } from "./shell/result-schema.ts";
 import { surface_shell_shutdowns } from "./shell/shutdown.ts";
 import { Type } from "typebox";
-import {
-  renderCompactShellCall,
-  renderCompactShellResult,
-} from "./shell/compact-render.ts";
-import type {
-  ExtensionAPI,
-  ExtensionContext,
-} from "@earendil-works/pi-coding-agent";
+import { renderShellTree } from "./shell/compact-render.ts";
+import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { loadShellConfig } from "./lib/config.ts";
 import { getCwd } from "./lib/cwd.ts";
 import { checkShellPoll } from "./lib/poll-guard.ts";
@@ -314,27 +309,19 @@ export default async function (pi: ExtensionAPI) {
           describe,
           shellName: shell.displayName,
           shuckWarnings,
+          slowDown: slowDown || undefined,
           tsAst: parse.ast,
           cdAgentsFiles: cdAgents.map((f) => f.path),
         },
         isError: is_error,
       };
     },
-    renderCall(args, theme, context) {
-      return renderCompactShellCall(
-        args,
+    renderTree(snapshot, theme, context) {
+      return renderShellTree(
+        snapshot,
         theme,
         context,
         DEFAULT_WAITFOR,
-        shell.displayName,
-      );
-    },
-    renderResult(result, options, theme, context) {
-      return renderCompactShellResult(
-        result,
-        options,
-        theme,
-        context,
         shell.displayName,
       );
     },

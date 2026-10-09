@@ -7,6 +7,7 @@ export function verify_render_context({
   result,
   script,
   work,
+  resolveToolRenderers,
 }) {
   const ui = new tui.TuiMainScreen(new tui.ProcessTerminal());
   ui.stop();
@@ -23,7 +24,7 @@ export function verify_render_context({
       "codemode",
       "render-main",
       { code: script },
-      { showImages: false, outputPad: padding },
+      { showImages: false, outputPad: padding, resolveToolRenderers },
       definition,
       ui,
       work,
@@ -34,15 +35,12 @@ export function verify_render_context({
         .map((line) => tui.stripTerminalSequences(line).trimEnd());
     component.updateResult({ ...result, durationMs: 9000 });
     const view = lines();
-    const header = view.find((line) => line.includes("Code mode:"));
-    assert(
-      header.startsWith(`${" ".repeat(padding)} ✓ Code mode: JavaScript`),
-      JSON.stringify(header),
-    );
+    const header = view.find((line) => line.includes("Code mode"));
+    assert(header.startsWith("✓ ▾ Code mode"), JSON.stringify(header));
     assert.match(header, /9\.00s/);
     const nested = view.find((line) => line.includes("Compact success"));
-    assert.equal(nested.match(/^ */)[0].length, padding + 1);
-    assert(nested.endsWith(`(${nested_duration})`), nested);
+    assert.match(nested, /^\S/);
+    assert(nested.includes(nested_duration), nested);
     for (const width of [1, 2, 3, 12, 132])
       assert(
         component
@@ -51,8 +49,9 @@ export function verify_render_context({
       );
     component.updateResult({ ...result, durationMs: undefined });
     assert.doesNotMatch(
-      lines().find((line) => line.includes("Code mode:")),
-      / · [\d.]+s/,
+      lines().find((line) => line.includes("Code mode")),
+      /9\.00s/,
     );
+    component.dispose();
   }
 }

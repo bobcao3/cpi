@@ -125,35 +125,36 @@ text({files:files.length, exit:failure.exit_code, blocked:blocked.status});
         true,
       ),
     );
-    if (view.includes("⏳ Reading")) pending_seen = true;
+    if (/read/i.test(view)) pending_seen = true;
   });
   assert.notEqual(result.isError, true, JSON.stringify(result));
   assert.ok(pending_seen, "The real sandbox must render pending nested reads");
   const definition = definitions().get("codemode");
   const collapsed = render(definition, "render-main", script, result);
   const visible = plain(collapsed);
-  assert.match(
-    visible.split("\n")[0],
-    /Code mode: JavaScript · \d+ lines · [\d.]+s ·.*to expand/,
-  );
+  assert.doesNotMatch(collapsed.join("\n"), /\x1b\[(?:48;|4[0-7](?:;|m))/);
+  assert.match(visible, /Code mode.*JavaScript · \d+ lines/);
   assert.doesNotMatch(visible, /^\s*[\d.]+s(?: · \$[\d.]+)?\s*$/m);
-  const source_view = definition
-    .renderCall(
-      { code: script },
-      host.getThemeByName("dark"),
-      context("render-main", script),
-    )
-    .render(132);
-  assert.equal(
-    source_view.length,
-    5,
-    "The source preview must keep its header, three source rows, and expansion hint",
+  const tree_context = context("render-main", script);
+  tree_context.state.toolRenderers = (name) =>
+    session.extensionRunner.resolveToolRenderers(name, () =>
+      session.getToolDefinition(name),
+    );
+  const roots = definition.renderTree(
+    { args: { code: script }, result, phase: "complete", isError: false },
+    host.getThemeByName("dark"),
+    tree_context,
   );
-  assert.match(plain(source_view), /more code lines.*to expand/);
-  assert.match(visible, /✓ Read.*alpha\.txt.*2 lines/);
+  const script_section = roots[0].children.find((node) =>
+    node.id.endsWith("/script"),
+  );
+  assert.equal(script_section.content.text.split("\n").length, 3);
+  assert.ok(script_section.children.some((node) => node.id.endsWith("/full")));
+  assert.match(visible, /read.*alpha\.txt.*2 lines/i);
   assert.match(visible, /中文 beta\.txt.*3 lines/);
   assert.match(visible, /Compact success/);
-  assert.match(visible, /Exit 7/);
+  assert.match(visible, /exit 7/i);
+  assert.doesNotMatch(visible, /expected-failure/);
   assert.match(visible, /Blocked/);
   assert.match(visible, /applied 1 hunk/);
   assert.match(
@@ -162,20 +163,15 @@ text({files:files.length, exit:failure.exit_code, blocked:blocked.status});
   );
   assert.match(visible, /\+\s+1\s+partial/);
   assert.equal(await readFile(file_edit, "utf8"), "partial\n");
-  assert.match(visible, /✓ write:.*created\.txt.*created/);
+  assert.match(visible, /write.*created\.txt.*created/i);
   assert.match(visible, /\+\s+1\s+created/);
   assert.match(visible, /\+\s+2\s+中文 creation/);
-  assert.match(visible, /✗ write:.*created\.txt.*failed/);
-  assert.doesNotMatch(
-    visible,
-    /▀+\n▄+/,
-    "Adjacent write actions must share one frame",
-  );
+  assert.match(visible, /write.*created\.txt.*failed/i);
   assert.equal(
     await readFile(file_created, "utf8"),
     "created\n中文 creation\n",
   );
-  assert.match(visible, /lsp supported servers/);
+  assert.match(visible, /lsp.*supported servers/i);
   assert.match(visible, /Alarm/);
   assert.match(visible, /No background shells/);
   const successful_read = Object.values(result.details.cpi_calls).find(
@@ -191,9 +187,19 @@ text({files:files.length, exit:failure.exit_code, blocked:blocked.status});
     "",
     "Rendering metadata must not retain successful shell output",
   );
-  verify_render_context({ host, tui, definition, result, script, work });
+  verify_render_context({
+    host,
+    tui,
+    definition,
+    result,
+    script,
+    work,
+    resolveToolRenderers: tree_context.state.toolRenderers,
+  });
   const expanded = render(definition, "render-main", script, result, true);
   assert(expanded.length > collapsed.length);
+  assert.match(plain(expanded), /expected-failure/);
+  assert.doesNotMatch(expanded.join("\n"), /\x1b\[(?:48;|4[0-7](?:;|m))/);
   assert.ok(
     expanded.some(
       (line) =>
@@ -263,7 +269,7 @@ text({files:files.length, exit:failure.exit_code, blocked:blocked.status});
   );
   assert.match(
     plain(render(definition, "render-truncated", truncated_code, truncated)),
-    /Full output:/,
+    /Full output/,
   );
   if (session.model.input.includes("image")) {
     const terminal = await nodeProgram(
@@ -284,7 +290,7 @@ finally { await tools.sh_signal({id:shell.id,signal:"SIGKILL"}); }
     );
     assert.match(
       plain(render(definition, "render-image", image_code, image)),
-      /Image: image\/png/,
+      /Image.*image\/png/,
     );
     const capture = Object.values(image.details.cpi_calls).find(
       (preview) => preview.structuredContent?.image,
@@ -318,8 +324,8 @@ finally { await tools.sh_signal({id:shell.id,signal:"SIGKILL"}); }
       132,
     ),
   );
-  assert.match(structured_view, /result:\s+null/);
-  assert.match(structured_view, /result:\s+false/);
+  assert.match(structured_view, /Result\s*·?\s*null/i);
+  assert.match(structured_view, /Result\s*·?\s*false/i);
   assert.match(structured_view, /TEXT_FALLBACK_ONLY/);
   assert.match(structured_view, /Nested rendering metadata was truncated/);
   assert.match(structured_view, /INDEPENDENT_SCRIPT_OUTPUT/);
@@ -329,23 +335,25 @@ finally { await tools.sh_signal({id:shell.id,signal:"SIGKILL"}); }
   );
   assert.match(
     plain(render(definitions().get("codemode"), "render-main", script, saved)),
-    /✓ Read.*alpha\.txt.*2 lines/,
+    /read.*alpha\.txt.*2 lines/i,
   );
   const wait = definitions().get("wait_any");
-  const wait_context = context("wait-view", "");
-  const first_wait = wait.renderCall(
+  const wait_ui = new tui.TuiMainScreen(new tui.ProcessTerminal());
+  wait_ui.stop();
+  const wait_component = new host.ToolExecutionComponent(
+    "wait_any",
+    "wait-view",
     {},
-    host.getThemeByName("dark"),
-    wait_context,
+    { showImages: false },
+    wait,
+    wait_ui,
+    work,
   );
-  assert.doesNotThrow(() =>
-    wait
-      .renderCall({}, host.getThemeByName("dark"), {
-        ...wait_context,
-        lastComponent: first_wait,
-      })
-      .render(24),
-  );
+  wait_component.markExecutionStarted();
+  assert.doesNotThrow(() => wait_component.render(24));
+  wait_component.updateArgs({});
+  assert.doesNotThrow(() => wait_component.render(12));
+  wait_component.dispose();
   for (const selection of [
     { tools: ["read"] },
     { excludeTools: ["codemode"] },

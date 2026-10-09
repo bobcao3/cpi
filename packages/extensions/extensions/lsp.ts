@@ -1,3 +1,4 @@
+import type { ExtensionAPI } from "./lib/tree-api.ts";
 /**
  * lsp — sole owner of the LSP subsystem: registers the `lsp` tool and a
  * session_shutdown teardown (disposeAll, idempotent/reentrant). Producers
@@ -7,7 +8,7 @@
 import { existsSync } from "node:fs";
 import { basename, join } from "node:path";
 import { Type } from "typebox";
-import { type ExtensionAPI } from "@earendil-works/pi-coding-agent";
+
 import { resolveCwdPath } from "./lib/cwd.ts";
 import {
   ensureSession,
@@ -28,7 +29,8 @@ import {
 } from "./lib/lsp/discover.ts";
 import { loadLspConfig } from "./lib/config.ts";
 import { renderDiagnostics } from "./lib/lsp/diagnostics-overflow.ts";
-import { renderLspCall, renderLspResult } from "./lsp-render.ts";
+import { DIAGNOSTICS_FORMAT_MAX } from "./lib/lsp/diagnostics.ts";
+import { renderLspTree } from "./lsp-render.ts";
 import {
   loadText,
   render,
@@ -107,7 +109,19 @@ function doList() {
     (s) =>
       `${s.id}\t${s.language}\t${s.projectRoot}\t${basename(s.bin)}\t${s.envPath ? "env" : "-"}\t${s.state}`,
   );
-  return textResult([header, ...rows].join("\n"));
+  return {
+    ...textResult([header, ...rows].join("\n")),
+    details: {
+      sessions: sessions.map((session) => ({
+        id: session.id,
+        language: session.language,
+        root: session.projectRoot,
+        bin: session.bin,
+        env: session.envPath,
+        state: session.state,
+      })),
+    },
+  };
 }
 
 /** Dynamic: reflects current LSP_LANGUAGES + config, so it stays correct as servers change. */
@@ -144,7 +158,15 @@ async function doStart(p: LspParams) {
     ...textResult(
       `session ${session.id}\nlanguage=${language} root=${root} state=${session.state} bin=${session.bin} source=${session.source}${envNote}`,
     ),
-    details: { language, state: session.state },
+    details: {
+      language,
+      state: session.state,
+      sessionId: session.id,
+      root,
+      bin: session.bin,
+      source: session.source,
+      env: p.env,
+    },
   };
 }
 
@@ -201,6 +223,8 @@ async function doCheck(p: LspParams) {
     ...textResult(rendered?.text ?? `no diagnostics for ${p.file}`),
     details: {
       diagnosticCount: diags.length,
+      diagnostics: diags.slice(0, DIAGNOSTICS_FORMAT_MAX),
+      fullPath: rendered?.fullPath,
       errorCount: diags.filter((d) => d.severity === "error").length,
     },
   };
@@ -255,8 +279,7 @@ export default async function lspExtension(pi: ExtensionAPI): Promise<void> {
       }
       return errResult(`lsp: unknown command ${params.command}`);
     },
-    renderCall: renderLspCall,
-    renderResult: renderLspResult,
+    renderTree: renderLspTree,
   });
 
   pi.on("session_shutdown", async () => {

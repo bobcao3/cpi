@@ -1,20 +1,26 @@
-import {
-  createCodemodeExtension,
-  type ExtensionAPI,
-  type ToolDefinition,
-} from "@earendil-works/pi-coding-agent";
-import { codemode_renderers } from "./codemode/render.ts";
+import { createCodemodeExtension } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI } from "./lib/tree-api.ts";
+import type { ToolDefinition } from "./tree/index.ts";
+import { codemode_renderers } from "./codemode/tree-render.ts";
 import {
   call_preview,
   type CallPreview,
   type CodeDetails,
-  type ToolRenderers,
 } from "./codemode/preview.ts";
 
-export default function codemode(
-  pi: ExtensionAPI,
-  renderers: ToolRenderers = new Map(),
-): void {
+const compact_tools = new Set([
+  "read",
+  "write",
+  "edit",
+  "apply_patch",
+  "sh",
+  "sh_repeat_until",
+  "sh_signal",
+  "sh_detach",
+  "sh_background_ps",
+]);
+
+export default function codemode(pi: ExtensionAPI): void {
   createCodemodeExtension()({
     ...pi,
     registerTool(tool) {
@@ -26,8 +32,10 @@ export default function codemode(
       const execute = definition.execute;
       pi.registerTool({
         ...definition,
+        renderExecution: undefined,
+        renderExecutionHtml: undefined,
         defaultActive: true,
-        ...codemode_renderers(renderers),
+        ...codemode_renderers,
         async execute(tool_call_id, params, signal, on_update, context) {
           const previews = new Map<string, CallPreview>();
           const output_schemas = new Map(
@@ -52,7 +60,7 @@ export default function codemode(
                       outcome.result,
                       previews.size,
                       {
-                        custom: renderers.has(args[0]),
+                        compact: compact_tools.has(args[0]),
                         output_schema: output_schemas.get(args[0]),
                         is_error: outcome.isError,
                       },

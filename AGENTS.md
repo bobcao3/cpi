@@ -18,6 +18,14 @@ This repo should be managed by `jujutsu VCS` (i.e. JJ).
 - The canonical remote is `origin` (forge.bc3.moe); the `github` remote is kept
   locally as a secondary push target
 
+## Where to look
+
+- Dev setup, PATH links, SDK: [CLI README](packages/cli/README.md).
+- Editable development against the fork, checks, tests: [Editable development](#editable-development).
+- Extension authoring (hot reload, prompt text, host loading): [Developing extensions](#developing-extensions).
+- Publishing and artifact bumps: [Published packages](#published-packages).
+- Docs and prompt-text rules: [Coding rules](#coding-rules).
+
 ## Coding rules
 
 Hard rules:
@@ -49,17 +57,25 @@ Pi core changes belong in the separate Pi fork.
 
 ### Editable development
 
-Keep both cpi and the Pi fork editable. Use `node scripts/dev.mjs` for this
-checkout against the sibling `cpi-fork`, or `CPI_FORK=/path/to/fork cpi` for
-another fork checkout. The CLI resolves the fork's TypeScript sources directly.
-Run development checks and integration scripts with the same `CPI_FORK`
-selection. For Bun tests, also pass the fork's `tsconfig.json` through
-`--tsconfig-override` so test imports resolve against the same source checkout.
+The Pi fork is cloned into `.pi-fork/` (git-ignored) by `npm run prepare:fork`,
+which `install:dev` runs after installing dependencies, and which
+`scripts/dev.mjs` runs on demand. The clone uses `jj git clone`;
+`CPI_FORK_REMOTE` overrides the remote. Use `node scripts/dev.mjs` to run this
+checkout against that fork, or `CPI_FORK=/path/to/fork` for another checkout.
+The CLI resolves the fork's TypeScript sources directly.
+
+Run development checks and integration scripts against the same fork: `node
+scripts/check.mjs` selects `.pi-fork/` automatically when present, and
+`CPI_FORK` selects a different checkout. For Bun tests, also pass the fork's
+`tsconfig.json` through `--tsconfig-override` so test imports resolve against
+the same source checkout.
 
 Normal edit-and-test work does not require builds, dependency reinstallation,
 artifact installation, a temporary installed copy, or publication. Perform
 [initial PATH and link setup](packages/cli/README.md#editable-development-install)
-only when needed or requested. Unset `CPI_FORK` to use the pinned artifacts.
+only when needed or requested. A source checkout auto-discovers `.pi-fork/`;
+published installs, and source checkouts without `.pi-fork/`, use the pinned
+artifacts.
 
 Formatting covers maintained application and tool source, not historical
 documents or benchmarks.
@@ -75,7 +91,8 @@ Update the artifacts and dependency pins through the
 [artifact importer](packages/cli/scripts/import-pi.mjs), using durable release
 assets rather than expiring CI downloads. Do not commit package archives or
 replace published dependencies with source links. See
-[release packaging](packages/cli/RELEASE.md) for the publication checks.
+[registry release](packages/cli/registry-release.md) for the publication
+checks.
 Publishing remains a separate authorized operation.
 
 **Research**: When user asks about "industry standard", "latest", or "what tool

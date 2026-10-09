@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, statSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { CONFIG_DIR_NAME, getAgentDir } from "@earendil-works/pi-coding-agent";
+import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 
 export const SUBAGENT_GUIDE_FILE = "subagent-models.md";
 export const SUBAGENT_SKILL_NAME = "subagents-in-pi";
@@ -84,4 +85,92 @@ export function findSubagentModelGuide(
     if (project) return project;
   }
   return readGuide(subagentGuidePath(cwd, "user", agentDir));
+}
+
+type AgentMessage = Extract<SessionEntry, { type: "message" }>["message"];
+
+const GUIDE_MARKER = "Active subagent model-selection guide";
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function containsGuide(text: unknown): boolean {
+  return typeof text === "string" && text.includes(GUIDE_MARKER);
+}
+
+function injectIntoUserMessage(
+  message: AgentMessage,
+  name: string,
+  block: string,
+): AgentMessage | undefined {
+  if (message.role !== "user") return undefined;
+  const pattern = new RegExp(
+    `(<skill name="${escapeRegExp(name)}" location="[^"]+">\\n[\\s\\S]*?)(\\n</skill>)`,
+  );
+  const inject = (text: string): string | undefined => {
+    if (containsGuide(text) || !pattern.test(text)) return undefined;
+    return text.replace(pattern, `$1\n\n${block}$2`);
+  };
+  if (typeof message.content === "string") {
+    const next = inject(message.content);
+    return next === undefined ? undefined : { ...message, content: next };
+  }
+  let injected = false;
+  const content = message.content.map((part) => {
+    if (injected || part.type !== "text") return part;
+    const next = inject(part.text);
+    if (next === undefined) return part;
+    injected = true;
+    return { ...part, text: next };
+  });
+  return injected ? { ...message, content } : undefined;
+}
+
+function injectIntoReadResult(
+  message: AgentMessage,
+  filePath: string,
+  block: string,
+): AgentMessage | undefined {
+  if (message.role !== "toolResult" || message.isError) return undefined;
+  if (message.toolName !== "read") return undefined;
+  const details = message.details as { path?: unknown } | undefined;
+  const path = typeof details?.path === "string" ? details.path : undefined;
+  if (!path || resolve(path) !== filePath) return undefined;
+  if (
+    message.content.some(
+      (part) => part.type === "text" && containsGuide(part.text),
+    )
+  )
+    return undefined;
+  return {
+    ...message,
+    content: [...message.content, { type: "text", text: `\n\n${block}` }],
+  };
+}
+
+/**
+ * Append the active subagent model-selection guide to the loaded
+ * `subagents-in-pi` skill wherever it appears in an outgoing request: in an
+ * expanded `<skill>` user message, or in the result of the `read` tool that
+ * loaded the skill file. Returns undefined when no message changed.
+ */
+export function injectSubagentGuide(
+  messages: AgentMessage[],
+  name: string,
+  filePath: string,
+  block: string,
+): AgentMessage[] | undefined {
+  const file = resolve(filePath);
+  if (!block.trim()) return undefined;
+  let injected = false;
+  const out = messages.map((message) => {
+    const next =
+      injectIntoUserMessage(message, name, block) ??
+      injectIntoReadResult(message, file, block);
+    if (!next) return message;
+    injected = true;
+    return next;
+  });
+  return injected ? out : undefined;
 }

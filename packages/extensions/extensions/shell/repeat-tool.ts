@@ -1,5 +1,7 @@
+import { type ToolDefinition } from "../tree/index.ts";
 import { Type } from "typebox";
-import { renderRepeatCall, renderRepeatResult } from "./repeat-render.ts";
+import { renderRepeatTree, type RepeatDetails } from "./repeat-render.ts";
+
 import {
   getShuckBinPath,
   buildShellEnvWithDotenv,
@@ -49,7 +51,7 @@ export function createRepeatTool(
     env: Type.Optional(Type.String({ description: T.schema!.env })),
   });
 
-  return {
+  const tool: ToolDefinition<typeof schema, RepeatDetails> = {
     name: "sh_repeat_until",
     label: "sh_repeat_until",
     description: render(T.tool.description, {
@@ -60,13 +62,7 @@ export function createRepeatTool(
     promptGuidelines: guidelines,
     parameters: schema,
     renderShell: "self" as const,
-    async execute(
-      _toolCallId: string,
-      params: any,
-      _signal: AbortSignal | undefined,
-      _onUpdate: any,
-      ctx: any,
-    ) {
+    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       const interval = params.interval;
       const description = params.description?.trim();
       const blocked = (
@@ -138,7 +134,7 @@ export function createRepeatTool(
         isError: false,
       };
     },
-    renderCall: renderRepeatCall,
-    renderResult: renderRepeatResult,
+    renderTree: renderRepeatTree,
   };
+  return tool;
 }

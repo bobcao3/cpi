@@ -1,11 +1,11 @@
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { resolve, join } from "node:path";
 
 process.env.PI_APPLICATION_MANIFEST = fileURLToPath(
   new URL("./package.json", import.meta.url),
 );
-const fork = process.env.CPI_FORK;
+const fork = process.env.CPI_FORK ?? discoverFork();
 if (fork) {
   process.env.CPI_FORK = resolve(fork);
   process.env.CPI_HOST_SDK_URL = pathToFileURL(
@@ -31,3 +31,8 @@ process.env.CPI_APP_SDK_URL = import.meta.resolve(
 process.env.CPI_HOST_CLI = fileURLToPath(
   new URL("./bin/cpi.mjs", import.meta.url),
 );
+
+function discoverFork() {
+  const fork = fileURLToPath(new URL("../../.pi-fork", import.meta.url));
+  return existsSync(join(fork, "packages/coding-agent/src")) ? fork : undefined;
+}

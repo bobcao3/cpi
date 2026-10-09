@@ -1,3 +1,8 @@
+import {
+  type ToolDefinition,
+  type ToolTreeContext,
+  type ToolTreeSnapshot,
+} from "../tree/index.ts";
 /**
  * cpi's AI-mediated file tools `read`/`write`/`edit`, plus direct `apply_patch`,
  * overriding pi's builtins
@@ -13,10 +18,7 @@
 import { Type } from "typebox";
 import { writeFile, mkdir } from "node:fs/promises";
 import { dirname } from "node:path";
-import type {
-  ExtensionContext,
-  ToolDefinition,
-} from "@earendil-works/pi-coding-agent";
+import type { ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
 import { loadEditorConfig } from "../lib/config.ts";
 import { resolveCwdPath, getCwd } from "../lib/cwd.ts";
 import { expandSourcePath } from "../lib/skill-paths.ts";
@@ -34,8 +36,8 @@ import { shortSha } from "./id.ts";
 import { resultXml, field } from "./result-xml.ts";
 import { lspFields } from "./lsp.ts";
 import { editDiffOps } from "./diff.ts";
-import { renderEditorCall, renderEditorResult } from "./render.ts";
-import { renderReadCall, renderReadResult } from "./read-render.ts";
+import { renderEditorTree } from "./editor-tree.ts";
+import { renderReadBatchTree, renderReadTree } from "./read-tree.ts";
 
 export type Command = "read" | "write" | "edit" | "apply_patch";
 
@@ -279,22 +281,16 @@ function defineTool(command: Command, schema: object) {
     promptSnippet: meta.prompt_snippet,
     promptGuidelines: meta.guidelines,
     parameters: schema,
-    // The extension paints its own neutral background, not pi's green/red result backgrounds.
     renderShell: "self" as const,
-    renderCall(args: any, theme: any, context: any) {
-      return command === "read"
-        ? renderReadCall(args, theme, context)
-        : renderEditorCall(command, args, theme, context);
-    },
-    renderResult(
-      result: any,
-      opts: { expanded: boolean; isPartial: boolean },
-      theme: any,
-      context: any,
+    ...(command === "read" ? { renderBatchTree: renderReadBatchTree } : {}),
+    renderTree(
+      snapshot: ToolTreeSnapshot,
+      theme: Theme,
+      context: ToolTreeContext,
     ) {
       return command === "read"
-        ? renderReadResult(result, opts, theme, context)
-        : renderEditorResult(command, result, opts, theme, context);
+        ? renderReadTree(snapshot, theme, context)
+        : renderEditorTree(command, snapshot, theme, context);
     },
     async execute(
       _toolCallId: string,

@@ -1,169 +1,267 @@
+import {
+  type ToolTreeContext,
+  type ToolTreeNode,
+  type ToolTreeSnapshot,
+} from "./tree/index.ts";
+import { style_tool_tree } from "./lib/tool-style.ts";
 import type { Theme } from "@earendil-works/pi-coding-agent";
-import { Container, Text } from "@earendil-works/pi-tui";
 import { cleanActivityDisplay } from "./lib/activity-details.ts";
+import type { Diagnostic } from "./lib/lsp/diagnostics.ts";
 
-type LspCommand =
-  | "list_sessions"
-  | "list_supported_servers"
-  | "start"
-  | "stop"
-  | "check";
-
-interface LspRenderArgs {
-  command?: LspCommand;
+interface LspArgs {
+  command?: string;
   file?: string;
   project_dir?: string;
 }
-
-interface LspRenderDetails {
+export interface LspRenderDetails {
   diagnosticCount?: number;
   errorCount?: number;
+  diagnostics?: Diagnostic[];
+  fullPath?: string;
   language?: string;
   state?: string;
+  sessionId?: string;
+  root?: string;
+  bin?: string;
+  source?: string;
+  env?: string;
+  sessions?: {
+    id: string;
+    language: string;
+    root: string;
+    bin: string;
+    env?: string;
+    state: string;
+  }[];
 }
-
-interface LspRenderContext {
-  args?: LspRenderArgs;
-  isPartial?: boolean;
-  isError: boolean;
+const visible = (value: string) => cleanActivityDisplay(value).trim();
+function detail(
+  owner: string,
+  section: string,
+  label: string,
+  text: string,
+): ToolTreeNode {
+  return {
+    id: `${owner}/${section}`,
+    label,
+    content: { text },
+    defaultOpen: false,
+  };
 }
-
-const label = (command?: LspCommand) => command?.replaceAll("_", " ") ?? "…";
-const visible = (text: string) =>
-  cleanActivityDisplay(text.replaceAll("\t", " · ")).trim();
-
-export function renderLspCall(
-  args: LspRenderArgs,
-  theme: Theme,
-  context: LspRenderContext,
-) {
-  if (!context.isPartial) return new Container();
-  return new Text(
-    theme.fg("warning", `⏳ lsp ${label(args.command)}: `) +
-      theme.fg("dim", visible(args.file ?? args.project_dir ?? "")),
-    0,
-    0,
+function diagnostics(
+  owner: string,
+  details: LspRenderDetails | undefined,
+  raw: string,
+): ToolTreeNode[] {
+  const seen = new Map<string, number>();
+  const nodes: ToolTreeNode[] = (details?.diagnostics ?? []).map(
+    (diagnostic) => {
+      const key = JSON.stringify([
+        diagnostic.file,
+        diagnostic.startLine,
+        diagnostic.startCol,
+        diagnostic.endLine,
+        diagnostic.endCol,
+        diagnostic.source,
+        diagnostic.code,
+        diagnostic.severity,
+        diagnostic.message,
+      ]);
+      const duplicate = seen.get(key) ?? 0;
+      seen.set(key, duplicate + 1);
+      return {
+        id: `${owner}/diagnostic/${encodeURIComponent(key)}/${duplicate}`,
+        label: `L${diagnostic.startLine}:${diagnostic.startCol} ${diagnostic.severity}[${visible(diagnostic.source)}]`,
+        summary: visible(diagnostic.message),
+        metadata: [visible(diagnostic.file), diagnostic.code ?? ""].filter(
+          Boolean,
+        ),
+        status:
+          diagnostic.severity === "error"
+            ? "error"
+            : diagnostic.severity === "warning"
+              ? "warning"
+              : undefined,
+        content: {
+          text: `${diagnostic.message}\n${diagnostic.file}:${diagnostic.startLine}:${diagnostic.startCol}-${diagnostic.endLine}:${diagnostic.endCol}`,
+        },
+      };
+    },
   );
-}
-
-function diagnosticLine(line: string, theme: Theme): string {
-  const match = /^(L\d+:\d+ )([a-z]+)(\[.*)$/.exec(line);
-  if (!match) return theme.fg("muted", visible(line));
-  const color =
-    match[2] === "error"
-      ? "error"
-      : match[2] === "warning"
-        ? "warning"
-        : "muted";
-  return (
-    theme.fg("muted", match[1]) +
-    theme.fg(color, match[2]) +
-    theme.fg("text", visible(match[3]))
-  );
-}
-
-export function renderLspResult(
-  result: {
-    content: ReadonlyArray<{ type: string; text?: string }>;
-    details?: LspRenderDetails;
-  },
-  options: { isPartial: boolean; expanded: boolean },
-  theme: Theme,
-  context: LspRenderContext,
-) {
-  if (options.isPartial) return new Container();
-  const args = context.args;
-  const command = args?.command ?? "check";
-  const raw = result.content.find((item) => item.type === "text")?.text ?? "";
-  if (context.isError)
-    return new Text(
-      theme.fg("error", ` ✗ lsp ${label(command)}: `) +
-        theme.fg("text", visible(raw)),
-      0,
-      0,
+  if (!nodes.length && !raw.startsWith("no diagnostics for ")) {
+    raw
+      .split("\n")
+      .filter(Boolean)
+      .forEach((line, index) =>
+        nodes.push({
+          id: `${owner}/diagnostic/${index}`,
+          label: visible(line),
+          status: /^L\d+:\d+ error\[/.test(line)
+            ? "error"
+            : /^L\d+:\d+ warning\[/.test(line)
+              ? "warning"
+              : undefined,
+        }),
+      );
+  }
+  const shown = nodes.slice(0, 3);
+  if (nodes.length > 3)
+    shown.push({
+      id: `${owner}/remaining`,
+      label: "More diagnostics",
+      summary: `${nodes.length - 3}`,
+      children: nodes.slice(3),
+    });
+  if ((details?.diagnosticCount ?? 0) > nodes.length)
+    shown.push({
+      id: `${owner}/overflow`,
+      label: "Additional diagnostics",
+      summary: `${details!.diagnosticCount! - nodes.length}`,
+      content: {
+        text: raw
+          .split("\n")
+          .filter((line) => line.startsWith("…"))
+          .join("\n"),
+      },
+    });
+  if (details?.fullPath)
+    shown.push(
+      detail(owner, "full-output", "Full diagnostics", details.fullPath),
     );
+  return shown;
+}
 
-  const details = result.details;
-  const target = visible(args?.file ?? args?.project_dir ?? "");
-  if (command === "check") {
-    const count = details?.diagnosticCount;
-    const hasDiagnostics =
-      count === undefined ? !raw.startsWith("no diagnostics for ") : count > 0;
-    const severity = details?.errorCount
+export function renderLspTree(
+  snapshot: ToolTreeSnapshot<LspArgs, LspRenderDetails>,
+  theme: Theme,
+  context: Pick<ToolTreeContext, "toolCallId">,
+): readonly ToolTreeNode[] {
+  const { args, result, phase } = snapshot;
+  const owner = context.toolCallId;
+  const raw =
+    result?.content
+      .filter((part) => part.type === "text")
+      .map((part) => part.text)
+      .join("\n") ?? "";
+  const details = result?.details;
+  const command = args.command ?? "check";
+  const failed =
+    snapshot.isError || (result as { isError?: boolean } | undefined)?.isError;
+  const root: ToolTreeNode = {
+    id: owner,
+    label: `lsp ${command.replaceAll("_", " ")}`,
+    summary: visible(args.file ?? args.project_dir ?? ""),
+    status: failed
       ? "error"
-      : hasDiagnostics
-        ? "warning"
-        : "success";
-    const summary =
+      : phase === "complete"
+        ? "success"
+        : phase === "running"
+          ? "running"
+          : "queued",
+    defaultOpen: Boolean(failed),
+    children: [],
+  };
+  if (failed) {
+    root.children = [
+      {
+        ...detail(owner, "failure", "Failure", raw),
+        status: "error",
+        defaultOpen: true,
+      },
+    ];
+  } else if (phase === "complete" && command === "check") {
+    const count = details?.diagnosticCount;
+    const has =
+      count === undefined ? !raw.startsWith("no diagnostics for ") : count > 0;
+    root.metadata = [
       count === undefined
-        ? hasDiagnostics
+        ? has
           ? "diagnostics reported"
           : "no diagnostics"
-        : count
-          ? `${count} diagnostic${count === 1 ? "" : "s"}`
-          : "no diagnostics";
-    const lines = hasDiagnostics ? raw.split("\n").slice(0, 4) : [];
-    return new Text(
-      theme.fg(severity, `${hasDiagnostics ? " ⚠" : " ✓"} lsp check: `) +
-        theme.fg("dim", target) +
-        theme.fg("muted", ` · ${summary}`) +
-        (lines.length
-          ? "\n" +
-            lines.map((line) => `   ${diagnosticLine(line, theme)}`).join("\n")
-          : ""),
-      0,
-      0,
-    );
-  }
-  if (command === "start") {
+        : `${count} diagnostics`,
+      details?.errorCount ? `${details.errorCount} errors` : "",
+    ].filter(Boolean);
+    root.children = has ? diagnostics(owner, details, raw) : [];
+    root.defaultOpen = has;
+  } else if (phase === "complete" && command === "start") {
     const state =
       details?.state ?? /\bstate=(\S+)/.exec(raw)?.[1] ?? "starting";
-    const active = state === "ready";
-    const failed = state === "dead" || state === "install-failed";
-    return new Text(
-      theme.fg(
-        failed ? "error" : active ? "success" : "warning",
-        `${failed ? " ✗" : active ? " ✓" : " ⏳"} lsp start: `,
-      ) +
-        theme.fg(
-          "dim",
-          visible(
-            details?.language ?? /\blanguage=(\S+)/.exec(raw)?.[1] ?? target,
-          ),
-        ) +
-        theme.fg("muted", ` · ${visible(state)}`) +
-        (options.expanded ? `\n   ${theme.fg("muted", visible(raw))}` : ""),
-      0,
-      0,
+    root.metadata = [visible(details?.language ?? ""), visible(state)].filter(
+      Boolean,
     );
+    root.children = [
+      {
+        id: `${owner}/session/${encodeURIComponent(details?.sessionId ?? /session (\S+)/.exec(raw)?.[1] ?? "session")}`,
+        label: "Session",
+        summary: visible(state),
+        status:
+          state === "ready"
+            ? "success"
+            : state === "dead" || state === "install-failed"
+              ? "error"
+              : "warning",
+        content: { text: raw },
+      },
+    ];
+  } else if (phase === "complete" && command === "stop") {
+    root.summary = visible(raw);
+    root.children = [detail(owner, "outcome", "Outcome", raw)];
+  } else if (phase === "complete" && command === "list_sessions") {
+    const sessions =
+      details?.sessions ??
+      (raw === "No LSP sessions."
+        ? []
+        : raw
+            .split("\n")
+            .slice(1)
+            .filter(Boolean)
+            .map((line) => {
+              const [id, language, root, bin, env, state] = line.split("\t");
+              return {
+                id: id ?? "",
+                language: language ?? "",
+                root: root ?? "",
+                bin: bin ?? "",
+                env,
+                state: state ?? "",
+              };
+            }));
+    root.summary = sessions.length ? `${sessions.length} sessions` : "none";
+    root.children = sessions.map((session) => ({
+      id: `${owner}/session/${encodeURIComponent(session.id)}`,
+      label: visible(session.language),
+      summary: visible(session.root),
+      metadata: [
+        visible(session.id),
+        visible(session.state),
+        visible(session.bin),
+      ],
+      status:
+        session.state === "ready"
+          ? "success"
+          : session.state === "dead" || session.state === "install-failed"
+            ? "error"
+            : "warning",
+      children: session.env
+        ? [
+            detail(
+              `${owner}/session/${encodeURIComponent(session.id)}`,
+              "environment",
+              "Environment",
+              session.env,
+            ),
+          ]
+        : [],
+    }));
+  } else if (phase === "complete" && command === "list_supported_servers") {
+    const lines = raw.split("\n").filter(Boolean);
+    root.summary = `${lines.length} supported servers`;
+    root.children = lines.map((line) => ({
+      id: `${owner}/server/${encodeURIComponent(line.split(" ")[0]!)}`,
+      label: visible(line.split(" ")[0]!),
+      summary: visible(line.slice(line.indexOf(" ") + 1)),
+      content: { text: line },
+    }));
   }
-  if (command === "stop") {
-    const none = raw.startsWith("no session");
-    return new Text(
-      theme.fg(none ? "muted" : "success", `${none ? " ○" : " ✓"} lsp stop: `) +
-        theme.fg("dim", visible(raw)),
-      0,
-      0,
-    );
-  }
-  const entries = raw === "No LSP sessions." ? [] : raw.split("\n");
-  const rows = command === "list_sessions" ? entries.slice(1) : entries;
-  const name = command === "list_sessions" ? "sessions" : "supported servers";
-  const shown = rows.slice(0, 30);
-  return new Text(
-    theme.fg(
-      rows.length ? "success" : "muted",
-      `${rows.length ? " ✓" : " ○"} lsp ${name}: `,
-    ) +
-      theme.fg("muted", rows.length ? String(rows.length) : "none") +
-      (rows.length && options.expanded
-        ? "\n" +
-          shown.map((row) => `   ${theme.fg("dim", visible(row))}`).join("\n") +
-          (rows.length > shown.length
-            ? `\n   ${theme.fg("muted", `…and ${rows.length - shown.length} more`)}`
-            : "")
-        : ""),
-    0,
-    0,
-  );
+  return style_tool_tree([root], theme);
 }

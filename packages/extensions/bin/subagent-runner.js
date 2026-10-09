@@ -1,5 +1,5 @@
 import { hostCodingAgent } from "./host-pi.mjs";
-import { closeSync, openSync, readSync, readdirSync, statSync } from "node:fs";
+import { readdirSync } from "node:fs";
 import { mkdir, readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -30,49 +30,34 @@ const THINKING = new Set([
   "xhigh",
   "max",
 ]);
-const MAX_PARENT_TAIL = 1024 * 1024;
 const MAX_SESSION_FILES = 4096;
-
-function readTail(path) {
-  let fd;
-  try {
-    fd = openSync(path, "r");
-    const size = statSync(path).size;
-    const length = Math.min(size, MAX_PARENT_TAIL);
-    const data = Buffer.alloc(length);
-    readSync(fd, data, 0, length, Math.max(0, size - length));
-    return data.toString("utf8");
-  } catch {
-    return "";
-  } finally {
-    if (fd !== undefined) closeSync(fd);
-  }
-}
-
-function lastJsonValue(text, key) {
-  const expression = new RegExp(`"${key}"\\s*:\\s*"([^"]+)"`, "g");
-  let value = "";
-  for (const match of text.matchAll(expression)) value = match[1];
-  return value;
-}
 
 function parentSettings(env) {
   const dir = env.PI_SESSION_DIR;
   const id = env.PI_SESSION_ID;
-  if (!dir || !id) return { provider: "", thinking: "" };
+  const empty = { provider: "", modelId: "", thinking: "" };
+  if (!dir || !id) return empty;
   let names;
   try {
     names = readdirSync(dir).slice(0, MAX_SESSION_FILES);
   } catch {
-    return { provider: "", thinking: "" };
+    return empty;
   }
   const name = names.find((candidate) => candidate.endsWith(`_${id}.jsonl`));
-  if (!name) return { provider: "", thinking: "" };
-  const tail = readTail(join(dir, name));
-  return {
-    provider: lastJsonValue(tail, "provider"),
-    thinking: lastJsonValue(tail, "thinkingLevel"),
-  };
+  if (!name) return empty;
+  try {
+    const context = SessionManager.open(
+      join(dir, name),
+      dir,
+    ).buildSessionContext();
+    return {
+      provider: context.model?.provider ?? "",
+      modelId: context.model?.modelId ?? "",
+      thinking: context.thinkingLevel ?? "",
+    };
+  } catch {
+    return empty;
+  }
 }
 
 function selector(args, parent) {
@@ -82,6 +67,15 @@ function selector(args, parent) {
   if (colon >= 0 && THINKING.has(model.slice(colon + 1))) {
     thinking = model.slice(colon + 1);
     model = model.slice(0, colon);
+  }
+  if (!model) {
+    if (args.providerExplicit)
+      return { provider: args.provider, model: "", thinking };
+    return {
+      provider: parent.provider,
+      model: parent.modelId,
+      thinking,
+    };
   }
   const inheritedProvider = args.providerExplicit ? "" : parent.provider;
   let provider = args.providerExplicit ? args.provider : inheritedProvider;
@@ -151,7 +145,7 @@ export async function runSubagent(request, signal) {
   const modelRuntime = await createFastRuntime(ModelRuntime, cwd);
   const protocolPath = join(
     dirname(fileURLToPath(import.meta.url)),
-    "output-protocol.md",
+    "subagent-output-protocol.md",
   );
   const protocol = await readFile(protocolPath, "utf8");
   const oldSubagent = process.env.PI_SUBAGENT;

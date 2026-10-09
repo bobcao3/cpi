@@ -65,6 +65,12 @@ export function register_shell_completion(
         kind,
         summary,
         payload: { "shell-id": id, "exit-code": code ?? -1, summary },
+        description: description
+          ? truncate_description(cleanActivityDisplay(description))
+          : undefined,
+        log: log
+          ? { path: log.path, startLine: log.startLine, endLine: log.endLine }
+          : undefined,
         ...(log?.activityId && log.scope
           ? { deliveryId: JSON.stringify([log.scope, log.activityId]) }
           : {}),

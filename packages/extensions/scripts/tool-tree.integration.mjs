@@ -5,6 +5,26 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { hostCodingAgent, hostTui } from "../bin/host-pi.mjs";
 import { fixture } from "./fast-fixture.mjs";
+import { createJiti } from "jiti";
+
+const jiti = createJiti(import.meta.url, {
+  tryNative: false,
+  alias: {
+    "@earendil-works/pi-coding-agent": fileURLToPath(
+      process.env.CPI_HOST_SDK_URL,
+    ),
+    "@earendil-works/pi-tui": fileURLToPath(process.env.CPI_HOST_TUI_URL),
+  },
+  ...(process.env.CPI_FORK
+    ? { tsconfigPaths: join(process.env.CPI_FORK, "tsconfig.json") }
+    : {}),
+});
+const { register_tree_renderers } = await jiti.import(
+  new URL("../extensions/lib/tool-tree.ts", import.meta.url).href,
+);
+const { tree_extension_api } = await jiti.import(
+  new URL("../extensions/lib/tree-api.ts", import.meta.url).href,
+);
 
 const host = await hostCodingAgent();
 const tui = await hostTui();
@@ -110,6 +130,7 @@ await fixture(
             (extension) => extension.name !== "codemode",
           ),
           register,
+          (pi) => register_tree_renderers(tree_extension_api(pi)),
         ],
       },
     });
@@ -134,7 +155,7 @@ await fixture(
         name,
         result.toolCallId,
         args,
-        { showImages: false, outputPad },
+        { showImages: false, outputPad, resolveToolRenderers: resolve },
         resolve(name),
         ui,
         directory,
@@ -168,11 +189,11 @@ await fixture(
               plain(padded)
                 .split("\n")
                 .find((line) => line.trim())
-                .startsWith(`${" ".repeat(padding)}✓ ▸ tree_direct`),
+                .startsWith("✓ ▸ tree_direct"),
               JSON.stringify(plain(padded)),
             );
             click(padded, /▸ tree_direct/);
-            click(padded, /▸ result/);
+            click(padded, /▸ Result/i);
             assert.match(plain(padded), /GENERIC_TYPED_ONLY/);
             for (const width of [1, 2, 3, 12, 120])
               assert(
@@ -196,11 +217,11 @@ await fixture(
           1,
         );
         click(component, /▸ tree_direct/);
-        click(component, /▸ result/);
+        if (/▸ Result/i.test(plain(component))) click(component, /▸ Result/i);
         const shown = plain(component);
         assert.match(shown, /GENERIC_MODEL_TEXT/);
-        if (value === null) assert.match(shown, /result:\s+null/);
-        else if (value === false) assert.match(shown, /result:\s+false/);
+        if (value === null) assert.match(shown, /Result\s*·?\s*null/i);
+        else if (value === false) assert.match(shown, /Result\s*·?\s*false/i);
         else if (typeof value === "string")
           assert(shown.includes("JSON string"));
         for (const width of [1, 20, 80, 120])
@@ -230,7 +251,7 @@ await fixture(
       const live = component_for(target, {}, mcp);
       assert.match(plain(live), /▸ tree\/report/);
       click(live, /▸ tree\/report/);
-      click(live, /▸ result/);
+      click(live, /▸ Result/i);
       assert.match(plain(live), /MCP_TYPED_ONLY/);
       const saved = host.SessionManager.open(manager.getSessionFile())
         .getEntries()
@@ -281,9 +302,10 @@ await fixture(
       );
       assert.equal(overflow.isError, true);
       const overflow_view = component_for(target, arguments_value, overflow);
-      assert.match(plain(overflow_view), /✗ ▸ tree\/report/);
+      assert.match(plain(overflow_view), /× ▸ tree\/report/);
       const full_path = overflow.details.fullOutputPath;
       try {
+        overflow_view.setExpanded(true);
         assert(plain(overflow_view).includes(full_path));
         assert.equal(
           await readFile(full_path, "utf8"),
@@ -291,7 +313,7 @@ await fixture(
         );
         overflow_view.setExpanded(true);
         assert.match(plain(overflow_view), /MCP_TYPED_ONLY/);
-        assert.match(plain(overflow_view), /error:/);
+        assert.match(plain(overflow_view), /Output/);
       } finally {
         await rm(full_path, { force: true });
       }

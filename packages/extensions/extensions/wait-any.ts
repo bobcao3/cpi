@@ -1,7 +1,7 @@
+import type { ExtensionAPI } from "./lib/tree-api.ts";
 /** wait_any — placebo: terminates the turn; the next event (user message, background completion, alarm) wakes the agent. */
 
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { Text } from "@earendil-works/pi-tui";
+import { renderWaitAnyTree } from "./wait-any-render.ts";
 import { Type } from "typebox";
 import {
   loadText,
@@ -12,12 +12,7 @@ import {
 } from "./lib/text.ts";
 
 const WAIT_ANY_TOOL = "wait_any";
-const SHORT_TIME_ZONE_FORMATTER = new Intl.DateTimeFormat("en-US", {
-  timeZoneName: "short",
-});
-
-/** IANA form is unambiguous for the model-facing tool result; short form is for the UI. */
-function nowTimestamp(zone: "iana" | "short" = "iana"): string {
+function nowTimestamp(): string {
   const d = new Date();
   const day = String(d.getDate()).padStart(2, "0");
   const month = String(d.getMonth() + 1).padStart(2, "0");
@@ -27,12 +22,7 @@ function nowTimestamp(zone: "iana" | "short" = "iana"): string {
   hours = hours % 12;
   if (hours === 0) hours = 12;
   const minutes = String(d.getMinutes()).padStart(2, "0");
-  const timeZone =
-    zone === "iana"
-      ? Intl.DateTimeFormat().resolvedOptions().timeZone
-      : (SHORT_TIME_ZONE_FORMATTER.formatToParts(d).find(
-          (part) => part.type === "timeZoneName",
-        )?.value ?? "");
+  const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
   return `${day}/${month}/${year} ${hours}:${minutes} ${ampm} ${timeZone}`;
 }
 
@@ -61,32 +51,6 @@ export default function waitAnyExtension(pi: ExtensionAPI): void {
       };
     },
     renderShell: "self",
-    renderCall(_args, theme, context) {
-      const t =
-        (context.lastComponent as Text | undefined) ?? new Text("", 0, 0);
-      t.setText(
-        theme.fg("muted", "💤") +
-          theme.fg(
-            "dim",
-            ` waiting on events or user input ${nowTimestamp("short")}`,
-          ),
-      );
-      return t;
-    },
-    renderResult(result, _options, theme, context) {
-      return new Text(
-        context.isError
-          ? theme.fg(
-              "error",
-              result.content
-                .filter((part) => part.type === "text")
-                .map((part) => part.text)
-                .join("\n"),
-            )
-          : "",
-        0,
-        0,
-      );
-    },
+    renderTree: renderWaitAnyTree,
   });
 }

@@ -1,3 +1,8 @@
+import { hostCodingAgent, hostTui } from "../bin/host-pi.mjs";
+
+const [{ ToolExecutionComponent }, { TuiMainScreen, ProcessTerminal }] =
+  await Promise.all([hostCodingAgent(), hostTui()]);
+
 export function create_render_probe({ session, manager, theme, work }) {
   const run = async (id, code, on_update) => {
     const name = "codemode";
@@ -37,6 +42,11 @@ export function create_render_probe({ session, manager, theme, work }) {
     return result;
   };
   const states = new Map();
+  const viewStates = new Map();
+  const resolveToolRenderers = (name) =>
+    session.extensionRunner.resolveToolRenderers(name, () =>
+      session.getToolDefinition(name),
+    );
   const context = (
     id,
     code,
@@ -47,6 +57,10 @@ export function create_render_probe({ session, manager, theme, work }) {
     args: { code },
     toolCallId: id,
     state: states.get(id) ?? states.set(id, {}).get(id),
+    viewState:
+      viewStates.get(id) ??
+      viewStates.set(id, { open: new Map(), shownChildren: new Map() }).get(id),
+    toolRenderers: resolveToolRenderers,
     expanded,
     isPartial: partial,
     isError: is_error,
@@ -78,14 +92,25 @@ export function create_render_probe({ session, manager, theme, work }) {
     partial = false,
   ) => {
     const ctx = context(id, code, expanded, partial, result.isError ?? false);
-    const call = definition.renderCall({ code }, theme, ctx);
-    const output = definition.renderResult(
-      result,
-      { expanded, isPartial: partial },
-      theme,
-      ctx,
+    ctx.state.toolRenderers = resolveToolRenderers;
+    const ui = new TuiMainScreen(new ProcessTerminal());
+    ui.stop();
+    const component = new ToolExecutionComponent(
+      "codemode",
+      id,
+      { code },
+      { showImages: false, outputPad: 1, resolveToolRenderers },
+      definition,
+      ui,
+      work,
     );
-    return [...call.render(width), ...output.render(width)];
+    try {
+      component.updateResult(result, partial);
+      component.setExpanded(expanded);
+      return component.render(width).filter((line) => line !== "");
+    } finally {
+      component.dispose();
+    }
   };
   return {
     run,

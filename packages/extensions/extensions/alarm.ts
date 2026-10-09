@@ -1,3 +1,4 @@
+import type { ExtensionAPI } from "./lib/tree-api.ts";
 /**
  * Alarm extension
  *
@@ -11,16 +12,12 @@
  * reconstructed on session start / tree navigation.
  */
 
-import type {
-  ExtensionAPI,
-  ExtensionContext,
-} from "@earendil-works/pi-coding-agent";
+import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { Container, Text } from "@earendil-works/pi-tui";
 import { sendNotification } from "./lib/notification.ts";
-import { cleanActivityDisplay } from "./lib/activity-details.ts";
 import { registerHoldSource } from "./lib/session-hold.ts";
 import { recordAlarmSetup } from "./lib/poll-guard.ts";
+import { render_alarm_tree } from "./alarm-render.ts";
 import {
   loadText,
   render,
@@ -38,8 +35,11 @@ interface Alarm {
   fired: boolean;
 }
 
-interface AlarmDetails {
+export interface AlarmDetails {
   alarms: Alarm[];
+  operation?: "schedule" | "cancel" | "missing";
+  alarmId?: string;
+  cancelledIds?: string[];
 }
 
 let piRef: ExtensionAPI;
@@ -194,6 +194,11 @@ export default function (pi: ExtensionAPI) {
       reconstructAlarms(ctx);
 
       if (params.cancel !== undefined && params.cancel !== false) {
+        const cancelledIds = alarms
+          .filter(
+            (alarm) => params.cancel === true || alarm.id === params.cancel,
+          )
+          .map((alarm) => alarm.id);
         if (typeof params.cancel === "string") {
           const before = alarms.length;
           alarms = alarms.filter((a) => a.id !== params.cancel);
@@ -202,7 +207,11 @@ export default function (pi: ExtensionAPI) {
               content: [
                 { type: "text", text: `No active alarm ${params.cancel}` },
               ],
-              details: { alarms: [...alarms] } satisfies AlarmDetails,
+              details: {
+                alarms: [...alarms],
+                operation: "missing",
+                alarmId: params.cancel,
+              } satisfies AlarmDetails,
             };
           }
         } else {
@@ -218,7 +227,11 @@ export default function (pi: ExtensionAPI) {
               text: `Cancelled alarm(s). Active alarms: ${alarms.length}`,
             },
           ],
-          details: { alarms: [...alarms] } satisfies AlarmDetails,
+          details: {
+            alarms: [...alarms],
+            operation: "cancel",
+            cancelledIds,
+          } satisfies AlarmDetails,
         };
       }
 
@@ -264,68 +277,14 @@ export default function (pi: ExtensionAPI) {
             text: `Alarm ${id} at ${formatAlarmDate(targetMs)}`,
           },
         ],
-        details: { alarms: [...alarms] } satisfies AlarmDetails,
+        details: {
+          alarms: [...alarms],
+          operation: "schedule",
+          alarmId: id,
+        } satisfies AlarmDetails,
       };
     },
-    renderCall(args, theme, context) {
-      if (!context.isPartial) return new Container();
-      const action = args.cancel ? "Cancelling alarm" : "Setting alarm";
-      const target =
-        args.cancel === true ? "all" : args.cancel || args.alarm_id || "";
-      return new Text(
-        theme.fg("warning", `⏳ ${action}`) +
-          theme.fg(
-            "dim",
-            target ? ` ${cleanActivityDisplay(String(target))}` : "",
-          ),
-        0,
-        0,
-      );
-    },
-    renderResult(result, { isPartial }, theme, context) {
-      if (isPartial) return new Container();
-      const text = result.content[0];
-      const raw = text?.type === "text" ? text.text : "";
-      const separator = raw.startsWith("Alarm ") ? raw.lastIndexOf(" at ") : -1;
-      if (separator > 6) {
-        const id = raw.slice(6, separator);
-        const details = result.details as AlarmDetails | undefined;
-        const alarm = details?.alarms?.find((a) => a.id === id);
-        if (alarm) {
-          const dt = new Date(alarm.targetMs);
-          const absTime = dt.toLocaleString(undefined, {
-            month: "short",
-            day: "numeric",
-            hour: "2-digit",
-            minute: "2-digit",
-            second: "2-digit",
-          });
-          const deltaSec = Math.round((alarm.targetMs - Date.now()) / 1000);
-          const relTime =
-            deltaSec > 0
-              ? deltaSec >= 3600
-                ? `T+${Math.floor(deltaSec / 3600)}h${Math.floor((deltaSec % 3600) / 60)}m`
-                : `T+${deltaSec}s`
-              : "passed";
-          return new Text(
-            theme.fg("success", " ✓ Alarm ") +
-              theme.fg("dim", `${cleanActivityDisplay(id)} · ${absTime}`) +
-              theme.fg("muted", ` · ${relTime}`),
-            0,
-            0,
-          );
-        }
-      }
-      const missing = raw.startsWith("No active alarm");
-      return new Text(
-        theme.fg(
-          context.isError ? "error" : missing ? "muted" : "success",
-          context.isError ? " ✗ Alarm: " : missing ? " ○ " : " ✓ ",
-        ) + theme.fg("dim", cleanActivityDisplay(raw)),
-        0,
-        0,
-      );
-    },
+    renderTree: render_alarm_tree,
   });
 
   registerHoldSource({

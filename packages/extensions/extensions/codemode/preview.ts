@@ -5,7 +5,6 @@ import {
   type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 
-export type ToolRenderers = Map<string, ToolDefinition<any, any, any>>;
 export interface CallPreview {
   args: Record<string, unknown>;
   details: unknown;
@@ -129,27 +128,27 @@ export function call_preview(
   result: AgentToolResult<unknown>,
   order: number,
   options: {
-    custom: boolean;
+    compact: boolean;
     output_schema?: ToolDefinition["outputSchema"];
     is_error: boolean;
   },
 ): CallPreview {
   const arguments_preview = bounded_value(args, OMIT_ARGUMENTS.get(name));
-  const details_preview = options.custom
-    ? bounded_value(result.details, ["text"])
-    : { value: undefined, limited: false };
+  const compact_shell = options.compact && name === "sh" && !options.is_error;
+  const details_preview = bounded_value(
+    result.details,
+    compact_shell ? ["text", "output", "stdout"] : ["text"],
+  );
   const structured =
     options.output_schema === undefined
-      ? undefined
-      : options.custom
-        ? result.structuredContent
-        : getStructuredToolOutput(
-            options.output_schema,
-            result.structuredContent,
-          );
+      ? result.structuredContent
+      : getStructuredToolOutput(
+          options.output_schema,
+          result.structuredContent,
+        );
   const has_structured = structured !== undefined;
   const structured_preview = has_structured
-    ? bounded_value(structured, [], true)
+    ? bounded_value(structured, compact_shell ? ["output", "stdout"] : [], true)
     : undefined;
   const preview: CallPreview = {
     args: (arguments_preview.value as Record<string, unknown>) ?? {},
@@ -162,7 +161,9 @@ export function call_preview(
       options.is_error ||
       name === "alarm" ||
       name === "lsp" ||
-      (!options.custom && !has_structured)
+      name === "set_cwd" ||
+      name === "wait_any" ||
+      (!options.compact && !has_structured)
         ? result.content
             .filter((part) => part.type === "text")
             .slice(0, 4)

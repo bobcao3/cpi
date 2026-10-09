@@ -16,6 +16,36 @@ are exported through `@cpi/ghostmux/source` and `@cpi/ghostmux/signature`.
 registry. Set `GHOSTMUX_TEST_ARTIFACT` to a directory of signed release artifacts
 to test native-package resolution, tampering, and version mismatches.
 
+When no verified binary is available, resolution fails with an explicit error
+naming the missing package; the fallback order (override, development build,
+optional-build, platform package) is in
+[`ghostmux-resolve.mjs`](bin/ghostmux-resolve.mjs). Set `GHOSTMUX_BIN` to an
+absolute path, `GHOSTMUX_BUILD=1` to build from source, or reinstall with
+optional dependencies enabled.
+
+## Contents
+
+[npm distribution](#npm-distribution) ·
+[Socket protocol](#socket-protocol) ·
+[Build and run](#build-and-run) ·
+[Managed terminals](#managed-terminals) ·
+[Output reads, subscriptions, and logs](#output-reads-subscriptions-and-logs) ·
+[Existing PTY streams](#existing-pty-streams) ·
+[Capture during a stream](#capture-during-a-stream) ·
+[Rendering and verification](#rendering-and-verification)
+
+## Socket protocol
+
+The daemon speaks length-prefixed JSON frames over a Unix socket or Windows
+named pipe: a four-byte big-endian length followed by one JSON request or
+response, with the protocol version checked on every frame. Request, response,
+and output-chunk sizes are bounded, and each exchange runs under a watchdog
+that closes a silent connection. Failures surface as JSON error names; a failed
+exchange has no partial response. The wire authorities are
+[`wire.zig`](src/wire.zig) and
+[`runtime_frames.zig`](src/runtime_frames.zig); the `--protocol` stdin mode
+below is a separate interface.
+
 ## npm distribution
 
 The source workspace is private; publish only artifacts prepared by

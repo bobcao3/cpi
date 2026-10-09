@@ -1,137 +1,74 @@
+import { ToolTreeComponent } from "./tree/index.ts";
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { stripVTControlCharacters } from "node:util";
-import { getThemeByName } from "@earendil-works/pi-coding-agent";
-import { renderLspCall, renderLspResult } from "./lsp-render.ts";
-import { renderRepeatCall, renderRepeatResult } from "./shell/repeat-render.ts";
+import { getThemeByName, initTheme } from "@earendil-works/pi-coding-agent";
+import { createRepeatTool } from "./shell/repeat-tool.ts";
+import { getActiveRepeats, killAllRepeats } from "./shell/repeat.ts";
+import { setCurrentScope } from "./shell/exec.ts";
+import { ensureShellTools } from "./shell/tools.ts";
+import { resolveShell } from "./shell/profile.ts";
 
+initTheme("dark");
 const theme = getThemeByName("dark")!;
-const plain = (component: { render(width: number): string[] }) =>
-  component
-    .render(110)
-    .map((line) => stripVTControlCharacters(line).trimEnd())
-    .join("\n");
-
-test("LSP check distinguishes diagnostics from a clean result and failure", () => {
-  const args = { command: "check" as const, file: "src/app.ts" };
-  const context = { args, isError: false };
-  assert.equal(
-    plain(renderLspCall(args, theme, { ...context, isPartial: true })),
-    "⏳ lsp check: src/app.ts",
+test("real monitor launch and rejected commands retain separate semantic outcomes", async () => {
+  const callId = crypto.randomUUID();
+  setCurrentScope(callId);
+  const tool = createRepeatTool(
+    120,
+    await ensureShellTools(),
+    resolveShell("bash"),
   );
-  assert.equal(
-    plain(renderLspCall({}, theme, { ...context, isPartial: true })),
-    "⏳ lsp …:",
-  );
-  assert.equal(
-    plain(renderLspCall(args, theme, { ...context, isPartial: false })),
-    "",
-  );
-  const result = renderLspResult(
-    {
-      content: [
-        { type: "text", text: "L7:2 error[tsserver] unknown variable" },
-      ],
-      details: { diagnosticCount: 1, errorCount: 1 },
-    },
-    { isPartial: false, expanded: false },
-    theme,
-    context,
-  );
-  assert.equal(
-    plain(result),
-    " ⚠ lsp check: src/app.ts · 1 diagnostic\n   L7:2 error[tsserver] unknown variable",
-  );
-  assert.ok(
-    result.render(110).join("\n").includes(theme.fg("error", " ⚠ lsp check: ")),
-  );
-  assert.ok(result.render(110).join("\n").includes(theme.fg("error", "error")));
-  assert.match(
-    plain(
-      renderLspResult(
-        {
-          content: [
-            { type: "text", text: "L7:2 error[tsserver] unknown variable" },
-          ],
-        },
-        { isPartial: false, expanded: false },
+  const context = {
+    toolCallId: callId,
+    cwd: process.cwd(),
+    state: {},
+    viewState: { open: new Map(), shownChildren: new Map() },
+    invalidate() {},
+  };
+  try {
+    for (const command of ["true", "mkfs.ext4 /dev/sdb1"]) {
+      const args = { command, interval: 5, description: "Inspect monitor" };
+      const result = await tool.execute(
+        callId,
+        args,
+        undefined,
+        undefined,
+        undefined!,
+      );
+      const nodes = tool.renderTree!(
+        { args, result, phase: "complete", isError: !!result.isError },
         theme,
         context,
-      ),
-    ),
-    /^ ⚠ lsp check: src\/app\.ts · diagnostics reported/,
-  );
-  assert.equal(
-    plain(
-      renderLspResult(
-        {
-          content: [{ type: "text", text: "no diagnostics for src/app.ts" }],
-          details: { diagnosticCount: 0 },
-        },
-        { isPartial: false, expanded: false },
-        theme,
-        context,
-      ),
-    ),
-    " ✓ lsp check: src/app.ts · no diagnostics",
-  );
-  assert.match(
-    plain(
-      renderLspResult(
-        { content: [{ type: "text", text: "no LSP session" }] },
-        { isPartial: false, expanded: false },
-        theme,
-        { ...context, isError: true },
-      ),
-    ),
-    /^ ✗ lsp check: no LSP session$/,
-  );
-});
-
-test("registered repeat monitor stays visually active, and blocked command stays red", () => {
-  const args = { description: "Check build", interval: 10 };
-  const context = { args, isError: false };
-  assert.equal(
-    plain(renderRepeatCall(args, theme, { ...context, isPartial: true })),
-    "⏳ Monitor: Check build (every 10s)",
-  );
-  assert.equal(
-    plain(renderRepeatCall(args, theme, { ...context, isPartial: false })),
-    "",
-  );
-  const result = renderRepeatResult(
-    {
-      content: [{ type: "text", text: "repeating PID=rpt-3 every 10s" }],
-      details: {
-        id: "rpt-3",
-        description: "Check build",
-        interval: 10,
-        shuckWarnings: "shell warning",
-      },
-    },
-    { isPartial: false },
-    theme,
-    context,
-  );
-  assert.equal(
-    plain(result),
-    "⏳ Monitor rpt-3: Check build · every 10s\n   ⚠ shell warning",
-  );
-  assert.ok(
-    result.render(110).join("\n").includes(theme.fg("warning", "⏳ Monitor ")),
-  );
-  assert.equal(
-    plain(
-      renderRepeatResult(
-        {
-          content: [{ type: "text", text: "invalid interval" }],
-          details: { blocked: "invalid interval" },
-        },
-        { isPartial: false },
-        theme,
-        { ...context, isError: true },
-      ),
-    ),
-    "🛑 Blocked: Check build\n   - Reason: invalid interval",
-  );
+      );
+      const root = nodes[0]!;
+      const blocked = root.children?.find((node) =>
+        node.id.endsWith("/blocked"),
+      );
+      if (command === "true") {
+        assert.equal(root.status, "success");
+        assert.equal(blocked, undefined);
+        const monitor = getActiveRepeats().find(
+          (entry) => entry.id === result.details.id,
+        );
+        assert.ok(monitor);
+        assert.ok(
+          root.children?.some((node) => node.label.includes(monitor.id)),
+        );
+      } else {
+        assert.equal(root.status, "error");
+        assert.ok(result.details.blocked?.includes("filesystem formatting"));
+        assert.equal(blocked?.content?.text, result.details.blocked?.trim());
+        assert.equal(blocked?.defaultOpen, false);
+      }
+      const tree = new ToolTreeComponent(nodes, theme, { padding: 0 });
+      assert.ok(tree.render(100).join("\n").includes("Inspect monitor"));
+      assert.equal(
+        root.children?.find((node) => node.id.endsWith("/command"))?.content
+          ?.text,
+        command,
+      );
+    }
+  } finally {
+    killAllRepeats();
+  }
 });

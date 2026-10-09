@@ -1,11 +1,15 @@
 import { hostCodingAgent } from "./host-pi.mjs";
 import { stripVTControlCharacters } from "node:util";
 
-const { initTheme } = await hostCodingAgent();
+const { initTheme, mergeToolExecutionNestedCalls } = await hostCodingAgent();
 
 export function createToolDisplay(session, diagnostic) {
   initTheme(session.settingsManager.getTheme());
   const rows = new Map();
+  const resolve = (name) =>
+    session.extensionRunner.resolveToolRenderers(name, () =>
+      session.getToolDefinition(name),
+    );
   const clean = (value) =>
     stripVTControlCharacters(String(value)).replace(/\r/g, "");
   function context(id, args, isError = false) {
@@ -13,13 +17,16 @@ export function createToolDisplay(session, diagnostic) {
       args,
       toolCallId: id,
       cwd: session.sessionManager.getCwd(),
-      state: {},
+      state: { toolRenderers: resolve },
+      resolveToolRenderers: resolve,
       invalidate() {},
       executionStarted: true,
       argsComplete: true,
       isPartial: false,
       expanded: false,
       showImages: false,
+      imageWidthCells: 60,
+      outputPad: 0,
       isError,
     };
   }
@@ -30,14 +37,15 @@ export function createToolDisplay(session, diagnostic) {
       const row = context(call.id, call.arguments);
       rows.set(call.id, row);
       try {
-        const definition = session.getToolDefinition(call.name);
-        definition
-          ?.renderCall?.(
-            call.arguments,
-            session.extensionRunner.getUIContext().theme,
-            row,
-          )
-          ?.render(100);
+        const definition = resolve(call.name);
+        if (!definition?.renderExecution)
+          definition
+            ?.renderCall?.(
+              call.arguments,
+              session.extensionRunner.getUIContext().theme,
+              row,
+            )
+            ?.render(100);
       } catch (error) {
         diagnostic(`Tool call renderer (${call.name}): ${error}`);
       }
@@ -47,11 +55,34 @@ export function createToolDisplay(session, diagnostic) {
         rows.get(message.toolCallId) ?? context(message.toolCallId, {});
       rows.delete(message.toolCallId);
       row.isError = message.isError;
-      const definition = session.getToolDefinition(message.toolName);
+      const definition = resolve(message.toolName);
       let lines;
       let rendering = "fallback";
       try {
-        if (definition?.renderResult) {
+        if (definition?.renderExecution) {
+          const theme = session.extensionRunner.getUIContext().theme;
+          const component = definition.renderExecution(
+            {
+              args: row.args,
+              result: message,
+              phase: "complete",
+              isError: message.isError,
+              durationMs: message.durationMs,
+              nestedCalls: mergeToolExecutionNestedCalls?.(
+                [],
+                message.nestedCalls,
+              ),
+            },
+            theme,
+            row,
+          );
+          try {
+            lines = component.render(100);
+          } finally {
+            component.dispose?.();
+          }
+          rendering = "tui";
+        } else if (definition?.renderResult) {
           const component = definition.renderResult(
             message,
             { expanded: false, isPartial: false },

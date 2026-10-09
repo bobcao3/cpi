@@ -1,6 +1,9 @@
 # ── Jujutsu VCS ──────────────────────────────────────
 .jj/
 
+# ── Dev Pi fork checkout (cloned by `scripts/fork.mjs`) ──
+/.pi-fork/
+
 # ── Node.js / TypeScript ────────────────────────────
 node_modules/
 *.js

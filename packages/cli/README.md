@@ -1,5 +1,9 @@
 # cpi
 
+Pick one install mode: the registry release for normal use, a GitHub snapshot to
+track `main`, or the editable checkout below when you work on cpi itself. The
+[SDK](#sdk) section covers driving cpi from TypeScript.
+
 Install the public CLI package:
 
 ```sh
@@ -45,6 +49,9 @@ Deno's global installer creates its own JavaScript-module wrapper and does not
 use this POSIX shell entrypoint. The shell entrypoint requires a POSIX host with
 `readlink`; native Windows installation is unsupported.
 
+Runtime requirements are declared in the manifests (`engines.node`,
+`engines.bun`); the declarations are the authority.
+
 ## Editable development install
 
 From the checkout root:
@@ -61,9 +68,12 @@ Rerun after moving the checkout to update Bun's source link.
 CLI and supporting-tool JavaScript/TypeScript edits apply on the next invocation
 without a build. Native Ghostmux and WASM source changes require their packages'
 build scripts. For extension and TOML prompt edits in a running session, use
-`/reload`. See the repository's
+`/reload`. `bun run install:dev` also clones the Pi fork into the git-ignored
+`.pi-fork/` with `jj` (`npm run prepare:fork` does it standalone,
+`CPI_FORK_REMOTE` overrides the remote). A source-checkout `cpi` auto-discovers
+`.pi-fork/`; `node scripts/dev.mjs` and `CPI_FORK` work as well. See the repository's
 [editable-development policy](https://github.com/bobcao3/cpi/blob/main/AGENTS.md#editable-development)
-for working directly against the Pi fork.
+for details.
 
 ## SDK
 

@@ -1,0 +1,3 @@
+[setup]
+model = "No default model is set. Choose the default model for new sessions."
+effort = "Choose the default effort (thinking level) for new sessions."

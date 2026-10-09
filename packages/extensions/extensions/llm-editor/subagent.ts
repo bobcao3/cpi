@@ -8,8 +8,9 @@
 import { randomUUID } from "node:crypto";
 import { writeTranscript } from "./log.ts";
 import { getActivitySession, updateActivity } from "../lib/activity.ts";
-import { STREAM_UPDATE_MS } from "./render.ts";
 import { loadEditorText, fmt, type EditorText } from "./text.ts";
+
+const STREAM_UPDATE_MS = 200;
 import type { Usage } from "../lib/cost-ledger.ts";
 import {
   runSubagentWorker,

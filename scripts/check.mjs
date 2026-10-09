@@ -1,6 +1,6 @@
 import { spawnSync } from "node:child_process";
 import { readFileSync, realpathSync } from "node:fs";
-import { dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import { API } from "typescript/unstable/sync";
@@ -10,6 +10,7 @@ import {
   withSourceFiles,
 } from "../packages/extensions/scripts/source-metrics.mjs";
 import { root, sourceFiles } from "./source-files.mjs";
+import { forkDir, isForkCheckout } from "./fork.mjs";
 
 const require = createRequire(import.meta.url);
 const compiler = join(
@@ -31,9 +32,13 @@ for (const manifest of workspaces)
           `GitHub installation lacks ${manifest.name}'s ${name}@${spec}`,
         );
     }
-const fork = process.env.CPI_FORK
-  ? resolve(process.cwd(), process.env.CPI_FORK)
-  : null;
+const fork = isForkCheckout(forkDir()) ? forkDir() : null;
+const forkLocal = fork ? relative(root, fork) : undefined;
+const insideFork = (local) =>
+  forkLocal !== undefined &&
+  local !== "" &&
+  !isAbsolute(local) &&
+  (local === forkLocal || local.startsWith(`${forkLocal}${sep}`));
 if (fork) {
   const configPath = join(root, "tsconfig.editable-check.json");
   let virtualConfig;
@@ -84,7 +89,11 @@ if (fork) {
     ].filter((diagnostic) => {
       if (!diagnostic.fileName) return true;
       const local = relative(root, diagnostic.fileName);
-      return local.split(/[\\/]/)[0] !== ".." && !isAbsolute(local);
+      return (
+        local.split(/[\\/]/)[0] !== ".." &&
+        !isAbsolute(local) &&
+        !insideFork(local)
+      );
     });
     for (const diagnostic of diagnostics) {
       const pending = [diagnostic];

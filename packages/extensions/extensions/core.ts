@@ -30,6 +30,7 @@ import {
   getFooterContent,
 } from "./lib/footer.ts";
 import { registerActivityBrowser } from "./lib/activity-ui.ts";
+import { registerToolInspector } from "./presentation/index.ts";
 import { startKittyProbe, stopKittyProbe } from "./lib/kitty-probe.ts";
 import { listActivities } from "./lib/activity.ts";
 import {
@@ -66,6 +67,7 @@ import {
 } from "./lib/goal.ts";
 
 export default function coreExtension(pi: ExtensionAPI): void {
+  registerToolInspector(pi);
   injectSourcePaths();
   unregisterSystemPromptTransform("cpi-rules");
   const external_events = registerExternalEvents(pi);
