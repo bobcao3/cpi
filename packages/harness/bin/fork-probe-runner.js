@@ -61,6 +61,22 @@ function capProbeOutput(session, maxOutputTokens) {
   session.agent.state.model = { ...model, maxTokens: maxOutputTokens };
 }
 
+function setProbeInstructionRole(session) {
+  const agent = session.agent;
+  const previous = agent.transformContext;
+  agent.transformContext = async (messages, signal) => {
+    const transformed = previous ? await previous(messages, signal) : messages;
+    if (agent.state.model?.compat?.supportsMidConvoSystemMessages !== true)
+      return transformed;
+    const instruction = transformed.findLastIndex(
+      (message) => message.role === "user",
+    );
+    return transformed.map((message, index) =>
+      index === instruction ? { ...message, role: "system" } : message,
+    );
+  };
+}
+
 function enabledTools(value) {
   if (!value) return undefined;
   const tools = value
@@ -206,6 +222,7 @@ export async function runForkProbeSubagent(request, signal) {
     if (signal?.aborted) return 1;
     restrictProbeTools(runtime.session, request.toolsDisabledMessage);
     capProbeOutput(runtime.session, request.maxOutputTokens);
+    setProbeInstructionRole(runtime.session);
     await runtime.session.prompt(request.prompt);
     if (
       signal?.aborted ||

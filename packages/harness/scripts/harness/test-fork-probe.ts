@@ -16,7 +16,11 @@ import {
   isolateAgent,
   packagePath,
 } from "../test-runtime.mjs";
-import { probeModel as model } from "./fork-probe-model.ts";
+import {
+  probeModel as model,
+  probeModels,
+  probeSubstitutionCases,
+} from "./fork-probe-model.ts";
 import {
   createAgentSessionFromServices,
   createAgentSessionServices,
@@ -40,6 +44,10 @@ let mainRequests = 0;
 let release: (() => void) | undefined;
 let arrived: (() => void) | undefined;
 let gate: Promise<void> | undefined;
+const messageText = (message: any) =>
+  typeof message.content === "string"
+    ? message.content
+    : message.content?.map((part: any) => part.text ?? "").join("");
 const server = createServer(async (request, response) => {
   const chunks = [];
   for await (const chunk of request) chunks.push(chunk);
@@ -105,23 +113,7 @@ writeFileSync(
         baseUrl: `http://127.0.0.1:${address.port}/v1`,
         api: "openai-completions",
         apiKey: "test",
-        models: [
-          model("probe-test", 10),
-          model("cheap", 0.2),
-          model("equal", 1),
-          model("expensive", 2),
-          model("unknown", 0),
-          model("small", 0.2, 2048),
-          model("tiered", 0.2, 128000, [
-            {
-              inputTokensAbove: 1000,
-              input: 2,
-              output: 1,
-              cacheRead: 0.1,
-              cacheWrite: 1,
-            },
-          ]),
-        ],
+        models: probeModels,
       },
       foreign: {
         baseUrl: `http://127.0.0.1:${address.port}/v1`,
@@ -194,6 +186,7 @@ try {
   assert.equal(text.ok, true, JSON.stringify(text));
   assert.equal(text.answer, "PROBE_OK");
   assert.equal(requests.length, 1);
+  assert.equal(requests[0].messages.at(-1).role, "user");
   assert.ok(requests[0].tools.length > 0);
   const probeTools = requests[0].tools;
   assert.equal(observation.aborts, 0);
@@ -205,34 +198,12 @@ try {
   );
   mkdirSync(join(root, ".cpi"));
   const configPath = join(root, ".cpi", "cpi-config.json");
-  const rule = (to: string, from = "probe-test") => ({ from, to });
-  const cases: [string, unknown, string, string?][] = [
-    ["cheap", [rule("cheap:medium")], "cheap"],
-    ["equal cache price", [rule("equal:medium")], "equal"],
-    ["expensive", [rule("expensive:medium")], "probe-test"],
-    ["unknown price", [rule("unknown:medium")], "probe-test"],
-    ["smaller context", [rule("small:medium")], "probe-test"],
-    ["expensive tier", [rule("tiered:medium")], "probe-test"],
-    ["foreign provider", [rule("foreign-only:medium")], "probe-test"],
-    ["no fuzzy lookup", [rule("che:medium")], "probe-test"],
-    ["unmatched", [rule("cheap:medium", "other")], "probe-test"],
-    ["disabled", [], "probe-test"],
-    ["identity", [rule("probe-test:high")], "probe-test"],
-    ["invalid", [{ from: 7, to: "cheap:medium" }], "probe-test"],
-    [
-      "bounded",
-      Array.from({ length: 33 }, () => rule("cheap:medium")),
-      "probe-test",
-    ],
-    ["fallthrough", [rule("expensive:medium"), rule("cheap:medium")], "cheap"],
-    [
-      "explicit model",
-      [rule("cheap:medium")],
-      "probe-test",
-      "local/probe-test:high",
-    ],
-  ];
-  for (const [label, substitutions, expected, explicit] of cases) {
+  for (const [
+    label,
+    substitutions,
+    expected,
+    explicit,
+  ] of probeSubstitutionCases) {
     writeFileSync(configPath, JSON.stringify({ forkProbe: { substitutions } }));
     requests = [];
     const result = await runForkProbe(
@@ -242,6 +213,27 @@ try {
     assert.equal(result.ok, true, `${label}: ${JSON.stringify(result)}`);
     assert.equal(requests.length, 1, label);
     assert.equal(requests[0].model, expected, label);
+    assert.equal(
+      requests[0].messages.at(-1).role,
+      expected === "cheap"
+        ? "developer"
+        : expected === "equal"
+          ? "system"
+          : "user",
+      label,
+    );
+    assert.equal(
+      messageText(requests[0].messages.at(-1)),
+      "Recall your context.",
+    );
+    assert.ok(
+      requests[0].messages.some(
+        (message: any) =>
+          message.role === "user" &&
+          messageText(message) === "Test fork probes.",
+      ),
+      label,
+    );
     assert.equal(
       requests[0].reasoning_effort,
       ["cheap", "equal"].includes(expected) ? "medium" : "high",
@@ -254,20 +246,29 @@ try {
     configPath,
     JSON.stringify({ forkProbe: { substitutions: [] } }),
   );
-  for (const [scenario, count, success] of [
-    ["tool", 4, false],
-    ["tool-then-text", 2, true],
+  for (const [scenario, count, success, explicit, role] of [
+    ["tool", 4, false, undefined, "user"],
+    ["tool-then-text", 2, true, undefined, "user"],
+    ["tool-then-text", 2, true, "local/cheap", "developer"],
+    ["tool-then-text", 2, true, "local/equal", "system"],
   ] as const) {
     mode = scenario;
     requests = [];
     const result = await runForkProbe(
-      { ...options, tools: "write" },
+      { ...options, tools: "write", model: explicit },
       "Write the marker, then answer.",
     );
     assert.equal(requests.length, count, JSON.stringify(result));
     assert.equal(result.ok, success);
     assert.equal(result.exitCode, success ? 0 : 1);
     assert.equal(result.answer, success ? "PROBE_OK" : "");
+    for (const request of requests) {
+      const instruction = request.messages.findLast(
+        (message: any) =>
+          messageText(message) === "Write the marker, then answer.",
+      );
+      assert.equal(instruction?.role, role);
+    }
     assert(
       requests[0].tools.some((tool: any) => tool.function.name === "write"),
     );
