@@ -4,7 +4,7 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { archive_manifest } from "./registry-archive.mjs";
 
-export async function registry_server(directory, packages) {
+export async function registry_server(directory, packages, upstream_packages) {
   const entries = new Map();
   for (const pkg of packages)
     entries.set(pkg.name, {
@@ -49,7 +49,8 @@ export async function registry_server(directory, packages) {
     }
     if (
       path.startsWith("@bobcao3/") ||
-      path.startsWith("@earendil-works/") ||
+      (path.startsWith("@earendil-works/") &&
+        !upstream_packages.has(path.split("/-/")[0])) ||
       path.startsWith("@cpi/")
     ) {
       response.writeHead(404);

@@ -40,7 +40,7 @@ for (const manager of ["npm", "bun"]) {
   };
   for (const key of Object.keys(env))
     if (
-      /^(?:CPI_|PI_|GHOSTMUX_|NPM_CONFIG_|NODE_AUTH_TOKEN$|NPM_TOKEN$)/.test(
+      /^(?:CPI_|PI_|GHOSTMUX_|JITI_|NPM_CONFIG_|NODE_AUTH_TOKEN$|NPM_TOKEN$)/.test(
         key,
       )
     )

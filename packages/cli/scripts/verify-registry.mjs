@@ -89,7 +89,7 @@ for (const pkg of packages) {
 const consumer = await mkdtemp(join(tmpdir(), "cpi-registry-consumer-"));
 const server = public_registry
   ? undefined
-  : await registry_server(directory, packages);
+  : await registry_server(directory, packages, upstream_packages);
 const cli = packages.find((pkg) => pkg.name === "@bobcao3/cpi");
 async function execute(command, args, env, cwd) {
   return new Promise((resolve, reject) => {
@@ -137,7 +137,7 @@ try {
       BUN_INSTALL_CACHE_DIR: join(prefix, "bun-cache"),
     };
     for (const key of Object.keys(env))
-      if (/^(?:CPI_|PI_|GHOSTMUX_)/.test(key)) delete env[key];
+      if (/^(?:CPI_|PI_|GHOSTMUX_|JITI_)/.test(key)) delete env[key];
     delete env.NODE_AUTH_TOKEN;
     delete env.NPM_TOKEN;
     env.PI_OFFLINE = "1";
@@ -188,7 +188,8 @@ try {
     !server?.requests.some(
       (name) =>
         name.startsWith("@cpi/") ||
-        (name.startsWith("@earendil-works/") && !upstream_packages.has(name)),
+        (name.startsWith("@earendil-works/") &&
+          !upstream_packages.has(name.split("/-/")[0])),
     ),
     "An internal dependency escaped its exact registry alias",
   );
