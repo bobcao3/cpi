@@ -1,242 +1,172 @@
-# cpi: There are many agent harnesses,but this one is Cheng Cao's.
+# cpi: Cheng Cao's agent harness
 
-This repo hosts the cpi CLI, custom extensions, skills, and supporting tool packages for our Pi fork.
-See the [upstream pi docs](https://pi.dev/docs/latest).
+This repo hosts the cpi CLI, custom extensions, skills, and supporting tools for
+our Pi fork. Development aims to materially improve harness performance. See the
+[upstream Pi docs](https://pi.dev/docs/latest).
 
-Developing this repo means we want to materially improve the performance of the
-agent harness.
-
-This repo should be managed by `jujutsu VCS` (i.e. JJ).
-
-- Avoid using blanket `git` terminology like "commit"
-- JJ auto-tracks changes to files, there is no "creating a commit", everything
-  stacks into the current working "change"
-- If a change gets polluted with multiple features, use
-  `jj split (files to split)...` to split off into distinct change layers
-- We can keep iterate on a change (treat each change kinda as a git-stack),
-  `jj evolog` shows history of changes
-- The canonical remote is `origin` (forge.bc3.moe); the `github` remote is kept
-  locally as a secondary push target
+Manage this repo with **jujutsu (JJ)**, not blanket Git terminology like "commit".
+JJ auto-tracks files into the current working "change"; there is no "creating a
+commit". Iterate on changes like a stack; `jj evolog` shows their history. Split
+mixed features into distinct layers with `jj split (files to split)...`.
+Canonical remote: `origin` (forge.bc3.moe); local `github` is a secondary push target.
 
 ## Where to look
 
 - Dev setup, PATH links, SDK: [CLI README](packages/cli/README.md).
-- Editable development against the fork, checks, tests: [Editable development](#editable-development).
-- Extension authoring (hot reload, prompt text, host loading): [Developing extensions](#developing-extensions).
-- Publishing and artifact bumps: [Published packages](#published-packages).
-- Docs and prompt-text rules: [Coding rules](#coding-rules).
+- Fork startup, checks, tests: [Editable development](#editable-development).
+- Publishing and artifacts: [Published packages](#published-packages).
+- Docs, prompt text, source limits: [Coding rules](#coding-rules).
+- Reproduction, research, confirmation: [Working and debugging](#working-and-debugging), [Verification](#verification).
+- Test value: [Not writing useless tests](#not-writing-useless-tests).
+- Design principles: [TigerStyle](#following-the-tigerstyle).
+- Hot reload and host loading: [Developing extensions](#developing-extensions).
 
 ## Coding rules
 
 Hard rules:
 
-1. No source code file exceeds 397 sourcecode lines (ignore whitespaces and
-   comments).
-2. No source code file exceeds 355 AST statements.
-3. Do not write file/module trees in any documentation — the filesystem itself
-   is already the tree, and the folder structure should be self-explanatory.
-4. No source code file exceeds 7% comment lines (AST-counted by
-   `packages/harness/scripts/comment-scan.mjs`, enforced via `bun lint`; formatting via
-   `bun format`).
-5. All model-facing prompt texts (tool descriptions, prompt snippets,
-   guidelines, schema field descriptions) must live in the dedicated
-   `packages/harness/src/text/` folder as TOML templates (loaded via `loadText`/`render`),
-   never inlined in extension `.ts` source.
-6. Document _never_ repeat values or behavior that's encoded in default config
-   or code. Refer reader to the actual source of truth.
+1. Each source file: at most 397 source-code lines (excluding whitespace and
+   comments), 355 AST statements, and 7% comment lines. Comments are AST-counted by
+   `packages/harness/scripts/comment-scan.mjs`, enforced via `bun lint`; format
+   with `bun format`.
+2. Never write file/module trees in docs: the filesystem is the tree and folder
+   structure should explain itself.
+3. All model-facing text (tool descriptions, prompt snippets, guidelines, schema
+   field descriptions) belongs in `packages/harness/src/text/` as TOML templates
+   loaded via `loadText`/`render`, never inlined in extension `.ts` source.
+4. Docs must never repeat values or behavior encoded in default config or code;
+   refer to that source of truth.
 
-Guideline: When refactoring, aim for at least 30%-50% AST statements reduction
-(instead of line count).
-
-Principal: Use the **simplest architecture**, not necessarily solution with
-least lines of code
+When refactoring, aim for at least 30%–50% AST-statement reduction, not line count.
+Use the **simplest architecture**, not necessarily the fewest lines.
 
 ## Working and debugging
 
-Pi core changes belong in the separate Pi fork.
+Pi core changes belong in the separate Pi fork. Harness development is iterative;
+expect debugging. Make no accusations without consistent reproduction; fix no
+bugs before nailing down the root cause. Prototypes are fine, but before submitting:
+
+- Confirm the architecture addresses the issue permanently; otherwise it is wrong.
+- Analyze all potential side effects and test every impact, even intended ones.
+
+For "industry standard", "latest", or "what tool should we use" questions, always
+research online for first-hand, up-to-date information.
 
 ### Editable development
 
-The Pi fork is cloned into `.pi-fork/` (git-ignored) by `npm run prepare:fork`,
-which `install:dev` runs after installing dependencies, and which
-`scripts/dev.mjs` runs on demand. The clone uses `jj git clone`;
-`CPI_FORK_REMOTE` overrides the remote. Use `node scripts/dev.mjs` to run this
-checkout against that fork, or `CPI_FORK=/path/to/fork` for another checkout.
-The CLI resolves the fork's TypeScript sources directly.
+`npm run prepare:fork` clones the git-ignored `.pi-fork/` via `jj git clone`;
+`CPI_FORK_REMOTE` overrides the remote. `install:dev` runs preparation after
+installing dependencies; `scripts/dev.mjs` runs it on demand.
 
-Run development checks and integration scripts against the same fork: `node
-scripts/check.mjs` selects `.pi-fork/` automatically when present, and
-`CPI_FORK` selects a different checkout. For Bun tests, also pass the fork's
-`tsconfig.json` through `--tsconfig-override` so test imports resolve against
-the same source checkout.
+Run `node scripts/dev.mjs` against that fork, or set `CPI_FORK=/path/to/fork` for
+another checkout. The CLI resolves fork TypeScript sources directly. Source
+checkouts auto-discover `.pi-fork/`; published installs and source checkouts
+without it use pinned artifacts.
 
-Normal edit-and-test work does not require builds, dependency reinstallation,
-artifact installation, a temporary installed copy, or publication. Perform
-[initial PATH and link setup](packages/cli/README.md#editable-development-install)
-only when needed or requested. A source checkout auto-discovers `.pi-fork/`;
-published installs, and source checkouts without `.pi-fork/`, use the pinned
-artifacts.
+Use the same fork for development checks and integration scripts:
+`node scripts/check.mjs` auto-selects `.pi-fork/` when present; `CPI_FORK` overrides
+it. Bun tests also need the selected fork's `tsconfig.json` passed through
+`--tsconfig-override` to resolve imports against that checkout.
 
-Formatting covers maintained application and tool source, not historical
-documents or benchmarks.
+Normal edit/test work needs no builds, dependency reinstallation, artifact
+installation, temporary installed copy, or publication. Perform
+[initial PATH/link setup](packages/cli/README.md#editable-development-install)
+only when needed or requested. Format maintained application/tool source, not
+historical docs or benchmarks.
 
 ### Published packages
 
-Installation verification applies to published packages. After pushing package
-changes, verify an independent installed-package layout without local Pi peers.
-Development verification does not replace that publication check.
-
-Published packages consume the versioned artifact set in `vendor/pi/manifest.json`.
-Update the artifacts and dependency pins through the
+After pushing package changes, verify an independent installed-package layout
+without local Pi peers. Development verification does not replace this check.
+Published packages use the versioned artifacts in `vendor/pi/manifest.json`;
+update artifacts and dependency pins with the
 [artifact importer](packages/cli/scripts/import-pi.mjs), using durable release
-assets rather than expiring CI downloads. Do not commit package archives or
-replace published dependencies with source links. See
-[registry release](packages/cli/registry-release.md) for the publication
-checks.
-Publishing remains a separate authorized operation.
-
-**Research**: When user asks about "industry standard", "latest", or "what tool
-should we use", always research online to get first-hand, up-to-date
-information.
-
-Developing an agent harness is iterative. Debugging is expected.
-
-No accusations shall be made without a consistent reproduction.
-
-No bugs shall be fixed without nailing down the root cause.
-
-Find the correct architecture. You can prototype a fix, but before submitting
-your work, think twice:
-
-- Is my fix going to address this issue permanently? If not: not the correct
-  architecture.
-- Is my fix going to cause side effects? If yes: side effects can be correct,
-  but we need complete analysis of potential impact, and no impacts shall be
-  left untested.
+assets, not expiring CI downloads. Never commit package archives or replace
+published dependencies with source links. See
+[registry release](packages/cli/registry-release.md) for publication checks.
+Publishing is a separate authorized operation.
 
 ## Verification
 
-"Work done?" -> Have you confirmed it?
-
-When user asks for an implementation task, verfication in real world is implied.
-Do not return a solution without confirming it works in real world.
+"Work done?" means confirmed: user-requested implementation implies real-world verification.
+Do not return a solution before confirming it works in the real world.
 
 ## Not writing useless tests
 
-Do not write tests for the sake of writing tests.
-
-If you wrote a test, think again, is this trivial, is this actually testing
-production path? No mocking, mocking is mere mockery.
-
-Prefer achiving coverage through comprehensive integration, not exhaustive
-testing through mocking.
+Do not write tests for their own sake. If you wrote a test, think again: is it
+trivial, and is it actually testing the production path? No mocking; prefer
+comprehensive integration coverage over exhaustive mock tests.
 
 # Following the [TigerStyle](https://github.com/tigerbeetle/tigerbeetle/blob/main/docs/TIGER_STYLE.md)
 
 ## 1. Safety
 
-**Correctness is necessary but not sufficient for safety.**
-
-To be safe, a program must not only run correctly. It must apply
-defense-in-depth and verify itself while running, to run correctly or else shut
-down if it detects that it has violated expectations.
-
-TigerStyle follows the spirit of NASA's Power of Ten Rules for Safety-Critical
-Code by Gerard J. Holzmann. For example, static allocation, assertions and
-explicit limits. Read the Original Rules, which will change the way you code
-forever.
+Correctness is necessary but insufficient: use defense-in-depth and runtime
+self-verification; run correctly or shut down when expectations are violated.
+TigerStyle follows Gerard J. Holzmann's NASA Power of Ten Rules for Safety-Critical
+Code (static allocation, assertions, explicit limits). Read the Original Rules.
 
 ### Explicit Limits
 
-Put a limit on everything because everything has a limit.
-
-Bound all resources, concurrency, and execution. Don’t react to stimuli but use
-fixed intervals to schedule work. Avoid recursion. Bound loops and queues to
-detect infinite loops and latency spikes.
+Everything has a limit: bound resources, concurrency, execution, loops, and queues
+to detect infinite loops and latency spikes. Schedule work at fixed intervals
+rather than reacting to stimuli. Avoid recursion.
 
 ### Assertions
 
-Where types check structure, assertions check all logic and state, to detect
-programmer error, multiply fuzzing, and downgrade catastrophe. Assert arguments,
-returns, and invariants: what you expect and don't expect, the positive and
-negative space, not only contract but breach.
+Types check structure; assertions check logic and state to detect programmer
+errors, multiply fuzzing, and downgrade catastrophe. Assert arguments, returns,
+and invariants: expected and unexpected states, positive and negative space,
+contract and breach.
 
 ### Logical Interfaces
 
-The safety (as well as performance and experience) of a system is dominated by
-the quality of its interfaces.
-
-- Minimize surface area
-- Define fault models
-- Abstract physical non-deterministic interfaces with logical deterministic
-  interfaces
-- Push control flow up and data flow down
+Interfaces dominate safety, performance, and experience. Minimize surface area,
+define fault models, abstract nondeterministic physical interfaces behind
+deterministic logical ones, and push control flow up and data flow down.
 
 ### Dimensionality
 
-Simplify function signatures to minimize branches at the call site, which are
-viral through the call graph.
-
-As a return type, bool trumps u64 trumps !u64.
-
-Minimize or define variables near to when/where they are used, to close semantic
-gaps in time/space.
+Simplify signatures to reduce call-site branches that spread through the call
+graph. Prefer return types `bool` over `u64` over `!u64`. Minimize variables or
+define them near use to close semantic gaps in time and space.
 
 ### Minimize Dependencies
 
-Dependencies risk safety and performance, invite supply chain attacks, and
-increase install times. For infrastructure in particular, these costs multiply
-up the stack.
-
-Similarly, tools have costs. A small standard toolbox feels slow for you at
-first but accelerates the team long term.
+Minimize dependencies: safety, performance, supply-chain, and installation costs
+multiply for infrastructure. Tools also cost; a small standard toolbox may feel
+slow initially but accelerates the team over time.
 
 ### Zero Technical Debt
 
-Code, like steel, is easier to change while it's hot. Do it right the first
-time, the best you know how, because you may not get another chance, and because
-quality builds momentum. This is the only way to make steady progress, knowing
-that the foundations are solid.
+Do it right the first time, while code is hot like steel: another chance may not
+come. Quality builds momentum and sound foundations enable steady progress.
 
 ## 2. Performance
 
 ### Zero Copy / Deserialization
 
-Per core memory bandwidth is a new bottleneck:
-
-- Do things in the most direct way possible
-- Don't copy memory in the data plane
-- Don't thrash the CPU cache
-- Don't serialize or deserialize data
-- Use fixed-size cache line aligned structs
-- Align structs to their largest field
+Per-core memory bandwidth is a new bottleneck. Work directly; do not copy data-plane
+memory, thrash the CPU cache, serialize, or deserialize. Use fixed-size,
+cache-line-aligned structs; align structs to their largest field.
 
 ## 3. Experience
 
-A day of design is worth weeks or months in production. Therefore, go slow to go
-fast. Optimize the total cost of software ownership, not for those who write it
-once, but for those who read and run it many times. Trade linear deadlines for
-exponential quality.
+A day of design saves weeks or months in production: go slow to go fast. Optimize
+total ownership cost for repeated readers and operators, not one-time authors.
+Trade linear deadlines for exponential quality.
 
 ### Simplicity And Elegance
 
-"...simple and elegant systems tend to be easier and faster to design and get
-right, more efficient in execution, and much more reliable, **but** require hard
-work and discipline to achieve..."
-
-— Edsger Dijkstra
+Edsger Dijkstra: simple, elegant systems are easier and faster to design correctly,
+more efficient, and more reliable, but demand hard work and discipline.
 
 ### Nouns And Verbs
 
-Great names are the essence of great code, capturing what a thing is or does,
-for a crisp mental model.
-
-- Append qualifiers to names
-- Sort by most significant word (big endian naming)
-- Use the same number of characters for related names (e.g. source/target) so
-  they line up in the source.
-- Use snake_case
-- Don't abbreviate
+Great names are the essence of great code: capture what a thing is or does for a
+crisp mental model. Append qualifiers; sort by most significant word (big endian
+naming); use equal character counts for related names (e.g. source/target) to align
+them in source; use snake_case; don't abbreviate.
 
 ---
 
@@ -244,89 +174,67 @@ for a crisp mental model.
 
 ## Pi peer packages are not worker dependencies
 
-Do not rely on cpi's local `node_modules` copy of Pi's peer packages at runtime.
 `pi install git:...` loads extensions through Pi, but native Node workers and
-scripts resolve imports from cpi's installed directory, where those peers may
-not exist. In workers and other standalone entry points, avoid bare runtime
-imports of Pi peer packages; load the **active host Pi** through
-[`packages/harness/bin/host-pi.mjs`](packages/harness/bin/host-pi.mjs)
-instead. Type-only imports are fine. Use the editable active host during
-development and the independent installed host for publication verification.
+scripts resolve imports from cpi's installed directory, where Pi peers may be
+absent. Never rely on cpi's local `node_modules` Pi peers at runtime. Workers and
+standalone entry points must avoid bare runtime Pi peer imports and load the
+**active host Pi** through
+[`packages/harness/bin/host-pi.mjs`](packages/harness/bin/host-pi.mjs).
+Type-only imports are fine. Use the editable active host during development
+and the independent installed host for publication verification.
 
-cpi extensions run inside pi, which loads each via jiti with
-`moduleCache: false` and can hot-reload a single extension file mid-session. Two
-facts shape every extension design decision:
+## Hot reload: registrations versus shared state
 
-1. **Per-instance registration is transient.** pi stores message renderers and
-   event handlers on the _extension instance_ (`extension.messageRenderers`,
-   `extension.handlers` — a fresh `new Map()` on every load). On a hot-reload,
-   the old instance (and its Map) is discarded; the new instance starts empty.
-2. **`globalThis` is persistent.** It survives jiti reloads and is shared across
-   all extension module copies in the process.
+Pi loads extensions through jiti with `moduleCache: false` and can hot-reload
+one file mid-session. Instance registrations (`extension.messageRenderers`,
+`extension.handlers`) use fresh `new Map()` storage on every load; reload discards
+the old instance and its maps, leaving the new instance empty.
+`globalThis` persists across reloads and is shared by module copies in the process.
 
-## Anti-pattern: a `globalThis` "done" flag guarding per-instance registration
+Never guard per-instance registration with a persistent `globalThis` dedup flag:
 
 ```ts
-// WRONG — breaks on reload
+// WRONG — reload keeps DONE but discards the renderer registration.
 function ensureThing(pi) {
   const g = globalThis as Record<string, unknown>;
-  if (g.DONE) return;        // flag persists across reload...
-  pi.registerMessageRenderer(...);  // ...but this Map entry does not
+  if (g.DONE) return;
+  pi.registerMessageRenderer(...);
   g.DONE = true;
 }
 ```
 
-**Why it's bad.** The flag says "already done" forever; the renderer/handler it
-guards lives only on the instance that registered it. After a hot-reload, the
-flag is still `true` so re-registration is **skipped**, but the new instance's
-Map is empty. Result: the feature silently breaks — pi falls back to the default
-`[customType]` + raw-content render, or queued messages never drain. This is not
-theoretical: it bit `ensureNotificationRenderer`, `ensureDrains`
-(prepend-message), and `ensureRenderer` (cwd).
+After reload, this skips registration on the empty new instance, silently causing
+Pi's default `[customType]` + raw-content fallback rendering or undrained queues.
+It broke `ensureNotificationRenderer`, `ensureDrains` (prepend-message), and
+`ensureRenderer` (cwd).
 
-## Sound patterns
+Use these patterns:
 
-- **Guard on real resource state, not a boolean flag.** Check the thing itself:
-  `if (timer) return` (`lib/footer.ts`), `existsSync(bin)` (`shell/tools.ts`),
-  re-merge state per call (`cwd.ensureToolActive`).
-- **Own per-instance registration in one core extension.** When registration has
-  no queryable state (a renderer, a drain handler, a system-prompt transform
-  owner, session-hold), it is registered unconditionally at load and
-  re-registered on its own reload. Producers are pure clients — they never
-  register. All such owners live together in `packages/harness/src/core.ts` (footer,
-  notification renderer, prepend-message drains, system-prompt transforms,
-  session-hold): one extension means the shared plumbing is present iff cpi is
-  present at all — no producer can be left dangling without its owner, and a
-  single hot-reload re-registers every owner atomically. Each registers
-  unconditionally at load (no `globalThis` dedup flag);
-  `pi.registerMessageRenderer` / `pi.on` are idempotent `Map.set` / append on
-  the fresh instance.
-- **Unconditional register at load when the extension is the sole owner.**
-  `pi.registerMessageRenderer` / `pi.on` are idempotent `Map.set` / append;
-  calling once per load is fine. Use this only when one extension owns the
-  feature (else multiple owners double-register; prefer a dedicated owner for
-  shared plumbing).
+- **Queryable resources:** guard on real state, not a boolean: `if (timer) return`
+  (`lib/footer.ts`), `existsSync(bin)` (`shell/tools.ts`), or re-merge state per call
+  (`cwd.ensureToolActive`).
+- **Unqueryable per-instance registration:** give shared plumbing one owner in
+  `packages/harness/src/core.ts`; producers are pure clients and never register.
+  Its owners cover footer, notification renderer, prepend-message drains,
+  system-prompt transforms, and session-hold. Co-location ensures plumbing exists
+  iff cpi does, prevents dangling producers, and re-registers all owners atomically
+  on core reload. Register unconditionally at load and re-register on the owner's
+  own reload, with no `globalThis` flag.
+  `pi.registerMessageRenderer` / `pi.on` use `Map.set` / append on the fresh instance;
+  once per load is idempotent. Unconditional registration at load is also fine
+  only for a sole-owner extension; multiple owners double-register, so use a
+  dedicated owner for shared features.
+- **Shared mutable data:** `globalThis` is fine for state re-read on every call and
+  repopulated on reload: the footer singleton (`lib/footer.ts`), transcript renderer
+  registry (`lib/transcript-registry.ts`), and prepend-message queues. Never use it
+  to skip registration. If an `ensure*` uses a global boolean, check real resource
+  state instead or move registration to a dedicated owner.
 
-## `globalThis` is fine for shared _state_, not for dedup _flags_
+## `registerSystemPromptTransform` — dynamic behavior only
 
-`globalThis` is correct when it holds **shared mutable state** re-read on every
-call — e.g. the footer singleton (`lib/footer.ts`), the transcript renderer
-registry (`lib/transcript-registry.ts`), the prepend-message queues. That state
-is _data_; reloads re-populate it and it is never used to skip registration. The
-anti-pattern is specifically a **boolean dedup flag** gating registration on
-**transient per-instance** state. If you find yourself writing `ensure*` with a
-`globalThis` boolean, stop: either check real state, or move registration into a
-dedicated owner extension.
-
-## `registerSystemPromptTransform` — sparingly, for dynamic behavior only
-
-`registerSystemPromptTransform` (`lib/system-prompt.ts`) rewrites the system
-prompt every turn. Use it only sparingly for **dynamic agent behavior that
-affects correctness or effectiveness** — runtime state that can change and must
-reach the agent.
-
-Do **not** use it to inject static reference text — command cheat-sheets,
-descriptions, fixed docs. Static text belongs in the tool's
-`description`/`promptGuidelines` (rendered once at registration), not re-stapled
-into the prompt every turn. If the content does not change between turns, it is
-tool text, not a transform.
+`registerSystemPromptTransform` (`lib/system-prompt.ts`) rewrites the system prompt
+every turn. Use it sparingly, only for changing runtime state that must reach the
+agent for correctness or effectiveness. Static reference text (command cheat-sheets,
+descriptions, fixed docs) belongs in tool `description`/`promptGuidelines`, rendered
+once at registration, not re-stapled each turn. Unchanging content is tool text,
+not a transform.
