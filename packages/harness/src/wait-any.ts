@@ -48,6 +48,7 @@ export default function waitAnyExtension(pi: ExtensionAPI): void {
         ],
         details: undefined,
         terminate: true,
+        awaitingEvent: true,
       };
     },
     renderShell: "self",

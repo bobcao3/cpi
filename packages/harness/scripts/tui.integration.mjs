@@ -61,7 +61,11 @@ await fixture(
     );
     await writeFile(
       join(directory, "settings.json"),
-      JSON.stringify({ retry: { enabled: false } }),
+      JSON.stringify({
+        defaultProvider: "openai",
+        defaultModel: "gpt-5.5",
+        retry: { enabled: false },
+      }),
     );
     execute("jj", ["git", "init", directory]);
     execute("jj", ["-R", directory, "bookmark", "create", "app-first-frame"]);
@@ -181,6 +185,25 @@ await fixture(
       tmux("send-keys", "-t", name, "Escape");
       await until_status("idle");
       resume();
+      const waiting_start = (await statuses()).length;
+      send("Wait for the next event");
+      await until(
+        (screen) =>
+          requests.length >= 5 &&
+          screen.includes("waiting on events or user input") &&
+          !!telemetry_line(screen)?.includes("💤"),
+      );
+      send("/status-dialog");
+      await until_status("blocked");
+      tmux("send-keys", "-t", name, "Escape");
+      await until_status("working");
+      assert(
+        (await statuses())
+          .slice(waiting_start)
+          .every((status) => status.state !== "done"),
+      );
+      send("Reply after waiting");
+      await until_status("done");
       const reports = await statuses();
       assert(reports.every((status) => status.app === "cpi"));
       assert.doesNotMatch(
@@ -213,6 +236,15 @@ await fixture(
           code: "fixture_failure",
           message: "STATUS_FAILURE\nPRIVATE_ERROR_DETAIL",
         }
-      : undefined,
+      : requests.length === 5
+        ? {
+            type: "function_call",
+            id: "fc_wait",
+            call_id: "call_wait",
+            name: "wait_any",
+            arguments: "{}",
+            status: "completed",
+          }
+        : undefined,
 );
 process.exit(0);
