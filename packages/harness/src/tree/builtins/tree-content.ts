@@ -1,5 +1,5 @@
 import { stripTerminalSequences } from "@earendil-works/pi-tui";
-import { renderDiff } from "@earendil-works/pi-coding-agent";
+import { Diff } from "@earendil-works/pi-coding-agent";
 import { VisualLinePreview } from "../visual-line-preview.ts";
 import { highlightCode, type Theme } from "@earendil-works/pi-coding-agent";
 import type {
@@ -48,13 +48,17 @@ export function previewNode(
           theme,
           diff: content.diffTone,
         }).join("\n")
-      : content.format === "diff"
-        ? renderDiff(content.text, {
-            theme,
-            language: content.language,
-            lineNumbers: content.diffLineNumbers,
-          })
-        : theme.fg("toolOutput", content.text);
+      : theme.fg("toolOutput", content.text);
+  const previewComponent =
+    content.component ??
+    (content.format === "diff"
+      ? new Diff(content.text, {
+          theme,
+          language: content.language,
+          lineNumbers: content.diffLineNumbers,
+          wrap: false,
+        })
+      : undefined);
   return {
     id,
     label,
@@ -63,7 +67,9 @@ export function previewNode(
     content: {
       ...content,
       component: new VisualLinePreview({
-        text: styled,
+        ...(previewComponent
+          ? { component: previewComponent }
+          : { text: styled }),
         maxVisualLines: maxLines,
         keep,
         formatHint: (hidden) =>

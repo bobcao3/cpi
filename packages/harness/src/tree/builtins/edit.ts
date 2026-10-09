@@ -1,8 +1,4 @@
-import { Text } from "@earendil-works/pi-tui";
-import {
-  getLanguageFromPath,
-  renderDiff,
-} from "@earendil-works/pi-coding-agent";
+import { Diff, getLanguageFromPath } from "@earendil-works/pi-coding-agent";
 import type { ToolRenderers } from "../renderer-types.ts";
 import type { ToolTreeNode } from "../tool-tree.ts";
 import type { EditDiffError, EditDiffResult } from "./edit-preview.ts";
@@ -30,11 +26,7 @@ export const editRenderers: ToolRenderers = {
           text: diff,
           format: "diff",
           language: path ? getLanguageFromPath(path) : undefined,
-          component: new Text(
-            renderDiff(diff, { filePath: path ?? undefined, theme }),
-            0,
-            0,
-          ),
+          component: new Diff(diff, { filePath: path ?? undefined, theme }),
         },
         defaultOpen: true,
       });

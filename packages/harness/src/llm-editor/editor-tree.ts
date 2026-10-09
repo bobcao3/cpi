@@ -12,6 +12,7 @@ import { diffContent } from "./diff-content.ts";
 import { fileLabel, oneLine } from "./read-label.ts";
 import { stream_tail, type WriteDetails } from "./write-record.ts";
 import { numbered_code_content } from "../presentation/code-content.ts";
+import { GutterText } from "@earendil-works/pi-tui";
 
 interface EditorArgs {
   path?: string;
@@ -87,13 +88,21 @@ export function renderEditorTree(
       label: "Editor transcript",
       content: { text: transcript },
     });
-    if (!complete)
+    if (!complete) {
+      const recent = stream_tail(transcript);
       children.push({
         id: `${id}/editor-preview`,
         label: "Recent editor output",
-        content: { text: stream_tail(transcript).join("\n") },
+        content: {
+          text: recent.join("\n"),
+          component: new GutterText(
+            recent.map((line) => ({ text: theme.fg("toolOutput", line) })),
+            false,
+          ),
+        },
         defaultOpen: true,
       });
+    }
   }
   if (command !== "write" && details?.diffOps?.length)
     children.push({

@@ -1,10 +1,9 @@
 import { type ToolTreeContent } from "../tree/index.ts";
 import {
+  Diff,
   getLanguageFromPath,
-  renderDiff,
   type Theme,
 } from "@earendil-works/pi-coding-agent";
-import { truncateToWidth } from "@earendil-works/pi-tui";
 import { sanitizeActivityText } from "../lib/activity.ts";
 import { collapseRemovals, type DiffOp } from "./diff.ts";
 
@@ -47,29 +46,16 @@ export function diffContent(
   const language = path ? getLanguageFromPath(path) : undefined;
   const diffLineNumbers = 2 * numberWidth(ops) + 5;
   const indices = new Map(ops.map((op, index) => [op, index]));
-  let styled: string[] | undefined;
   return {
     text,
     format: "diff",
     language,
     diffLineNumbers,
-    component: {
-      invalidate() {
-        styled = undefined;
-      },
-      render(width: number): string[] {
-        styled ??= renderDiff(text, {
-          theme,
-          language,
-          lineNumbers: diffLineNumbers,
-        }).split("\n");
-        return preview.map((op) => {
-          const index = indices.get(op);
-          const line =
-            index === undefined ? theme.fg("dim", "…") : styled![index];
-          return truncateToWidth(line, width, "…");
-        });
-      },
-    },
+    component: new Diff(text, {
+      theme,
+      language,
+      lineNumbers: diffLineNumbers,
+      visibleLines: preview.map((op) => indices.get(op) ?? null),
+    }),
   };
 }
