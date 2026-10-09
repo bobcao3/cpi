@@ -31,20 +31,12 @@
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.31.0",
     "@cpi/extensions": "0.0.2",
-    "@earendil-works/pi-coding-agent": "https://github.com/bobcao3/pi/releases/download/pi-1.1.1-cpi.37855811949/16590eb51540aae8696678a74aa17df7813bb426dbc7c574fd1ea7202de2685a.tgz",
-    "@earendil-works/pi-ai": "https://github.com/bobcao3/pi/releases/download/pi-1.1.1-cpi.37855811949/6cf0735fb23c9816b1704b6204d06afbed4eb5486a4f37218c4e816a70f024f9.tgz",
-    "@earendil-works/pi-agent-core": "https://github.com/bobcao3/pi/releases/download/pi-1.1.1-cpi.37855811949/e4a8317f3c83f75c603edf02aa934e044cf1966ba8e77caedb5448882d95e78d.tgz",
-    "@earendil-works/chord": "https://github.com/bobcao3/pi/releases/download/pi-1.1.1-cpi.37855811949/8b0605e63c0aa8fa3b5a87c4ca2e716bf464b7a6ca863d70f055be9f1de89f9a.tgz",
-    "@earendil-works/pi-client": "https://github.com/bobcao3/pi/releases/download/pi-1.1.1-cpi.37855811949/00290a66e1aef467f0c786491265fb528f1e22edd18056aecc74ac725ef9307f.tgz",
-    "@earendil-works/pi-codemode": "https://github.com/bobcao3/pi/releases/download/pi-1.1.1-cpi.37855811949/1576929c019b186226adbfce4b5ea37066892bc2d81750f7ba6294113b1e40f9.tgz",
-    "@earendil-works/pi-durable": "https://github.com/bobcao3/pi/releases/download/pi-1.1.1-cpi.37855811949/6af5d07f99495f33f620f5d45daf7fb4d1827272bcb328cd98a976434533e63e.tgz",
-    "@earendil-works/pi-mcp": "https://github.com/bobcao3/pi/releases/download/pi-1.1.1-cpi.37855811949/31f1364f5feb7fb0ef92a6ac127951454adbef8810087e46db354983319ccf26.tgz",
-    "@earendil-works/pi-protocol": "https://github.com/bobcao3/pi/releases/download/pi-1.1.1-cpi.37855811949/e831ab207d6bd7443fb34dfb8cbb1e2d134f982a7b8336cdc2c5c546ef4070a8.tgz",
-    "@earendil-works/pi-server": "https://github.com/bobcao3/pi/releases/download/pi-1.1.1-cpi.37855811949/a256bc5f92d40363f6d3b3a439b0907affac4ae0da23e0d14bc1551099944479.tgz",
-    "@earendil-works/pi-telemetry": "https://github.com/bobcao3/pi/releases/download/pi-1.1.1-cpi.37855811949/ad2494b0cdd62fc805cb8a195c663d2121b727c8f075d4f48bebe51a63d2298a.tgz",
-    "@earendil-works/pi-tui": "https://github.com/bobcao3/pi/releases/download/pi-1.1.1-cpi.37855811949/f52f4a9ed4a6213b55d918e7445c3fdad5fcd7afbb4e6cc93e09a8d286a42450.tgz",
     "jiti": "2.7.0",
-    "@earendil-works/pi-env": "https://github.com/bobcao3/pi/releases/download/pi-1.1.1-cpi.37855811949/8b88ef728f9e11bd81442d1883fe2fa48390a6bfcd93eea127d32e2aaf5872aa.tgz"
+    "@earendil-works/pi-agent-core": "https://github.com/bobcao3/pi/releases/download/pi-1.1.1-cpi.37871095732/d95f4bbf1e3be8a6a0de741261c2010b73dd2bc12d69bc2e9398d6e37a1341c7.tgz",
+    "@earendil-works/pi-ai": "https://github.com/bobcao3/pi/releases/download/pi-1.1.1-cpi.37871095732/ac52f3d8cd9fc4c58bd3b06dcfb3d5d6aa192fbd76d73b6ba5c9a046562f67e8.tgz",
+    "@earendil-works/pi-codemode": "https://github.com/bobcao3/pi/releases/download/pi-1.1.1-cpi.37871095732/d7c80e5307742601e9037b3317e5a4fbc3d95a50149d27c713ce66d590a5ebfd.tgz",
+    "@earendil-works/pi-coding-agent": "https://github.com/bobcao3/pi/releases/download/pi-1.1.1-cpi.37871095732/750ff13368dbe9572b69bb4ed4cb3740abe884fbe98ab1ab500fe58518af7e5b.tgz",
+    "@earendil-works/pi-tui": "https://github.com/bobcao3/pi/releases/download/pi-1.1.1-cpi.37871095732/6f4b73b69ed73674c8b0cc1b1d84801c4376f0960bb9c6458f6c5fa8dc8f6c96.tgz"
   },
   "scripts": {
     "check": "node scripts/check-boundaries.mjs",

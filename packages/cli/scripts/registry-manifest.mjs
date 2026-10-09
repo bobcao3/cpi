@@ -35,6 +35,13 @@ export function registry_manifest(source, versions) {
   ]) {
     for (const [name, spec] of Object.entries(manifest[field] ?? {})) {
       if (registry_name(name) === name) continue;
+      if (!versions.has(name)) {
+        assert(
+          !name.startsWith("@cpi/"),
+          `Missing registry package for ${name}@${spec}`,
+        );
+        continue;
+      }
       const version = versions.get(name);
       assert(version, `Missing registry package for ${name}@${spec}`);
       manifest[field][name] =

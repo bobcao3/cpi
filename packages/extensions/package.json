@@ -36,10 +36,10 @@
     "jiti": "2.7.0"
   },
   "peerDependencies": {
-    "@earendil-works/pi-agent-core": "1.1.1-cpi.37855811949",
-    "@earendil-works/pi-ai": "1.1.1-cpi.37855811949",
-    "@earendil-works/pi-coding-agent": "1.1.1-cpi.37855811949",
-    "@earendil-works/pi-tui": "1.1.1-cpi.37855811949",
+    "@earendil-works/pi-agent-core": "1.1.1-cpi.37871095732",
+    "@earendil-works/pi-ai": "1.1.1-cpi.37871095732",
+    "@earendil-works/pi-coding-agent": "1.1.1-cpi.37871095732",
+    "@earendil-works/pi-tui": "1.1.1-cpi.37871095732",
     "typebox": "*"
   },
   "devDependencies": {

@@ -29,6 +29,21 @@ const cliPath = join(root, "packages/cli/package.json");
 const cli = JSON.parse(await readFile(cliPath, "utf8"));
 const extensionsPath = join(root, "packages/extensions/package.json");
 const extensions = JSON.parse(await readFile(extensionsPath, "utf8"));
+assert(
+  manifest.upstreamPackages && typeof manifest.upstreamPackages === "object",
+);
+for (const [name, version] of Object.entries(manifest.upstreamPackages)) {
+  assert(name.startsWith("@earendil-works/"));
+  assert.match(version, /^\d+\.\d+\.\d+$/);
+}
+for (const dependencies of [
+  pkg.dependencies,
+  pkg.overrides,
+  cli.dependencies,
+]) {
+  for (const name of Object.keys(dependencies ?? {}))
+    if (name.startsWith("@earendil-works/")) delete dependencies[name];
+}
 const names = new Set();
 for (const artifact of manifest.artifacts) {
   assert(!names.has(artifact.name), `Duplicate artifact: ${artifact.name}`);
@@ -58,11 +73,13 @@ for (const artifact of manifest.artifacts) {
 for (const artifact of manifest.artifacts) {
   for (const [name, spec] of Object.entries(artifact.dependencies)) {
     if (name.startsWith("@earendil-works/")) {
-      assert(names.has(name), `Incomplete fork closure: ${name}`);
       assert.equal(
         spec,
-        manifest.artifacts.find((dependency) => dependency.name === name).url,
-        `Fork dependency must pin its release archive: ${name}`,
+        names.has(name)
+          ? manifest.artifacts.find((dependency) => dependency.name === name)
+              .url
+          : manifest.upstreamPackages[name],
+        `Pi dependency must pin a fork archive or upstream release: ${name}`,
       );
     }
   }

@@ -27,6 +27,12 @@ const here = dirname(fileURLToPath(import.meta.url));
 const packages = JSON.parse(
   await readFile(join(directory, "packages.json"), "utf8"),
 );
+const upstream_packages = new Set(
+  Object.keys(
+    JSON.parse(await readFile(join(directory, "fork-provenance.json"), "utf8"))
+      .upstreamPackages,
+  ),
+);
 const registry_deadline = Date.now() + 300000;
 async function public_manifest(pkg, accept) {
   for (let attempt = 0; attempt < 31; attempt++) {
@@ -180,7 +186,9 @@ try {
   }
   assert(
     !server?.requests.some(
-      (name) => name.startsWith("@earendil-works/") || name.startsWith("@cpi/"),
+      (name) =>
+        name.startsWith("@cpi/") ||
+        (name.startsWith("@earendil-works/") && !upstream_packages.has(name)),
     ),
     "An internal dependency escaped its exact registry alias",
   );

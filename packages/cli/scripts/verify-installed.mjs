@@ -145,7 +145,7 @@ const verifyBun = async () => {
     );
     execute(join(bunPrefix, "bin/cpi"), ["--version"], consumer, 0, bunEnv);
     execute(join(bunPrefix, "bin/cpi"), ["--help"], consumer, 0, bunEnv);
-    await verifyPiGraph(bunInstalled, metadata.fork.artifacts);
+    await verifyPiGraph(bunInstalled, metadata.fork);
     await copyFile(
       join(here, "installed-native-probe.mjs"),
       join(bunInstalled, "native-probe.mjs"),
@@ -181,7 +181,7 @@ const verifyBun = async () => {
   }
 };
 const installed = join(consumer, "node_modules/@cpi/cli");
-await verifyPiGraph(installed, metadata.fork.artifacts);
+await verifyPiGraph(installed, metadata.fork);
 await copyFile(
   join(here, "installed-native-probe.mjs"),
   join(installed, "native-probe.mjs"),

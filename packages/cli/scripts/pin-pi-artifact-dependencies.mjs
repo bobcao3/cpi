@@ -34,6 +34,13 @@ const manifest = JSON.parse(
 );
 assert.equal(manifest.format, 1);
 assert(manifest.artifacts.length > 0 && manifest.artifacts.length < 32);
+assert(
+  manifest.upstreamPackages && typeof manifest.upstreamPackages === "object",
+);
+for (const [name, version] of Object.entries(manifest.upstreamPackages)) {
+  assert(name.startsWith("@earendil-works/"));
+  assert.match(version, /^\d+\.\d+\.\d+$/);
+}
 const pending = new Map(
   manifest.artifacts.map((artifact) => [artifact.name, artifact]),
 );
@@ -99,15 +106,20 @@ try {
       const pkg = JSON.parse(await readFile(packagePath, "utf8"));
       assert.equal(pkg.name, name);
       assert.equal(pkg.version, manifest.version);
-      const dependencies = Object.keys({
+      const internal = {
         ...pkg.dependencies,
         ...pkg.optionalDependencies,
-      }).filter((dependency) => dependency.startsWith("@earendil-works/"));
-      for (const dependency of dependencies)
-        assert(
-          closed.has(dependency) || pending.has(dependency),
-          `Incomplete fork closure: ${dependency}`,
+      };
+      const dependencies = Object.keys(internal).filter((dependency) => {
+        if (!dependency.startsWith("@earendil-works/")) return false;
+        if (closed.has(dependency) || pending.has(dependency)) return true;
+        assert.equal(
+          internal[dependency],
+          manifest.upstreamPackages[dependency],
+          `Unknown or unpinned upstream dependency: ${dependency}`,
         );
+        return false;
+      });
       if (dependencies.some((dependency) => !closed.has(dependency))) continue;
       let filename = artifact.filename;
       if (dependencies.length) {
