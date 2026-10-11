@@ -36,7 +36,7 @@ import { loadEditorConfig } from "../lib/config.ts";
 export interface FileEditOptions {
   cwd: string;
   signal?: AbortSignal;
-  maxFileBytes: number;
+  maxFileBytes?: number;
 }
 
 type Usage = { input: number; output: number };
@@ -160,7 +160,10 @@ export async function withFileEdit(
       const st = await stat(abs, { bigint: true });
       if (!st.isFile())
         return { ok: false, error: fmt(T.errors.not_a_file, { path: abs }) };
-      if (Number(st.size) > opts.maxFileBytes)
+      if (
+        opts.maxFileBytes !== undefined &&
+        Number(st.size) > opts.maxFileBytes
+      )
         return {
           ok: false,
           error: fmt(T.errors.file_too_large, {
@@ -227,14 +230,17 @@ export async function withFileEdit(
 
 export async function applyPatchFile(
   path: string,
-  opts: FileEditOptions & {
+  opts: Omit<FileEditOptions, "maxFileBytes"> & {
     patch: string;
     fuzzyMatch?: boolean;
     partialApply?: boolean;
   },
 ): Promise<EditFileResult> {
   const T = loadEditorText(opts.cwd);
-  return withFileEdit(path, opts, async (content) =>
-    applyFileDiff(content, [opts.patch], T, { ...opts, path }),
+  return withFileEdit(
+    path,
+    { cwd: opts.cwd, signal: opts.signal },
+    async (content) =>
+      applyFileDiff(content, [opts.patch], T, { ...opts, path }),
   );
 }

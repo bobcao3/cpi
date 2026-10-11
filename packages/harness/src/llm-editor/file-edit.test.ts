@@ -12,6 +12,7 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { applyPatchFile } from "./file-edit.ts";
+import { editFile } from "./editor.ts";
 import { withPathLock } from "./lock.ts";
 import {
   MAX_DIFF_BLOCK_BYTES,
@@ -20,7 +21,6 @@ import {
 } from "./udiff.ts";
 
 const directories: string[] = [];
-const maxFileBytes = 1_048_576;
 
 async function fixture(content: string | Buffer, name = "sample.txt") {
   const cwd = await mkdtemp(join(tmpdir(), "cpi-file-edit-"));
@@ -31,7 +31,6 @@ async function fixture(content: string | Buffer, name = "sample.txt") {
   const apply = (
     patch: string,
     options: {
-      maxFileBytes?: number;
       signal?: AbortSignal;
       partialApply?: boolean;
     } = {},
@@ -39,7 +38,6 @@ async function fixture(content: string | Buffer, name = "sample.txt") {
     applyPatchFile(name, {
       cwd,
       patch,
-      maxFileBytes,
       fuzzyMatch: false,
       ...options,
     });
@@ -50,7 +48,6 @@ async function rejected(
   file: Awaited<ReturnType<typeof fixture>>,
   patch: string,
   options: {
-    maxFileBytes?: number;
     signal?: AbortSignal;
     partialApply?: boolean;
   } = {},
@@ -301,15 +298,39 @@ describe("applyPatchFile production filesystem integration", () => {
     const result = await applyPatchFile("missing.txt", {
       cwd: file.cwd,
       patch: "@@ -0,0 +1,1 @@\n+a\n",
-      maxFileBytes,
     });
     expect(result.ok).toBe(false);
     expect(await readdir(file.cwd)).toEqual(["sample.txt"]);
     expect(await readFile(file.path, "utf8")).toBe("a\n");
   });
 
-  test("file size limit counts UTF-8 bytes", async () => {
-    await rejected(await fixture("é\n"), "@@\n-é\n+e\n", { maxFileBytes: 2 });
+  test("patches files larger than the editor input limit", async () => {
+    const padding = "padding\n".repeat(65380);
+    const file = await fixture(padding + "old marker\n");
+    const result = await file.apply("@@\n-old marker\n+new marker\n");
+    if (result.ok === false) throw new Error(result.error);
+    expect(await readFile(file.path, "utf8")).toBe(padding + "new marker\n");
+    expect(await readdir(file.cwd)).toEqual(["sample.txt"]);
+  });
+
+  test("editor input limit still counts UTF-8 bytes before invoking a subagent", async () => {
+    const file = await fixture("é\n");
+    const result = await editFile(file.path, {
+      cwd: file.cwd,
+      id: "oversized-editor-input",
+      instruction: "Replace é with e.",
+      provider: "unused",
+      modelId: "unused",
+      timeoutMs: 1000,
+      transcriptDir: file.cwd,
+      maxTranscripts: 1,
+      maxFileBytes: 2,
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok !== false) throw new Error("oversized editor input accepted");
+    expect(result.error).toContain("3 bytes exceeds 2");
+    expect(await readFile(file.path, "utf8")).toBe("é\n");
+    expect(await readdir(file.cwd)).toEqual(["sample.txt"]);
   });
 
   test("rejects oversized patch bytes", async () => {
@@ -375,7 +396,6 @@ describe("applyPatchFile production filesystem integration", () => {
     const last = applyPatchFile(file.path, {
       cwd: file.cwd,
       patch: "@@\n-last\n+LAST\n",
-      maxFileBytes,
       fuzzyMatch: false,
     });
     try {

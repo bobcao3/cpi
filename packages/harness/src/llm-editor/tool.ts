@@ -182,7 +182,6 @@ async function executeEdit(
   const common = {
     cwd,
     signal,
-    maxFileBytes: cfg.maxFileBytes,
     fuzzyMatch: cfg.fuzzyMatch,
     partialApply: cfg.partialApply,
   };
@@ -194,6 +193,7 @@ async function executeEdit(
         })
       : await editFile(abs, {
           ...common,
+          maxFileBytes: cfg.maxFileBytes,
           ...resolveEditorModel(ctx),
           id,
           instruction: (params as EditParams).instruction,

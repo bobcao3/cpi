@@ -116,7 +116,6 @@ for (const example of cases) {
       const result = await applyPatchFile(path, {
         cwd,
         patch: example.patch,
-        maxFileBytes: 262144,
       });
       assert.equal(await readFile(path, "utf8"), example.output);
       assert.deepEqual(await readdir(cwd), ["fixture.txt"]);
@@ -201,7 +200,6 @@ test("configuration opt-out preserves bytes and retry preserves required source 
     const rejected = await applyPatchFile(path, {
       cwd,
       patch,
-      maxFileBytes: 262144,
     });
     assert.equal(rejected.ok, false);
     assert.equal(await readFile(path, "utf8"), source);
@@ -212,7 +210,6 @@ test("configuration opt-out preserves bytes and retry preserves required source 
     const partial = await applyPatchFile(path, {
       cwd,
       patch,
-      maxFileBytes: 262144,
     });
     assert.equal(partial.ok, true);
     assert.equal(await readFile(path, "utf8"), prefix_result);
@@ -220,14 +217,12 @@ test("configuration opt-out preserves bytes and retry preserves required source 
     const unscoped = await applyPatchFile(path, {
       cwd,
       patch: "@@\n-value\n+VALUE\n",
-      maxFileBytes: 262144,
     });
     assert.equal(unscoped.ok, false);
     assert.equal(await readFile(path, "utf8"), prefix_result);
     const finished = await applyPatchFile(path, {
       cwd,
       patch: "@@ section B\n@@\n-value\n+VALUE\n",
-      maxFileBytes: 262144,
     });
     assert.equal(finished.ok, true);
     assert.equal(finished.failure, undefined);
@@ -293,7 +288,6 @@ test("the hunk limit excludes a trailing separator and rejects oversized patches
       const result = await applyPatchFile(path, {
         cwd,
         patch,
-        maxFileBytes: 262144,
       });
       assert.equal(result.ok, count === MAX_DIFF_BLOCKS);
       assert.equal(
