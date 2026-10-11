@@ -1,6 +1,7 @@
 import { createCodemodeExtension } from "@earendil-works/pi-coding-agent";
 import type { ExtensionAPI } from "./lib/tree-api.ts";
 import type { ToolDefinition } from "./tree/index.ts";
+import { loadText, render, textPath } from "./lib/text.ts";
 import { codemode_renderers } from "./codemode/tree-render.ts";
 import {
   call_preview,
@@ -21,6 +22,10 @@ const compact_tools = new Set([
 ]);
 
 export default function codemode(pi: ExtensionAPI): void {
+  const T = loadText<{ codemode: { unavailable: string } }>(
+    "wait-any",
+    textPath("wait-any"),
+  );
   createCodemodeExtension()({
     ...pi,
     registerTool(tool) {
@@ -80,7 +85,20 @@ export default function codemode(pi: ExtensionAPI): void {
               : undefined,
             tool_context,
           );
-          return { ...result, details: annotate(result.details) };
+          return {
+            ...result,
+            content: result.content.some(
+              (part) =>
+                part.type === "text" &&
+                part.text.includes("tools.wait_any does not exist."),
+            )
+              ? [
+                  ...result.content,
+                  { type: "text", text: render(T.codemode.unavailable, {}) },
+                ]
+              : result.content,
+            details: annotate(result.details),
+          };
         },
       });
     },

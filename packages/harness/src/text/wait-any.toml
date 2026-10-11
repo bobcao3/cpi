@@ -6,5 +6,9 @@ prompt_snippet = "Yield control until an event wakes you"
 
 [guidelines]
 bullets = [
-  "wait_any ends the turn until a user message, shell completion/error, alarm, or registered external event wakes you. Use it only for pending background shells, active alarms, or registered subscriptions; otherwise end your turn. Explicitly arm subscriptions with bounded expiry; wait_any creates none."
+  "wait_any ends the turn until a user message, shell completion/error, alarm, or registered external event wakes you. Use it only for pending background shells, active alarms, or registered subscriptions; otherwise end your turn. Explicitly arm subscriptions with bounded expiry; wait_any creates none.",
+  "{{codemode_unavailable}}"
 ]
+
+[codemode]
+unavailable = "wait_any is unavailable inside codemode. Use native JavaScript await for a promise, or await Promise.race([...]) to select the first settled promise. Call standalone wait_any after codemode returns when the agent must yield to an external event."

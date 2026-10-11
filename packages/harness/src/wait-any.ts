@@ -27,10 +27,16 @@ function nowTimestamp(): string {
 }
 
 export default function waitAnyExtension(pi: ExtensionAPI): void {
-  const T = loadText<ToolText>("wait-any", textPath("wait-any"));
-  const guidelines = renderLines(T.guidelines.bullets, {});
+  const T = loadText<ToolText & { codemode: { unavailable: string } }>(
+    "wait-any",
+    textPath("wait-any"),
+  );
+  const guidelines = renderLines(T.guidelines.bullets, {
+    codemode_unavailable: T.codemode.unavailable,
+  });
   pi.registerTool({
     name: WAIT_ANY_TOOL,
+    exposure: "model-only",
     label: "Wait (any event)",
     description: render(T.tool.description, {}),
     promptSnippet: T.tool.prompt_snippet,
