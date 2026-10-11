@@ -10,7 +10,6 @@ import {
   lstat,
   mkdir,
   mkdtemp,
-  realpath,
   rm,
   symlink,
   writeFile,
@@ -70,12 +69,8 @@ test("installed subagent worker uses the active Pi SDK without a local Pi peer",
         maxTurns: 1,
         maxOutputBytes: 4096,
       };
-      delete request.env.CPI_PI_HOST_ENTRY;
+      request.env.CPI_APP_SDK_URL = "file:///removed-install/index.js";
       const env = subagentEnvironment(request, "unused");
-      assert.equal(
-        env.CPI_PI_HOST_ENTRY,
-        await realpath(process.env.CPI_HOST_CLI),
-      );
       const worker = new Worker(join(install, "bin/subagent-worker.js"), {
         execArgv: [
           "--import",

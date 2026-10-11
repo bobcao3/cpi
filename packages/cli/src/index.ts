@@ -1,4 +1,4 @@
-import "../bootstrap.mjs";
+import { configureHostRouting } from "../bootstrap.mjs";
 import {
   APP_NAME,
   type CreateAgentSessionOptions,
@@ -22,7 +22,7 @@ import { createVcsSource } from "./vcs/index.ts";
 
 if (APP_NAME !== "cpi")
   throw new Error("Load @cpi/cli/bootstrap before importing Pi modules");
-process.env.CPI_HOST_ROOT = getPackageDir();
+configureHostRouting(getPackageDir());
 
 export * from "@earendil-works/pi-coding-agent";
 export { DefaultResourceLoader } from "./resources.ts";

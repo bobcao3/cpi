@@ -4,8 +4,10 @@ import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
-import { ModelRuntime } from "@cpi/cli";
+import { hostCodingAgent } from "../bin/host-pi.mjs";
 import { assertLocalModel, isolateAgent } from "./test-runtime.mjs";
+
+const { ModelRuntime } = await hostCodingAgent();
 
 export async function localFixture(
   reply,

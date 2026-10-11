@@ -7,7 +7,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
-import { SessionManager } from "@cpi/cli";
+import { hostCodingAgent } from "../bin/host-pi.mjs";
 import {
   runSubagentWorker,
   ensureSubagentRpc,
@@ -15,6 +15,8 @@ import {
 } from "../src/lib/subagent-rpc.ts";
 import { listActivities, readActivityTail } from "../src/lib/activity.ts";
 import { runSubagent as runEditorSubagent } from "../src/llm-editor/subagent.ts";
+
+const { SessionManager } = await hostCodingAgent();
 
 const local = await observationFixture();
 const directory = local.directory;

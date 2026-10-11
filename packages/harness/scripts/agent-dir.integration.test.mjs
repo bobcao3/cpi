@@ -1,16 +1,19 @@
+import "@cpi/cli/bootstrap";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
-import { getAgentDir } from "@cpi/cli";
+import { hostCodingAgent } from "../bin/host-pi.mjs";
 import { agentDir } from "../bin/agent-dir.mjs";
 import { loadFastConfig } from "../bin/fast-models.mjs";
 import { loadCpiConfig } from "../src/lib/config.ts";
 import { loadMergedConfig } from "../src/lib/provider-config.ts";
 import { loadText } from "../src/lib/text.ts";
 import { resolveTranscriptDir } from "../src/llm-editor/log.ts";
+
+const { getAgentDir } = await hostCodingAgent();
 
 test("user config and artifacts follow Pi's agent directory with project precedence", async () => {
   const root = await mkdtemp(join(tmpdir(), "cpi-agent-dir-"));

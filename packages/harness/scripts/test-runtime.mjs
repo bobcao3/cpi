@@ -1,9 +1,12 @@
+import "@cpi/cli/bootstrap";
 import "./loopback-network.mjs";
 import assert from "node:assert/strict";
 import { cpSync, existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { getAgentDir } from "@cpi/cli";
+import { hostCodingAgent } from "../bin/host-pi.mjs";
+
+const { getAgentDir } = await hostCodingAgent();
 
 const packageRoot = fileURLToPath(new URL("../", import.meta.url));
 export const packagePath = (path) => resolve(packageRoot, path);

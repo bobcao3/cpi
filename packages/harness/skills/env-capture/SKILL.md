@@ -27,5 +27,5 @@ calls. Environment contents remain in the file.
 
 The authoritative CLI and implementation are
 [`../../bin/env-capture`](../../bin/env-capture). The read-side parser is
-[`../../src/lib/dotenv.ts`](../../src/lib/dotenv.ts) and
-[`../../src/shell/tools.ts`](../../src/shell/tools.ts).
+[`dotenv.ts`](https://github.com/bobcao3/cpi/blob/main/packages/harness/src/lib/dotenv.ts) and
+[`shell/tools.ts`](https://github.com/bobcao3/cpi/blob/main/packages/harness/src/shell/tools.ts).

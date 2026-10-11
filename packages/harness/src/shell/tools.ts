@@ -17,6 +17,7 @@ import { resolveCwdPath } from "../lib/cwd.ts";
 import { runtimeEnv } from "../lib/runtime.ts";
 import { CPI_SUBAGENT_RPC, getSubagentRpc } from "../lib/subagent-rpc.ts";
 import { fileURLToPath } from "node:url";
+import { refreshHostRoutingEnv } from "../../bin/host-pi.mjs";
 
 const { getTreeSitterWasmPath, resolveTreeSitterWasm } = await toolPackage(
   "@cpi/tree-sitter-wasm/resolve",
@@ -295,6 +296,7 @@ export function buildShellEnvWithDotenv(
     if (value === undefined) delete env[key];
     else env[key] = value;
   }
+  refreshHostRoutingEnv(env);
   const pathKeys = Object.keys(env).filter((k) => k.toLowerCase() === "path");
   const pathKey = IS_WIN ? (pathKeys[pathKeys.length - 1] ?? "PATH") : "PATH";
   if (IS_WIN) {

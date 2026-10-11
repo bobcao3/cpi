@@ -174,7 +174,7 @@ them in source; use snake_case; don't abbreviate.
 
 ## Pi peer packages are not worker dependencies
 
-`pi install git:...` loads extensions through Pi, but native Node workers and
+`cpi install git:...` loads extensions through Pi, but native Node workers and
 scripts resolve imports from cpi's installed directory, where Pi peers may be
 absent. Never rely on cpi's local `node_modules` Pi peers at runtime. Workers and
 standalone entry points must avoid bare runtime Pi peer imports and load the

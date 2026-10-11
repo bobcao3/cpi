@@ -15,10 +15,10 @@ pointer and a contract statement.
 
 | Fact class | Authoritative home | What a doc may say |
 |---|---|---|
-| Tool descriptions, prompt snippets, guidelines, schema text | `src/text/*.toml` | nothing; docs may say which tool owns the behavior |
+| Tool descriptions, prompt snippets, guidelines, schema text | `packages/harness/src/text/*.toml` | nothing; docs may say which tool owns the behavior |
 | CLI flags, defaults, usage | flag definitions and `--help` | one canonical invocation per task; never a flag reference table |
-| Config keys, types, defaults | `cpi-config.default.json` and `src/lib/config.ts` | where files live, precedence, one annotated minimal example; link for the key list |
-| Shell, ghostmux, and protocol limits | `cpi-config.default.json`, `packages/ghostmux/src/wire.zig`, tests | the user-visible consequence; a number users must obey, stated once, in one doc |
+| Config keys, types, defaults | `packages/harness/cpi-config.default.json` and `packages/harness/src/lib/config.ts` | where files live, precedence, one annotated minimal example; link for the key list |
+| Shell, ghostmux, and protocol limits | `packages/harness/cpi-config.default.json`, `packages/ghostmux/src/wire.zig`, tests | the user-visible consequence; a number users must obey, stated once, in one doc |
 | Pi artifact versions and fork revision | `vendor/pi/manifest.json`, `packages/cli/package.json`, `bun.lock` | "pinned; see the manifest" plus the bump procedure |
 | Coding rules and source metrics | `AGENTS.md` and `scripts/check.mjs` | never restated in docs or code comments |
 | Test, check, and format commands | root `package.json` scripts | one canonical command list in one place; other docs link to it |
@@ -97,10 +97,10 @@ publishing format.
 - [ ] First screen names audience, purpose, and primary task.
 - [ ] Every question the doc targets is answered in the doc or one link away.
 - [ ] No restated defaults, flags, keys, versions, directory trees, or
-      `src/text/*.toml` prompt text; the drift test passes line by line.
+      `packages/harness/src/text/*.toml` prompt text; the drift test passes line by line.
 - [ ] Index entry and TOC match the doc's actual content.
 - [ ] Links resolve and anchors exist; `$CPI_HARNESS_SRC/` and
-      `$PI_AGENT_SRC/` prefixes and cross-repo `cpi-fork` links are correct.
+      `$PI_AGENT_SRC/` prefixes and `.pi-fork/` links are correct.
 - [ ] Reference material sits below task material or in a topic doc.
 - [ ] Passages duplicated across docs are merged into one home.
 - [ ] A doc longer than two pages has a table of contents.

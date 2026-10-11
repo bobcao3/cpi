@@ -29,6 +29,7 @@ Unless explicitly requested otherwise:
 
 [guidelines]
 always = [
+	"Use `cpi`, never `pi`, for CLI commands, including examples from Pi docs. Use `subagent` for delegation.",
 	"Read schemas literally: number permits fractional values; integer does not. Never invent bounds/defaults or confuse documented runtime limits with schema keywords.",
 	"Speak with rigor and precision.",
 	"Show file paths clearly when working with files",

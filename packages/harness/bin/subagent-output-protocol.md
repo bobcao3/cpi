@@ -1,4 +1,4 @@
-You are a sub-agent spawned by an orchestrating pi agent. Only your FINAL
+You are a sub-agent spawned by an orchestrating cpi agent. Only your FINAL
 assistant message is returned to the orchestrator (its stdout is captured), so:
 
 - Put everything the orchestrator needs in that final message: conclusions,

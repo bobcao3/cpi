@@ -42,7 +42,7 @@ already answers the question.
     artifacts? — home: `AGENTS.md`, editable development.
 13. Where do configuration files live, how are they merged, and which one
     wins? — home: `docs/using-cpi.md`, configuration pointer; keys in
-    `cpi-config.default.json`.
+    `packages/harness/cpi-config.default.json`.
 14. Where do sessions, logs, caches, and shell state live, and with what
     permissions? — home: `docs/storage.md`; authorities are `getAgentDir`
     and `PI_SESSION_DIR` in code.
@@ -53,7 +53,7 @@ already answers the question.
 ## C. Shells and background work
 
 16. How does the `sh` tool decide to background a command, and what does it
-    return? — home: `src/text/shell.toml` is model-facing; a human
+    return? — home: `packages/harness/src/text/shell.toml` is model-facing; a human
     summary belongs in `docs/background-work.md`.
 17. What is the lifecycle of a background shell from launch to completion
     notification? — home: `docs/background-work.md`.
@@ -67,7 +67,7 @@ already answers the question.
 21. How do repeat monitors differ from background shells, and how do they
     stop? — home: `docs/background-work.md`.
 22. What limits apply to shell output, waitfor, and logs, and where do they
-    live? — home: `cpi-config.default.json`; docs link, never copy.
+    live? — home: `packages/harness/cpi-config.default.json`; docs link, never copy.
 23. What happens to running background work at session shutdown? — home:
     `docs/background-work.md`, stated as a contract.
 24. How do I inspect running work: footer counters, the activity browser,
@@ -76,7 +76,7 @@ already answers the question.
 ## D. Agent features
 
 25. How do I delegate to a subagent, resume it, and what are the launcher
-    rules? — home: `skills/subagents-in-pi/SKILL.md`.
+    rules? — home: `packages/harness/skills/subagents-in-pi/SKILL.md`.
 26. What does compaction preserve and restore, and how do I verify a
     compaction? — home: `docs/using-cpi.md`, compaction; authorities are the
     compaction sources.
@@ -84,10 +84,10 @@ already answers the question.
     anti-stuck? — home: `docs/session-events.md`;
     `docs/external-event-subscriptions.md` covers producers only.
 28. How do goals and their budgets work? — home: `docs/goals.md`.
-29. How do I use the LLM editor tools, and what are their limits? — home: `docs/editor-tools.md`; model-facing rules in `src/text/`.
-30. How do LSP sessions start, lint, and react to shell edits? — home: `docs/lsp.md`; keys in `cpi-config.default.json`.
+29. How do I use the LLM editor tools, and what are their limits? — home: `docs/editor-tools.md`; model-facing rules in `packages/harness/src/text/`.
+30. How do LSP sessions start, lint, and react to shell edits? — home: `docs/lsp.md`; keys in `packages/harness/cpi-config.default.json`.
 31. Where does cost data come from, and where is it reported? — home: out of
-    scope; the ledger (`lib/cost-ledger.ts`) is the authority.
+    scope; the ledger (`packages/harness/src/lib/cost-ledger.ts`) is the authority.
 32. How do external services push events into a session without running an
     agent loop? — home: `docs/external-event-subscriptions.md`.
 
@@ -95,14 +95,14 @@ already answers the question.
 
 33. Where in the tree do I change a given behavior: tool text, tool logic, a
     skill, or the CLI? — home: `README.md` and `AGENTS.md`.
-34. Why must model-facing text live in `src/text/*.toml`, and how is it
+34. Why must model-facing text live in `packages/harness/src/text/*.toml`, and how is it
     rendered? — home: `AGENTS.md`, coding rules.
 35. How does extension hot reload work, and what must not be cached across
     reloads? — home: `AGENTS.md`, developing extensions.
 36. When may an extension rewrite the system prompt, and when is tool text the
     right home? — home: `AGENTS.md`, prompt-transform rule.
 37. How do workers and bin scripts find the active host Pi? — home:
-    `AGENTS.md`, peer-packages rule; the loader is `bin/host-pi.mjs`.
+    `AGENTS.md`, peer-packages rule; the loader is `packages/harness/bin/host-pi.mjs`.
 38. Which source metrics are enforced (file lines, statements, comment share),
     and how do I run them? — home: `AGENTS.md`, coding rules; commands in the
     root `package.json`.

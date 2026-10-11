@@ -16,9 +16,9 @@ Audit cpi docs the way a reader walks them: inventory, question traces,
 fan-out subagent audits, ranked findings, rewrite, blind verification.
 
 Scope: the cpi checkout (root `README.md`, `AGENTS.md`, `docs/`, package
-`README.md` files, `skills/`) and, for questions that target Pi core, the fork
-docs in the sibling `cpi-fork` checkout or the pinned copy under
-`$PI_AGENT_SRC/docs/`. Supporting pieces: `references/questions.md` holds the
+`README.md` files, `packages/harness/skills/`) and, for questions that target
+Pi core, the fork docs under `.pi-fork/packages/coding-agent/docs/` or the
+active host's `$PI_AGENT_SRC/docs/`. Supporting pieces: `references/questions.md` holds the
 50 reader questions and the home each answer should have;
 `references/audit-process.md` holds the fan-out protocol, evidence contract,
 report shape, and blind verification; `references/writing-advice.md` holds the
@@ -58,8 +58,9 @@ screen; long lines fold, blank lines count) and heading offsets.
 - Triage findings instead of applying them wholesale: content is often in the
   wrong place rather than worthless.
 - Docs never restate values encoded in code, config, tests, or generated
-  files. cpi's authorities: tool text in `src/text/*.toml`, tunables in
-  `cpi-config.default.json`, pins in `vendor/pi/manifest.json`, rules in
+  files. cpi's authorities: tool text in `packages/harness/src/text/*.toml`,
+  tunables in `packages/harness/cpi-config.default.json`, pins in
+  `vendor/pi/manifest.json`, rules in
   `AGENTS.md`. See the one-home rule in `references/writing-advice.md`.
 - Never write a file tree into a doc; the filesystem is the tree.
 - Keep delegation one level deep; audit and verify subagents never spawn

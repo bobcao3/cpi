@@ -1,5 +1,5 @@
 import type { Worker } from "node:worker_threads";
-import { piExecutableOnPath } from "../../bin/host-pi.mjs";
+import { refreshHostRoutingEnv } from "../../bin/host-pi.mjs";
 import type { SubagentWorkerRequest } from "./subagent-rpc-protocol.ts";
 import { beginActivity } from "./activity.ts";
 
@@ -9,12 +9,12 @@ export function subagentEnvironment(
 ) {
   const env: Record<string, string> = {
     ...request.env,
-    CPI_PI_HOST_ENTRY: piExecutableOnPath(),
     CPI_SUBAGENT_RPC: endpoint,
     PI_SUBAGENT: "1",
     CPI_ACTIVITY_TELEMETRY: "1",
     CPI_COST_RUN_ID: request.runId,
   };
+  refreshHostRoutingEnv(env);
   if ("kind" in request && request.kind === "fork-probe") {
     env.CPI_FORK_PROBE = "1";
     env.PI_SESSION_ID = request.parentSessionId;

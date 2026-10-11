@@ -134,10 +134,12 @@ are legitimate waits and do not arm the anti-stuck agent resumption. Shell and
 alarm policies remain separate. Pending subscriptions defer goal evaluation;
 queued events run before goal evaluation.
 
-Run the real pi runtime regression tests with:
+From the repository root, set `CPI_FORK` to the checkout selected under
+[editable development](../AGENTS.md#editable-development), then run the real
+Pi runtime regression tests with:
 
 ```sh
-bun test packages/harness/src/lib/external-events.integration.test.ts packages/harness/src/lib/session-hold.integration.test.ts
+bun test --tsconfig-override "$CPI_FORK/tsconfig.json" packages/harness/src/lib/external-events.integration.test.ts packages/harness/src/lib/session-hold.integration.test.ts
 ```
 
 The tests replay finite assistant responses into the real Agent/AgentSession,

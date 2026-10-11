@@ -2,12 +2,12 @@
 name: subagents-in-pi
 description:
   "Use when delegating to a sub-agent, fanning out parallel or background tasks,
-  spawning or resuming a child `pi` agent, or running the `subagent` script.
-  Search terms — subagent, delegate, parallel, background pi, --session-id,
+  spawning or resuming a child `cpi` agent, or running the `subagent` script.
+  Search terms — subagent, delegate, parallel, background cpi, --session-id,
   resume."
 ---
 
-# Subagents in pi
+# Subagents in cpi
 
 Launch `subagent` directly through `sh`. Use `subagent --help` for the current
 flags and output contract.

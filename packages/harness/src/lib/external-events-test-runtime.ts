@@ -1,6 +1,7 @@
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   createAgentSession,
   DefaultResourceLoader,
@@ -78,8 +79,8 @@ export async function openEventRuntime() {
     noSkills: true,
     noContextFiles: true,
     additionalExtensionPaths: [
-      resolve("src/core.ts"),
-      resolve("src/wait-any.ts"),
+      fileURLToPath(new URL("../core.ts", import.meta.url)),
+      fileURLToPath(new URL("../wait-any.ts", import.meta.url)),
     ],
     extensionFactories: [
       (pi) => {

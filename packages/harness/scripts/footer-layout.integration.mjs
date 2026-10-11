@@ -1,7 +1,12 @@
 import "@cpi/cli/bootstrap";
 import assert from "node:assert/strict";
 import { writeFile } from "node:fs/promises";
-import {
+import { join } from "node:path";
+import { createJiti } from "jiti";
+import { hostCodingAgent, hostTui } from "../bin/host-pi.mjs";
+import { fixture } from "./fast-fixture.mjs";
+
+const {
   createAgentSession,
   DefaultResourceLoader,
   FooterComponent,
@@ -11,31 +16,38 @@ import {
   initTheme,
   SessionManager,
   SettingsManager,
-} from "@cpi/cli";
-import {
+} = await hostCodingAgent();
+const {
   COMPACT_WIDTH_THRESHOLD,
   ProcessTerminal,
   TuiMainScreen,
   getKeybindings,
   stripTerminalSequences,
   visibleWidth,
-} from "@earendil-works/pi-tui";
-import { FooterNavigation } from "../src/lib/footer-navigation.ts";
-import { PromptEditor } from "../src/lib/prompt-editor.ts";
-import {
-  codexUsage,
-  parseUsageReport,
-} from "../src/lib/provider-usage/codex.ts";
-import { openaiUsage } from "../src/lib/provider-usage/openai.ts";
-import {
-  deepseekBalance,
-  parseBalance,
-} from "../src/lib/provider-usage/deepseek.ts";
-import {
-  bindCostLedger,
-  captureSubagentUsageReporter,
-} from "../src/lib/cost-ledger.ts";
-import { fixture } from "./fast-fixture.mjs";
+} = await hostTui();
+
+const jiti = createJiti(import.meta.url, {
+  tryNative: false,
+  ...(process.env.CPI_FORK
+    ? { tsconfigPaths: join(process.env.CPI_FORK, "tsconfig.json") }
+    : {}),
+});
+const { FooterNavigation } = await jiti.import(
+  "../src/lib/footer-navigation.ts",
+);
+const { PromptEditor } = await jiti.import("../src/lib/prompt-editor.ts");
+const { codexUsage, parseUsageReport } = await jiti.import(
+  "../src/lib/provider-usage/codex.ts",
+);
+const { openaiUsage } = await jiti.import(
+  "../src/lib/provider-usage/openai.ts",
+);
+const { deepseekBalance, parseBalance } = await jiti.import(
+  "../src/lib/provider-usage/deepseek.ts",
+);
+const { bindCostLedger, captureSubagentUsageReporter } = await jiti.import(
+  "../src/lib/cost-ledger.ts",
+);
 
 await fixture(async ({ directory, runtime, config, modelsPath, apiKey }) => {
   const manager = SessionManager.inMemory(directory);

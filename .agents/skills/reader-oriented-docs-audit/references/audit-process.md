@@ -11,9 +11,10 @@ never spawn children.
 
 1. List the documents in scope and the entry points a reader uses: root
    `README.md`, `AGENTS.md`, `docs/` topics, package `README.md` files,
-   `packages/cli/registry-release.md`, `packages/cli/adding-a-vcs-adapter.md`, and `skills/*/SKILL.md`.
-   For questions about Pi core, add the fork docs from the sibling `cpi-fork`
-   checkout or `$PI_AGENT_SRC/docs/`.
+   `packages/cli/registry-release.md`, `packages/cli/adding-a-vcs-adapter.md`, and
+   `packages/harness/skills/*/SKILL.md`.
+   For questions about Pi core, add the fork docs under
+   `.pi-fork/packages/coding-agent/docs/` or `$PI_AGENT_SRC/docs/`.
 2. Measure, do not estimate:
 
    ```sh
@@ -45,8 +46,9 @@ never spawn children.
   do not modify any file. Do not run commands that write.
 
   Entry points for readers: <root README.md, AGENTS.md, docs topics, package
-  READMEs, skills; fork docs under ../cpi-fork or $PI_AGENT_SRC/docs when the
-  question targets Pi core>.
+  READMEs, packages/harness/skills; fork docs under
+  .pi-fork/packages/coding-agent/docs or $PI_AGENT_SRC/docs when the question
+  targets Pi core>.
 
   Question batch:
   1. <question>
