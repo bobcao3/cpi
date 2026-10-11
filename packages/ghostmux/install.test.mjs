@@ -12,12 +12,9 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import {
-  artifactName,
-  packageRoot,
-  platformKey,
-} from "./bin/ghostmux-source.mjs";
-import { stage_binary, stage_wrapper } from "./bin/ghostmux-package.mjs";
+import { packageRoot, platformKey } from "./bin/ghostmux-source.mjs";
+import { stage_wrapper } from "./bin/ghostmux-package.mjs";
+import { registry_manifest } from "../cli/scripts/registry-manifest.mjs";
 import {
   execute,
   install,
@@ -29,8 +26,45 @@ const directory = await mkdtemp(join(tmpdir(), "gmi-"));
 let server;
 try {
   const platform = platformKey();
-  const wrapper = join(directory, "wrapper");
-  await stage_wrapper(wrapper);
+  const signed = process.env.GHOSTMUX_TEST_ARTIFACT;
+  const release = join(directory, "release");
+  const wrapper = signed
+    ? join(release, "ghostmux")
+    : join(directory, "wrapper");
+  let artifacts = [];
+  if (signed) {
+    execute(process.execPath, [
+      join(packageRoot, "scripts/package.mjs"),
+      signed,
+      release,
+      platform,
+    ]);
+    const packages = JSON.parse(
+      await readFile(join(release, "packages.json"), "utf8"),
+    );
+    artifacts = packages.map((pkg) => ({
+      directory: join(
+        release,
+        pkg.name.endsWith(`ghostmux-${platform}`)
+          ? `ghostmux-${platform}`
+          : "ghostmux",
+      ),
+      archive: join(release, pkg.filename),
+    }));
+  } else {
+    const source = await stage_wrapper(wrapper);
+    const versions = new Map([
+      [source.name, source.version],
+      ...Object.keys(source.optionalDependencies).map((name) => [
+        name,
+        source.version,
+      ]),
+    ]);
+    await writeFile(
+      join(wrapper, "package.json"),
+      `${JSON.stringify(registry_manifest(source, versions), null, 2)}\n`,
+    );
+  }
   const wrapper_manifest_path = join(wrapper, "package.json");
   const wrapper_manifest = JSON.parse(
     await readFile(wrapper_manifest_path, "utf8"),
@@ -40,19 +74,14 @@ try {
     wrapper_manifest_path,
     `${JSON.stringify(wrapper_manifest, null, 2)}\n`,
   );
-  const artifacts = [{ directory: wrapper, archive: pack(wrapper, directory) }];
-  const signed = process.env.GHOSTMUX_TEST_ARTIFACT;
-  if (signed) {
-    const native = join(directory, "native");
-    await stage_binary(native, join(signed, artifactName(platform)));
-    artifacts.push({ directory: native, archive: pack(native, directory) });
-  }
+  artifacts = artifacts.filter((entry) => entry.directory !== wrapper);
+  artifacts.push({ directory: wrapper, archive: pack(wrapper, directory) });
   server = await registry(artifacts);
   for (const manager of ["npm", "bun"]) {
     const consumer = join(directory, manager);
-    await install(manager, consumer, "@cpi/ghostmux", server.url);
+    await install(manager, consumer, "@bobcao3/cpi-ghostmux", server.url);
     await chmod(consumer, 0o700);
-    const installed = join(consumer, "node_modules/@cpi/ghostmux");
+    const installed = join(consumer, "node_modules/@bobcao3/cpi-ghostmux");
     await assert.rejects(access(join(installed, "zig-out")), {
       code: "ENOENT",
     });
@@ -175,7 +204,11 @@ try {
     );
   }
   if (signed)
-    assert(server.requests.includes(`@cpi/ghostmux-${platform}/-/package.tgz`));
+    assert(
+      server.requests.includes(
+        `@bobcao3/cpi-ghostmux-${platform}/-/package.tgz`,
+      ),
+    );
 } finally {
   if (server) await server.close();
   await rm(directory, { recursive: true, force: true });

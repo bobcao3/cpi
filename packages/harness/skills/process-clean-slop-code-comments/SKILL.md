@@ -111,11 +111,9 @@ Run in order; never leave a file stripped.
 - Read-only in effect: the block is always restored; never commit a stripped
   file or a leftover `.probe-bak`.
 - Does not rewrite prose for you — it decides what survives, you write it.
-- Parser assets resolve through `@cpi/tree-sitter-wasm`; see its resolver for
-  cache, override, and signed-download behavior.
-- Runtime: the `probe` wrapper execs the interpreter pi itself runs under
-  (`CPI_RUNTIME_KIND`/`CPI_RUNTIME_BIN` — node, bun, or deno), falling back to
-  `node` on PATH outside pi; node needs >= 23.6 for unflagged type stripping (22
-  with `--experimental-strip-types`). `probe.mts` is the module it runs.
+- Parser asset selection follows the
+  [WASM resolver](https://github.com/bobcao3/cpi/blob/main/packages/tree-sitter-wasm/resolve.ts).
+- The [probe launcher](scripts/probe) defines cpi interpreter selection and
+  entry-point handling for source checkouts and installed packages.
 - Launcher mechanics (session ids, heredocs, model picks): see the
   `subagents-in-pi` skill.

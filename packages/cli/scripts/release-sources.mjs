@@ -79,7 +79,13 @@ export async function prepareReleaseSources(checkout, cache) {
         },
       });
     }
-    for (const name of ["package.json", "package-lock.json", "LICENSE"])
+    await mkdir(join(root, "scripts"));
+    for (const name of [
+      "package.json",
+      "package-lock.json",
+      "LICENSE",
+      "scripts/fork.mjs",
+    ])
       await cp(join(checkout, name), join(root, name));
     const locals = new Map();
     for (const folder of [

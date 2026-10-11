@@ -12,8 +12,10 @@ containing the verified asset and licenses. Publish the prepared tarball, not
 the private source workspace. The release workflow's npm publication input is
 explicitly opt-in.
 
-Import parsing and highlighting from `@cpi/tree-sitter-wasm`. Asset selection
-and trusted local-build overrides are defined in [resolve.ts](resolve.ts).
+Import parsing and highlighting from `@bobcao3/cpi-tree-sitter-wasm`; the source
+workspace uses the `@cpi/tree-sitter-wasm` alias. Asset selection and trusted
+local-build overrides are defined in
+[resolve.ts](https://github.com/bobcao3/cpi/blob/main/packages/tree-sitter-wasm/resolve.ts).
 There is no runtime network provisioning or install-time build.
 
 `artifact.test.mjs` uses npm and Bun to install real tarballs into isolated

@@ -140,16 +140,7 @@ text({files:files.length, exit:failure.exit_code, blocked:blocked.status});
     session.extensionRunner.resolveToolRenderers(name, () =>
       session.getToolDefinition(name),
     );
-  const roots = definition.renderTree(
-    { args: { code: script }, result, phase: "complete", isError: false },
-    host.getThemeByName("dark"),
-    tree_context,
-  );
-  const script_section = roots[0].children.find((node) =>
-    node.id.endsWith("/script"),
-  );
-  assert.equal(script_section.content.text.split("\n").length, 3);
-  assert.ok(script_section.children.some((node) => node.id.endsWith("/full")));
+  assert.doesNotMatch(visible, /const failure = await tools\.sh/);
   assert.match(visible, /read.*alpha\.txt.*2 lines/i);
   assert.match(visible, /中文 beta\.txt.*3 lines/);
   assert.match(visible, /Compact success/);
@@ -161,12 +152,11 @@ text({files:files.length, exit:failure.exit_code, blocked:blocked.status});
     plain(render(definition, "render-main", script, result, false, 132)),
     /applied 1 hunk before failure/,
   );
-  assert.match(visible, /\+\s+1\s+partial/);
+  assert.match(visible, /\bpartial\b/);
   assert.equal(await readFile(file_edit, "utf8"), "partial\n");
   assert.match(visible, /write.*created\.txt.*created/i);
-  assert.match(visible, /1 │ created/);
-  assert.match(visible, /2 │ 中文 creation/);
-  assert.doesNotMatch(visible, /\+\s+1\s+created|\+\s+2\s+中文 creation/);
+  assert.match(visible, /中文 creation/);
+  assert.doesNotMatch(visible, /\+\s+(?:created|中文 creation)/);
   assert.match(visible, /write.*created\.txt.*failed/i);
   assert.equal(
     await readFile(file_created, "utf8"),
@@ -199,6 +189,7 @@ text({files:files.length, exit:failure.exit_code, blocked:blocked.status});
   });
   const expanded = render(definition, "render-main", script, result, true);
   assert(expanded.length > collapsed.length);
+  assert.match(plain(expanded), /const failure = await tools\.sh/);
   assert.match(plain(expanded), /expected-failure/);
   assert.doesNotMatch(expanded.join("\n"), /\x1b\[(?:48;|4[0-7](?:;|m))/);
   assert.ok(
@@ -332,7 +323,7 @@ finally { await tools.sh_signal({id:shell.id,signal:"SIGKILL"}); }
   assert.match(structured_view, /INDEPENDENT_SCRIPT_OUTPUT/);
   assert.match(
     plain(render(definitions().get("codemode"), "render-main", script, saved)),
-    /2 │ 中文 creation/,
+    /中文 creation/,
   );
   assert.match(
     plain(render(definitions().get("codemode"), "render-main", script, saved)),

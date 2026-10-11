@@ -8,10 +8,12 @@ PTY, maintains terminal state, captures text, and renders PNG screenshots
 without a display server or installed fonts.
 
 For the shell-tool integration, see
-[`monitor.ts`](../harness/src/shell/monitor.ts).
+[`monitor.ts`](https://github.com/bobcao3/cpi/blob/main/packages/harness/src/shell/monitor.ts).
 
-The package API is `@cpi/ghostmux/resolve`; release provenance and verification
-are exported through `@cpi/ghostmux/source` and `@cpi/ghostmux/signature`.
+The public package API is `@bobcao3/cpi-ghostmux/resolve`; release provenance and
+verification are exported through `@bobcao3/cpi-ghostmux/source` and
+`@bobcao3/cpi-ghostmux/signature`. The source workspace uses the `@cpi/ghostmux`
+alias.
 `install.test.mjs` installs real packages using npm and Bun through an isolated
 registry. Set `GHOSTMUX_TEST_ARTIFACT` to a directory of signed release artifacts
 to test native-package resolution, tampering, and version mismatches.
@@ -20,8 +22,8 @@ When no verified binary is available, resolution fails with an explicit error
 naming the missing package; the fallback order (override, development build,
 optional-build, platform package) is in
 [`ghostmux-resolve.mjs`](bin/ghostmux-resolve.mjs). Set `GHOSTMUX_BIN` to an
-absolute path, `GHOSTMUX_BUILD=1` to build from source, or reinstall with
-optional dependencies enabled.
+absolute path, `GHOSTMUX_BUILD=1` to build from source, or reinstall
+`@bobcao3/cpi-ghostmux` with optional dependencies enabled.
 
 ## Contents
 
@@ -42,8 +44,8 @@ response, with the protocol version checked on every frame. Request, response,
 and output-chunk sizes are bounded, and each exchange runs under a watchdog
 that closes a silent connection. Failures surface as JSON error names; a failed
 exchange has no partial response. The wire authorities are
-[`wire.zig`](src/wire.zig) and
-[`runtime_frames.zig`](src/runtime_frames.zig); the `--protocol` stdin mode
+[`wire.zig`](https://github.com/bobcao3/cpi/blob/main/packages/ghostmux/src/wire.zig) and
+[`runtime_frames.zig`](https://github.com/bobcao3/cpi/blob/main/packages/ghostmux/src/runtime_frames.zig); the `--protocol` stdin mode
 below is a separate interface.
 
 ## npm distribution
@@ -113,9 +115,9 @@ of the daemon starter.
 
 `send-input` acknowledges queue acceptance, not application processing. Output
 subscriptions report the final `session.exit_code` after output drains. See
-[`src/client.zig`](src/client.zig) for command syntax and
-[`src/wire.zig`](src/wire.zig), [`src/transport.zig`](src/transport.zig), and
-[`src/managed_process.zig`](src/managed_process.zig) for limits and socket
+[`src/client.zig`](https://github.com/bobcao3/cpi/blob/main/packages/ghostmux/src/client.zig) for command syntax and
+[`src/wire.zig`](https://github.com/bobcao3/cpi/blob/main/packages/ghostmux/src/wire.zig), [`src/transport.zig`](https://github.com/bobcao3/cpi/blob/main/packages/ghostmux/src/transport.zig), and
+[`src/managed_process.zig`](https://github.com/bobcao3/cpi/blob/main/packages/ghostmux/src/managed_process.zig) for limits and socket
 policy.
 
 Startup follows the connect/lock/retry sequence used by tmux 3.7c's
@@ -145,8 +147,8 @@ therefore observe non-TTY standard streams. Output reads, subscriptions, logs,
 and signals work for both session types. Pipe sessions reject terminal captures,
 screenshots, resizing, and input with `NotPty`. Session status exposes `is_pty`.
 
-See [`src/managed_process.zig`](src/managed_process.zig) for backend selection
-and [`shell.toml`](../harness/src/text/shell.toml) for
+See [`src/managed_process.zig`](https://github.com/bobcao3/cpi/blob/main/packages/ghostmux/src/managed_process.zig) for backend selection
+and [`shell.toml`](https://github.com/bobcao3/cpi/blob/main/packages/harness/src/text/shell.toml) for
 model-facing shell and capture guidance.
 
 Launch short-lived commands with an atomic output subscription:
@@ -191,11 +193,11 @@ managed job's process tree rather than deliver POSIX signals. Output subscribers
 receive completion after the existing child-wait and output-drain paths finish.
 `kill-session` instead waits for session removal before acknowledging.
 
-The CLI and protocol are defined in [`src/client.zig`](src/client.zig) and
-[`src/wire.zig`](src/wire.zig). See [`src/output.zig`](src/output.zig) for
+The CLI and protocol are defined in [`src/client.zig`](https://github.com/bobcao3/cpi/blob/main/packages/ghostmux/src/client.zig) and
+[`src/wire.zig`](https://github.com/bobcao3/cpi/blob/main/packages/ghostmux/src/wire.zig). See [`src/output.zig`](https://github.com/bobcao3/cpi/blob/main/packages/ghostmux/src/output.zig) for
 retained output and log limits, and
-[`src/subscription.zig`](src/subscription.zig) and
-[`src/channel.zig`](src/channel.zig) for delivery, completion, and slow-client
+[`src/subscription.zig`](https://github.com/bobcao3/cpi/blob/main/packages/ghostmux/src/subscription.zig) and
+[`src/channel.zig`](https://github.com/bobcao3/cpi/blob/main/packages/ghostmux/src/channel.zig) for delivery, completion, and slow-client
 handling. These raw-output operations differ from formatted terminal captures.
 
 ## Existing PTY streams
@@ -235,8 +237,8 @@ character or escape sequence. Use `data` for a JSON string. Do not supply both.
 Successful responses contain `ok`, `cols`, and `rows`; capture responses also
 contain `text`, and screenshot responses contain `path`.
 
-The request schema lives in [`src/protocol.zig`](src/protocol.zig). CLI defaults
-and geometry limits live in [`src/options.zig`](src/options.zig). Invalid
+The request schema lives in [`src/protocol.zig`](https://github.com/bobcao3/cpi/blob/main/packages/ghostmux/src/protocol.zig). CLI defaults
+and geometry limits live in [`src/options.zig`](https://github.com/bobcao3/cpi/blob/main/packages/ghostmux/src/options.zig). Invalid
 requests, exceeded limits, and I/O failures terminate the CLI with a nonzero
 status and a diagnostic on stderr. Callers must treat EOF without the expected
 response as a failed request.
@@ -248,7 +250,7 @@ validator for untrusted font files.
 
 ## Rendering and verification
 
-See the font manifest and [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) for
+See the font manifest and [`THIRD_PARTY_NOTICES.md`](https://github.com/bobcao3/cpi/blob/main/packages/ghostmux/THIRD_PARTY_NOTICES.md) for
 font coverage, provenance, and licenses. Emoji use monochrome outlines because
 stb does not render color-font tables. Font coverage is broad rather than
 universal. Screenshots render terminal cells, not Kitty or Sixel graphics.
@@ -266,7 +268,7 @@ Run the portable native suite from this directory:
 zig build test --release=safe
 ```
 
-The test programs are compiled directly by [`build.zig`](build.zig). The daemon
+The test programs are compiled directly by [`build.zig`](https://github.com/bobcao3/cpi/blob/main/packages/ghostmux/build.zig). The daemon
 fixtures use typed protocol requests and separate child executables; CLI tests
 exercise the public launcher.
 
@@ -280,6 +282,6 @@ The rendering checks use `sharp` to independently decode PNG output. The
 remaining JavaScript daemon suites require POSIX and Python. Set `GHOSTMUX_BIN`
 to test a relocated executable.
 
-See [the shared package build workflow](../../.github/workflows/build-packages.yml)
+See [the shared package build workflow](https://github.com/bobcao3/cpi/blob/main/.github/workflows/build-packages.yml)
 for the platform matrix and cpi shell, installed-package, and native runtime
 integration commands.

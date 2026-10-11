@@ -6,13 +6,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 import { resolveTreeSitterWasm } from "./resolve.ts";
-import { stage_wasm } from "./scripts/package-api.mjs";
-import {
-  execute,
-  install,
-  pack,
-  registry,
-} from "../../scripts/package-test.mjs";
+import { execute, install, registry } from "../../scripts/package-test.mjs";
 
 test(
   "npm and Bun install self-contained signed WASM and run production parsers",
@@ -23,16 +17,33 @@ test(
     const artifact = process.env.CPI_TREE_SITTER_TEST_ARTIFACT
       ? join(process.env.CPI_TREE_SITTER_TEST_ARTIFACT, "tree-sitter-wasm.wasm")
       : await resolveTreeSitterWasm();
-    const staged = join(directory, "package");
-    await stage_wasm(staged, artifact);
+    const release = join(directory, "release");
+    const [packed] = Object.values(
+      JSON.parse(
+        execute(process.execPath, [
+          fileURLToPath(new URL("./scripts/package.mjs", import.meta.url)),
+          artifact,
+          release,
+        ]),
+      ),
+    );
+    const staged = join(release, "package");
     const server = await registry([
-      { directory: staged, archive: pack(staged, directory) },
+      { directory: staged, archive: join(release, packed.filename) },
     ]);
     try {
       for (const manager of ["npm", "bun"]) {
         const consumer = join(directory, manager);
-        await install(manager, consumer, "@cpi/tree-sitter-wasm", server.url);
-        const installed = join(consumer, "node_modules/@cpi/tree-sitter-wasm");
+        await install(
+          manager,
+          consumer,
+          "@bobcao3/cpi-tree-sitter-wasm",
+          server.url,
+        );
+        const installed = join(
+          consumer,
+          "node_modules/@bobcao3/cpi-tree-sitter-wasm",
+        );
         const runner = join(consumer, "installed-probe.mjs");
         await copyFile(
           fileURLToPath(new URL("./installed-probe.mjs", import.meta.url)),

@@ -44,6 +44,7 @@ export function getTreeSitterWasmPath(): string | null {
     throw error;
   }
   const artifact = join(release, "../assets", filename);
+  if (!existsSync(artifact)) return null;
   verifyArtifact(
     readFileSync(artifact),
     readFileSync(`${artifact}.minisig`, "utf8"),
@@ -55,7 +56,7 @@ export async function resolveTreeSitterWasm(): Promise<string> {
   const path = getTreeSitterWasmPath();
   if (!path)
     throw new Error(
-      "Missing packaged tree-sitter WASM. Reinstall @cpi/tree-sitter-wasm, or build the checkout's WASM.",
+      "Missing packaged tree-sitter WASM. Reinstall @bobcao3/cpi-tree-sitter-wasm, or build the checkout's WASM.",
     );
   return path;
 }

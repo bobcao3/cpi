@@ -50,7 +50,7 @@ export async function resolveGhostmux() {
   } catch (error) {
     if (error.code !== "MODULE_NOT_FOUND") throw error;
     throw new Error(
-      `Missing ${name}. Reinstall @cpi/ghostmux with optional dependencies enabled, or build the checkout's native binary.`,
+      `Missing ${name}. Reinstall @bobcao3/cpi-ghostmux with optional dependencies enabled, or build the checkout's native binary.`,
     );
   }
   const manifest = JSON.parse(await readFile(manifestPath, "utf8"));

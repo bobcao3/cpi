@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { lstat, mkdir, writeFile } from "node:fs/promises";
+import { lstat, mkdir, readFile, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
+import { registry_manifest } from "../../cli/scripts/registry-manifest.mjs";
 import { artifactName, platforms } from "../bin/ghostmux-source.mjs";
 import { stage_binary, stage_wrapper } from "../bin/ghostmux-package.mjs";
 
@@ -27,7 +28,21 @@ for (const platform of selected) {
 const folder = join(destination, "ghostmux");
 const wrapper = await stage_wrapper(folder);
 packages.push({ folder, name: wrapper.name });
+const versions = new Map([
+  [wrapper.name, wrapper.version],
+  ...Object.keys(platforms).map((platform) => [
+    `@cpi/ghostmux-${platform}`,
+    wrapper.version,
+  ]),
+]);
 for (const pkg of packages) {
+  const manifest_path = join(pkg.folder, "package.json");
+  const manifest = registry_manifest(
+    JSON.parse(await readFile(manifest_path, "utf8")),
+    versions,
+  );
+  await writeFile(manifest_path, `${JSON.stringify(manifest, null, 2)}\n`);
+  pkg.name = manifest.name;
   const result = spawnSync(
     process.platform === "win32" ? "npm.cmd" : "npm",
     ["pack", "--ignore-scripts", "--json", "--pack-destination", destination],

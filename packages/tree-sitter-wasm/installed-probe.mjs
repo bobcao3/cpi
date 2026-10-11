@@ -5,12 +5,12 @@ import {
   highlightLangSync,
   parseCommand,
   parseLangCommand,
-} from "@cpi/tree-sitter-wasm";
+} from "@bobcao3/cpi-tree-sitter-wasm";
 import {
   getTreeSitterWasmPath,
   resolveTreeSitterWasm,
   verifyArtifact,
-} from "@cpi/tree-sitter-wasm/resolve";
+} from "@bobcao3/cpi-tree-sitter-wasm/resolve";
 
 const path = await resolveTreeSitterWasm();
 assert.equal(path, process.argv[2]);
