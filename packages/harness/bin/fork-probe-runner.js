@@ -136,10 +136,9 @@ export async function runForkProbeSubagent(request, signal) {
     request.parentSessionFile,
     request.cwd,
     request.sessionDir,
-    { id: request.parentSessionId },
   );
-  if (manager.getSessionId() !== request.parentSessionId) {
-    throw new Error("fork-probe session identity mismatch");
+  if (manager.getSessionId() === request.parentSessionId) {
+    throw new Error("fork-probe resource identity is not isolated");
   }
   const agentDir = getAgentDir();
   const tools = enabledTools(request.tools);
@@ -183,6 +182,7 @@ export async function runForkProbeSubagent(request, signal) {
       tools,
       ...selection,
     });
+    created.session.agent.sessionId = request.parentSessionId;
     return { ...created, services, diagnostics };
   };
   const runtime = await createAgentSessionRuntime(createRuntime, {
