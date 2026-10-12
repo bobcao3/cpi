@@ -1,6 +1,6 @@
 {
   "name": "@cpi/cli",
-  "version": "0.0.3",
+  "version": "0.0.4",
   "private": true,
   "description": "cpi coding agent and SDK",
   "license": "MIT",
@@ -30,7 +30,7 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.31.0",
-    "@cpi/harness": "0.0.3",
+    "@cpi/harness": "0.0.4",
     "jiti": "2.7.0",
     "@earendil-works/pi-agent-core": "https://github.com/bobcao3/pi/releases/download/pi-1.1.1-cpi.37998908067/35da98196435fb23b8d4a4911002514aed3f7f95d43d830cde87444a2aa63210.tgz",
     "@earendil-works/pi-ai": "https://github.com/bobcao3/pi/releases/download/pi-1.1.1-cpi.37998908067/91c65119604d95801c0acb0bd80017793a34e29a183b7bb07ab857cf5901868d.tgz",

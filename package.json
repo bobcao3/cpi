@@ -44,10 +44,10 @@
     "@earendil-works/pi-tui": "https://github.com/bobcao3/pi/releases/download/pi-1.1.1-cpi.37998908067/7e5428e1aada4e3dc9898be28cad0657a17ae65006bd59d24b11b7eb2759919a.tgz"
   },
   "devDependencies": {
-    "@cpi/cli": "0.0.3",
-    "@cpi/harness": "0.0.3",
-    "@cpi/ghostmux": "0.0.3",
-    "@cpi/tree-sitter-wasm": "0.0.3",
+    "@cpi/cli": "0.0.4",
+    "@cpi/harness": "0.0.4",
+    "@cpi/ghostmux": "0.0.4",
+    "@cpi/tree-sitter-wasm": "0.0.4",
     "@types/bun": "1.4.2",
     "@types/mustache": "4.2.6",
     "@types/node": "22.19.19",
