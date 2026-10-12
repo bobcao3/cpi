@@ -20,7 +20,7 @@ import { verifyPiGraph } from "./verify-pi-graph.mjs";
 const here = dirname(fileURLToPath(import.meta.url));
 const source = resolve(here, "../../harness/scripts");
 
-export async function stageInstalledFixtures(extensions) {
+export async function stageInstalledFixtures(extensions, cli = "@cpi/cli") {
   const scripts = join(extensions, "scripts");
   await mkdir(scripts, { recursive: true });
   for (const name of [
@@ -45,6 +45,7 @@ export async function stageInstalledFixtures(extensions) {
     "migration-visual.integration.mjs",
   ]) {
     const text = (await readFile(join(source, name), "utf8"))
+      .replaceAll("@cpi/cli/bootstrap", `${cli}/bootstrap`)
       .replace(/(["'`])(\.\.\/)?src\//g, "$1$2dist/")
       .replace(/\.ts(["'`])/g, ".js$1");
     await writeFile(join(scripts, name), text);

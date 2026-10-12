@@ -9,12 +9,13 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { delimiter, dirname, join, resolve } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { setTimeout } from "node:timers/promises";
 import { registry_server } from "./registry-server.mjs";
 import { archive_manifest } from "./registry-archive.mjs";
 import { registry_repository } from "./registry-manifest.mjs";
+import { stageInstalledFixtures } from "./verify-installed.mjs";
 
 assert(
   process.argv.length === 3 ||
@@ -168,6 +169,7 @@ try {
       cli.name,
     );
     const command = join(prefix, "bin/cpi");
+    env.PATH = `${join(prefix, "bin")}${delimiter}${env.PATH ?? ""}`;
     assert.equal(
       (await execute(command, ["--version"], env, home)).trim(),
       cli.version,
@@ -183,6 +185,32 @@ try {
         home,
       ),
     );
+    const extensions = join(installed, "node_modules/@cpi/harness");
+    const scripts = await stageInstalledFixtures(extensions, cli.name);
+    for (const fixture of [
+      "codemode-render.integration.mjs",
+      "footer-layout.integration.mjs",
+      "codemode-wait.integration.test.mjs",
+    ]) {
+      const runtime = manager === "npm" ? process.execPath : "bun";
+      console.log(
+        await execute(
+          runtime,
+          [
+            ...(manager === "bun" ? ["--bun"] : []),
+            `--import=${pathToFileURL(join(installed, "dist/index.js")).href}`,
+            ...(fixture.endsWith(".test.mjs")
+              ? manager === "bun"
+                ? ["test"]
+                : ["--test"]
+              : []),
+            join(scripts, fixture),
+          ],
+          env,
+          home,
+        ),
+      );
+    }
   }
   assert(
     !server?.requests.some(

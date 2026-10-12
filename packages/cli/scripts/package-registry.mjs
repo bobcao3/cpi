@@ -18,9 +18,11 @@ import { stage_wasm } from "@cpi/tree-sitter-wasm/package";
 import { emitDeclarations } from "./release-declarations.mjs";
 import { prepareReleaseSources } from "./release-sources.mjs";
 import { registry_manifest } from "./registry-manifest.mjs";
+import { registry_release_version } from "./registry-version.mjs";
 import { stage_pi, stage_workspace } from "./registry-stage.mjs";
 
 const checkout = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
+const release_version = registry_release_version(process.env.CPI_RELEASE_TAG);
 const [native_input, output, selected] = process.argv.slice(2);
 assert(
   native_input && output && process.argv.length <= 5,
@@ -53,7 +55,7 @@ try {
     const manifest = JSON.parse(
       await readFile(join(root, "packages", directory, "package.json"), "utf8"),
     );
-    versions.set(manifest.name, manifest.version);
+    versions.set(manifest.name, release_version ?? manifest.version);
   }
   for (const platform of Object.keys(platforms))
     versions.set(`@cpi/ghostmux-${platform}`, versions.get("@cpi/ghostmux"));
@@ -106,6 +108,8 @@ try {
   });
   const packages = [];
   for (const { directory, manifest: source } of entries) {
+    if (release_version && source.name.startsWith("@cpi/"))
+      source.version = release_version;
     const manifest = registry_manifest(source, versions);
     await writeFile(
       join(directory, "package.json"),

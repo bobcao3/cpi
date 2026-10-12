@@ -1,61 +1,62 @@
 # Registry release
 
-In short: the release workflow installs and verifies the package set, then
-publishes with npm trusted publishing over GitHub Actions OIDC — no npm secret.
-Review the archives, `packages.json`, `SHA256SUMS`, and `fork-provenance.json`
-before approving; the publisher releases the CLI only after its dependencies
-and re-checks installations against the registry.
+Maintainers release cpi by pushing a version tag after configuring the publishing
+credentials and environment. CI verifies the tagged source and installed packages
+before publishing. No local npm publication is necessary.
 
-Use [Registry installation](../../.github/workflows/registry.yml) to prepare,
-verify, and publish the package set. Its platform matrix installs the CLI by
-registry name with npm and Bun, with lifecycle scripts disabled, and exercises
-the SDK, extensions, Ghostmux, Tree-sitter WASM, and codemode worker.
+[Release](#release) · [Configure once](#configure-once) · [Recover](#recover)
 
-Configure each public package's npm trusted publisher to match the publishing
-job's GitHub repository, workflow filename, and environment. Allow direct
-publishing. The job authenticates through GitHub Actions OIDC; no npm publishing
-secret is used. Initial trust configuration requires the owner's interactive
-npm two-factor authentication. For new packages, npm's staged publishing can
-create the package before configuring trust.
+## Release
 
-If release archives were staged to create package records, reject those temporary
-stages after configuring trust and before running the direct publisher: npm
-reserves staged version numbers. Keep the verified archives and reports; rejecting
-a stage removes its registry copy, not the local or CI artifacts. Subsequent
-releases of an established package do not need this bootstrap step.
+1. If cpi needs new Pi APIs, first push a release tag such as `cpi-1.1.1-1` in
+   [the Pi fork](https://github.com/bobcao3/pi). The fork's
+   [artifact workflow](https://github.com/bobcao3/pi/blob/cpi-fork/.github/workflows/fork-artifacts.yml)
+   builds and verifies durable archives, then notifies cpi.
+2. Wait for [Sync Pi release pin](../../.github/workflows/sync-pi-release.yml)
+   to open the pin-update PR. Review the manifest and lock changes, require passing
+   PR checks, and merge before tagging cpi. Skip these steps when the current
+   [Pi pin](../../vendor/pi/manifest.json) already supplies the required APIs.
+3. Push a cpi version tag such as `v0.0.4` to GitHub. The
+   [registry workflow](../../.github/workflows/registry.yml) derives distribution
+   versions from the tag without rewriting source manifests. Branch and PR runs
+   verify packages without publishing.
+4. If the publishing environment requires approval, review the package archives,
+   `packages.json`, `SHA256SUMS`, `fork-provenance.json`, and platform reports
+   before approving. CI publishes dependencies before the CLI, verifies public
+   npm and Bun installations, then creates the GitHub release.
 
-Run the workflow manually with its publishing input enabled. Review the
-package archives, `packages.json`, `SHA256SUMS`, and `fork-provenance.json` from
-the packaging job before approving publication. The publisher requires matching
-verification reports and publishes the CLI only after its dependencies.
-After publishing, the job repeats installation checks against the public registry.
-Package repository metadata identifies the distribution builder for provenance;
-the generated Pi manifests also retain their pinned fork source and integrity.
+The builder uses the committed Pi pin and signed native releases, never the
+latest Pi release or a neighboring checkout. A new Pi release has no effect on
+cpi until a maintainer merges the pin-update PR.
 
-The distribution builder consumes the pinned Pi artifact manifest and verified,
-signed native artifacts. Registry aliases retain original Pi import names while
-selecting our public fork packages; no upstream source edits are needed to rename
-them. Public names are defined in
-[registry-manifest.mjs](scripts/registry-manifest.mjs). First-party package
-manifests contain no lifecycle scripts. Third-party hooks are not required.
+## Configure once
 
-For local preparation and verification, use new output directories:
+- Configure each public package's npm trusted publisher for the GitHub repository,
+  `registry.yml`, and the `npm-publish` environment. Allow direct publishing.
+  GitHub Actions authenticates through OIDC; no npm publishing secret is needed.
+- Allow `v*` tags in the environment's deployment policy. Retain required reviewers
+  when publication should require human approval. Tag-triggered automation does
+  not bypass environment protection.
+- Configure `CPI_PIN_UPDATE_TOKEN` in both repositories with a dedicated
+  fine-grained token restricted to cpi, with Contents and Pull requests write
+  permissions. The fork uses the token to dispatch synchronization; cpi uses the
+  token for bot pushes that trigger PR checks. Do not substitute `GITHUB_TOKEN`
+  or a broad personal OAuth token. Rotate the token before expiry.
 
-```sh
-bun install --frozen-lockfile --ignore-scripts
-bun run check
-node scripts/ci-native-artifacts.mjs /tmp/cpi-native --all
-node packages/cli/scripts/package-registry.mjs /tmp/cpi-native /tmp/cpi-registry
-node packages/cli/scripts/verify-registry.mjs /tmp/cpi-registry
-```
+For a new npm package, the owner may need interactive two-factor authentication
+to establish trusted publishing. If npm staging created package records, reject
+the temporary stages before direct publication because npm reserves staged
+versions. Keep the verified archives and reports.
 
-Never republish different bytes under an existing version. The publisher verifies
-existing archive integrity before resuming a partially completed release. Pi
-source updates must first pass the separate fork's artifact workflow; this
-builder never imports from a neighboring checkout.
+## Recover
 
-Before importing a fork artifact set for repository-source installations, run
-[pin-pi-artifact-dependencies.mjs](scripts/pin-pi-artifact-dependencies.mjs)
-against the verified archives and the durable release URL. Upload the resulting
-hash-named archives without replacing existing release assets, then run the
-[artifact importer](scripts/import-pi.mjs) and refresh the reviewed locks.
+Rerun failed jobs in the original tagged workflow. If fork publication succeeded
+but synchronization failed, rerun the notification job or dispatch the sync
+workflow with the explicit published fork tag. The updater reuses the pin PR
+branch; maintainers still review and merge the PR.
+
+For a manual cpi publishing retry, select the original tag as the registry
+workflow's ref and enable its publishing input. Existing package versions and
+GitHub assets must match the verified bytes. Never replace assets, move a pushed
+tag, or republish different bytes under an existing version. If verification
+detects a content conflict, fix the source and push a new release tag.

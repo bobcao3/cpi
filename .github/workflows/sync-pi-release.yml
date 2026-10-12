@@ -1,0 +1,97 @@
+name: Sync Pi release pin
+
+on:
+  repository_dispatch:
+    types: [pi-fork-release]
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description:
+          Published bobcao3/pi tag (cpi-<base-semver>-<positive serial>)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cpi-sync-pi-release
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      CPI_PIN_UPDATE_TOKEN: ${{ secrets.CPI_PIN_UPDATE_TOKEN }}
+      GH_TOKEN: ${{ secrets.CPI_PIN_UPDATE_TOKEN }}
+      CPI_FORK: ${{ runner.temp }}/no-editable-fork
+      PI_OFFLINE: "1"
+      npm_config_ignore_scripts: "true"
+      ARTIFACT_DIRECTORY: ${{ runner.temp }}/verified-pi-release
+    steps:
+      - name: Require the dedicated pin-update token
+        run: |
+          if [ -z "$CPI_PIN_UPDATE_TOKEN" ]; then
+            echo '::error::CPI_PIN_UPDATE_TOKEN is unavailable. Configure a dedicated GitHub App installation token or fine-grained token restricted to cpi with Contents and Pull requests write permissions. Do not use a broad personal OAuth token.'
+            exit 1
+          fi
+      - uses: actions/checkout@v6
+        with:
+          token: ${{ secrets.CPI_PIN_UPDATE_TOKEN }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - name: Validate the dispatch payload
+        id: input
+        run: node packages/cli/scripts/sync-pi-release-input.mjs
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.4.0"
+      - name: Install validation dependencies without lifecycle scripts
+        run: bun install --frozen-lockfile --ignore-scripts
+      - name:
+          Verify the explicit published release before changing tracked files
+        env:
+          RELEASE_TAG: ${{ steps.input.outputs.tag }}
+        run:
+          node packages/cli/scripts/sync-pi-release.mjs "$RELEASE_TAG"
+          "$ARTIFACT_DIRECTORY"
+      - name:
+          Prepare the deterministic PR branch without resetting or force pushing
+        env:
+          RELEASE_TAG: ${{ steps.input.outputs.tag }}
+        run:
+          node packages/cli/scripts/sync-pi-release-pr.mjs prepare
+          "$RELEASE_TAG"
+      - name:
+          Import verified archives and refresh both locks without lifecycle
+          scripts
+        env:
+          RELEASE_TAG: ${{ steps.input.outputs.tag }}
+        run: |
+          node packages/cli/scripts/import-pi.mjs "$ARTIFACT_DIRECTORY" "https://github.com/bobcao3/pi/releases/download/$RELEASE_TAG"
+          npm install --package-lock-only --ignore-scripts --no-audit --no-fund
+          bun install --lockfile-only --ignore-scripts
+          bun install --frozen-lockfile --ignore-scripts
+      - name:
+          Check the installed SDK and maintained sources without an editable
+          fork
+        run: |
+          test ! -e .pi-fork
+          node scripts/check.mjs
+          node packages/cli/scripts/check-boundaries.mjs
+      - name:
+          Run focused existing regression tests and pin-update integration tests
+        run: |
+          node --test packages/cli/scripts/sync-pi-release.test.mjs scripts/cpi-launcher.test.mjs
+          node --test --test-name-pattern='installed verification fixtures' packages/cli/scripts/release-layout.test.mjs
+          node node_modules/vitest/dist/cli.js --run packages/cli/test/vcs.test.ts packages/cli/test/footer-project.test.ts
+          node node_modules/vitest/dist/cli.js --run packages/cli/test/sdk-runtime.test.ts --testNamePattern='^(native|bootstrap-native) SDK'
+      - name: Open or update the pin PR after all checks pass
+        env:
+          RELEASE_TAG: ${{ steps.input.outputs.tag }}
+        run:
+          node packages/cli/scripts/sync-pi-release-pr.mjs publish
+          "$RELEASE_TAG"

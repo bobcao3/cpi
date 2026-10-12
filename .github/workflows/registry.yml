@@ -3,6 +3,7 @@ name: Registry installation
 on:
   push:
     branches: ["**"]
+    tags: ["v*"]
   pull_request:
   workflow_dispatch:
     inputs:
@@ -15,8 +16,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: registry-${{ github.ref }}-${{ inputs.publish_npm || false }}
-  cancel-in-progress: ${{ !inputs.publish_npm }}
+  group: registry-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref_type != 'tag' && !inputs.publish_npm }}
 
 jobs:
   package:
@@ -34,7 +35,16 @@ jobs:
       - name: Fetch and verify release-native inputs
         run:
           node scripts/ci-native-artifacts.mjs "${{ runner.temp }}/native" --all
+      - name: Check source against the pinned installed SDK
+        run: node scripts/check.mjs
+      - name: Test release automation and editor regressions
+        run: |
+          node --test packages/cli/scripts/registry-release.test.mjs
+          bun test --tsconfig-override tsconfig.json packages/harness/src/llm-editor/file-edit.test.ts packages/harness/src/llm-editor/partial-apply.test.ts
       - name: Prepare portable packages and platform-selected binaries
+        env:
+          CPI_RELEASE_TAG:
+            ${{ github.ref_type == 'tag' && github.ref_name || '' }}
         run:
           node packages/cli/scripts/package-registry.mjs "${{ runner.temp
           }}/native" "${{ runner.temp }}/registry"
@@ -81,7 +91,9 @@ jobs:
           path: ${{ runner.temp }}/registry/registry-verification.json
           if-no-files-found: error
   publish:
-    if: github.event_name == 'workflow_dispatch' && inputs.publish_npm
+    if:
+      github.ref_type == 'tag' && (github.event_name == 'push' ||
+      inputs.publish_npm)
     needs: verify
     runs-on: ubuntu-24.04
     environment: npm-publish
@@ -116,3 +128,24 @@ jobs:
         run:
           node packages/cli/scripts/verify-registry.mjs "${{ runner.temp
           }}/registry" --public
+  release:
+    needs: publish
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - uses: actions/download-artifact@v4
+        with:
+          name: registry-packages
+          path: ${{ runner.temp }}/registry
+      - name: Publish immutable GitHub release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run:
+          node packages/cli/scripts/release-registry.mjs "${{ runner.temp
+          }}/registry"
