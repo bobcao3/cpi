@@ -104,7 +104,9 @@ export default function coreExtension(pi: ExtensionAPI): void {
   registerNotificationRenderer(pi);
   registerActivityBrowser(pi, focusFooterActivity, getFooterContent);
 
-  pi.on("before_agent_start", (_event, ctx) => drainBeforeUser(pi, ctx));
+  pi.on("before_agent_start", (event, ctx) => {
+    if (event.messageType !== "custom") drainBeforeUser(pi, ctx);
+  });
   pi.on("tool_execution_end", (_event, ctx) => drainAfterTool(pi, ctx));
   pi.on("turn_start", (event, ctx) => statusReportTurnStarted(event, ctx));
   pi.on("turn_end", (event, ctx) => {
