@@ -89,11 +89,12 @@ export function installFastModels(
     );
   Object.defineProperty(prototype, INSTALLATION, { value: installation });
   prototype.recomposeProvider = function (id) {
-    compose.call(this, id);
+    const physical = compose.call(this, id);
     const selected = this[CONFIG] ?? installation.config();
     const provider = this.models.getProvider(id);
     if (provider && selected.providers.includes(id))
       this.models.setProvider(decorateFastProvider(provider, selected));
+    return physical;
   };
   prototype.prepareRequest = async function (model, options) {
     if (

@@ -66,6 +66,32 @@ async function runPi(directory, model, requests) {
   }
 }
 
+test("virtual models do not mark an unconfigured physical provider authenticated", async () => {
+  await fixture(async ({ runtime, modelsPath, config }) => {
+    delete config.providers.openai.apiKey;
+    await writeFile(modelsPath, JSON.stringify(config));
+    await runtime.refresh({ allowNetwork: false });
+    assert.equal(runtime.hasConfiguredAuth("openai"), false);
+    const model = runtime.getPhysicalModel("openai", "gpt-5.5");
+    assert.ok(model);
+    for (const [provider, configured] of [
+      ["openai", false],
+      ["routing-only-fixture", true],
+    ]) {
+      runtime.registerVirtualModel({
+        provider,
+        id: "auth-boundary-fixture",
+        name: "Auth boundary fixture",
+        thinkingLevels: ["off"],
+        route: () => ({ model, thinkingLevel: "off" }),
+      });
+      assert.equal(runtime.hasConfiguredAuth(provider), configured);
+      await runtime.refresh({ allowNetwork: false });
+      assert.equal(runtime.hasConfiguredAuth(provider), configured);
+    }
+  });
+});
+
 test("the installed Pi CLI resolves the fast identity before selection", async () => {
   for (const model of ["gpt-5.5", "gpt-6.1-sol"]) {
     await fixture(async ({ directory, requests }) => {
