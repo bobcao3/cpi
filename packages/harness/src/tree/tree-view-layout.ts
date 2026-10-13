@@ -1,5 +1,7 @@
-import { isCompactWidth, isImageLine } from "@earendil-works/pi-tui";
 import {
+  isCompactWidth,
+  isImageLine,
+  stripTerminalSequences,
   truncateToWidth,
   visibleWidth,
   wrapTextWithAnsi,
@@ -13,6 +15,18 @@ import {
   RUNNING_FRAMES,
   STATUS_TEXT,
 } from "./tree-view-helpers.ts";
+
+function bodyRepeatsSummary(
+  summary: string | undefined,
+  bodyLines: readonly string[],
+): boolean {
+  if (!summary) return false;
+  const condensed = (value: string) =>
+    stripTerminalSequences(value).replace(/\s+/g, "");
+  const needle = condensed(summary);
+  if (!needle) return false;
+  return condensed(bodyLines.join("\n")).startsWith(needle);
+}
 
 export function renderTreeLayout(
   flat: readonly FlatNode[],
@@ -177,6 +191,7 @@ export function renderTreeLayout(
             : branchNext
         : "",
     );
+    const open = isOpen(node);
     const expandable = hasExpandableContent(node, item.flattened);
     const section = item.flattened && !node.status;
     const caption = section && !node.labelJoined && !node.metadata?.length;
@@ -184,7 +199,7 @@ export function renderTreeLayout(
       section
         ? " "
         : expandable
-          ? isOpen(node)
+          ? open
             ? "▾"
             : "▸"
           : item.depth === 0 || node.status
@@ -203,7 +218,68 @@ export function renderTreeLayout(
     const markerEnd = section
       ? width
       : Math.min(width, markerStart + marker.length);
-    const text = [caption ? `${node.label}:` : node.label, node.summary]
+    const continuation = truncateToWidth(
+      " ".repeat(visibleWidth(statusPrefix)) +
+        guide +
+        theme.guide(
+          visualDepth && width >= minimumHeaderWidth
+            ? last
+              ? space
+              : vertical
+            : "",
+        ) +
+        space,
+      visibleWidth(prefix),
+      "",
+    );
+    let plannedBody:
+      | {
+          prefix: string;
+          width: number;
+          lines: string[];
+          component: NonNullable<TreeNode["body"]>;
+          expanded: boolean;
+          truncated: boolean;
+        }
+      | undefined;
+    if (node.body && open) {
+      const bodyGuide =
+        visualDepth === 0
+          ? compact
+            ? ""
+            : space
+          : guide + theme.guide(last ? space : vertical);
+      const bodyPrefix = truncateToWidth(
+        item.flattened || node.bodyInline
+          ? continuation
+          : `${space}${bodyGuide}${space}`,
+        Math.max(0, width - 1),
+        "",
+      );
+      const bodyWidth = Math.max(0, width - visibleWidth(bodyPrefix));
+      const expanded =
+        state.fullBodies?.get(node.id) ?? Boolean(state.expanded);
+      const previewLines = node.bodyPreview?.render(bodyWidth);
+      const fullLines = node.body.render(bodyWidth);
+      const component =
+        node.bodyPreview && !expanded ? node.bodyPreview : node.body;
+      const bodyLines = component === node.body ? fullLines : previewLines!;
+      const truncated =
+        previewLines !== undefined && fullLines.length > previewLines.length;
+      plannedBody = {
+        prefix: bodyPrefix,
+        width: bodyWidth,
+        lines: [...bodyLines],
+        component,
+        expanded,
+        truncated,
+      };
+    }
+    const summary =
+      plannedBody && bodyRepeatsSummary(node.summary, plannedBody.lines)
+        ? undefined
+        : node.summary;
+    const text = [caption ? `${node.label}:` : node.label, summary]
       .filter(Boolean)
       .join(caption ? " " : " · ")
       .replace(/[\r\n\t]+/g, " ");
@@ -223,20 +299,6 @@ export function renderTreeLayout(
         header[0] = `${lastLine} · ${metadata}`;
       else header.push(...wrapTextWithAnsi(metadata, contentWidth).slice(0, 2));
     }
-    const continuation = truncateToWidth(
-      " ".repeat(visibleWidth(statusPrefix)) +
-        guide +
-        theme.guide(
-          visualDepth && width >= minimumHeaderWidth
-            ? last
-              ? space
-              : vertical
-            : "",
-        ) +
-        space,
-      visibleWidth(prefix),
-      "",
-    );
     positions.set(node.id, lines.length);
     for (let i = 0; i < header.length && lines.length < MAX_ROWS - 1; i++) {
       const line = fit((i ? continuation : prefix) + header[i]!);
@@ -253,7 +315,7 @@ export function renderTreeLayout(
           : paint(line),
       );
     }
-    if (!item.flattened && !isOpen(node)) continue;
+    if (!item.flattened && !open) continue;
     const disclosure =
       !item.flattened && expandable
         ? {
@@ -264,29 +326,15 @@ export function renderTreeLayout(
           }
         : undefined;
     if (disclosure) disclosures.push(disclosure);
-    if (node.body) {
-      const bodyGuide =
-        visualDepth === 0
-          ? compact
-            ? ""
-            : space
-          : guide + theme.guide(last ? space : vertical);
-      const bodyPrefix = truncateToWidth(
-        item.flattened || node.bodyInline
-          ? continuation
-          : `${space}${bodyGuide}${space}`,
-        Math.max(0, width - 1),
-        "",
-      );
-      const bodyWidth = Math.max(0, width - visibleWidth(bodyPrefix));
-      const expanded =
-        state.fullBodies?.get(node.id) ?? Boolean(state.expanded);
-      const previewLines = node.bodyPreview?.render(bodyWidth);
-      const fullLines = node.body.render(bodyWidth);
-      const body = node.bodyPreview && !expanded ? node.bodyPreview : node.body;
-      const bodyLines = body === node.body ? fullLines : previewLines!;
-      const truncated =
-        previewLines !== undefined && fullLines.length > previewLines.length;
+    if (plannedBody) {
+      const {
+        prefix: bodyPrefix,
+        width: bodyWidth,
+        lines: bodyLines,
+        component: body,
+        expanded,
+        truncated,
+      } = plannedBody;
       const bodyStart = lines.length;
       const bodyLimit = MAX_ROWS - 1 - disclosures.length - Number(truncated);
       for (let i = 0; i < bodyLines.length && lines.length < bodyLimit; i++) {
