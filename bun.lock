@@ -6,11 +6,12 @@
       "name": "cpi",
       "dependencies": {
         "@bobcao3/cpi-tree-sitter-wasm": "0.0.1",
-        "@earendil-works/pi-agent-core": "https://github.com/bobcao3/pi/releases/download/pi-1.1.1-cpi.37998908067/35da98196435fb23b8d4a4911002514aed3f7f95d43d830cde87444a2aa63210.tgz",
-        "@earendil-works/pi-ai": "https://github.com/bobcao3/pi/releases/download/pi-1.1.1-cpi.37998908067/91c65119604d95801c0acb0bd80017793a34e29a183b7bb07ab857cf5901868d.tgz",
-        "@earendil-works/pi-codemode": "https://github.com/bobcao3/pi/releases/download/pi-1.1.1-cpi.37998908067/f81ad9935161039c522ba128e4be7abc50f1a53937870c2592fbe62c7adbd32d.tgz",
-        "@earendil-works/pi-coding-agent": "https://github.com/bobcao3/pi/releases/download/pi-1.1.1-cpi.37998908067/544436aa6a7e74ab0716695c1cb0141d9d7e06c6d208000fb6ee7d4257fb464f.tgz",
-        "@earendil-works/pi-tui": "https://github.com/bobcao3/pi/releases/download/pi-1.1.1-cpi.37998908067/7e5428e1aada4e3dc9898be28cad0657a17ae65006bd59d24b11b7eb2759919a.tgz",
+        "@earendil-works/pi-agent-core": "https://github.com/bobcao3/pi/releases/download/cpi-1.2.0-2/7c3947a36845e9eb9a1fa6d48421c6ba492245953c8d387350fba9751cfea2b4.tgz",
+        "@earendil-works/pi-ai": "https://github.com/bobcao3/pi/releases/download/cpi-1.2.0-2/1cf2cd293b39c3f92349b607f49abf9c28ae1c6edd649941d24958027a5f536a.tgz",
+        "@earendil-works/pi-codemode": "https://github.com/bobcao3/pi/releases/download/cpi-1.2.0-2/b8a12eb1579610030f80c9b04f7094944ffb91cc7f45036d7548622876506239.tgz",
+        "@earendil-works/pi-coding-agent": "https://github.com/bobcao3/pi/releases/download/cpi-1.2.0-2/6fb828da22ed7384d8473f3fdcce311acc5228ba0c1a8c25a5e9aca2247fab7f.tgz",
+        "@earendil-works/pi-durable": "https://github.com/bobcao3/pi/releases/download/cpi-1.2.0-2/51716003100412e14db6142bf87f872821229e4c73da1defa0c12810668bdd14.tgz",
+        "@earendil-works/pi-tui": "https://github.com/bobcao3/pi/releases/download/cpi-1.2.0-2/f15e517520cfb7b55a9b498badaa03fac05d0cf08870078caaf9c3c574cfce65.tgz",
         "@modelcontextprotocol/sdk": "1.31.0",
         "jiti": "2.7.0",
         "mustache": "4.2.0",
@@ -18,10 +19,10 @@
         "smol-toml": "1.9.0",
       },
       "devDependencies": {
-        "@cpi/cli": "0.0.3",
-        "@cpi/ghostmux": "0.0.3",
-        "@cpi/harness": "0.0.3",
-        "@cpi/tree-sitter-wasm": "0.0.3",
+        "@cpi/cli": "0.0.4",
+        "@cpi/ghostmux": "0.0.4",
+        "@cpi/harness": "0.0.4",
+        "@cpi/tree-sitter-wasm": "0.0.4",
         "@types/bun": "1.4.2",
         "@types/mustache": "4.2.6",
         "@types/node": "22.19.19",
@@ -44,24 +45,25 @@
     },
     "packages/cli": {
       "name": "@cpi/cli",
-      "version": "0.0.3",
+      "version": "0.0.4",
       "bin": {
         "cpi": "./bin/cpi",
       },
       "dependencies": {
-        "@cpi/harness": "0.0.3",
-        "@earendil-works/pi-agent-core": "https://github.com/bobcao3/pi/releases/download/pi-1.1.1-cpi.37998908067/35da98196435fb23b8d4a4911002514aed3f7f95d43d830cde87444a2aa63210.tgz",
-        "@earendil-works/pi-ai": "https://github.com/bobcao3/pi/releases/download/pi-1.1.1-cpi.37998908067/91c65119604d95801c0acb0bd80017793a34e29a183b7bb07ab857cf5901868d.tgz",
-        "@earendil-works/pi-codemode": "https://github.com/bobcao3/pi/releases/download/pi-1.1.1-cpi.37998908067/f81ad9935161039c522ba128e4be7abc50f1a53937870c2592fbe62c7adbd32d.tgz",
-        "@earendil-works/pi-coding-agent": "https://github.com/bobcao3/pi/releases/download/pi-1.1.1-cpi.37998908067/544436aa6a7e74ab0716695c1cb0141d9d7e06c6d208000fb6ee7d4257fb464f.tgz",
-        "@earendil-works/pi-tui": "https://github.com/bobcao3/pi/releases/download/pi-1.1.1-cpi.37998908067/7e5428e1aada4e3dc9898be28cad0657a17ae65006bd59d24b11b7eb2759919a.tgz",
+        "@cpi/harness": "0.0.4",
+        "@earendil-works/pi-agent-core": "https://github.com/bobcao3/pi/releases/download/cpi-1.2.0-2/7c3947a36845e9eb9a1fa6d48421c6ba492245953c8d387350fba9751cfea2b4.tgz",
+        "@earendil-works/pi-ai": "https://github.com/bobcao3/pi/releases/download/cpi-1.2.0-2/1cf2cd293b39c3f92349b607f49abf9c28ae1c6edd649941d24958027a5f536a.tgz",
+        "@earendil-works/pi-codemode": "https://github.com/bobcao3/pi/releases/download/cpi-1.2.0-2/b8a12eb1579610030f80c9b04f7094944ffb91cc7f45036d7548622876506239.tgz",
+        "@earendil-works/pi-coding-agent": "https://github.com/bobcao3/pi/releases/download/cpi-1.2.0-2/6fb828da22ed7384d8473f3fdcce311acc5228ba0c1a8c25a5e9aca2247fab7f.tgz",
+        "@earendil-works/pi-durable": "https://github.com/bobcao3/pi/releases/download/cpi-1.2.0-2/51716003100412e14db6142bf87f872821229e4c73da1defa0c12810668bdd14.tgz",
+        "@earendil-works/pi-tui": "https://github.com/bobcao3/pi/releases/download/cpi-1.2.0-2/f15e517520cfb7b55a9b498badaa03fac05d0cf08870078caaf9c3c574cfce65.tgz",
         "@modelcontextprotocol/sdk": "1.31.0",
         "jiti": "2.7.0",
       },
     },
     "packages/ghostmux": {
       "name": "@cpi/ghostmux",
-      "version": "0.0.3",
+      "version": "0.0.4",
       "bin": {
         "ghostmux": "./bin/ghostmux.mjs",
       },
@@ -78,13 +80,13 @@
     },
     "packages/harness": {
       "name": "@cpi/harness",
-      "version": "0.0.3",
+      "version": "0.0.4",
       "bin": {
         "subagent": "./bin/subagent",
       },
       "dependencies": {
-        "@cpi/ghostmux": "0.0.3",
-        "@cpi/tree-sitter-wasm": "0.0.3",
+        "@cpi/ghostmux": "0.0.4",
+        "@cpi/tree-sitter-wasm": "0.0.4",
         "jiti": "2.7.0",
         "mustache": "4.2.0",
         "sharp": "0.35.4",
@@ -94,16 +96,16 @@
         "diff": "8.0.4",
       },
       "peerDependencies": {
-        "@earendil-works/pi-agent-core": "1.1.1-cpi.37998908067",
-        "@earendil-works/pi-ai": "1.1.1-cpi.37998908067",
-        "@earendil-works/pi-coding-agent": "1.1.1-cpi.37998908067",
-        "@earendil-works/pi-tui": "1.1.1-cpi.37998908067",
+        "@earendil-works/pi-agent-core": "1.2.0-cpi.2",
+        "@earendil-works/pi-ai": "1.2.0-cpi.2",
+        "@earendil-works/pi-coding-agent": "1.2.0-cpi.2",
+        "@earendil-works/pi-tui": "1.2.0-cpi.2",
         "typebox": "*",
       },
     },
     "packages/tree-sitter-wasm": {
       "name": "@cpi/tree-sitter-wasm",
-      "version": "0.0.3",
+      "version": "0.0.4",
       "dependencies": {
         "@bobcao3/cpi-tree-sitter-wasm": "0.0.1",
       },
@@ -113,11 +115,12 @@
     },
   },
   "overrides": {
-    "@earendil-works/pi-agent-core": "https://github.com/bobcao3/pi/releases/download/pi-1.1.1-cpi.37998908067/35da98196435fb23b8d4a4911002514aed3f7f95d43d830cde87444a2aa63210.tgz",
-    "@earendil-works/pi-ai": "https://github.com/bobcao3/pi/releases/download/pi-1.1.1-cpi.37998908067/91c65119604d95801c0acb0bd80017793a34e29a183b7bb07ab857cf5901868d.tgz",
-    "@earendil-works/pi-codemode": "https://github.com/bobcao3/pi/releases/download/pi-1.1.1-cpi.37998908067/f81ad9935161039c522ba128e4be7abc50f1a53937870c2592fbe62c7adbd32d.tgz",
-    "@earendil-works/pi-coding-agent": "https://github.com/bobcao3/pi/releases/download/pi-1.1.1-cpi.37998908067/544436aa6a7e74ab0716695c1cb0141d9d7e06c6d208000fb6ee7d4257fb464f.tgz",
-    "@earendil-works/pi-tui": "https://github.com/bobcao3/pi/releases/download/pi-1.1.1-cpi.37998908067/7e5428e1aada4e3dc9898be28cad0657a17ae65006bd59d24b11b7eb2759919a.tgz",
+    "@earendil-works/pi-agent-core": "https://github.com/bobcao3/pi/releases/download/cpi-1.2.0-2/7c3947a36845e9eb9a1fa6d48421c6ba492245953c8d387350fba9751cfea2b4.tgz",
+    "@earendil-works/pi-ai": "https://github.com/bobcao3/pi/releases/download/cpi-1.2.0-2/1cf2cd293b39c3f92349b607f49abf9c28ae1c6edd649941d24958027a5f536a.tgz",
+    "@earendil-works/pi-codemode": "https://github.com/bobcao3/pi/releases/download/cpi-1.2.0-2/b8a12eb1579610030f80c9b04f7094944ffb91cc7f45036d7548622876506239.tgz",
+    "@earendil-works/pi-coding-agent": "https://github.com/bobcao3/pi/releases/download/cpi-1.2.0-2/6fb828da22ed7384d8473f3fdcce311acc5228ba0c1a8c25a5e9aca2247fab7f.tgz",
+    "@earendil-works/pi-durable": "https://github.com/bobcao3/pi/releases/download/cpi-1.2.0-2/51716003100412e14db6142bf87f872821229e4c73da1defa0c12810668bdd14.tgz",
+    "@earendil-works/pi-tui": "https://github.com/bobcao3/pi/releases/download/cpi-1.2.0-2/f15e517520cfb7b55a9b498badaa03fac05d0cf08870078caaf9c3c574cfce65.tgz",
     "@types/node": "22.19.19",
   },
   "packages": {
@@ -183,21 +186,23 @@
 
     "@cpi/tree-sitter-wasm": ["@cpi/tree-sitter-wasm@workspace:packages/tree-sitter-wasm"],
 
-    "@earendil-works/chord": ["@earendil-works/chord@1.1.0", "", { "dependencies": { "esbuild": "0.28.2" } }, "sha512-gsHzKfyQ3t0ZIQ3cLBjJ5Vqy1TYnFyruHIV3g3BwmulCDYe5BW4yT9vaJk9QzN6YANILIO75uzuq+Gdxtzz1og=="],
+    "@earendil-works/chord": ["@earendil-works/chord@1.2.0", "", { "dependencies": { "typebox": "1.3.27" } }, "sha512-Xh3M5B4D9YotOyBXyVbZ/5WfoUwP6Kt+TheCIDLxLCUx72UExuxZF//hNmIQGD13EkAHf2svKpXr/rCCT1gXTg=="],
 
-    "@earendil-works/pi-agent-core": ["@earendil-works/pi-agent-core@https://github.com/bobcao3/pi/releases/download/pi-1.1.1-cpi.37998908067/35da98196435fb23b8d4a4911002514aed3f7f95d43d830cde87444a2aa63210.tgz", { "dependencies": { "@earendil-works/pi-ai": "https://github.com/bobcao3/pi/releases/download/pi-1.1.1-cpi.37998908067/91c65119604d95801c0acb0bd80017793a34e29a183b7bb07ab857cf5901868d.tgz", "typebox": "1.3.27" } }, "sha512-n3QR4B5iFD6MZWPZ2bXnaF9JL/K7C5NFmp1/wg/NgP5jtEywn3bAOVfj43Ezwwr+QDsoi13eT3J6mykrf+SyEg=="],
+    "@earendil-works/pi-agent-core": ["@earendil-works/pi-agent-core@https://github.com/bobcao3/pi/releases/download/cpi-1.2.0-2/7c3947a36845e9eb9a1fa6d48421c6ba492245953c8d387350fba9751cfea2b4.tgz", { "dependencies": { "@earendil-works/pi-ai": "https://github.com/bobcao3/pi/releases/download/cpi-1.2.0-2/1cf2cd293b39c3f92349b607f49abf9c28ae1c6edd649941d24958027a5f536a.tgz", "typebox": "1.3.27" } }, "sha512-QhstFbz4zPPU3ai1MTfR4DogYWwNGMUuY1UxLOr3qOoS8LuIu1aXgoZCp9clsGV0f8xZCcHyVVLeoiV+39UnZw=="],
 
-    "@earendil-works/pi-ai": ["@earendil-works/pi-ai@https://github.com/bobcao3/pi/releases/download/pi-1.1.1-cpi.37998908067/91c65119604d95801c0acb0bd80017793a34e29a183b7bb07ab857cf5901868d.tgz", { "dependencies": { "@anthropic-ai/sdk": "0.129.0", "@aws-sdk/client-bedrock-runtime": "3.1127.0", "@earendil-works/pi-telemetry": "1.1.0", "@google/genai": "2.21.0", "@smithy/node-http-handler": "4.12.1", "http-proxy-agent": "9.1.0", "https-proxy-agent": "9.1.0", "openai": "7.19.0", "partial-json": "0.1.7", "typebox": "1.3.27" }, "bin": { "pi-ai": "dist/cli.js" } }, "sha512-O0dvel57/fbfB59Z75r1qhCRTkv2sne4uSP7crF/TOR8nDS3BYjjmHu/Kd5g8hY4u8d0CNVZI983CtDcP2QYzQ=="],
+    "@earendil-works/pi-ai": ["@earendil-works/pi-ai@https://github.com/bobcao3/pi/releases/download/cpi-1.2.0-2/1cf2cd293b39c3f92349b607f49abf9c28ae1c6edd649941d24958027a5f536a.tgz", { "dependencies": { "@anthropic-ai/sdk": "0.129.0", "@aws-sdk/client-bedrock-runtime": "3.1127.0", "@earendil-works/pi-telemetry": "1.2.0", "@google/genai": "2.21.0", "@smithy/node-http-handler": "4.12.1", "http-proxy-agent": "9.1.0", "https-proxy-agent": "9.1.0", "openai": "7.19.0", "partial-json": "0.1.7", "typebox": "1.3.27" }, "bin": { "pi-ai": "dist/cli.js" } }, "sha512-qFvjT+qMtrLlx/DL3tqQCfZ87w1xGcKvxwIm9eG00WtjmvoDcV5LsF1MLLVhn5U/u+oubjmIL/qX7x0wHKEBOw=="],
 
-    "@earendil-works/pi-codemode": ["@earendil-works/pi-codemode@https://github.com/bobcao3/pi/releases/download/pi-1.1.1-cpi.37998908067/f81ad9935161039c522ba128e4be7abc50f1a53937870c2592fbe62c7adbd32d.tgz", { "dependencies": { "quickjs-wasi": "3.6.2" } }, "sha512-qUHDJjBpap0E+L2hW5VYUPW8Saf2wNPXd07hqi5nP+Ra5yB1ewxU3J67GW3XnrOL50b70SxtCROQ6imFzN6tcA=="],
+    "@earendil-works/pi-codemode": ["@earendil-works/pi-codemode@https://github.com/bobcao3/pi/releases/download/cpi-1.2.0-2/b8a12eb1579610030f80c9b04f7094944ffb91cc7f45036d7548622876506239.tgz", { "dependencies": { "quickjs-wasi": "3.6.2" } }, "sha512-ohwco8e7dJHxQQ7qPwiX+KxM1fnwgvA4aWBGEzNtAQpkDWL+HJqIslxVvLUnv72unP0wC1x2e+8xqJI7eok7Fw=="],
 
-    "@earendil-works/pi-coding-agent": ["@earendil-works/pi-coding-agent@https://github.com/bobcao3/pi/releases/download/pi-1.1.1-cpi.37998908067/544436aa6a7e74ab0716695c1cb0141d9d7e06c6d208000fb6ee7d4257fb464f.tgz", { "dependencies": { "@earendil-works/chord": "1.1.0", "@earendil-works/pi-agent-core": "https://github.com/bobcao3/pi/releases/download/pi-1.1.1-cpi.37998908067/35da98196435fb23b8d4a4911002514aed3f7f95d43d830cde87444a2aa63210.tgz", "@earendil-works/pi-ai": "https://github.com/bobcao3/pi/releases/download/pi-1.1.1-cpi.37998908067/91c65119604d95801c0acb0bd80017793a34e29a183b7bb07ab857cf5901868d.tgz", "@earendil-works/pi-codemode": "https://github.com/bobcao3/pi/releases/download/pi-1.1.1-cpi.37998908067/f81ad9935161039c522ba128e4be7abc50f1a53937870c2592fbe62c7adbd32d.tgz", "@earendil-works/pi-mcp": "1.1.0", "@earendil-works/pi-tui": "https://github.com/bobcao3/pi/releases/download/pi-1.1.1-cpi.37998908067/7e5428e1aada4e3dc9898be28cad0657a17ae65006bd59d24b11b7eb2759919a.tgz", "@silvia-odwyer/photon-node": "0.3.4", "brace-expansion": "5.0.12", "chalk": "6.0.0", "cross-spawn": "7.0.6", "diff": "8.0.4", "grok-mermaid": "0.2.3", "highlight.js": "10.7.3", "hosted-git-info": "9.0.3", "ignore": "7.0.8", "jiti": "2.7.0", "minimatch": "10.2.6", "proper-lockfile": "4.1.2", "quickjs-wasi": "3.6.2", "semver": "7.8.5", "typebox": "1.3.27", "undici": "8.10.2", "yaml": "2.9.0" }, "bin": { "pi": "dist/cli.js" } }, "sha512-4LuiEcuXyo0gX6uY1oC86Ou8dbQN2LKq1QgtaNr44quI5o/NOSe+iweVTOxjMsCQslBayPG32kVS0c90dN0mLQ=="],
+    "@earendil-works/pi-coding-agent": ["@earendil-works/pi-coding-agent@https://github.com/bobcao3/pi/releases/download/cpi-1.2.0-2/6fb828da22ed7384d8473f3fdcce311acc5228ba0c1a8c25a5e9aca2247fab7f.tgz", { "dependencies": { "@earendil-works/pi-agent-core": "https://github.com/bobcao3/pi/releases/download/cpi-1.2.0-2/7c3947a36845e9eb9a1fa6d48421c6ba492245953c8d387350fba9751cfea2b4.tgz", "@earendil-works/pi-ai": "https://github.com/bobcao3/pi/releases/download/cpi-1.2.0-2/1cf2cd293b39c3f92349b607f49abf9c28ae1c6edd649941d24958027a5f536a.tgz", "@earendil-works/pi-codemode": "https://github.com/bobcao3/pi/releases/download/cpi-1.2.0-2/b8a12eb1579610030f80c9b04f7094944ffb91cc7f45036d7548622876506239.tgz", "@earendil-works/pi-mcp": "1.2.0", "@earendil-works/pi-tui": "https://github.com/bobcao3/pi/releases/download/cpi-1.2.0-2/f15e517520cfb7b55a9b498badaa03fac05d0cf08870078caaf9c3c574cfce65.tgz", "@silvia-odwyer/photon-node": "0.3.4", "brace-expansion": "5.0.12", "chalk": "6.0.0", "cross-spawn": "7.0.6", "diff": "8.0.4", "grok-mermaid": "0.2.3", "highlight.js": "10.7.3", "hosted-git-info": "9.0.3", "ignore": "7.0.8", "jiti": "2.7.0", "minimatch": "10.2.6", "proper-lockfile": "4.1.2", "quickjs-wasi": "3.6.2", "semver": "7.8.5", "typebox": "1.3.27", "undici": "8.10.2", "yaml": "2.9.0" }, "bin": { "pi": "dist/cli.js" } }, "sha512-93PRlmpG9h9QAp2reuTlYGuk6nCGy/dzK9+UA5nductyDLtbY9GMAWMupYX65wUCjrceTrEJsSeBTU0/r5QHPQ=="],
 
-    "@earendil-works/pi-mcp": ["@earendil-works/pi-mcp@1.1.0", "", { "dependencies": { "cross-spawn": "7.0.6" } }, "sha512-xGKwvu3SvVTeoIx8Z7UGoJprB4VK20wKORMhufcWGx61fIauhu3J+UqfB5eeoF1oE/geYBA598K6nh1SdABQkg=="],
+    "@earendil-works/pi-durable": ["@earendil-works/pi-durable@https://github.com/bobcao3/pi/releases/download/cpi-1.2.0-2/51716003100412e14db6142bf87f872821229e4c73da1defa0c12810668bdd14.tgz", { "dependencies": { "@earendil-works/chord": "1.2.0", "@earendil-works/pi-ai": "https://github.com/bobcao3/pi/releases/download/cpi-1.2.0-2/1cf2cd293b39c3f92349b607f49abf9c28ae1c6edd649941d24958027a5f536a.tgz", "@earendil-works/pi-codemode": "https://github.com/bobcao3/pi/releases/download/cpi-1.2.0-2/b8a12eb1579610030f80c9b04f7094944ffb91cc7f45036d7548622876506239.tgz", "@silvia-odwyer/photon": "0.3.3", "diff": "8.0.4", "typebox": "1.3.27" } }, "sha512-eGKEhiG8YUIrpdfJ4SnS61macE8jfpjSovgutJnS1PANBieYNjbe6VZcB4w5Sr22jP0BdKg1byA5htLdj7acYA=="],
 
-    "@earendil-works/pi-telemetry": ["@earendil-works/pi-telemetry@1.1.0", "", {}, "sha512-8gAK05/2pPozZZz6hCLOi8x2vsqzvsmO9gG92kbvuvTPm0qMHaFlaXX98ndXsrOi5pmzha7vNLguuG4+0Rgxjw=="],
+    "@earendil-works/pi-mcp": ["@earendil-works/pi-mcp@1.2.0", "", { "dependencies": { "cross-spawn": "7.0.6" } }, "sha512-ertUv40rUBgssTzw2lIPlejjIBdhvdg4uw+whWCDJYKYHU+ldp1ezhbB0BzwpBfnwef6/YN+m6eKLscj+r3p7w=="],
 
-    "@earendil-works/pi-tui": ["@earendil-works/pi-tui@https://github.com/bobcao3/pi/releases/download/pi-1.1.1-cpi.37998908067/7e5428e1aada4e3dc9898be28cad0657a17ae65006bd59d24b11b7eb2759919a.tgz", { "dependencies": { "get-east-asian-width": "1.6.0", "marked": "18.0.11" } }, "sha512-ETRK4JRxXxJtcf6sljssXnWli1hmLIbV9rYSIZ0h6nS0n91lRDrl2qmCXyxFentU7UR3scxNnJIL8IYk/oCIWQ=="],
+    "@earendil-works/pi-telemetry": ["@earendil-works/pi-telemetry@1.2.0", "", {}, "sha512-NZ3aJE6dr7aTgzzXDe53OW7BsAsF8ZUKHPJTtnjaQcxtlagkUT0Ew8Qas0EvYQsZqR/KpF1lB+z209XBzIC7xg=="],
+
+    "@earendil-works/pi-tui": ["@earendil-works/pi-tui@https://github.com/bobcao3/pi/releases/download/cpi-1.2.0-2/f15e517520cfb7b55a9b498badaa03fac05d0cf08870078caaf9c3c574cfce65.tgz", { "dependencies": { "get-east-asian-width": "1.6.0", "marked": "18.0.11" } }, "sha512-HsrUmtPUUhutgAIQByNS53QlQ/I5XmhLfBgGF7rO+aVLjYn2oBS2joxAKdD6xNh7ZG7zM/T0SzL7Be9Qk4AKOQ=="],
 
     "@emnapi/runtime": ["@emnapi/runtime@1.11.3", "", { "dependencies": { "tslib": "^2.4.0" } }, "sha512-Xz4Tpyki7XyrpbUK1jR1AhdAdaXyhhY4lZ3neLodmhpuWfy2PAQN5B46sAiU4liOXGLkHypn/qU+jvfWSCYYLA=="],
 
@@ -368,6 +373,8 @@
     "@rolldown/binding-win32-x64-msvc": ["@rolldown/binding-win32-x64-msvc@1.2.12", "", { "os": "win32", "cpu": "x64" }, "sha512-WIw2haVKwjuYdXkHaoC0mF8Le71TuCBxjrdKqLbJGctbBABj+ClfmNvtbOnzpq3RokNo5+V1qhtSzJyXorsklQ=="],
 
     "@rolldown/pluginutils": ["@rolldown/pluginutils@1.0.1", "", {}, "sha512-2j9bGt5Jh8hj+vPtgzPtl72j0yRxHAyumoo6TNfAjsLB04UtpSvPbPcDcBMxz7n+9CYB0c1GxQFxYRg2jimqGw=="],
+
+    "@silvia-odwyer/photon": ["@silvia-odwyer/photon@0.3.3", "", {}, "sha512-8BhUjEch4slwRe8uXnaA4vcA5uiiOTT90UMsxulOj2gN98X1p0q9Z4Ysk4DkD05uNgbR9XoSqtZ37w+33w4QKQ=="],
 
     "@silvia-odwyer/photon-node": ["@silvia-odwyer/photon-node@0.3.4", "", {}, "sha512-bnly4BKB3KDTFxrUIcgCLbaeVVS8lrAkri1pEzskpmxu9MdfGQTy8b8EgcD83ywD3RPMsIulY8xJH5Awa+t9fA=="],
 
