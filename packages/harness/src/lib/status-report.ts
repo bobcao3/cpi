@@ -100,7 +100,8 @@ function cancelWork(s: StatusReportState): void {
 }
 
 function statusReportSegment(): string | null {
-  return state().report;
+  const s = state();
+  return s.probeController ? "Updating status summary…" : s.report;
 }
 
 function clearStatus(): void {
@@ -178,7 +179,9 @@ async function runStatusProbe(request: ProbeRequest): Promise<void> {
   if (!s.enabled || s.epoch !== request.epoch || request.ctx.signal?.aborted)
     return;
   const controller = new AbortController();
+  s.probeController?.abort();
   s.probeController = controller;
+  requestFooterRender();
   const signal = request.ctx.signal
     ? AbortSignal.any([controller.signal, request.ctx.signal])
     : controller.signal;
@@ -213,6 +216,7 @@ async function runStatusProbe(request: ProbeRequest): Promise<void> {
     const current = state();
     if (current.probeController !== controller) return;
     current.probeController = null;
+    requestFooterRender();
   }
 }
 
@@ -228,11 +232,11 @@ export function statusReportTurnStarted(
   };
 }
 
-export async function statusReportTurnEnded(
+export function statusReportTurnEnded(
   pi: ExtensionAPI,
   event: TurnEndEvent,
   ctx: ExtensionContext,
-): Promise<void> {
+): void {
   const s = state();
   if (!s.enabled) return;
   const turn = s.activeTurn;
@@ -249,7 +253,7 @@ export async function statusReportTurnEnded(
   persistStatus(pi);
   const parentSessionFile = ctx.sessionManager.getSessionFile();
   if (!parentSessionFile || ctx.signal?.aborted) return;
-  await runStatusProbe({
+  void runStatusProbe({
     pi,
     ctx,
     epoch: s.epoch,

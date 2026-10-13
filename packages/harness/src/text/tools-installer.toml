@@ -1,0 +1,36 @@
+[command]
+description = "Open the managed tools installer."
+requires_tui = "The tools installer requires an interactive terminal. Use `cpi tools-installer list` outside TUI mode."
+requires_idle = "Tools Installer is unavailable while the agent is active. Wait for the current turn to finish, then run /toolsInstaller again."
+
+[panel]
+title = "CPI Tools Installer"
+subtitle = "Managed versions selected by this CPI installation"
+columns = "  Status  Tool                           Installed versions           Target"
+checking = "Checking installed tools…"
+ready = "All managed tools are current."
+ready_missing = "Installed tools are current; select a missing tool to install."
+empty_updates = "No installed tools need an update."
+installing = "Installing {{tool}}…"
+installed = "Updated {{tool}}."
+failed = "Failed to update {{tool}}: {{error}}"
+help = "↑↓ move · Enter/i install or update · U update all · c check · q/ESC close"
+help_compact = "↑↓ move · Enter install · U update all · c check · ESC close"
+
+[status]
+current = "✓ current"
+update = "↑ update"
+missing = "○ missing"
+unsupported = "– unavailable"
+error = "✗ error"
+installing = "◐ installing"
+
+[cli]
+usage = "Usage: cpi tools-installer [list|check|update [TOOL…]|install TOOL…] [--json]"
+up_to_date = "All installed managed tools are current."
+updates = "{{count}} managed tool update(s) available."
+none_selected = "No installed managed tools need an update."
+updating = "{{tool}}: installing…"
+updated = "{{tool}}: updated"
+failed = "{{tool}}: failed: {{error}}"
+columns = "STATUS       TOOL                            INSTALLED VERSIONS           TARGET"

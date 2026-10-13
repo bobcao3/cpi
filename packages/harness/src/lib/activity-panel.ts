@@ -232,7 +232,6 @@ export class ActivityPanel implements Component {
       return { handled: true, render: true };
     }
     if (event.button !== "left") return undefined;
-    if (event.type === "press") return { handled: true };
     if (event.type !== "click") return undefined;
     if (event.y === 1) {
       const tab = this.tab_regions.find(

@@ -52,6 +52,18 @@ export interface ResolveOptions {
   uv: { version: string; repo: string; verify: string };
 }
 
+export async function installManagedServer(
+  spec: LspServerSpec,
+  env: NodeJS.ProcessEnv,
+  opts: ResolveOptions,
+): Promise<ResolveResult> {
+  if (["env-only", "reuse"].includes(spec.install.method))
+    throw new Error(`${spec.binName} is not independently installable`);
+  return withInstallLock(spec.install.method, () =>
+    withTimeout(opts.installTimeoutMs, installServer(spec, opts, env)),
+  );
+}
+
 function withTimeout<T>(ms: number, p: Promise<T>): Promise<T> {
   return new Promise((resolve, reject) => {
     const t = setTimeout(() => reject(new Error(`timeout after ${ms}ms`)), ms);
@@ -104,9 +116,7 @@ export async function resolveBin(
     return failed("shuck unavailable");
   }
   try {
-    return await withInstallLock(spec.install.method, () =>
-      withTimeout(opts.installTimeoutMs, installServer(spec, opts, env)),
-    );
+    return await installManagedServer(spec, env, opts);
   } catch (error) {
     return failed(error instanceof Error ? error.message : String(error));
   }

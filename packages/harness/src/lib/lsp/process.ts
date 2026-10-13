@@ -188,7 +188,7 @@ export function runToCompletion(
       clearTimeout(timer);
       reject(error);
     });
-    child.on("exit", (code) => {
+    child.on("close", (code) => {
       clearTimeout(timer);
       if (code === 0) resolvePromise({ stdout, stderr, code });
       else reject(new Error(`exit ${code}: ${stderr.slice(0, 500)}`));

@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { setTimeout as delay } from "node:timers/promises";
 import { once } from "node:events";
 import { createServer } from "node:http";
 import {
@@ -242,6 +243,19 @@ try {
     await session.prompt("Audit the documentation.");
   } finally {
     clearTimeout(deadline);
+  }
+  for (let attempt = 0; attempt < 200; attempt++) {
+    if (
+      session.sessionManager
+        .getBranch()
+        .some(
+          (entry: any) =>
+            entry.customType === "cpi.status-report" &&
+            entry.data?.report === answer,
+        )
+    )
+      break;
+    await delay(25);
   }
   const footer = (globalThis as any).__cpiNativeFooter;
   const sections = Array.from(

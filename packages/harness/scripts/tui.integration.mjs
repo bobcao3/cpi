@@ -25,6 +25,8 @@ let response_ready = new Promise((resolve) => {
 });
 const telemetry_line = (screen) =>
   screen.split("\n").find((line) => /↑\d.*↓\d.*R\d.*CH[\d.]+%/.test(line));
+const runtime_line = (screen) =>
+  screen.split("\n").find((line) => /^[●◉○] /.test(line));
 async function until(check) {
   for (let index = 0; index < 100; index++) {
     const screen = capture();
@@ -97,7 +99,7 @@ await fixture(
       );
       const idle_header = telemetry_line(idle);
       assert.match(idle_header, /↑0 ↓0 R0 CH0\.0%/);
-      assert.match(idle_header, /💤/u);
+      assert.equal(runtime_line(idle), undefined);
       assert.doesNotMatch(idle_header, /\(auto\)|Working/);
       await until_status("idle");
       send("/status-dialog");
@@ -115,14 +117,11 @@ await fixture(
         (screen) =>
           requests.length >= 1 &&
           !!telemetry_line(screen) &&
-          !telemetry_line(screen).includes("💤"),
+          runtime_line(screen)?.includes("Waiting for API response"),
       );
       const active_header = telemetry_line(active);
       assert.equal(active_header.indexOf("↑0"), idle_header.indexOf("↑0"));
-      assert.match(
-        active_header.slice(0, active_header.indexOf("↑0")),
-        /[^─\s]/u,
-      );
+      assert.match(runtime_line(active), /^[●◉○] Waiting for API response/);
       assert.doesNotMatch(active_header, /Working|💤/u);
       await until_status("working");
       resume();
@@ -150,7 +149,7 @@ await fixture(
         (screen) =>
           requests.length >= 2 &&
           (screen.match(/^\s*OK\s*$/gm) ?? []).length >= 2 &&
-          !!telemetry_line(screen)?.includes("💤"),
+          !runtime_line(screen),
       );
       console.log(screen);
       const footer_index = screen
@@ -179,7 +178,8 @@ await fixture(
       send("PRIVATE_PROMPT: cancel this request");
       await until(
         (screen) =>
-          requests.length >= 4 && !telemetry_line(screen)?.includes("💤"),
+          requests.length >= 4 &&
+          runtime_line(screen)?.includes("Waiting for API response"),
       );
       await until_status("working");
       tmux("send-keys", "-t", name, "Escape");
@@ -191,7 +191,7 @@ await fixture(
         (screen) =>
           requests.length >= 5 &&
           screen.includes("waiting on events or user input") &&
-          !!telemetry_line(screen)?.includes("💤"),
+          runtime_line(screen)?.includes("Waiting for your input or an event"),
       );
       send("/status-dialog");
       await until_status("blocked");

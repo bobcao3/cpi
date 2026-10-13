@@ -150,7 +150,7 @@ await fixture(async ({ directory, runtime, config, modelsPath, apiKey }) => {
     const header = editor.render(140)[0];
     assert(header.includes(editor.borderColor("↑2.5M ↓263k R65M CH0.0%")));
     const plain = stripTerminalSequences(header);
-    assert.match(plain, /^── 💤 ↑2\.5M ↓263k R65M CH0\.0%/);
+    assert.match(plain, /^── ↑2\.5M ↓263k R65M CH0\.0%/);
     assert.match(plain, /[\d.?]+%?\/272k ──$/);
     assert.doesNotMatch(plain, /Working|\(auto\)/);
     const rows = footer.render(140).map(stripTerminalSequences);

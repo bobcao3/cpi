@@ -53,7 +53,7 @@ function parseSha256(content: string): string | null {
   return m ? m[0].toLowerCase() : null;
 }
 
-async function ensureUv(
+export async function ensureUv(
   opts: ResolveOptions,
   env: NodeJS.ProcessEnv,
 ): Promise<string> {
@@ -153,7 +153,22 @@ async function installNpm(
         env,
         opts.installTimeoutMs,
       );
-      if (want && version.includes(want))
+      const typescriptVersion = spec.install.tsVersion
+        ? (
+            JSON.parse(
+              await readFile(
+                join(envDir, "node_modules", "typescript", "package.json"),
+                "utf8",
+              ),
+            ) as { version?: unknown }
+          ).version
+        : undefined;
+      if (
+        want &&
+        version.includes(want) &&
+        (!spec.install.tsVersion ||
+          typescriptVersion === spec.install.tsVersion)
+      )
         return { ...target, source: "installed" };
     } catch {}
   }
@@ -221,13 +236,14 @@ async function installUvServer(
     IS_WIN ? "Scripts" : "bin",
     IS_WIN ? "python.exe" : "python",
   );
-  await runToCompletion(
-    launchTarget(uvBin, env),
-    ["venv", envDir],
-    envDir,
-    env,
-    opts.installTimeoutMs,
-  );
+  if (!existsSync(venvPython))
+    await runToCompletion(
+      launchTarget(uvBin, env),
+      ["venv", envDir],
+      envDir,
+      env,
+      opts.installTimeoutMs,
+    );
   await runToCompletion(
     launchTarget(uvBin, env),
     [

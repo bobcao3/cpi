@@ -33,7 +33,7 @@ always = [
 	"Read schemas literally: number permits fractional values; integer does not. Never invent bounds/defaults or confuse documented runtime limits with schema keywords.",
 	"Speak with rigor and precision.",
 	"Show file paths clearly when working with files",
-	"Show links to upstream sources if relevant",
+	"Show (full / absolute path) links to upstream sources if relevant",
 ]
 
 [context]

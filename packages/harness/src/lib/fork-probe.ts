@@ -9,13 +9,16 @@
 import { randomUUID } from "node:crypto";
 import {
   closeSync,
+  constants,
   existsSync,
   mkdtempSync,
   openSync,
   readSync,
   realpathSync,
   rmSync,
+  statSync,
 } from "node:fs";
+import { copyFile, truncate } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { getCwd } from "./cwd.ts";
@@ -187,6 +190,7 @@ export async function runForkProbe(
     `parent session file not found: ${opts.parentSessionFile}`,
   );
   const parentSessionId = readParentSessionId(parentFile);
+  const parentSessionBytes = statSync(parentFile).size;
   assertc(typeof prompt === "string", "prompt must be a string");
   assertc(prompt.length > 0, "prompt required");
   const promptBytes = Buffer.byteLength(prompt, "utf8");
@@ -263,6 +267,12 @@ export async function runForkProbe(
   let result: Awaited<ReturnType<typeof runSubagentWorker>> | undefined;
   let workerError: unknown;
   try {
+    const snapshot = path.join(tmpSessionDir, "parent.snapshot");
+    controller.signal.throwIfAborted();
+    await copyFile(parentFile, snapshot, constants.COPYFILE_FICLONE);
+    await truncate(snapshot, parentSessionBytes);
+    controller.signal.throwIfAborted();
+    request.parentSessionFile = snapshot;
     result = await runSubagentWorker(request, {
       signal: controller.signal,
       stderr: stderr.write,

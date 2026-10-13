@@ -5,11 +5,45 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { stripVTControlCharacters } from "node:util";
 import { getThemeByName } from "@earendil-works/pi-coding-agent";
-import { visibleWidth } from "@earendil-works/pi-tui";
+import {
+  Text,
+  TuiAltScreen,
+  visibleWidth,
+  type Terminal,
+} from "@earendil-works/pi-tui";
 import { ActivityPanel } from "./activity-panel.ts";
 import { beginActivity, finishActivity } from "./activity.ts";
 import { ensureTreeSitterReady } from "./tree-sitter.ts";
 import "../shell/tools.ts";
+
+class MouseTerminal implements Terminal {
+  readonly columns = 50;
+  readonly rows = 12;
+  readonly kittyProtocolActive = true;
+  private input?: (data: string) => void;
+
+  start(onInput: (data: string) => void): void {
+    this.input = onInput;
+  }
+  stop(): void {
+    this.input = undefined;
+  }
+  async drainInput(): Promise<void> {}
+  write(): void {}
+  moveBy(): void {}
+  hideCursor(): void {}
+  showCursor(): void {}
+  clearLine(): void {}
+  clearFromCursor(): void {}
+  clearScreen(): void {}
+  setTitle(): void {}
+  setProgress(): void {}
+  setProgramStatus(): void {}
+  send(data: string): void {
+    assert.ok(this.input);
+    this.input(data);
+  }
+}
 
 test("activity panel uses actual registry and log, bounds rendering, restores read-only close", async () => {
   const dir = await mkdtemp(join(tmpdir(), "activity-panel-"));
@@ -204,5 +238,76 @@ test("condensed shell command stays on one row when long", () => {
     assert.ok(expanded.includes("Dir: /tmp/activity"));
   } finally {
     panel.dispose();
+  }
+});
+
+test("fullscreen activity overlay clicks rows and bounds drag selection", () => {
+  const session_id = crypto.randomUUID();
+  const id = crypto.randomUUID();
+  beginActivity({
+    id,
+    session_id,
+    kind: "shell",
+    status: "completed",
+    label: "selectable activity",
+    command: "echo selectable",
+    started_at: Date.now(),
+    ended_at: Date.now(),
+  });
+  const terminal = new MouseTerminal();
+  const copied: string[] = [];
+  const tui = new TuiAltScreen(terminal, undefined, undefined, {
+    copySelection: async (text) => {
+      copied.push(text);
+      return true;
+    },
+  });
+  const panel = new ActivityPanel({
+    session_id,
+    kind: "shell",
+    theme: getThemeByName("dark")!,
+    height: () => terminal.rows,
+    requestRender: () => tui.requestRender(),
+    done: () => {},
+  });
+  try {
+    tui.addChild(
+      new Text(
+        Array.from(
+          { length: terminal.rows },
+          (_, row) => `ZZZZZ underlying transcript ${row}`,
+        ).join("\n"),
+        0,
+        0,
+      ),
+    );
+    tui.start();
+    const overlay = tui.showOverlay(panel, {
+      anchor: "bottom-center",
+      width: "90%",
+      maxHeight: "80%",
+      margin: { top: 1, bottom: 5, left: 1, right: 1 },
+    });
+    tui.renderNow();
+    const bounds = overlay.getBounds();
+    assert.ok(bounds);
+    terminal.send(`\x1b[<0;${bounds.col + 3};${bounds.row + 3}M`);
+    terminal.send(`\x1b[<0;${bounds.col + 3};${bounds.row + 3}m`);
+    assert.match(
+      panel.render(terminal.columns).map(stripVTControlCharacters).join("\n"),
+      /Enter more details/,
+    );
+
+    tui.resetTextSelection();
+    terminal.send(`\x1b[<0;${bounds.col + 3};${bounds.row + 3}M`);
+    terminal.send(`\x1b[<32;${bounds.col + 13};${bounds.row + 4}M`);
+    terminal.send(`\x1b[<0;${bounds.col + 13};${bounds.row + 4}m`);
+    assert.equal(tui.hasActiveSelection(), true);
+    assert.equal(copied.length, 1);
+    assert.doesNotMatch(copied[0]!, /ZZ/);
+  } finally {
+    panel.dispose();
+    tui.stop();
+    finishActivity(id, "completed");
   }
 });

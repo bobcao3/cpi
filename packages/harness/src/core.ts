@@ -58,19 +58,15 @@ import {
   markEventlessStart,
   resetAntiStuck,
 } from "./lib/anti-stuck.ts";
-import {
-  achieveGoal,
-  budgetPauseGoal,
-  continueGoal,
-  evaluateGoal,
-  isGoalActive,
-} from "./lib/goal.ts";
+import { isGoalActive } from "./lib/goal.ts";
+import { registerGoalProbe } from "./lib/goal-probe.ts";
 
 export default function coreExtension(pi: ExtensionAPI): void {
   registerToolInspector(pi);
   injectSourcePaths();
   unregisterSystemPromptTransform("cpi-rules");
   const external_events = registerExternalEvents(pi);
+  const startGoalProbe = registerGoalProbe(pi, external_events.scope);
   pi.on("before_agent_start", (event) => {
     event.systemPromptOptions.contextFiles = withRulesContext(
       event.systemPromptOptions.contextFiles,
@@ -150,22 +146,8 @@ export default function coreExtension(pi: ExtensionAPI): void {
     const sources = getHoldSources(external_events.scope);
     const pending = sources.filter((s) => s.hasPending());
     if (isGoalActive() && pending.length === 0) {
-      if (ctx.hasUI) ctx.ui.setWidget("goal-eval", ["🎯 Evaluating goal…"]);
-      try {
-        const v = await evaluateGoal(pi, ctx);
-        if (v.status === "met") {
-          achieveGoal(pi, ctx);
-          return;
-        }
-        if (v.status === "failed") {
-          budgetPauseGoal(pi, ctx, v.reason);
-          return;
-        }
-        continueGoal(pi, ctx, v.reason);
-        return;
-      } finally {
-        if (ctx.hasUI) ctx.ui.setWidget("goal-eval", undefined);
-      }
+      startGoalProbe(ctx);
+      return;
     }
     if (pending.length === 0) return;
     const pendingAlarm = pending.some((s) => s.id === "alarm");

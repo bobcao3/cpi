@@ -27,38 +27,31 @@ export function dispatchTreeMouse(
   if (!hit) return undefined;
   if (hit.kind === "body")
     return dispatchBodyMouse(hit, event, actions.canFocus);
-  if (
-    event.button !== "left" ||
-    (event.type !== "press" && event.type !== "click")
-  )
-    return undefined;
+  if (event.button !== "left" || event.type !== "click") return undefined;
   if (
     hit.kind === "more" ||
     hit.kind === "body-toggle" ||
     hit.kind === "collapse"
   ) {
-    if (event.type === "click") {
-      if (hit.kind === "more") actions.more(hit.id);
-      else if (hit.kind === "collapse") actions.collapse(hit);
-      else {
-        const full = state.fullBodies?.get(hit.id) ?? Boolean(state.expanded);
-        (state.fullBodies ??= new Map()).set(hit.id, !full);
-        if (!full) markExpansion(state, hit.id, true);
-        actions.changed();
-      }
+    if (hit.kind === "more") actions.more(hit.id);
+    else if (hit.kind === "collapse") actions.collapse(hit);
+    else {
+      const full = state.fullBodies?.get(hit.id) ?? Boolean(state.expanded);
+      (state.fullBodies ??= new Map()).set(hit.id, !full);
+      if (!full) markExpansion(state, hit.id, true);
+      actions.changed();
     }
     return {
       handled: true,
-      render: event.type === "click",
+      render: true,
       focus: actions.canFocus,
     };
   }
   const onMarker = event.x >= hit.markerStart && event.x < hit.markerEnd;
   if (onMarker && actions.canExpand(hit.id)) {
-    if (event.type === "click") actions.toggle(hit.id);
+    actions.toggle(hit.id);
     return { handled: true, focus: actions.canFocus };
   }
-  if (event.type === "press") return undefined;
   actions.select(hit.id);
   return { handled: true, focus: actions.canFocus };
 }

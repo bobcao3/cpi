@@ -5,7 +5,8 @@
   "license": "MIT",
   "type": "module",
   "exports": {
-    "./package.json": "./package.json"
+    "./package.json": "./package.json",
+    "./tools-installer": "./src/tools-installer/index.ts"
   },
   "bin": {
     "subagent": "./bin/subagent"

@@ -35,6 +35,7 @@ interface GoalText {
 const GLOBAL_KEY = "__cpiGoal";
 
 interface GoalState {
+  revision: number;
   objective: string | null;
   active: boolean;
   paused: boolean;
@@ -47,13 +48,16 @@ function state(): GoalState {
   if (!g[GLOBAL_KEY]) {
     g[GLOBAL_KEY] = {
       objective: null,
+      revision: 0,
       active: false,
       paused: false,
       turnCount: 0,
       startedAtMs: null,
     } satisfies GoalState;
   }
-  return g[GLOBAL_KEY] as GoalState;
+  const s = g[GLOBAL_KEY] as GoalState;
+  s.revision ??= 0;
+  return s;
 }
 
 /** Fork-child guard. */
@@ -75,6 +79,10 @@ export function getObjective(): string | null {
   return state().objective;
 }
 
+export function getGoalRevision(): number {
+  return state().revision;
+}
+
 function persistGoal(pi: ExtensionAPI): void {
   const s = state();
   try {
@@ -90,7 +98,7 @@ function persistGoal(pi: ExtensionAPI): void {
 
 /** Replay latest goal-state. */
 export function reconstructGoal(ctx: ExtensionContext): void {
-  let found: GoalState | undefined;
+  let found: Omit<GoalState, "revision"> | undefined;
   for (const entry of ctx.sessionManager.getBranch()) {
     if (entry.type === "custom" && entry.customType === GOAL_STATE_ENTRY) {
       const d = entry.data as Partial<GoalState> | undefined;
@@ -106,6 +114,7 @@ export function reconstructGoal(ctx: ExtensionContext): void {
     }
   }
   const s = state();
+  s.revision++;
   if (found) {
     Object.assign(s, found);
   } else {
@@ -121,6 +130,7 @@ export function reconstructGoal(ctx: ExtensionContext): void {
 
 export function setGoal(pi: ExtensionAPI, objective: string): void {
   const s = state();
+  s.revision++;
   s.objective = objective;
   s.active = true;
   s.paused = false;
@@ -130,6 +140,7 @@ export function setGoal(pi: ExtensionAPI, objective: string): void {
 }
 
 export function clearGoal(pi: ExtensionAPI): void {
+  state().revision++;
   Object.assign(state(), {
     objective: null,
     active: false,
@@ -143,6 +154,7 @@ export function clearGoal(pi: ExtensionAPI): void {
 export function pauseGoal(pi: ExtensionAPI): void {
   const s = state();
   if (!s.active) return;
+  s.revision++;
   s.paused = true;
   persistGoal(pi);
 }
@@ -150,6 +162,7 @@ export function pauseGoal(pi: ExtensionAPI): void {
 export function resumeGoal(pi: ExtensionAPI): void {
   const s = state();
   if (!s.active) return;
+  s.revision++;
   s.paused = false;
   s.turnCount = 0;
   s.startedAtMs = Date.now();
@@ -240,6 +253,8 @@ function extractReason(answer: string): string {
 export async function evaluateGoal(
   pi: ExtensionAPI,
   ctx: ExtensionContext,
+  signal: AbortSignal | undefined = ctx.signal,
+  current: () => boolean = () => true,
 ): Promise<GoalEvalResult> {
   const s = state();
   if (inForkChild() || !s.active || s.paused || !s.objective) {
@@ -252,12 +267,14 @@ export async function evaluateGoal(
     {
       parentSessionFile: parentFile,
       cwd: ctx.cwd,
-      signal: ctx.signal,
+      signal,
       title: `Goal check (turn ${s.turnCount + 1})`,
       timeoutMs: PROBE_TIMEOUT_MS,
     },
     render(T.evaluate.prompt, { objective: s.objective }),
   );
+  if (signal?.aborted || !current())
+    return { status: "failed", reason: "goal evaluation cancelled" };
   if (!result.ok) {
     audit(pi, "failed", {
       reason: result.errorMessage ?? "probe failed",

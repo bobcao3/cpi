@@ -52,10 +52,13 @@ const IS_WIN = process.platform === "win32";
 const PLATFORM_KEY = `${process.platform}-${process.arch}`;
 const binName = (n: string) => (IS_WIN ? `${n}.exe` : n);
 
-async function verifyTool(binPath: string): Promise<boolean> {
+async function verifyTool(binPath: string, version: string): Promise<boolean> {
   try {
-    await execFileAsync(binPath, ["--version"], { windowsHide: true });
-    return true;
+    const { stdout, stderr } = await execFileAsync(binPath, ["--version"], {
+      windowsHide: true,
+    });
+    const expected = version.replace(/^v/, "");
+    return `${stdout}${stderr}`.trim().split(/\s+/).includes(expected);
   } catch {
     return false;
   }
@@ -80,10 +83,10 @@ interface ToolSpec {
 const TOOLS: ToolSpec[] = [
   {
     name: "fd",
-    version: "v10.4.2",
+    version: "v10.5.0",
     repo: "sharkdp/fd",
     archiveExt: IS_WIN ? "zip" : "tar.gz",
-    assetPrefix: "fd-v10.4.2-",
+    assetPrefix: "fd-v10.5.0-",
     targets: {
       "linux-x64": "x86_64-unknown-linux-musl",
       "linux-arm64": "aarch64-unknown-linux-musl",
@@ -95,10 +98,10 @@ const TOOLS: ToolSpec[] = [
   },
   {
     name: "rg",
-    version: "15.1.0",
+    version: "15.2.0",
     repo: "BurntSushi/ripgrep",
     archiveExt: IS_WIN ? "zip" : "tar.gz",
-    assetPrefix: "ripgrep-15.1.0-",
+    assetPrefix: "ripgrep-15.2.0-",
     targets: {
       "linux-x64": "x86_64-unknown-linux-musl",
       "linux-arm64": "aarch64-unknown-linux-gnu",
@@ -110,7 +113,7 @@ const TOOLS: ToolSpec[] = [
   },
   {
     name: "shuck",
-    version: "v0.0.41",
+    version: "v0.2.4",
     repo: "ewhauser/shuck",
     archiveExt: IS_WIN ? "zip" : "tar.xz",
     assetPrefix: "shuck-cli-",
@@ -118,11 +121,28 @@ const TOOLS: ToolSpec[] = [
       "linux-x64": "x86_64-unknown-linux-musl",
       "linux-arm64": "aarch64-unknown-linux-musl",
       "darwin-arm64": "aarch64-apple-darwin",
-      "darwin-x64": "aarch64-apple-darwin",
       "win32-x64": "x86_64-pc-windows-msvc",
     },
   },
 ];
+
+export type ManagedShellToolId = ToolSpec["name"];
+
+export interface ManagedShellTool {
+  id: ManagedShellToolId;
+  path: string;
+  supported: boolean;
+  version: string;
+}
+
+export function listManagedShellTools(): ManagedShellTool[] {
+  return TOOLS.map((tool) => ({
+    id: tool.name,
+    path: join(BIN_DIR, binName(tool.name)),
+    supported: Boolean(tool.targets[PLATFORM_KEY]),
+    version: tool.version.replace(/^v/, ""),
+  }));
+}
 
 async function download(url: string, dest: string): Promise<void> {
   const ctrl = new AbortController();
@@ -161,7 +181,7 @@ async function ensureTool(spec: ToolSpec): Promise<boolean> {
   const binPath = join(BIN_DIR, binName(spec.name));
   try {
     await readFile(binPath);
-    if (await verifyTool(binPath)) return true;
+    if (await verifyTool(binPath, spec.version)) return true;
     await rm(binPath, { force: true });
   } catch {}
   const baseName = aname.replace(/\.(tar\.(?:gz|xz)|zip)$/, "");
@@ -204,7 +224,7 @@ async function ensureTool(spec: ToolSpec): Promise<boolean> {
     const nestedBin = join(tmp, baseName, binName(spec.name));
     await copyFile(existsSync(nestedBin) ? nestedBin : extractedBin, binPath);
     if (!IS_WIN) await chmod(binPath, 0o755);
-    if (!(await verifyTool(binPath)))
+    if (!(await verifyTool(binPath, spec.version)))
       throw new Error("tool verification failed");
     return true;
   } catch (err) {
@@ -213,6 +233,14 @@ async function ensureTool(spec: ToolSpec): Promise<boolean> {
   } finally {
     await rm(tmp, { recursive: true, force: true });
   }
+}
+
+export async function installManagedShellTool(
+  id: ManagedShellToolId,
+): Promise<boolean> {
+  const tool = TOOLS.find((candidate) => candidate.name === id);
+  if (!tool) throw new Error(`unknown managed shell tool: ${String(id)}`);
+  return ensureTool(tool);
 }
 
 const TOOLS_G = globalThis as unknown as {

@@ -1,4 +1,4 @@
-import { hostCodingAgent } from "./host-pi.mjs";
+import { hostAi, hostCodingAgent } from "./host-pi.mjs";
 import { observeSession } from "./subagent-activity.mjs";
 import {
   installFastModels,
@@ -16,6 +16,7 @@ const {
   getAgentDir,
   resolveCliModel,
 } = await hostCodingAgent();
+const { cleanupSessionResources } = await hostAi();
 
 const MAX_PROBE_TURNS = 4;
 const MAX_OUTPUT_TOKENS_CEILING = 65536;
@@ -241,6 +242,10 @@ export async function runForkProbeSubagent(request, signal) {
     unsubscribe();
     unobserve();
     signal?.removeEventListener("abort", stop);
-    await runtime.dispose();
+    try {
+      await runtime.dispose();
+    } finally {
+      cleanupSessionResources(request.parentSessionId);
+    }
   }
 }

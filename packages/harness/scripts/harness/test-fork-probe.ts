@@ -10,22 +10,13 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import {
-  assertLocalModel,
-  guardLocalSession,
-  isolateAgent,
-  packagePath,
-} from "../test-runtime.mjs";
+import { assertLocalModel, isolateAgent } from "../test-runtime.mjs";
 import {
   probeModel as model,
   probeModels,
   probeSubstitutionCases,
 } from "./fork-probe-model.ts";
-import {
-  createAgentSessionFromServices,
-  createAgentSessionServices,
-  SessionManager,
-} from "@cpi/cli";
+import { createAgentSessionServices, SessionManager } from "@cpi/cli";
 import { runForkProbe } from "../../src/lib/fork-probe.ts";
 import { stopSubagentRpc } from "../../src/lib/subagent-rpc.ts";
 import { openEventRuntime } from "../../src/lib/external-events-test-runtime.ts";
@@ -40,10 +31,6 @@ process.env.CPI_STATUS_REPORT_TURNS ??= "1";
 delete process.env.CPI_FORK_PROBE;
 let mode = "text";
 let requests: any[] = [];
-let mainRequests = 0;
-let release: (() => void) | undefined;
-let arrived: (() => void) | undefined;
-let gate: Promise<void> | undefined;
 const messageText = (message: any) =>
   typeof message.content === "string"
     ? message.content
@@ -53,21 +40,13 @@ const server = createServer(async (request, response) => {
   for await (const chunk of request) chunks.push(chunk);
   const body = JSON.parse(Buffer.concat(chunks).toString());
   requests.push(body);
-  const last = JSON.stringify(body.messages.at(-1));
-  const summary = last.includes("Describe in one sentence");
-  if (summary && gate) {
-    arrived?.();
-    await gate;
-  }
   if (mode === "error" || (mode.startsWith("tool") && requests.length > 4)) {
     response.writeHead(400);
     response.end("deliberate failure");
     return;
   }
   const tool =
-    mode === "tool" ||
-    (mode === "tool-then-text" && requests.length === 1) ||
-    (mode === "blocking" && !summary && ++mainRequests === 1);
+    mode === "tool" || (mode === "tool-then-text" && requests.length === 1);
   const delta = tool
     ? {
         role: "assistant",
@@ -77,12 +56,10 @@ const server = createServer(async (request, response) => {
             id: "call_read",
             type: "function",
             function: {
-              name: mode.startsWith("tool") ? "write" : "read",
+              name: "write",
               arguments: JSON.stringify({
                 path: marker,
-                ...(mode.startsWith("tool")
-                  ? { file_text: "PROBE_SHOULD_NOT_WRITE" }
-                  : {}),
+                file_text: "PROBE_SHOULD_NOT_WRITE",
               }),
             },
           },
@@ -90,7 +67,7 @@ const server = createServer(async (request, response) => {
       }
     : {
         role: "assistant",
-        content: summary ? "I'm testing blocking probes." : "PROBE_OK",
+        content: "PROBE_OK",
       };
   const chunk = (delta: any, finish_reason: string | null) =>
     `data: ${JSON.stringify({ id: "test", object: "chat.completion.chunk", created: 1, model: "probe-test", choices: [{ index: 0, delta, finish_reason }] })}\n\n`;
@@ -164,7 +141,6 @@ const options = {
   cwd: root,
   timeoutMs: 20000,
 };
-let session: any;
 let observation_runtime:
   | Awaited<ReturnType<typeof openEventRuntime>>
   | undefined;
@@ -286,110 +262,8 @@ try {
   assert.equal(error.ok, false);
   assert.equal(requests.length, 1);
   assert.equal(readFileSync(parent.getSessionFile()!, "utf8"), original);
-
-  const extension = join(root, "status-extension.ts");
-  writeFileSync(
-    extension,
-    `import { setupStatusReports, disposeStatusReports, statusReportTurnStarted, statusReportTurnEnded } from ${JSON.stringify(packagePath("src/lib/status-report.ts"))};
-export default function(pi) {
-pi.on("session_start", (_, ctx) => setupStatusReports(ctx));
-pi.on("session_shutdown", () => disposeStatusReports());
-pi.on("turn_start", (event, ctx) => statusReportTurnStarted(event, ctx));
-pi.on("turn_end", (event, ctx) => statusReportTurnEnded(pi, event, ctx));
-}`,
-  );
-  const services = await createAgentSessionServices({
-    cwd: root,
-    agentDir,
-    resourceLoaderOptions: {
-      additionalExtensionPaths: [extension],
-      noExtensions: true,
-    },
-  });
-  ({ session } = await createAgentSessionFromServices({
-    services,
-    sessionManager: SessionManager.create(root, join(root, "main")),
-    tools: ["read"],
-  }));
-  guardLocalSession(session);
-  await session.bindExtensions({
-    mode: "tui",
-    onError: (error: any) => {
-      throw new Error(JSON.stringify(error));
-    },
-  });
-  mode = "blocking";
-  requests = [];
-  gate = new Promise<void>((resolve) => {
-    release = resolve;
-  });
-  const reached = new Promise<void>((resolve) => {
-    arrived = resolve;
-  });
-  let finished = false;
-  const pending = session.prompt("Read the marker then finish.").then(() => {
-    finished = true;
-  });
-  const deadline = setTimeout(() => void session.abort(), 20000);
-  try {
-    await Promise.race([
-      reached,
-      pending.then(() => {
-        throw new Error("main finished without status probe");
-      }),
-    ]);
-  } finally {
-    clearTimeout(deadline);
-  }
-  assert.equal(mainRequests, 1);
-  assert.equal(finished, false);
-  assert.equal(requests.length, 2);
-  assert.deepEqual(requests[1].tools, probeTools);
-  release!();
-  gate = undefined;
-  await pending;
-  assert.equal(mainRequests, 2);
-  assert.equal(finished, true);
-  console.log(
-    "PASS real SDK lifecycle: main turn waits for fork before next model request",
-  );
-  mainRequests = 0;
-  requests = [];
-  gate = new Promise<void>((resolve) => {
-    release = resolve;
-  });
-  const cancelReached = new Promise<void>((resolve) => {
-    arrived = resolve;
-  });
-  const cancelled = session.prompt("Read the marker again.");
-  const cancelDeadline = setTimeout(() => void session.abort(), 20000);
-  try {
-    await Promise.race([
-      cancelReached,
-      cancelled.then(() => {
-        throw new Error("main finished without cancellable probe");
-      }),
-    ]);
-    await session.abort();
-    await cancelled;
-    assert.equal(mainRequests, 1);
-    assert.equal(requests.length, 2);
-    console.log(
-      "PASS parent abort cancels awaited fork without a continuation",
-    );
-  } finally {
-    clearTimeout(cancelDeadline);
-  }
 } finally {
-  release?.();
   await observation_runtime?.close();
-  if (session) {
-    await session.extensionRunner.emit({
-      type: "session_shutdown",
-      reason: "quit",
-    });
-    session.dispose();
-  }
   await stopSubagentRpc();
   server.closeAllConnections();
   server.close();

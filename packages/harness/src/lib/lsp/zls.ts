@@ -1,7 +1,7 @@
 /** zls provisioning: the zigtools release worker maps a Zig version (project pin, then local `zig`, then config) to the zls build for this platform; the artifact is sha256- and minisign-verified. */
 
 import { existsSync } from "node:fs";
-import { readFile } from "node:fs/promises";
+import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { parsePubKey, parseSig, verifyMinisign } from "../minisig.ts";
@@ -19,6 +19,7 @@ import {
 import { type ResolveOptions, type ResolveResult } from "./provision.ts";
 
 const API_TIMEOUT = 15_000;
+const COMPATIBILITY_CACHE_LIMIT = 64;
 const ZIG_PROBE_TIMEOUT = 10_000;
 // zls is executed against the project's zig, never rebuilt by it.
 const COMPATIBILITY = "only-runtime";
@@ -36,6 +37,54 @@ interface ZlsBuild {
   version: string;
   tarball: string;
   shasum: string;
+}
+
+export interface ZlsVersionSelection {
+  zigVersion: string;
+  zlsVersion: string;
+}
+
+function compatibilityCachePath(): string {
+  return join(getAgentDir(), "lsp_envs", "zig", "compatibility.json");
+}
+
+async function readCompatibilityCache(): Promise<Record<string, string>> {
+  try {
+    const parsed = JSON.parse(
+      await readFile(compatibilityCachePath(), "utf8"),
+    ) as Record<string, unknown>;
+    return Object.fromEntries(
+      Object.entries(parsed)
+        .filter(
+          (entry): entry is [string, string] =>
+            ZIG_VERSION_RE.test(entry[0]) &&
+            typeof entry[1] === "string" &&
+            ZIG_VERSION_RE.test(entry[1]),
+        )
+        .slice(-COMPATIBILITY_CACHE_LIMIT),
+    );
+  } catch {
+    return {};
+  }
+}
+
+async function writeCompatibilityCache(
+  zigVersion: string,
+  zlsVersion: string,
+): Promise<void> {
+  const path = compatibilityCachePath();
+  const cache = await readCompatibilityCache();
+  delete cache[zigVersion];
+  const entries = [...Object.entries(cache), [zigVersion, zlsVersion]].slice(
+    -COMPATIBILITY_CACHE_LIMIT,
+  );
+  await mkdir(dirname(path), { recursive: true });
+  const temporary = `${path}.${process.pid}.${Date.now()}.tmp`;
+  await writeFile(
+    temporary,
+    `${JSON.stringify(Object.fromEntries(entries))}\n`,
+  );
+  await rename(temporary, path);
 }
 
 function recoverHint(reason: string): string {
@@ -97,6 +146,24 @@ async function selectZlsBuild(
   };
 }
 
+export async function selectCompatibleZlsVersion(
+  spec: LspServerSpec,
+  env: NodeJS.ProcessEnv,
+): Promise<ZlsVersionSelection> {
+  const zigVersion =
+    spec.install.pin ?? (await probeZigVersion(env)) ?? spec.install.version;
+  if (!zigVersion) throw new Error("no zig version pin, probe, or default");
+  try {
+    const build = await selectZlsBuild(spec.install.releases!, zigVersion);
+    await writeCompatibilityCache(zigVersion, build.version).catch(() => {});
+    return { zigVersion, zlsVersion: build.version };
+  } catch (error) {
+    const cached = (await readCompatibilityCache())[zigVersion];
+    if (cached) return { zigVersion, zlsVersion: cached };
+    throw error;
+  }
+}
+
 function zlsBinPath(version: string): string {
   return join(
     getAgentDir(),
@@ -136,14 +203,15 @@ export async function installZls(
   const zigVersion =
     spec.install.pin ?? (await probeZigVersion(env)) ?? spec.install.version;
   if (!zigVersion) throw new Error("no zig version pin, probe, or default");
-  // A cached build for the pin skips the release lookup entirely.
-  const exact = await cachedZls(zigVersion, opts, env);
-  if (exact) return exact;
-  const build = await selectZlsBuild(spec.install.releases!, zigVersion);
-  if (build.version !== zigVersion) {
-    const resolved = await cachedZls(build.version, opts, env);
-    if (resolved) return resolved;
+  const selected = (await readCompatibilityCache())[zigVersion];
+  if (selected) {
+    const cached = await cachedZls(selected, opts, env);
+    if (cached) return cached;
   }
+  const build = await selectZlsBuild(spec.install.releases!, zigVersion);
+  await writeCompatibilityCache(zigVersion, build.version).catch(() => {});
+  const resolved = await cachedZls(build.version, opts, env);
+  if (resolved) return resolved;
   const bin = zlsBinPath(build.version);
   const pub = parsePubKey(spec.install.pubkey!);
   await installReleaseBinary({

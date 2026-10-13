@@ -87,7 +87,6 @@ export function buildFooterRows(
           : theme.fg(token.active ? "success" : "muted", token.text);
       const region = new MouseRegion(new TruncatedText(text, 0, 0), (event) => {
         if (event.button !== "left") return undefined;
-        if (event.type === "press") return { handled: true };
         if (event.type !== "click") return undefined;
         open?.(token.kind);
         return { handled: true };

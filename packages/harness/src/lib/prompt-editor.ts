@@ -81,10 +81,10 @@ export class PromptEditor extends CustomEditor {
         context,
       );
     } else context = this.borderColor(context);
-    const spinner =
-      this.workingStatusIndicator?.renderSpinnerInBorder(2) ??
-      this.borderColor("💤");
-    const slot = spinner + " ".repeat(2 - visibleWidth(spinner)) + " ";
+    const spinner = this.workingStatusIndicator?.renderSpinnerInBorder(2) ?? "";
+    const slot = spinner
+      ? spinner + " ".repeat(2 - visibleWidth(spinner)) + " "
+      : "";
     const colored_status = compacting
       ? this.app_theme().fg("muted", status)
       : this.borderColor(status);
