@@ -32,11 +32,12 @@
     "@modelcontextprotocol/sdk": "1.31.0",
     "@cpi/harness": "0.0.4",
     "jiti": "2.7.0",
-    "@earendil-works/pi-agent-core": "https://github.com/bobcao3/pi/releases/download/pi-1.1.1-cpi.37998908067/35da98196435fb23b8d4a4911002514aed3f7f95d43d830cde87444a2aa63210.tgz",
-    "@earendil-works/pi-ai": "https://github.com/bobcao3/pi/releases/download/pi-1.1.1-cpi.37998908067/91c65119604d95801c0acb0bd80017793a34e29a183b7bb07ab857cf5901868d.tgz",
-    "@earendil-works/pi-codemode": "https://github.com/bobcao3/pi/releases/download/pi-1.1.1-cpi.37998908067/f81ad9935161039c522ba128e4be7abc50f1a53937870c2592fbe62c7adbd32d.tgz",
-    "@earendil-works/pi-coding-agent": "https://github.com/bobcao3/pi/releases/download/pi-1.1.1-cpi.37998908067/544436aa6a7e74ab0716695c1cb0141d9d7e06c6d208000fb6ee7d4257fb464f.tgz",
-    "@earendil-works/pi-tui": "https://github.com/bobcao3/pi/releases/download/pi-1.1.1-cpi.37998908067/7e5428e1aada4e3dc9898be28cad0657a17ae65006bd59d24b11b7eb2759919a.tgz"
+    "@earendil-works/pi-agent-core": "https://github.com/bobcao3/pi/releases/download/cpi-1.2.0-1/4d2f9a62cbc3918bdf252daacc99bcdad03a16517b71b858b7fb1c9bb9da6734.tgz",
+    "@earendil-works/pi-ai": "https://github.com/bobcao3/pi/releases/download/cpi-1.2.0-1/ec7c0305d063872b790764997b325d0a000be87790253198d3a412934be6824d.tgz",
+    "@earendil-works/pi-codemode": "https://github.com/bobcao3/pi/releases/download/cpi-1.2.0-1/5c8db36a8816809d4bec819730732c4244491069f2dd8dec968264e64b3ef34c.tgz",
+    "@earendil-works/pi-coding-agent": "https://github.com/bobcao3/pi/releases/download/cpi-1.2.0-1/522710c990e1804661b076dd4db79f66060d5d54955eac73b6428153a9b3551d.tgz",
+    "@earendil-works/pi-durable": "https://github.com/bobcao3/pi/releases/download/cpi-1.2.0-1/5ed57d2e784520302bdaa299ba9e6514d0f4df1009d41635b9cb36bb4b296eb6.tgz",
+    "@earendil-works/pi-tui": "https://github.com/bobcao3/pi/releases/download/cpi-1.2.0-1/be5b38f136addad6021f6131b9889019a8592f7524419eb49c7899a041a850a8.tgz"
   },
   "scripts": {
     "check": "node scripts/check-boundaries.mjs",
