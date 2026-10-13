@@ -8,7 +8,6 @@ import {
   getLanguageFromPath,
   type Theme,
 } from "@earendil-works/pi-coding-agent";
-import { truncateToWidth } from "@earendil-works/pi-tui";
 import { sanitizeActivityText } from "../lib/activity.ts";
 import {
   readFileLabel,
@@ -180,11 +179,9 @@ export function renderReadBatchTree(
   if (calls.length === 1) return calls[0]!.roots;
   if (!calls.length) return [];
   const counts = new Map<NonNullable<ToolTreeNode["status"]>, number>();
-  const entries: string[] = [];
   let hasImage = false;
   for (const call of calls) {
     const snapshot = call.snapshot;
-    const args = snapshot.args as { path?: string; query?: string };
     const details = snapshot.result?.details as ReadDetails | undefined;
     const root = call.roots[0];
     const failed =
@@ -199,26 +196,6 @@ export function renderReadBatchTree(
               ? "running"
               : "queued"));
     counts.set(status, (counts.get(status) ?? 0) + 1);
-    const file = readFileLabel(
-      details?.path ?? args.path,
-      theme,
-      "dim",
-      context.cwd,
-    );
-    const error = failed
-      ? oneLine(
-          details?.message ||
-            snapshot.result?.content.find((part) => part.type === "text")
-              ?.text ||
-            "Read failed",
-        )
-      : "";
-    const detail = failed ? theme.fg("error", error) : root?.summary;
-    const query =
-      args.query && snapshot.phase === "complete"
-        ? theme.fg("text", ` for ${oneLine(args.query)}`)
-        : "";
-    entries.push(file + (detail ? theme.fg("dim", ":") + detail : "") + query);
     hasImage ||=
       details?.kind === "image" ||
       Boolean(snapshot.result?.content.some((part) => part.type === "image"));
@@ -242,13 +219,10 @@ export function renderReadBatchTree(
       : status === "error" || status === "cancelled"
         ? "error"
         : "success";
-  const summary = entries.join(theme.fg("dim", ", "));
-  const fullSummary = sanitizeActivityText(summary);
   return [
     {
       id: context.toolCallId,
       label: theme.fg(color, pending ? "Reading" : "Read"),
-      summary: truncateToWidth(summary, 240, "…"),
       metadata: [
         theme.fg("dim", `${calls.length} files`),
         ...priority
@@ -266,17 +240,8 @@ export function renderReadBatchTree(
               `${counts.get(value)} ${value === "error" ? "failed" : value === "queued" ? "pending" : value}`,
             ),
           ),
-        ...(fullSummary.length > 65536
-          ? [
-              theme.fg(
-                "warning",
-                "Summary display limited; expand member files",
-              ),
-            ]
-          : []),
       ],
       status,
-      content: { text: fullSummary.slice(0, 65536) },
       children: calls.flatMap((call) => call.roots),
       defaultOpen: hasImage,
     },
