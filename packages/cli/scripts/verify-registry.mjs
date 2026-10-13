@@ -9,6 +9,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
+import { createRequire } from "node:module";
 import { delimiter, dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { setTimeout } from "node:timers/promises";
@@ -185,7 +186,11 @@ try {
         home,
       ),
     );
-    const extensions = join(installed, "node_modules/@cpi/harness");
+    const extensions = dirname(
+      createRequire(join(installed, "package.json")).resolve(
+        "@cpi/harness/package.json",
+      ),
+    );
     const scripts = await stageInstalledFixtures(extensions, cli.name);
     for (const fixture of [
       "codemode-render.integration.mjs",
