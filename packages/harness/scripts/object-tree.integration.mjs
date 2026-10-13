@@ -78,6 +78,10 @@ await fixture(
     });
   }`,
     );
+    await writeFile(
+      join(directory, "settings.json"),
+      JSON.stringify({ defaultProvider: "openai", defaultModel: "gpt-5.5" }),
+    );
     tmux(
       "new-session",
       "-d",
@@ -104,66 +108,75 @@ await fixture(
       const collapsed = await until(
         (screen) => requests.length >= 2 && /^\s*OK\s*$/m.test(screen),
       );
-      assert.match(
-        collapsed,
-        /✓ Code mode: JavaScript · 6 lines · [\d.]+s · ctrl\+o to expand/,
-      );
-      assert.match(collapsed, /✓ ▸ tree_fixture target="#tma video" code=/);
-      assert.match(collapsed, /more code lines · ctrl\+o to expand/);
-      assert.match(collapsed, /▸ output/);
+      assert.match(collapsed, /^✓ ▾ Code mode · [\d.]+s$/m);
+      assert.match(collapsed, /✓.*▸ tree_fixture · target="#tma video" code=/);
+      assert.match(collapsed, /▾ Script · JavaScript · 6 lines/);
+      assert.match(collapsed, /▾ Calls · 2 calls/);
+      assert.match(collapsed, /Click or Ctrl-O to expand/);
+      assert.match(collapsed, /^\s*└─▸ Output/m);
       assert.doesNotMatch(collapsed, /EXPANDED_TREE_CONTENT|^\s*[\d.]+s\s*$/m);
       click(/▸ tree_fixture/);
-      await until((screen) => /▸ result:/.test(screen));
-      click(/▸ arguments:/);
-      await until((screen) => /target:\s+"#tma video"/.test(screen));
-      click(/▸ result:/);
-      await until((screen) => screen.includes("metadata.page:"));
-      click(/▸ metadata.page:/);
-      await until((screen) => /data.enabled:\s+false/.test(screen));
-      click(/▸ content\[0\]/);
-      await until((screen) => /▸ text:/.test(screen));
-      click(/▸ text:/);
+      await until((screen) => /▸ Result/.test(screen));
+      click(/▸ Arguments/);
+      await until((screen) => /target · "#tma video"/.test(screen));
+      click(/▸ Result/);
+      await until((screen) => /▸ metadata/.test(screen));
+      click(/▸ metadata/);
+      await until((screen) => /enabled · false/.test(screen));
+      click(/▸ content/);
+      await until((screen) => /▸ text/.test(screen));
+      click(/▸ text/);
       const expanded = await until((screen) =>
-        screen.includes("EXPANDED_TREE_CONTENT"),
+        /^[ │]*EXPANDED_TREE_CONTENT$/m.test(screen),
       );
-      assert.match(expanded, /title:\s+Rubin/);
-      assert.match(expanded, /data.enabled:\s+false/);
-      click(/▸ output/);
+      assert.match(expanded, /title · "Rubin"/);
+      assert.match(expanded, /enabled · false/);
+      click(/^\s*└─▸ Output/m);
       const stdout_view = await until((screen) =>
         (mcp_text + "\n" + stdout)
           .trimEnd()
           .split("\n")
-          .every((line) => screen.includes(`│ ${line}`)),
+          .every((line) =>
+            screen.split("\n").some((row) => row.endsWith(line)),
+          ),
       );
       tmux("resize-window", "-t", name, "-x", "70", "-y", "55");
-      await until((screen) =>
-        screen.includes('│   "quoted": "hello \\"world\\"",'),
+      await until(
+        (screen) =>
+          /^\s*└▾Output/m.test(screen) &&
+          screen.includes('"quoted": "hello \\"world\\"",'),
       );
       tmux("resize-window", "-t", name, "-x", "120", "-y", "55");
-      click(/▾ output/);
+      await until((screen) => /^\s*└─▾ Output/m.test(screen));
+      click(/^\s*└─▾ Output/m);
       console.log(stdout_view);
       tmux("resize-window", "-t", name, "-x", "70", "-y", "55");
-      await until((screen) => screen.includes("EXPANDED_TREE_CONTENT"));
-      tmux("resize-window", "-t", name, "-x", "120", "-y", "55");
+      await until(
+        (screen) =>
+          /^\s*└▸Output/m.test(screen) &&
+          /^[ │]*EXPANDED_TREE_CONTENT$/m.test(screen),
+      );
+      tmux("resize-window", "-t", name, "-x", "120", "-y", "100");
       tmux("send-keys", "-t", name, "C-o");
       await until(
         (screen) =>
-          screen.includes("to collapse") &&
+          !screen.includes("Click or Ctrl-O to expand") &&
           screen.includes('store("tree-fixture", retained);'),
       );
       tmux("send-keys", "-t", name, "C-o");
       await until(
         (screen) =>
-          screen.includes("to expand") &&
+          screen.includes("Click or Ctrl-O to expand") &&
           !screen.includes("EXPANDED_TREE_CONTENT"),
       );
+      tmux("resize-window", "-t", name, "-x", "120", "-y", "55");
       send("/reload");
       await until((screen) => /Reloaded/.test(screen));
       send("Render the fixture again");
       const replay = await until(
         (screen) =>
           requests.length >= 4 &&
-          (screen.match(/✓ ▸ tree_fixture/g) ?? []).length >= 2,
+          (screen.match(/✓.*▸ tree_fixture/g) ?? []).length >= 2,
       );
       assert.doesNotMatch(replay, /Extension issues|Error executing/);
       tmux("pipe-pane", "-t", name);

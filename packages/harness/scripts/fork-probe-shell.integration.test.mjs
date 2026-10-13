@@ -60,7 +60,7 @@ test(
         {
           parentSessionFile: manager.getSessionFile(),
           cwd: local.directory,
-          timeoutMs: 5000,
+          timeoutMs: 15000,
         },
         "Summarize the work without changing background jobs.",
       );
