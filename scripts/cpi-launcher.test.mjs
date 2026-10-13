@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import {
   chmodSync,
+  cpSync,
   copyFileSync,
   mkdirSync,
   mkdtempSync,
@@ -252,6 +253,15 @@ test(
       join(root, "packages/cli/bin/cpi.mjs"),
       join(directory, packagePath, "bin/cpi.mjs"),
     );
+    copyFileSync(
+      join(root, "packages/cli/source.mjs"),
+      join(directory, packagePath, "source.mjs"),
+    );
+    cpSync(
+      dirname(fileURLToPath(import.meta.resolve("jiti/package.json"))),
+      join(directory, packagePath, "node_modules/jiti"),
+      { recursive: true },
+    );
     const manifest = JSON.parse(
       readFileSync(join(root, "packages/cli/package.json"), "utf8"),
     );
@@ -263,6 +273,7 @@ test(
         version: manifest.version,
         type: "module",
         bin: manifest.bin,
+        exports: manifest.exports,
       }),
     );
     put(
@@ -290,7 +301,7 @@ test(
       env: linkEnv,
     });
     assert.equal(linked.status, 0, linked.stderr);
-    const runEnv = { ...env };
+    const runEnv = { ...env, CPI_FORK: "", JITI_ALIAS: "" };
     delete runEnv.BUN_INSTALL;
     delete runEnv.BUN_INSTALL_GLOBAL_DIR;
     for (const value of [7, 19]) {
