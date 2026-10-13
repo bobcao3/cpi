@@ -23,22 +23,29 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     env:
-      CPI_PIN_UPDATE_TOKEN: ${{ secrets.CPI_PIN_UPDATE_TOKEN }}
-      GH_TOKEN: ${{ secrets.CPI_PIN_UPDATE_TOKEN }}
       CPI_FORK: ${{ runner.temp }}/no-editable-fork
       PI_OFFLINE: "1"
       npm_config_ignore_scripts: "true"
       ARTIFACT_DIRECTORY: ${{ runner.temp }}/verified-pi-release
     steps:
-      - name: Require the dedicated pin-update token
+      - name: Mint a repository-scoped GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          client-id: ${{ vars.CPI_PIN_APP_CLIENT_ID }}
+          private-key: ${{ secrets.CPI_PIN_APP_PRIVATE_KEY }}
+          owner: bobcao3
+          repositories: cpi
+          permission-contents: write
+          permission-pull-requests: write
+      - name: Provide the job token to the pin-update tools
+        env:
+          TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
-          if [ -z "$CPI_PIN_UPDATE_TOKEN" ]; then
-            echo '::error::CPI_PIN_UPDATE_TOKEN is unavailable. Configure a dedicated GitHub App installation token or fine-grained token restricted to cpi with Contents and Pull requests write permissions. Do not use a broad personal OAuth token.'
-            exit 1
-          fi
+          printf 'CPI_PIN_UPDATE_TOKEN=%s\nGH_TOKEN=%s\n' "$TOKEN" "$TOKEN" >> "$GITHUB_ENV"
       - uses: actions/checkout@v6
         with:
-          token: ${{ secrets.CPI_PIN_UPDATE_TOKEN }}
+          token: ${{ steps.app-token.outputs.token }}
           fetch-depth: 0
       - uses: actions/setup-node@v4
         with:

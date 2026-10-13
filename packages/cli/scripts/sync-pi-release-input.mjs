@@ -29,7 +29,7 @@ if (
 ) {
   assert(
     process.env.CPI_PIN_UPDATE_TOKEN,
-    "CPI_PIN_UPDATE_TOKEN is unavailable. Configure a dedicated GitHub App installation token or fine-grained repository token with cpi contents and pull requests write permissions.",
+    "The generated GitHub App token is unavailable; configure the pin App Client ID, signing key, and cpi installation.",
   );
   assert(
     ["repository_dispatch", "workflow_dispatch"].includes(

@@ -33,15 +33,30 @@ cpi until a maintainer merges the pin-update PR.
 
 - Configure each public package's npm trusted publisher for the GitHub repository,
   `registry.yml`, and the `npm-publish` environment. Allow direct publishing.
-  GitHub Actions authenticates through OIDC; no npm publishing secret is needed.
+  GitHub Actions authenticates through OpenID Connect (OIDC); no npm publishing
+  secret is needed.
 - Allow `v*` tags in the environment's deployment policy. Retain required reviewers
   when publication should require human approval. Tag-triggered automation does
   not bypass environment protection.
-- Configure `CPI_PIN_UPDATE_TOKEN` in both repositories with a dedicated
-  fine-grained token restricted to cpi, with Contents and Pull requests write
-  permissions. The fork uses the token to dispatch synchronization; cpi uses the
-  token for bot pushes that trigger PR checks. Do not substitute `GITHUB_TOKEN`
-  or a broad personal OAuth token. Rotate the token before expiry.
+- Register a private App in [GitHub's App settings](https://github.com/settings/apps/new).
+  Follow [GitHub's registration guide](https://docs.github.com/en/apps/creating-github-apps/registering-a-github-app/registering-a-github-app).
+  Use the cpi repository URL as the homepage, disable webhooks, and leave OAuth
+  callback URLs empty; the pin workflows use installation authentication.
+  Grant the repository permissions requested by the
+  [pin workflow](../../.github/workflows/sync-pi-release.yml), install the App only
+  on `bobcao3/cpi`, and generate its private key in the App settings.
+  Sign in with `gh auth login` using a repository administrator account, then set
+  the App configuration in both repositories with the standard GitHub CLI:
+
+  ```sh
+  for repo in bobcao3/cpi bobcao3/pi; do
+    gh variable set CPI_PIN_APP_CLIENT_ID --repo "$repo" --body '<Client ID>'
+    gh secret set CPI_PIN_APP_PRIVATE_KEY --repo "$repo" < /path/to/private-key.pem
+  done
+  ```
+
+  The workflows mint short-lived GitHub App tokens for GitHub API writes.
+  npm publication uses OIDC; neither operation requires a personal token.
 
 For a new npm package, the owner may need interactive two-factor authentication
 to establish trusted publishing. If npm staging created package records, reject

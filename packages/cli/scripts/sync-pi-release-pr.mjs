@@ -9,7 +9,7 @@ assert.equal(
 );
 assert(
   process.env.CPI_PIN_UPDATE_TOKEN,
-  "CPI_PIN_UPDATE_TOKEN is unavailable; configure the dedicated repository-scoped pin-update token",
+  "The generated GitHub App token is unavailable; configure the pin App Client ID, signing key, and cpi installation.",
 );
 assert.equal(process.env.GH_TOKEN, process.env.CPI_PIN_UPDATE_TOKEN);
 assert.equal(
