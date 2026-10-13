@@ -83,7 +83,7 @@ export async function openShellSession(directory: string, scope: string) {
     sessionManager: manager,
     settingsManager,
     resourceLoader,
-    noTools: true,
+    noTools: "all",
   });
   await session.bindExtensions({
     onError: (error) => {

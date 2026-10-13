@@ -52,11 +52,13 @@ export class SubagentObservation {
       diagnosticsPath: `${base}.stderr`,
     };
     this.releaseTranscript = reserveTranscript(base, directory);
+    let markdownFile: number | undefined;
     try {
-      this.markdownFile = openSync(this.result.markdownPath, "wx", 0o600);
+      markdownFile = openSync(this.result.markdownPath, "wx", 0o600);
+      this.markdownFile = markdownFile;
       this.diagnosticFile = openSync(this.result.diagnosticsPath, "wx", 0o600);
     } catch (error) {
-      if (this.markdownFile !== undefined) closeSync(this.markdownFile);
+      if (markdownFile !== undefined) closeSync(markdownFile);
       this.releaseTranscript();
       throw error;
     }

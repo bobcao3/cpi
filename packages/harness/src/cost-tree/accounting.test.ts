@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { connect } from "node:net";
+import type { AssistantMessage } from "@earendil-works/pi-ai";
 import { hostCodingAgent, piExecutableOnPath } from "../../bin/host-pi.mjs";
 import costTree from "./index.ts";
 import { createCostSocket, sendCostReport } from "./socket.ts";
@@ -21,7 +22,11 @@ if (!process.env.CPI_PI_HOST_ENTRY) {
   process.env.CPI_PI_HOST_ENTRY = piExecutableOnPath();
 }
 const sdk = await hostCodingAgent();
-function assistant(input: number, output: number, cost: number) {
+function assistant(
+  input: number,
+  output: number,
+  cost: number,
+): AssistantMessage {
   return {
     role: "assistant",
     content: [{ type: "text", text: "persisted accounting fixture" }],
@@ -65,7 +70,7 @@ async function open(manager: any, directory: string) {
     sessionManager: manager,
     resourceLoader: loader,
     settingsManager: sdk.SettingsManager.inMemory(),
-    noTools: true,
+    noTools: "all",
   });
   await session.bindExtensions({ onError: (e: unknown) => errors.push(e) });
   expect(errors).toEqual([]);
