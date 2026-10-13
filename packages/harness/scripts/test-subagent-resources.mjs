@@ -6,6 +6,7 @@ import {
   existsSync,
   readdirSync,
   rmSync,
+  lstatSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -21,6 +22,15 @@ const artifacts = join(directory, "subagent-transcripts");
 mkdirSync(artifacts);
 const active = join(artifacts, "0000000000000-active");
 const release = reserveTranscript(active, artifacts);
+const runtimeKeys = [
+  "TMPDIR",
+  "TMP",
+  "TEMP",
+  "XDG_RUNTIME_DIR",
+  "PI_SESSION_DIR",
+  "HOME",
+];
+const runtimeEnv = new Map(runtimeKeys.map((key) => [key, process.env[key]]));
 let observation;
 try {
   for (const suffix of [".md", ".stderr"])
@@ -49,7 +59,18 @@ try {
     "PASS retention rotates complete artifact pairs without rejecting new runs or deleting active transcripts",
   );
 
+  if (process.platform !== "win32") {
+    const longRoot = join(directory, "rpc-runtime-" + "long-".repeat(24));
+    mkdirSync(longRoot);
+    for (const key of runtimeKeys) process.env[key] = longRoot;
+  }
   const endpoint = await ensureSubagentRpc();
+  if (process.platform !== "win32") {
+    assert(Buffer.byteLength(endpoint, "utf8") <= 100);
+    const socketStat = lstatSync(endpoint);
+    assert.equal(socketStat.uid, process.getuid());
+    assert.equal(socketStat.mode & 0o777, 0o600);
+  }
   const listener = state().server.listeners("connection")[0];
   const reloaded = await import(
     `../src/lib/subagent-rpc.ts?reload=${Date.now()}`
@@ -75,5 +96,9 @@ try {
   observation?.finish(null, true);
   release();
   await stopSubagentRpc();
+  for (const [key, value] of runtimeEnv) {
+    if (value === undefined) delete process.env[key];
+    else process.env[key] = value;
+  }
   rmSync(directory, { recursive: true, force: true });
 }
