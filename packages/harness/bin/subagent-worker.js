@@ -1,3 +1,4 @@
+import "./subagent-output.mjs";
 import { parentPort, workerData } from "node:worker_threads";
 import { runForkProbeSubagent } from "./fork-probe-runner.js";
 import { runSubagentSession } from "./subagent-session.js";
@@ -55,40 +56,44 @@ parentPort.on("message", (message) => {
   settleDecision({ kind: "finish" });
 });
 
-let exitCode = 1;
-let failure;
-try {
-  if (!workerData || typeof workerData !== "object") {
-    throw new Error("unsupported subagent worker request");
-  }
-  if (workerData.kind === "session") {
-    exitCode = await runSubagentSession(
-      workerData,
-      abortController.signal,
-      exchangeCandidate,
+async function runWorker() {
+  let exitCode = 1;
+  let failure;
+  try {
+    if (!workerData || typeof workerData !== "object") {
+      throw new Error("unsupported subagent worker request");
+    }
+    if (workerData.kind === "session") {
+      exitCode = await runSubagentSession(
+        workerData,
+        abortController.signal,
+        exchangeCandidate,
+      );
+    } else if (workerData.kind === "fork-probe") {
+      exitCode = await runForkProbeSubagent(workerData, abortController.signal);
+    } else if (workerData.kind === undefined) {
+      exitCode = await runSubagent(workerData, abortController.signal);
+    } else {
+      throw new Error("unsupported subagent worker request");
+    }
+  } catch (error) {
+    failure = error instanceof Error ? error.message : String(error);
+    process.stderr.write(
+      `${error instanceof Error ? error.message : String(error)}\n`,
     );
-  } else if (workerData.kind === "fork-probe") {
-    exitCode = await runForkProbeSubagent(workerData, abortController.signal);
-  } else if (workerData.kind === undefined) {
-    exitCode = await runSubagent(workerData, abortController.signal);
-  } else {
-    throw new Error("unsupported subagent worker request");
   }
-} catch (error) {
-  failure = error instanceof Error ? error.message : String(error);
-  process.stderr.write(
-    `${error instanceof Error ? error.message : String(error)}\n`,
-  );
+  try {
+    exitCode = finishObservation(
+      exitCode,
+      abortController.signal.aborted,
+      failure,
+    );
+  } catch (error) {
+    process.stderr.write(`Observation failure: ${error}\n`);
+    exitCode = 1;
+  }
+  parentPort.postMessage({ kind: "done", exitCode });
+  parentPort.close();
 }
-try {
-  exitCode = finishObservation(
-    exitCode,
-    abortController.signal.aborted,
-    failure,
-  );
-} catch (error) {
-  process.stderr.write(`Observation failure: ${error}\n`);
-  exitCode = 1;
-}
-parentPort.postMessage({ kind: "done", exitCode });
-parentPort.close();
+
+void runWorker();

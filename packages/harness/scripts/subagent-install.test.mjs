@@ -78,13 +78,10 @@ test("installed subagent worker uses the active Pi SDK without a local Pi peer",
         ],
         workerData: { ...request, observationCredits: credits.buffer },
         env: { ...env, CPI_CODING_AGENT_DIR: directory },
-        stdout: true,
-        stderr: true,
       });
       let diagnostics = "";
       let terminal;
       let timer;
-      worker.stderr.on("data", (chunk) => (diagnostics += chunk));
       try {
         await new Promise((resolveWorker, reject) => {
           timer = setTimeout(
@@ -95,6 +92,8 @@ test("installed subagent worker uses the active Pi SDK without a local Pi peer",
             if (event.kind === "run_event") {
               Atomics.sub(credits, 0, 1);
               Atomics.notify(credits, 0);
+              if (event.type === "output" && event.stream === "stderr")
+                diagnostics += Buffer.from(event.data, "base64");
               if (event.type === "terminal") terminal = event;
             } else if (event.kind === "candidate") {
               worker.postMessage({ kind: "finish" });

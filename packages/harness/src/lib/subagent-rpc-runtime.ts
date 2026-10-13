@@ -6,6 +6,7 @@ import type { SubagentWorkerRequest } from "./subagent-rpc-protocol.ts";
 import { observeSubagent, subagentEnvironment } from "./activity-subagent.ts";
 import { updateActivity } from "./activity.ts";
 import { SubagentObservation } from "./subagent-observation.ts";
+import type { SubagentObservationOptions } from "./subagent-events.ts";
 
 export const MAX_ACTIVE = 16;
 const MAX_RUN_ID_CHARS = 96;
@@ -26,7 +27,11 @@ export interface ActiveRun {
   worker: Worker;
   done: boolean;
   exitCode: number | null;
+  exited: Promise<void>;
   timer?: ReturnType<typeof setTimeout>;
+}
+export interface RunOptions extends SubagentObservationOptions {
+  onMessage?: (message: unknown) => unknown;
 }
 export interface RpcState {
   server?: Server;
@@ -72,12 +77,14 @@ export function startRun(
   request: SubagentWorkerRequest,
   rpc: RpcState,
   endpoint: string,
+  options: RunOptions,
   socket?: Socket,
 ): ActiveRun {
   if (rpc.active.size >= MAX_ACTIVE)
     throw new Error(`subagent concurrency limit reached (${MAX_ACTIVE})`);
   claimRunId(rpc, request);
   const observation = new SubagentObservation(request);
+  observation.options = options;
   let worker: Worker;
   try {
     worker = new Worker(WORKER_PATH, {
@@ -86,13 +93,12 @@ export function startRun(
         observationCredits: observation.credits.buffer,
       },
       env: subagentEnvironment(request, endpoint),
-      stdout: true,
-      stderr: true,
     });
   } catch (error) {
     observation.finish(1, false, String(error));
     throw error;
   }
+  let resolveExit!: () => void;
   const run: ActiveRun = {
     observation,
     activityId: request.runId,
@@ -100,25 +106,72 @@ export function startRun(
     worker,
     done: false,
     exitCode: null,
+    exited: new Promise<void>((resolve) => {
+      resolveExit = resolve;
+    }),
   };
-  rpc.active.add(run);
-  observeSubagent(request, worker);
-  updateActivity(request.runId, {
-    log_path: observation.result.markdownPath,
-    metrics: {
-      markdown_path: observation.result.markdownPath,
-      diagnostics_path: observation.result.diagnosticsPath,
-    },
-  });
-  worker.stderr.on("data", (chunk: Buffer) => {
+  let receivedDone = false;
+  const fail = (error: unknown): void => {
+    if (!run.failed)
+      observation.options = {
+        ...options,
+        stdout: undefined,
+        stderr: undefined,
+      };
+    run.failed = true;
+    run.error ??= error instanceof Error ? error : new Error(String(error));
+    abortRun(run);
+  };
+  worker.once("exit", (code) => {
     try {
-      observation.diagnostic(chunk);
-    } catch (error) {
-      run.failed = true;
-      run.error = new Error(String(error));
-      abortRun(run);
+      if (code !== 0 && !run.cancelled && !receivedDone)
+        run.error ??= new Error(`subagent worker exited ${code}`);
+      if (!receivedDone && !run.cancelled)
+        run.error ??= new Error(
+          "subagent worker exited without a structured done message",
+        );
+      finishRun(run, rpc);
+    } finally {
+      resolveExit();
     }
   });
+  worker.on("error", fail);
+  worker.on("message", (message) => {
+    try {
+      if (receivedDone) throw new Error("subagent worker message after done");
+      if (observation.receive(message)) return;
+      if (message?.kind === "done") {
+        if (
+          !Number.isInteger(message.exitCode) ||
+          !observation.terminalReceived
+        )
+          throw new Error("unexpected subagent worker done message");
+        receivedDone = true;
+        run.exitCode = message.exitCode;
+        void worker.terminate().catch(fail);
+        return;
+      }
+      if (!options.onMessage || observation.terminalReceived)
+        throw new Error("unexpected subagent worker control message");
+      const response = options.onMessage(message);
+      if (response !== undefined) worker.postMessage(response);
+    } catch (error) {
+      fail(error);
+    }
+  });
+  rpc.active.add(run);
+  try {
+    observeSubagent(request, worker);
+    updateActivity(request.runId, {
+      log_path: observation.result.markdownPath,
+      metrics: {
+        markdown_path: observation.result.markdownPath,
+        diagnostics_path: observation.result.diagnosticsPath,
+      },
+    });
+  } catch (error) {
+    fail(error);
+  }
   return run;
 }
 export function finishRun(run: ActiveRun, rpc: RpcState): void {

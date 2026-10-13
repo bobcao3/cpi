@@ -197,6 +197,7 @@ try {
       "footer-layout.integration.mjs",
       "codemode-wait.integration.test.mjs",
       "fork-probe-shell.integration.test.mjs",
+      "subagent-output.integration.test.mjs",
       "fast-startup.test.mjs",
       "harness/test-fork-probe-output.mjs",
     ]) {

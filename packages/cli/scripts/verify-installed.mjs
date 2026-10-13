@@ -40,6 +40,7 @@ export async function stageInstalledFixtures(extensions, cli = "@cpi/cli") {
     "fast-host-fixture.mjs",
     "fast-startup.test.mjs",
     "subagent-install.test.mjs",
+    "subagent-output.integration.test.mjs",
     "tui.integration.mjs",
     "footer-layout.integration.mjs",
     "object-tree.integration.mjs",
@@ -233,6 +234,7 @@ async function main() {
         [
           "test",
           join(bunExtensions, "scripts/codemode-wait.integration.test.mjs"),
+          join(bunExtensions, "scripts/subagent-output.integration.test.mjs"),
         ],
         bunExtensions,
         0,
@@ -321,6 +323,7 @@ async function main() {
     join(scripts, "codemode-wait.integration.test.mjs"),
     join(scripts, "fast-startup.test.mjs"),
     join(scripts, "subagent-install.test.mjs"),
+    join(scripts, "subagent-output.integration.test.mjs"),
   ]);
   if (process.argv[3] === "--tui") {
     run([join(scripts, "tui.integration.mjs")]);

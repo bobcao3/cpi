@@ -44,7 +44,13 @@ export function publish(data) {
       throw new Error("subagent observation consumer stalled");
   }
   Atomics.add(credits, 0, 1);
-  parentPort.postMessage(event);
+  try {
+    parentPort.postMessage(event);
+  } catch (error) {
+    Atomics.sub(credits, 0, 1);
+    Atomics.notify(credits, 0);
+    throw error;
+  }
   sequence++;
   totalBytes += bytes;
 }

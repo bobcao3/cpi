@@ -317,7 +317,7 @@ try {
     session.dispose();
   `,
     ],
-    { timeout: 20000 },
+    { timeout: 20000, env: { ...process.env } },
   );
   const summary_leaf = session.sessionManager.getLeafId();
   const earlier_leaf = session.sessionManager

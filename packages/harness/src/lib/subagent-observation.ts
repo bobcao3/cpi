@@ -108,6 +108,12 @@ export class SubagentObservation {
         return true;
       }
       this.lastType = message.type;
+      if (message.type === "output") {
+        const chunk = Buffer.from(message.data, "base64");
+        if (message.stream === "stderr") this.diagnostic(chunk);
+        this.options[message.stream]?.(chunk);
+        return true;
+      }
       if (message.type === "usage") {
         const old = this.result.usage;
         if (
@@ -163,6 +169,10 @@ export class SubagentObservation {
     Atomics.notify(this.credits, 0);
   }
 
+  get terminalReceived(): boolean {
+    return this.terminal !== undefined;
+  }
+
   finish(
     exitCode: number | null,
     cancelled: boolean,
@@ -170,6 +180,7 @@ export class SubagentObservation {
   ): Error | undefined {
     if (this.closed) return;
     this.closed = true;
+    this.resume();
     for (const operation of [
       () => this.writer.close(),
       () => fsyncSync(this.markdownFile),

@@ -5,7 +5,6 @@ import {
   send,
   startRun,
   abortRun,
-  finishRun,
   type ActiveRun,
   type RpcState,
 } from "./subagent-rpc-runtime.ts";
@@ -37,8 +36,6 @@ const MAX_SOCKET_BACKLOG_BYTES = 8 * 1024 * 1024;
 
 export interface SubagentWorkerRunOptions extends SubagentObservationOptions {
   signal?: AbortSignal;
-  stdout?: (chunk: Buffer) => void;
-  stderr?: (chunk: Buffer) => void;
   onMessage?: (message: unknown) => unknown;
 }
 
@@ -60,18 +57,6 @@ function launch(
   rpc: RpcState,
 ): void {
   let run: ActiveRun;
-  try {
-    run = startRun(request, rpc, rpc.endpoint!, socket);
-  } catch (error) {
-    fail(
-      socket,
-      error instanceof Error
-        ? error.message
-        : "failed to start subagent worker",
-    );
-    return;
-  }
-  const { worker } = run;
   const forward = (stream: "stdout" | "stderr", chunk: Buffer): void => {
     if (!socket.writable) return;
     for (
@@ -94,63 +79,37 @@ function launch(
       }
       if (!writable && !run.observation.paused) {
         run.observation.paused = true;
-        worker.stdout.pause();
-        worker.stderr.pause();
         socket.once("drain", () => {
           run.observation.resume();
-          worker.stdout.resume();
-          worker.stderr.resume();
         });
       }
     }
   };
-  worker.stdout.on("data", (chunk: Buffer) => forward("stdout", chunk));
-  worker.stderr.on("data", (chunk: Buffer) => forward("stderr", chunk));
-  run.observation.options = {
-    onMarkdown: (chunk) => forward("stderr", Buffer.from(chunk)),
-    onEvent: (event) => {
-      if (event.type === "terminal" && event.answer)
-        forward("stdout", Buffer.from(`${event.answer}\n`));
-    },
-  };
-  worker.on("message", (message) => {
-    try {
-      if (run.observation.receive(message)) return;
-    } catch (error) {
-      run.failed = true;
-      run.error = new Error(String(error));
-      send(socket, { kind: "error", message: String(error) });
-      abortRun(run);
-      return;
-    }
-    if (
-      message?.kind === "done" &&
-      Number.isInteger(message.exitCode) &&
-      run.exitCode === null
-    ) {
-      run.exitCode = message.exitCode;
-    } else {
-      run.error = new Error("unexpected subagent worker control message");
-      abortRun(run);
-    }
-  });
-  worker.on("error", (error) => {
-    run.failed = true;
-    run.error = error;
-    send(socket, {
-      kind: "error",
-      message: (error instanceof Error ? error.message : String(error)).slice(
-        0,
-        4096,
-      ),
-    });
-    run.exitCode = 1;
-  });
-  worker.on("exit", (code) => {
-    if (code !== 0 && !run.cancelled)
-      run.error ??= new Error(`subagent worker exited ${code}`);
-    finishRun(run, rpc);
-  });
+  try {
+    run = startRun(
+      request,
+      rpc,
+      rpc.endpoint!,
+      {
+        stdout: (chunk) => forward("stdout", chunk),
+        stderr: (chunk) => forward("stderr", chunk),
+        onMarkdown: (chunk) => forward("stderr", Buffer.from(chunk)),
+        onEvent: (event) => {
+          if (event.type === "terminal" && event.answer)
+            forward("stdout", Buffer.from(`${event.answer}\n`));
+        },
+      },
+      socket,
+    );
+  } catch (error) {
+    fail(
+      socket,
+      error instanceof Error
+        ? error.message
+        : "failed to start subagent worker",
+    );
+    return;
+  }
   socket.on("close", () => abortRun(run));
   socket.on("error", () => abortRun(run));
 }
@@ -211,7 +170,7 @@ export async function runSubagentWorker(
 
   let run: ActiveRun;
   try {
-    run = startRun(request, rpc, endpoint);
+    run = startRun(request, rpc, endpoint, options);
   } catch (error) {
     return {
       exitCode: null,
@@ -222,93 +181,11 @@ export async function runSubagentWorker(
     };
   }
 
-  let error: Error | undefined;
-  run.observation.options = options;
-  let receivedDone = false;
-  const fail = (value: unknown): void => {
-    run.failed = true;
-    if (!error)
-      error =
-        value instanceof Error ? value : new Error("subagent worker failed");
-    run.error = error;
-    abortRun(run);
-  };
-  const forward = (
-    callback: ((chunk: Buffer) => void) | undefined,
-    chunk: Buffer,
-  ) => {
-    if (!callback || error) return;
-    try {
-      callback(chunk);
-    } catch (value) {
-      fail(value);
-    }
-  };
   const onAbort = () => abortRun(run);
   options.signal?.addEventListener("abort", onAbort, { once: true });
   if (options.signal?.aborted) abortRun(run);
-
-  run.worker.stdout.on("data", (chunk: Buffer) =>
-    forward(options.stdout, chunk),
-  );
-  run.worker.stderr.on("data", (chunk: Buffer) =>
-    forward(options.stderr, chunk),
-  );
-  run.worker.on("message", (message) => {
-    try {
-      if (run.observation.receive(message)) return;
-    } catch (value) {
-      fail(value);
-      return;
-    }
-    if (message?.kind === "done") {
-      if (receivedDone) {
-        fail(
-          new Error("subagent worker sent multiple structured done messages"),
-        );
-        return;
-      }
-      if (!Number.isInteger(message.exitCode)) {
-        fail(new Error("unexpected subagent worker message"));
-        return;
-      }
-      receivedDone = true;
-      run.exitCode = message.exitCode;
-      return;
-    }
-    if (!options.onMessage) {
-      fail(new Error("unexpected subagent worker message"));
-      return;
-    }
-    let response: unknown;
-    try {
-      response = options.onMessage(message);
-    } catch (value) {
-      fail(value);
-      return;
-    }
-    if (response !== undefined) {
-      try {
-        run.worker.postMessage(response);
-      } catch (value) {
-        fail(value);
-      }
-    }
-  });
-  run.worker.on("error", (value) => fail(value));
-  const workerExit = await new Promise<number>((resolve) =>
-    run.worker.once("exit", resolve),
-  );
-  if (workerExit !== 0 && !run.cancelled)
-    error ??= new Error(`subagent worker exited ${workerExit}`);
+  await run.exited;
   options.signal?.removeEventListener("abort", onAbort);
-  if (!receivedDone && !error && !options.signal?.aborted)
-    error = new Error(
-      "subagent worker exited without a structured done message",
-    );
-  if (error) run.failed = true;
-  run.error ??= error;
-  finishRun(run, rpc);
   return {
     exitCode: options.signal?.aborted ? null : run.exitCode,
     error: run.error,
@@ -326,7 +203,8 @@ export async function ensureSubagentRpc(): Promise<string> {
   if (rpc.ready) return rpc.ready;
   rpc.ready = new Promise<string>((resolve, reject) => {
     const endpoint = createSubagentRpcEndpoint();
-    const server = createServer((socket) => accept(socket, rpc));
+    const server = createServer();
+    server.on("connection", (socket) => accept(socket, rpc));
     server.maxConnections = MAX_ACTIVE;
     server.once("error", reject);
     server.listen(endpoint, () => {
@@ -355,11 +233,7 @@ export function getSubagentRpc(): string | undefined {
 export async function stopSubagentRpc(): Promise<void> {
   const rpc = state();
   const runs = [...rpc.active];
-  const exits = runs
-    .filter((run) => !run.done)
-    .map(
-      (run) => new Promise<void>((resolve) => run.worker.once("exit", resolve)),
-    );
+  const exits = runs.map((run) => run.exited);
   const server = rpc.server;
   const endpoint = rpc.endpoint;
   rpc.server = undefined;

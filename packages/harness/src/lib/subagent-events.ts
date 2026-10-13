@@ -26,6 +26,7 @@ export type SubagentEventData =
     }
   | { type: "usage"; usage: Usage; turns: number; scope: "self" }
   | { type: "diagnostic"; message: string }
+  | { type: "output"; stream: "stdout" | "stderr"; data: string }
   | {
       type: "terminal";
       outcome: "completed" | "failed" | "cancelled";
@@ -43,6 +44,8 @@ export type SubagentRunEvent = SubagentEventData & {
 export interface SubagentObservationOptions {
   onEvent?: (event: SubagentRunEvent) => void;
   onMarkdown?: (chunk: string) => void;
+  stdout?: (chunk: Buffer) => void;
+  stderr?: (chunk: Buffer) => void;
 }
 
 export interface SubagentObservationResult {
@@ -112,6 +115,16 @@ export function assertSubagentEvent(
         );
       case "diagnostic":
         return text(event.message);
+      case "output":
+        return (
+          ["stdout", "stderr"].includes(event.stream) &&
+          typeof event.data === "string" &&
+          event.data.length <= 65536 &&
+          /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(
+            event.data,
+          ) &&
+          Buffer.from(event.data, "base64").toString("base64") === event.data
+        );
       case "terminal":
         return (
           ["completed", "failed", "cancelled"].includes(event.outcome) &&
