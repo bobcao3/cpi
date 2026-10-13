@@ -66,7 +66,12 @@ function gh(args, missing = false) {
     maxBuffer: 128 * 1024 * 1024,
   });
   assert.ifError(result.error);
-  if (missing && result.status !== 0 && /HTTP 404/.test(result.stderr))
+  if (
+    missing &&
+    result.status !== 0 &&
+    (/HTTP 404/.test(result.stderr) ||
+      result.stderr.trim() === "release not found")
+  )
     return undefined;
   assert.equal(result.status, 0, result.stderr);
   return result.stdout;
@@ -99,8 +104,16 @@ export function verify_release_tag() {
 async function publish(directory) {
   const tag = verify_release_tag();
   const assets = await release_assets(directory, tag);
-  const endpoint = `repos/${repository}/releases/tags/${tag}`;
-  let response = gh(["api", endpoint], true);
+  const lookup = [
+    "release",
+    "view",
+    tag,
+    "--repo",
+    repository,
+    "--json",
+    "apiUrl",
+  ];
+  let response = gh(lookup, true);
   if (!response) {
     gh([
       "release",
@@ -114,9 +127,14 @@ async function publish(directory) {
       `cpi ${registry_release_version(tag)}`,
       "--generate-notes",
     ]);
-    response = gh(["api", endpoint]);
+    response = gh(lookup);
   }
-  const release = JSON.parse(response);
+  const endpoint = JSON.parse(response).apiUrl;
+  assert.match(
+    endpoint,
+    /^https:\/\/api\.github\.com\/repos\/bobcao3\/cpi\/releases\/\d+$/,
+  );
+  const release = JSON.parse(gh(["api", endpoint]));
   assert.equal(release.tag_name, tag);
   assert(release.assets.length <= 100);
   for (const asset of assets) {
