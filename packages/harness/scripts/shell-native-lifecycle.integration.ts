@@ -203,25 +203,37 @@ try {
     crashed.client.close();
   }
   console.log(
-    "Native shell status, immediate exits, scoped identity, reaping, and daemon failure passed without per-command Node processes",
+    "Native shell status, immediate exits, scoped identity, and reaping passed without per-command Node processes",
   );
 } finally {
-  if (process.platform === "win32") {
-    await execute(
-      await resolveGhostmuxBinary(),
-      ["-S", ghostmuxSocket(env), "kill-server"],
-      { timeout: 10000 },
-    );
+  try {
+    if (process.platform === "win32") {
+      try {
+        await execute(
+          await resolveGhostmuxBinary(),
+          ["-S", ghostmuxSocket(env), "kill-server"],
+          { timeout: 10000 },
+        );
+      } catch (error) {
+        const failure = error as { code?: number; stderr?: string };
+        if (
+          failure.code !== 1 ||
+          failure.stderr?.trim() !== "ghostmux: SocketMissing"
+        )
+          throw error;
+      }
+    }
+  } finally {
+    if (crashPid) {
+      try {
+        process.kill(-crashPid, "SIGKILL");
+      } catch {}
+    }
+    await rm(directory, {
+      recursive: true,
+      force: true,
+      maxRetries: 10,
+      retryDelay: 100,
+    });
   }
-  if (crashPid) {
-    try {
-      process.kill(-crashPid, "SIGKILL");
-    } catch {}
-  }
-  await rm(directory, {
-    recursive: true,
-    force: true,
-    maxRetries: 10,
-    retryDelay: 100,
-  });
 }

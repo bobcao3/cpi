@@ -1,7 +1,7 @@
 import { hostCodingAgent, hostTui } from "../bin/host-pi.mjs";
 
-const [{ ToolExecutionComponent }, { TuiMainScreen, ProcessTerminal }] =
-  await Promise.all([hostCodingAgent(), hostTui()]);
+const { ToolExecutionComponent } = await hostCodingAgent();
+const { TuiMainScreen, ProcessTerminal } = await hostTui();
 
 export function create_render_probe({ session, manager, theme, work }) {
   const run = async (id, code, on_update) => {

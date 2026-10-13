@@ -1,6 +1,5 @@
 import { randomBytes } from "node:crypto";
 import { chmodSync, lstatSync, mkdirSync, unlinkSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { resolveRuntimeDir } from "./runtime-dir.ts";
 
@@ -10,7 +9,7 @@ function privateShortRuntimeDir(): string {
   const uid = process.getuid?.();
   if (typeof uid !== "number")
     throw new Error("no numeric uid for private subagent RPC directory");
-  const dir = join(tmpdir(), `cpi-subagent-${uid}`);
+  const dir = join("/tmp", `cpi-subagent-${uid}`);
   try {
     mkdirSync(dir, { mode: 0o700 });
   } catch {}
