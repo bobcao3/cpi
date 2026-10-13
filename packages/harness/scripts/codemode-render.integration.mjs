@@ -142,8 +142,7 @@ text({files:files.length, exit:failure.exit_code, blocked:blocked.status});
       session.getToolDefinition(name),
     );
   assert.doesNotMatch(visible, /const failure = await tools\.sh/);
-  assert.match(visible, /read.*alpha\.txt.*2 lines/i);
-  assert.match(visible, /中文 beta\.txt.*3 lines/);
+  assert.match(visible, /Read.*2 files/i);
   assert.match(visible, /Compact success/);
   assert.match(visible, /exit 7/i);
   assert.doesNotMatch(visible, /expected-failure/);
@@ -190,6 +189,8 @@ text({files:files.length, exit:failure.exit_code, blocked:blocked.status});
   });
   const expanded = render(definition, "render-main", script, result, true);
   assert(expanded.length > collapsed.length);
+  assert.match(plain(expanded), /alpha\.txt.*2 lines/i);
+  assert.match(plain(expanded), /中文 beta\.txt.*3 lines/);
   assert.match(plain(expanded), /const failure = await tools\.sh/);
   assert.match(plain(expanded), /expected-failure/);
   assert.doesNotMatch(expanded.join("\n"), /\x1b\[(?:48;|4[0-7](?:;|m))/);
@@ -328,7 +329,7 @@ finally { await tools.sh_signal({id:shell.id,signal:"SIGKILL"}); }
   );
   assert.match(
     plain(render(definitions().get("codemode"), "render-main", script, saved)),
-    /read.*alpha\.txt.*2 lines/i,
+    /Read.*2 files/i,
   );
   const wait = definitions().get("wait_any");
   const wait_ui = new tui.TuiMainScreen(new tui.ProcessTerminal());

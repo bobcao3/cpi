@@ -1,6 +1,5 @@
 import "@cpi/cli/bootstrap";
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
 import { createServer } from "node:http";
 import { once } from "node:events";
 import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
@@ -9,6 +8,7 @@ import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { hostCodingAgent, piExecutableOnPath } from "../bin/host-pi.mjs";
 import { isolateAgent, packagePath } from "./test-runtime.mjs";
+import { terminalCapture } from "./harness/terminal-capture.mjs";
 
 const name = `cpi-runtime-status-${process.pid}`;
 const directory = await mkdtemp(join(tmpdir(), `${name}-`));
@@ -16,13 +16,9 @@ const agentDir = join(directory, "agent");
 await mkdir(agentDir);
 const restore = isolateAgent(agentDir);
 const quote = (text) => `'${text.replaceAll("'", "'\\''")}'`;
-const tmux = (...args) =>
-  execFileSync("tmux", args, { encoding: "utf8", timeout: 5000 });
-const capture = () => tmux("capture-pane", "-t", name, "-p");
-const send = (text) => {
-  tmux("send-keys", "-t", name, "-l", text);
-  tmux("send-keys", "-t", name, "Enter");
-};
+const terminal = terminalCapture(name, directory);
+const capture = () => terminal.capture();
+const send = (text) => terminal.send(text);
 const gates = new Map();
 const release = (key) => {
   gates.get(key)?.();
@@ -36,6 +32,7 @@ async function until(key, check, limit = 200) {
     const screen = capture();
     if (await check(screen)) {
       captures[key] = screen;
+      terminal.save(key, screen);
       return screen;
     }
     await delay(50);
@@ -157,26 +154,10 @@ export default function(pi) {
   );
   const marker = (key) =>
     writeFile(join(directory, `${key}.release`), "release");
-  const record = join(directory, "terminal.ansi");
-  await writeFile(record, "");
-  tmux(
-    "new-session",
-    "-d",
-    "-s",
-    name,
-    "-x",
-    "140",
-    "-y",
-    "40",
-    "-c",
-    directory,
-    "/bin/sh",
-  );
-  launched = true;
-  tmux("pipe-pane", "-o", "-t", name, `cat > ${quote(record)}`);
-  send(
+  terminal.start(
     `env NODE_OPTIONS=${quote(process.env.NODE_OPTIONS ?? "")} CPI_FORK=${quote(process.env.CPI_FORK ?? "")} JITI_ALIAS=${quote(process.env.JITI_ALIAS ?? "{}")} PI_OFFLINE=1 PI_SKIP_VERSION_CHECK=1 CPI_CODING_AGENT_DIR=${quote(agentDir)} ${quote(process.execPath)} ${quote(piExecutableOnPath())} --approve --no-session --no-context-files --no-extensions --provider local --model fixture --tools fixture_work,wait_any -e ${quote(packagePath("src/core.ts"))} -e ${quote(packagePath("src/wait-any.ts"))} -e ${quote(extension)}`,
   );
+  launched = true;
   await until("startup", (screen) => screen.includes("RUNTIME_READY"));
   send("Exercise all runtime states.");
   await until(
@@ -196,11 +177,12 @@ export default function(pi) {
       .includes("── Waiting on harness"),
   );
   const color = await readFile(join(directory, "muted.ansi"), "utf8");
-  const styled = tmux("capture-pane", "-t", name, "-p", "-e")
+  const styled = terminal
+    .capture(true)
     .split("\n")
     .find((line) => line.includes("Waiting on harness"));
   for (const code of color.match(/\x1b\[[0-9;]*m/g) ?? [])
-    if (code !== "\x1b[39m")
+    if (terminal.mode === "tmux" && code !== "\x1b[39m")
       assert.ok(
         styled.includes(code),
         `Expected muted status: ${JSON.stringify(styled)}`,
@@ -212,7 +194,7 @@ export default function(pi) {
       /^[●◉○] Waiting on harness/m.test(screen) &&
       screen.split("\n")[pinned][0] !== frame,
   );
-  tmux("send-keys", "-t", name, "PageUp");
+  terminal.key("PageUp");
   await until(
     "scrolled",
     (screen) =>
@@ -223,7 +205,7 @@ export default function(pi) {
     captures.scrolled.split("\n")[pinned],
     /^[●◉○] Waiting on harness/,
   );
-  tmux("send-keys", "-t", name, "PageDown");
+  terminal.key("PageDown");
   await marker("context");
   await until(
     "api",
@@ -298,7 +280,7 @@ export default function(pi) {
     (screen) =>
       gates.has("api-4") && screen.includes("Waiting for API response"),
   );
-  tmux("send-keys", "-t", name, "Escape");
+  terminal.key("Escape");
   await until(
     "cancelled",
     (screen) =>
@@ -323,7 +305,7 @@ export default function(pi) {
   );
 } finally {
   for (const key of [...gates.keys()]) release(key);
-  if (launched) tmux("kill-session", "-t", name);
+  if (launched) terminal.stop();
   server.closeAllConnections();
   await new Promise((resolve) => server.close(resolve));
   restore();
