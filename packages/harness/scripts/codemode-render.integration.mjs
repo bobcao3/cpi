@@ -133,7 +133,8 @@ text({files:files.length, exit:failure.exit_code, blocked:blocked.status});
   const collapsed = render(definition, "render-main", script, result);
   const visible = plain(collapsed);
   assert.doesNotMatch(collapsed.join("\n"), /\x1b\[(?:48;|4[0-7](?:;|m))/);
-  assert.match(visible, /Code mode.*JavaScript · \d+ lines/);
+  assert.match(visible, /Script.*JavaScript · \d+ lines/);
+  assert.doesNotMatch(visible, /Code mode.*JavaScript/);
   assert.doesNotMatch(visible, /^\s*[\d.]+s(?: · \$[\d.]+)?\s*$/m);
   const tree_context = context("render-main", script);
   tree_context.state.toolRenderers = (name) =>

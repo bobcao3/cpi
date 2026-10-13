@@ -28,6 +28,12 @@ export const codemode_renderers: Pick<
       ).length ?? 0;
     const cost =
       details?.calls.reduce((total, call) => total + (call.cost ?? 0), 0) ?? 0;
+    const activity = [
+      running ? `${running} running` : "",
+      failed ? `${failed} failed` : "",
+    ]
+      .filter(Boolean)
+      .join(" · ");
     const children: ToolTreeNode[] = [
       script_node(context.toolCallId, code, theme),
     ];
@@ -99,7 +105,7 @@ export const codemode_renderers: Pick<
           id: context.toolCallId,
           label: theme.fg("toolTitle", theme.bold("Code mode")),
           defaultOpen: true,
-          summary: `JavaScript · ${code ? code.trimEnd().split("\n").length : 0} lines${running ? ` · ${running} running` : ""}${failed ? ` · ${failed} failed` : ""}`,
+          summary: activity || undefined,
           metadata: [
             ...(snapshot.durationMs === undefined
               ? []
