@@ -5,6 +5,7 @@ import { readFile, readdir } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { archive_manifest } from "./registry-archive.mjs";
 import { registry_repository } from "./registry-manifest.mjs";
+import { release_assets, verify_release_tag } from "./release-registry.mjs";
 
 assert.equal(
   process.argv.length,
@@ -89,6 +90,8 @@ for (const pkg of packages) {
     );
   }
 }
+await release_assets(directory, process.env.GITHUB_REF_NAME);
+verify_release_tag();
 for (const pkg of pending) {
   const result = spawnSync(
     "npm",

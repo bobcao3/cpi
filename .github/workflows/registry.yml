@@ -121,6 +121,8 @@ jobs:
           pattern: registry-verification-*
           path: ${{ runner.temp }}/registry/verification
       - name: Publish dependencies before the CLI
+        env:
+          GH_TOKEN: ${{ github.token }}
         run:
           node packages/cli/scripts/publish-registry.mjs "${{ runner.temp
           }}/registry"

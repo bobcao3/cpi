@@ -72,7 +72,7 @@ function gh(args, missing = false) {
   return result.stdout;
 }
 
-async function publish(directory) {
+export function verify_release_tag() {
   assert.equal(
     process.env.GITHUB_ACTIONS,
     "true",
@@ -81,7 +81,7 @@ async function publish(directory) {
   assert.equal(process.env.GITHUB_REPOSITORY, repository);
   assert.equal(process.env.GITHUB_REF_TYPE, "tag");
   const tag = process.env.GITHUB_REF_NAME;
-  const assets = await release_assets(directory, tag);
+  assert(tag, "Release tag is unavailable");
   const revision = process.env.GITHUB_SHA;
   assert.match(revision, /^[a-f0-9]{40}$/);
   let object = JSON.parse(
@@ -93,6 +93,12 @@ async function publish(directory) {
     ).object;
   assert.equal(object.type, "commit", "Tag nesting exceeds its limit");
   assert.equal(object.sha, revision, "Tag moved after verification");
+  return tag;
+}
+
+async function publish(directory) {
+  const tag = verify_release_tag();
+  const assets = await release_assets(directory, tag);
   const endpoint = `repos/${repository}/releases/tags/${tag}`;
   let response = gh(["api", endpoint], true);
   if (!response) {
