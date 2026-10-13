@@ -23,11 +23,12 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     env:
-      CPI_FORK: ${{ runner.temp }}/no-editable-fork
       PI_OFFLINE: "1"
       npm_config_ignore_scripts: "true"
-      ARTIFACT_DIRECTORY: ${{ runner.temp }}/verified-pi-release
     steps:
+      - name: Set isolated verification paths
+        run: |
+          printf 'CPI_FORK=%s/no-editable-fork\nARTIFACT_DIRECTORY=%s/verified-pi-release\n' "$RUNNER_TEMP" "$RUNNER_TEMP" >> "$GITHUB_ENV"
       - name: Mint a repository-scoped GitHub App token
         id: app-token
         uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
