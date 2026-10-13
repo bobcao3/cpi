@@ -14,6 +14,7 @@ import {
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { transform } from "esbuild";
 import { verifyReleaseLock } from "./verify-lock.mjs";
 import { verifyPiGraph } from "./verify-pi-graph.mjs";
 
@@ -43,12 +44,29 @@ export async function stageInstalledFixtures(extensions, cli = "@cpi/cli") {
     "footer-layout.integration.mjs",
     "object-tree.integration.mjs",
     "migration-visual.integration.mjs",
+    "fork-probe-shell.integration.test.mjs",
+    "local-fixture.mjs",
+    "shell-persistence.integration.helper.mjs",
+    "harness/test-fork-probe-output.ts",
   ]) {
     const text = (await readFile(join(source, name), "utf8"))
-      .replaceAll("@cpi/cli/bootstrap", `${cli}/bootstrap`)
-      .replace(/(["'`])(\.\.\/)?src\//g, "$1$2dist/")
+      .replaceAll("@cpi/cli", cli)
+      .replace(/(["'`])((?:\.\.\/)*)src\//g, "$1$2dist/")
       .replace(/\.ts(["'`])/g, ".js$1");
-    await writeFile(join(scripts, name), text);
+    const target = join(scripts, name.replace(/\.ts$/, ".mjs"));
+    await mkdir(dirname(target), { recursive: true });
+    await writeFile(
+      target,
+      name.endsWith(".ts")
+        ? (
+            await transform(text, {
+              loader: "ts",
+              format: "esm",
+              target: "es2022",
+            })
+          ).code
+        : text,
+    );
   }
   return scripts;
 }

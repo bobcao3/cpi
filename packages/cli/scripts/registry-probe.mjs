@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { dirname, join } from "node:path";
 import { readFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
@@ -27,6 +27,17 @@ const extensions = createRequire(
     require.resolve("@cpi/harness/package.json"),
 );
 const aliases = JSON.parse(process.env.JITI_ALIAS || "{}");
+const pi_entry =
+  aliases["@earendil-works/pi-coding-agent"] ??
+  fileURLToPath(import.meta.resolve("@earendil-works/pi-coding-agent"));
+const pi_config = await load(join(dirname(pi_entry), "config.js"));
+assert.equal(pi_config.APP_NAME, "cpi");
+assert.equal(pi_config.VERSION, manifest.version);
+assert.equal(
+  pi_config.detectInstallChange(),
+  undefined,
+  "Fresh cpi startup must not report a Pi runtime update",
+);
 const ghostmux = await load(
   aliases["@cpi/ghostmux"] ?? extensions.resolve("@cpi/ghostmux"),
 );

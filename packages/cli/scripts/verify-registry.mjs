@@ -191,6 +191,8 @@ try {
       "codemode-render.integration.mjs",
       "footer-layout.integration.mjs",
       "codemode-wait.integration.test.mjs",
+      "fork-probe-shell.integration.test.mjs",
+      "harness/test-fork-probe-output.mjs",
     ]) {
       const runtime = manager === "npm" ? process.execPath : "bun";
       console.log(
