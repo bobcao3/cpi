@@ -66,6 +66,10 @@
         "search": "^(.+[Gg][Ll][Mm][^:]*):[^:]*$",
         "replace": "$1:high"
       },
+      {
+        "search": "(muse-(?:spark|wonder)[^:]*):[^:]*$",
+        "replace": "$1:low"
+      },
       { "search": "^(.+):(high|xhigh|max)$", "replace": "$1:medium" }
     ]
   },

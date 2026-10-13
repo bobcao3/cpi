@@ -169,13 +169,10 @@ export default function(pi) {
   );
   const pinned = captures.context
     .split("\n")
-    .findIndex((line) => /^[●◉○] Waiting on harness/.test(line));
+    .findIndex((line) => /^── [●◉○] Waiting on harness/.test(line));
   assert.ok(pinned >= 0);
-  assert.ok(
-    !captures.context
-      .slice(captures.context.indexOf("Waiting on harness"))
-      .includes("── Waiting on harness"),
-  );
+  assert.doesNotMatch(captures.context, /↑0 ↓0 R0 CH0\.0%/);
+  assert.match(captures.context.split("\n")[pinned], /\/128k ──$/);
   const color = await readFile(join(directory, "muted.ansi"), "utf8");
   const styled = terminal
     .capture(true)
@@ -187,23 +184,23 @@ export default function(pi) {
         styled.includes(code),
         `Expected muted status: ${JSON.stringify(styled)}`,
       );
-  const frame = captures.context.split("\n")[pinned][0];
+  const frame = captures.context.split("\n")[pinned][3];
   await until(
     "animation",
     (screen) =>
-      /^[●◉○] Waiting on harness/m.test(screen) &&
-      screen.split("\n")[pinned][0] !== frame,
+      /^── [●◉○] Waiting on harness/m.test(screen) &&
+      screen.split("\n")[pinned][3] !== frame,
   );
   terminal.key("PageUp");
   await until(
     "scrolled",
     (screen) =>
       screen.includes("History line") &&
-      /^[●◉○] Waiting on harness/m.test(screen),
+      /^── [●◉○] Waiting on harness/m.test(screen),
   );
   assert.match(
     captures.scrolled.split("\n")[pinned],
-    /^[●◉○] Waiting on harness/,
+    /^── [●◉○] Waiting on harness/,
   );
   terminal.key("PageDown");
   await marker("context");
@@ -268,7 +265,9 @@ export default function(pi) {
   await until(
     "idle",
     (screen) =>
-      screen.includes("RUNTIME_STATUS_VERIFIED") && !/^[●◉○] /m.test(screen),
+      screen.includes("RUNTIME_STATUS_VERIFIED") &&
+      /^── ↑/m.test(screen) &&
+      !/^── [●◉○] /m.test(screen),
   );
   send("Wait for an event.");
   await until("waiting", (screen) =>
@@ -284,9 +283,34 @@ export default function(pi) {
   await until(
     "cancelled",
     (screen) =>
-      !/^[●◉○] /m.test(screen) && !screen.includes("Waiting for API response"),
+      /^── ↑/m.test(screen) &&
+      !/^── [●◉○] /m.test(screen) &&
+      !screen.includes("Waiting for API response"),
   );
   release("api-4");
+  for (const key of [
+    "context",
+    "api",
+    "thinking",
+    "stream",
+    "tool-writing",
+    "turn",
+    "writing",
+    "message",
+    "settlement",
+    "waiting",
+    "resume",
+  ]) {
+    const lines = captures[key].split("\n");
+    assert.equal(
+      lines.filter((line) => /^── [●◉○] /.test(line)).length,
+      1,
+      key,
+    );
+    assert.doesNotMatch(captures[key], /^── ↑|^[●◉○] /m, key);
+  }
+  assert.match(captures.tool, /^── ↑/m);
+  assert.doesNotMatch(captures.tool, /^[●◉○] /m);
   send("/debug");
   await until("debug", (screen) => screen.includes("Debug log written"));
   const { APP_NAME } = await hostCodingAgent();
@@ -301,7 +325,7 @@ export default function(pi) {
     JSON.stringify(captures, null, 2),
   );
   console.log(
-    `PASS actual TUI: muted pinned status, animation, scrolling, context, API, thinking/writing reply/tool call ch/s, provider average tok/s, hidden tool activity, queued steering, blocking handlers, waiting, cancellation, and debug timings. Artifacts: ${directory}`,
+    `PASS actual TUI: embedded status replaces usage, idle/cancel restore usage, muted animation, scrolling, context, API, thinking/writing reply/tool call ch/s, provider average tok/s, hidden tool activity, queued steering, blocking handlers, waiting, and debug timings. Artifacts: ${directory}`,
   );
 } finally {
   for (const key of [...gates.keys()]) release(key);

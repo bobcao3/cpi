@@ -199,8 +199,8 @@ try {
   file(join(hugeCwd, "AGENTS.md"), "x".repeat(128 * 1024 + 1));
   const limits = SessionManager.inMemory(cwd);
   user(limits, "limit fixture");
-  await assert.rejects(
-    collectReferences(limits.getBranch(), { ...options, cwd: hugeCwd }),
+  assert.throws(
+    () => collectReferences(limits.getBranch(), { ...options, cwd: hugeCwd }),
     /128|limit|exceed/i,
   );
   const state: RuntimeSnapshot = {

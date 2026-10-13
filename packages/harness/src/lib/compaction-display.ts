@@ -3,7 +3,10 @@ import type {
   ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import { Container, Text } from "@earendil-works/pi-tui";
-import { checkpointFromEntry } from "./compaction-checkpoint.ts";
+import {
+  checkpointBoundaryIndex,
+  checkpointFromEntry,
+} from "./compaction-checkpoint.ts";
 import { loadText, render, textPath } from "./text.ts";
 
 export const COMPACTION_FEEDBACK = "cpi-compaction-feedback";
@@ -41,14 +44,17 @@ function compactionView(pi: ExtensionAPI) {
     let index = branch.length - 1;
     while (index >= 0 && branch[index].type !== "compaction") index--;
     const entry = branch[index];
-    if (!entry || entry.type !== "compaction" || !checkpointFromEntry(entry))
-      return current;
+    if (!entry || entry.type !== "compaction") return current;
+    const checkpoint = checkpointFromEntry(entry);
+    if (!checkpoint) return current;
     current.id = entry.id;
     const start = branch.findIndex(
       (item) => item.id === entry.firstKeptEntryId,
     );
     if (start < 0) return current;
-    for (let i = start; i < index; i++) {
+    const boundary = checkpointBoundaryIndex(branch, index, checkpoint);
+    if (boundary < start || boundary >= index) return current;
+    for (let i = start; i <= boundary; i++) {
       const item = branch[i];
       if (
         item.type !== "custom_message" ||

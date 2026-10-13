@@ -116,10 +116,10 @@ function limit_error(path: string, limit: string): never {
   throw new Error(render(reference_text.warning.limit, { path, limit }));
 }
 
-export async function collectReferences(
+export function collectReferences(
   branch: readonly SessionEntry[],
   options: { cwd: string; systemFiles: readonly string[]; trusted: boolean },
-): Promise<ReferenceBundle> {
+): ReferenceBundle {
   const documents: ReferenceDocument[] = [];
   const warnings: string[] = [];
   const historical_projects = new Set<string>();

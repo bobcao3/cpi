@@ -64,12 +64,15 @@ export class PromptEditor extends CustomEditor {
     if (!content || width < 1)
       return super.renderTopBorder(width, hiddenLineCount);
     const { usage } = content;
+    const working = this.workingStatusIndicator?.kind === "working";
     const compacting = this.workingStatusIndicator?.kind === "compaction";
     const status = compacting
       ? `Compacting (${formatTokens(compactionTokens() ?? 0)} tokens)`
-      : `↑${formatTokens(usage.input)} ↓${formatTokens(usage.output)} R${formatTokens(usage.cacheRead)}` +
-        (usage.cacheWrite ? ` W${formatTokens(usage.cacheWrite)}` : "") +
-        ` CH${(content.cacheHitRate ?? 0).toFixed(1)}%`;
+      : working
+        ? this.workingStatusIndicator!.renderInBorder(width)
+        : `↑${formatTokens(usage.input)} ↓${formatTokens(usage.output)} R${formatTokens(usage.cacheRead)}` +
+          (usage.cacheWrite ? ` W${formatTokens(usage.cacheWrite)}` : "") +
+          ` CH${(content.cacheHitRate ?? 0).toFixed(1)}%`;
     const percent =
       content.contextPercent === null
         ? "?"
@@ -81,13 +84,17 @@ export class PromptEditor extends CustomEditor {
         context,
       );
     } else context = this.borderColor(context);
-    const spinner = this.workingStatusIndicator?.renderSpinnerInBorder(2) ?? "";
+    const spinner = working
+      ? ""
+      : (this.workingStatusIndicator?.renderSpinnerInBorder(2) ?? "");
     const slot = spinner
       ? spinner + " ".repeat(2 - visibleWidth(spinner)) + " "
       : "";
     const colored_status = compacting
       ? this.app_theme().fg("muted", status)
-      : this.borderColor(status);
+      : working
+        ? status
+        : this.borderColor(status);
     const left = this.borderColor("── ") + slot + colored_status + " ";
     const right = ` ${context} ${this.borderColor("──")}`;
     const right_width = visibleWidth(right);

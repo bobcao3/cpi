@@ -20,6 +20,7 @@ type AgentMessage = ContextEvent["messages"][number];
 
 export interface ContextCheckpoint extends Omit<ReferenceBundle, "documents"> {
   version: typeof CHECKPOINT_VERSION;
+  boundaryId?: string;
   documents: Omit<ReferenceDocument, "content">[];
   state: RuntimeSnapshot;
   content: string;
@@ -32,6 +33,7 @@ interface CheckpointText {
 export function buildCheckpoint(
   references: ReferenceBundle,
   state: RuntimeSnapshot,
+  boundaryId?: string,
 ): ContextCheckpoint {
   const text = loadText<CheckpointText>("compaction", textPath("compaction"));
   const documents = references.documents.map((document) =>
@@ -52,11 +54,22 @@ export function buildCheckpoint(
   );
   return {
     version: CHECKPOINT_VERSION,
+    ...(boundaryId ? { boundaryId } : {}),
     documents: manifest,
     warnings: references.warnings,
     state,
     content,
   };
+}
+
+export function checkpointBoundaryIndex(
+  branch: SessionEntry[],
+  compaction_index: number,
+  checkpoint: ContextCheckpoint,
+): number {
+  return checkpoint.boundaryId === undefined
+    ? compaction_index - 1
+    : branch.findIndex((entry) => entry.id === checkpoint.boundaryId);
 }
 
 export function checkpointFromEntry(
@@ -121,9 +134,11 @@ export function projectCheckpoint(
     (item) => item.id === entry.firstKeptEntryId,
   );
   if (kept_start < 0 || kept_start > index) return messages;
+  const boundary = checkpointBoundaryIndex(branch, index, checkpoint);
+  if (boundary < kept_start || boundary >= index) return messages;
   const kept_keys = new Set(
     branch
-      .slice(kept_start, index)
+      .slice(kept_start, boundary + 1)
       .flatMap(sessionEntryToContextMessages)
       .map(messageKey),
   );

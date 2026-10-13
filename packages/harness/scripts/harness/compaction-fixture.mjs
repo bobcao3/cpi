@@ -8,15 +8,23 @@ export async function compactionFixture(skillMarker, projectMarker) {
   fixture = await localFixture(
     (body) => {
       const text = JSON.stringify(body.messages);
-      if (!body.tools?.length) {
+      const summaryTool = body.tools?.find(
+        (tool) => tool.function.name === "summarize_context",
+      );
+      if (!body.tools?.length || summaryTool) {
         summaries++;
-        return {
-          content: JSON.stringify({
-            summary:
-              "## Goal\nPreserve TASK_FACT_AMBER_9137.\n## Progress\nAfter set_cwd, reread checkpoint-live and report the skill and project verification markers.\n## Next Steps\nReload checkpoint-live before answering.",
-            relevant_skills: ["checkpoint-live"],
-          }),
+        const checkpoint = {
+          summary:
+            "## Goal\nPreserve TASK_FACT_AMBER_9137.\n## Progress\nAfter set_cwd, reread checkpoint-live and report the skill and project verification markers.\n## Next Steps\nReload checkpoint-live before answering.",
+          relevant_skills: ["checkpoint-live"],
         };
+        return summaryTool
+          ? {
+              tools: [{ name: "summarize_context", args: checkpoint }],
+            }
+          : {
+              content: JSON.stringify(checkpoint),
+            };
       }
       if (text.includes("The integration task is complete"))
         return { content: "READY" };

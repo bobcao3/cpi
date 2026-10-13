@@ -9,17 +9,19 @@ import {
 import { Type } from "typebox";
 import {
   convertToLlm,
+  buildSessionProjection,
   estimateTokens,
   serializeConversation,
-  sessionEntryToContextMessages,
   SettingsManager,
   type ExtensionAPI,
   type ExtensionContext,
   type SessionBeforeCompactEvent,
   type Skill,
+  type SessionEntry,
 } from "@earendil-works/pi-coding-agent";
 import { discoverAgentsPaths } from "./agents.ts";
 import { getCwd } from "./cwd.ts";
+import { compactionBoundary } from "./compaction-boundary.ts";
 import { registerCompactionDisplay } from "./compaction-display.ts";
 import {
   collectReferences,
@@ -137,19 +139,21 @@ function summaryBudget(
   checkpoint: ContextCheckpoint,
   text: CompactionText,
   tools_tokens: number,
+  branch: SessionEntry[],
 ): number {
-  const { preparation, branchEntries } = event;
+  const { preparation } = event;
   const model = ctx.model;
   if (!model) throw new Error("Compaction requires an active model");
-  const kept_start = branchEntries.findIndex(
-    (entry) => entry.id === preparation.firstKeptEntryId,
+  const entries = buildSessionProjection(branch).entries;
+  const kept_start = entries.findIndex(
+    (entry) => entry.sourceEntry.id === preparation.firstKeptEntryId,
   );
   if (kept_start < 0)
     throw new Error(
       "Compaction kept boundary is absent from the active branch",
     );
   const kept = stripReferenceBodies(
-    branchEntries.slice(kept_start).flatMap(sessionEntryToContextMessages),
+    entries.slice(kept_start).flatMap((entry) => entry.messages),
     checkpoint.documents,
   );
   const restoration = estimateTokens({
@@ -325,38 +329,47 @@ export function registerCompaction(pi: ExtensionAPI): void {
   pi.on("session_before_compact", async (event, ctx) => {
     const text = loadText<CompactionText>("compaction", textPath("compaction"));
     try {
-      if (event.branchEntries.length > 200_000)
-        throw new Error("Compaction branch exceeds 200000 entries");
-      const session_id = ctx.sessionManager.getSessionId();
-      const branch_leaf = event.branchEntries.at(-1)?.id;
-      const references = await collectReferences(event.branchEntries, {
-        cwd: getCwd(),
-        systemFiles: system_files,
-        trusted: ctx.isProjectTrusted(),
-      });
-      let checkpoint = buildCheckpoint(references, collectRuntimeState(ctx));
+      const boundary = compactionBoundary(event, ctx);
+      const references = (branch: SessionEntry[]) =>
+        collectReferences(branch, {
+          cwd: getCwd(),
+          systemFiles: system_files,
+          trusted: ctx.isProjectTrusted(),
+        });
+      const initial_references = references(event.branchEntries);
+      let checkpoint = buildCheckpoint(
+        initial_references,
+        collectRuntimeState(ctx),
+        boundary.id,
+      );
       const result = await summarizeTask(
         event,
         ctx,
-        references,
+        initial_references,
         available_skills,
-        summaryBudget(event, ctx, checkpoint, text, toolTokens(pi)),
+        summaryBudget(
+          event,
+          ctx,
+          checkpoint,
+          text,
+          toolTokens(pi),
+          event.branchEntries,
+        ),
         text,
       );
       if (event.signal.aborted) throw event.signal.reason;
-      if (
-        ctx.sessionManager.getSessionId() !== session_id ||
-        ctx.sessionManager.getLeafId() !== branch_leaf
-      ) {
-        throw new Error(text.errors.changed);
-      }
-      checkpoint = buildCheckpoint(references, collectRuntimeState(ctx));
+      const branch = boundary.current(text.errors.changed);
+      checkpoint = buildCheckpoint(
+        references(branch),
+        collectRuntimeState(ctx),
+        boundary.id,
+      );
       if (
         estimateTokens({
           role: "user",
           content: result.summary,
           timestamp: 0,
-        }) > summaryBudget(event, ctx, checkpoint, text, toolTokens(pi))
+        }) > summaryBudget(event, ctx, checkpoint, text, toolTokens(pi), branch)
       ) {
         throw new Error(text.errors.budget);
       }
