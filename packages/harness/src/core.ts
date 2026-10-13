@@ -113,7 +113,7 @@ export default function coreExtension(pi: ExtensionAPI): void {
   pi.on("turn_start", (event, ctx) => statusReportTurnStarted(event, ctx));
   pi.on("turn_end", (event, ctx) => {
     setLastOutcome(event.outcome);
-    statusReportTurnEnded(pi, event, ctx);
+    return statusReportTurnEnded(pi, event, ctx);
   });
 
   // Sole systemPrompt return across cpi — no other handler returns one.
