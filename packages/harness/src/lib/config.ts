@@ -104,7 +104,15 @@ export interface LspConfig {
   servers: LspServersConfig;
   tools: LspToolsConfig;
 }
+export interface MermaidConfig {
+  compact: boolean;
+  paddingX: number;
+  paddingY: number;
+  boxBorderPadding: number;
+}
+
 export interface CpiConfig {
+  mermaid?: MermaidConfig;
   forkProbe?: { substitutions?: ForkProbeModelRule[] };
   shell?: ShellConfig;
   editor?: EditorConfig;
@@ -221,6 +229,22 @@ export function loadShellConfig(cwd: string = getCwd()): ShellConfig {
     updateMs: intInRange(s.updateMs, d.updateMs, 0, 60000),
     tailLines: intInRange(s.tailLines, d.tailLines, 1, 200),
     describeMax: intInRange(s.describeMax, d.describeMax, 8, 200),
+  };
+}
+
+export function loadMermaidConfig(cwd: string = getCwd()): MermaidConfig {
+  const config = loadCpiConfig(cwd).mermaid;
+  const defaults = loadDefaultConfig().mermaid!;
+  return {
+    compact: bool(config?.compact, defaults.compact),
+    paddingX: intInRange(config?.paddingX, defaults.paddingX, 3, 20),
+    paddingY: intInRange(config?.paddingY, defaults.paddingY, 3, 20),
+    boxBorderPadding: intInRange(
+      config?.boxBorderPadding,
+      defaults.boxBorderPadding,
+      0,
+      4,
+    ),
   };
 }
 

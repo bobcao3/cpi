@@ -10,13 +10,17 @@ import { stripTerminalSequences } from "@earendil-works/pi-tui";
 import { toolTreeTicker } from "../presentation/registry.ts";
 import { render_thinking_summary } from "./thinking-summary.ts";
 
-function message(thinking: string): AssistantMessage {
+function message(
+  thinking: string,
+  provider = "openai",
+  model = "gpt-6.1-sol",
+): AssistantMessage {
   return {
     role: "assistant",
     content: [{ type: "thinking", thinking }],
     api: "openai-responses",
-    provider: "openai",
-    model: "gpt-6.1-sol",
+    provider,
+    model,
     usage: {
       input: 0,
       output: 0,
@@ -163,5 +167,73 @@ test(
     component.updateContent(message("**Final answer**"), true);
     component.updateContent(message("**Final answer**"), false);
     assert.equal(title(component), "💡▸ Thinking: Final answer");
+  },
+);
+
+test(
+  "unformatted Muse title lines animate toward the newest streamed line",
+  { timeout: 2000 },
+  async (context) => {
+    initTheme("dark");
+    context.after(() => toolTreeTicker.dispose());
+    let finish: () => void = () => {};
+    const complete = new Promise<void>((resolve) => {
+      finish = resolve;
+    });
+    const frames: string[] = [];
+    const component = new AssistantMessageComponent(
+      undefined,
+      false,
+      undefined,
+      "Thinking...",
+      1,
+      [],
+      render_thinking_summary,
+      () => {
+        const current = title(component);
+        if (!current) return;
+        frames.push(current);
+        if (current === "💡▸ Thinking: Applying constraints") finish();
+      },
+    );
+    component.updateContent(
+      message("Analyzing constraints", "meta", "muse-spark-1.3"),
+      true,
+    );
+    assert.equal(title(component), "💡▸ Thinking: Analyzing constraints");
+    component.updateContent(
+      message("Analyzing constraints\n\nApplying", "meta", "muse-spark-1.3"),
+      true,
+    );
+    component.updateContent(
+      message(
+        "Analyzing constraints\n\nApplying constraints",
+        "meta",
+        "muse-spark-1.3",
+      ),
+      true,
+    );
+    await complete;
+    assert.ok(frames.length > 0);
+    assert.ok(frames.every((frame) => !frame.includes("Summary")));
+    assert.equal(title(component), "💡▸ Thinking: Applying constraints");
+    component.updateContent(
+      message(
+        "Analyzing constraints\n\nApplying constraints",
+        "meta",
+        "muse-spark-1.3",
+      ),
+      false,
+    );
+    component.setHideThinkingBlock(false);
+    const visible = component
+      .render(80)
+      .map((line) => stripTerminalSequences(line).trimEnd())
+      .filter(Boolean);
+    assert.deepEqual(visible, [
+      "💡▾ Thinking",
+      "    ├─  Analyzing constraints",
+      "    └─  Applying constraints",
+    ]);
   },
 );

@@ -14,9 +14,12 @@ function parse_sections(
 ): ThinkingSection[] {
   const sections: ThinkingSection[] = [];
   let current: ThinkingSection | undefined;
-  const tokens = parser.lexer(blocks.join("\n\n"));
+  let formatted_titles = false;
+  const text = blocks.join("\n\n");
+  const tokens = parser.lexer(text);
   for (const [token_index, token] of tokens.entries()) {
     if (token.type === "heading" && token.text.trim()) {
+      formatted_titles = true;
       current = { title: token.text.trim(), summary: "" };
       sections.push(current);
       continue;
@@ -39,6 +42,7 @@ function parse_sections(
           : null;
       const title = bold?.[1] ?? bold?.[2] ?? pending?.[1] ?? pending?.[2];
       if (title !== undefined) {
+        formatted_titles = true;
         current = { title: title.trim(), summary: "" };
         sections.push(current);
       } else if (part.trim() || current) {
@@ -49,6 +53,18 @@ function parse_sections(
         current.summary += part;
       }
     }
+  }
+  if (
+    !formatted_titles &&
+    tokens.every(
+      (token) => token.type === "paragraph" || token.type === "space",
+    )
+  ) {
+    return text
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .map((title) => ({ title, summary: "" }));
   }
   return sections;
 }

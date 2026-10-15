@@ -7,10 +7,16 @@ import { renderDiagnostics } from "../lib/lsp/diagnostics-overflow.ts";
 import { loadLspConfig } from "../lib/config.ts";
 import { loadEditorText, fmt } from "./text.ts";
 import { field } from "./result-xml.ts";
+import { check_mermaid_file } from "../mermaid/check.ts";
+import { mermaid_document } from "../mermaid/markdown.ts";
 
 /** Never throws: any failure degrades to "" — the edit already succeeded. Runs under the writer's per-path lock, so checkFile reads the just-written content. `abs` must be absolute. */
 export async function lspFields(abs: string): Promise<string> {
   try {
+    if (mermaid_document(abs)) {
+      const rendered = await renderDiagnostics(await check_mermaid_file(abs));
+      return rendered.text ? field("diagnostics", rendered.text) : "";
+    }
     const lang = languageByPath(abs);
     if (!lang) return "";
     const root = discoverProjectRoot(abs, lang);

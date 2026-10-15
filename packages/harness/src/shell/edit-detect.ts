@@ -38,6 +38,8 @@ const KNOWN_EXTS: ReadonlySet<string> = (() => {
   const s = new Set<string>();
   for (const lang of LSP_LANGUAGES)
     for (const e of LANGUAGE_EXTENSIONS[lang]) s.add(e);
+  for (const extension of [".md", ".markdown", ".mmd", ".mermaid"])
+    s.add(extension);
   assert(s.size > 0, "edit-detect: LANGUAGE_EXTENSIONS is empty");
   return s;
 })();

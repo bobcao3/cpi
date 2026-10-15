@@ -1,4 +1,10 @@
 {
+  "mermaid": {
+    "compact": true,
+    "paddingX": 3,
+    "paddingY": 3,
+    "boxBorderPadding": 1
+  },
   "shell": {
     "executable": "auto",
     "defaultWaitfor": 5,

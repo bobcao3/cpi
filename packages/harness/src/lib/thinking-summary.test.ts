@@ -181,6 +181,31 @@ test("title-only, untitled, fenced, and inline-bold summaries retain their conte
     assert.ok(body.includes(text));
 });
 
+test("unformatted thinking lines become title-only nodes instead of a Summary body", () => {
+  initTheme("dark");
+  const first =
+    "Analyzing style constraints and diagram requirements to frame a concise, active-voice explanation of the buddy allocator.";
+  const last =
+    "Applying style constraints to avoid prohibited phrasing and pronouns while structuring the buddy allocator explanation.";
+  const thinking = `${first}\r\n\r\n  ${last}\r\n`;
+  const original = message(thinking, "meta", "muse-spark-1.3");
+  const component = assistant(original, false);
+  assert.deepEqual(rows(component, 240), [`💡▸ Thinking: ${last}`]);
+  click(component, "Thinking");
+  assert.deepEqual(rows(component, 240), [
+    "💡▾ Thinking",
+    `    ├─  ${first}`,
+    `    └─  ${last}`,
+  ]);
+  component.setHideThinkingBlock(false);
+  assert.deepEqual(rows(component, 240), [
+    "💡▾ Thinking",
+    `    ├─  ${first}`,
+    `    └─  ${last}`,
+  ]);
+  assert.deepEqual(original.content, [{ type: "thinking", thinking }]);
+});
+
 test("separate thinking runs retain independent TreeView states without changing the transcript", () => {
   initTheme("dark");
   const original = message("**Before**");

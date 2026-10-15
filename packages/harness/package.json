@@ -29,6 +29,7 @@
     "LICENSE"
   ],
   "dependencies": {
+    "beautiful-mermaid": "1.1.3",
     "@cpi/ghostmux": "0.0.4",
     "@cpi/tree-sitter-wasm": "0.0.4",
     "mustache": "4.2.0",
