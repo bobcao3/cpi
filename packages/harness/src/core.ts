@@ -60,8 +60,10 @@ import {
 } from "./lib/anti-stuck.ts";
 import { isGoalActive } from "./lib/goal.ts";
 import { registerGoalProbe } from "./lib/goal-probe.ts";
+import { render_thinking_summary } from "./lib/thinking-summary.ts";
 
 export default function coreExtension(pi: ExtensionAPI): void {
+  pi.registerThinkingRenderer(render_thinking_summary);
   registerToolInspector(pi);
   injectSourcePaths();
   unregisterSystemPromptTransform("cpi-rules");

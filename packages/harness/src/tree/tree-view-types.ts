@@ -13,6 +13,8 @@ export type TreeStatus =
 export interface TreeNode {
   id: string;
   label: string;
+  collapsedLabel?: string;
+  icon?: string;
   labelJoined?: boolean;
   bodyInline?: boolean;
   summary?: string;
