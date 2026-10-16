@@ -29,6 +29,8 @@ Unless explicitly requested otherwise:
 
 [guidelines]
 always = [
+	"Prefer visual explanations, such as diagrams and charts, one good visual spares 1000 words. If something can be explained visually, show visual and don't write text.",
+	"Always use inline ```mmd``` blocks or link ![](path/to/diagram.mmd) to present supported diagrams instead of text ASCII art. Supported headers: flowchart, graph, sequenceDiagram, classDiagram, erDiagram, stateDiagram, stateDiagram-v2, xychart, xychart-beta (bar and line series).",
 	"Use `cpi`, never `pi`, for CLI commands, including examples from Pi docs. Use `subagent` for delegation.",
 	"Read schemas literally: number permits fractional values; integer does not. Never invent bounds/defaults or confuse documented runtime limits with schema keywords.",
 	"Speak with rigor and precision.",

@@ -31,6 +31,9 @@ import { loadLspConfig } from "./lib/config.ts";
 import { renderDiagnostics } from "./lib/lsp/diagnostics-overflow.ts";
 import { DIAGNOSTICS_FORMAT_MAX } from "./lib/lsp/diagnostics.ts";
 import { renderLspTree } from "./lsp-render.ts";
+import { check_mermaid_file } from "./mermaid/check.ts";
+import { mermaid_document } from "./mermaid/markdown.ts";
+import { mermaid_message } from "./mermaid/text.ts";
 import {
   loadText,
   render,
@@ -139,10 +142,12 @@ function doListSupportedServers() {
           : `${s.install.method}, auto-installed${version ? ` (${version})` : ""}`;
     return `${lang} (${exts}): ${s.binName} — ${install}`;
   });
-  return textResult(lines.join("\n"));
+  return textResult([...lines, mermaid_message("supported")].join("\n"));
 }
 
 async function doStart(p: LspParams) {
+  if (p.file && mermaid_document(p.file))
+    return textResult(mermaid_message("builtin"));
   const { language, root } = resolveTarget(p.file, p.project_dir);
   const cfg = loadLspConfig();
   const session = await ensureSession(language, root, { envPath: p.env });
@@ -171,6 +176,8 @@ async function doStart(p: LspParams) {
 }
 
 async function doStop(p: LspParams) {
+  if (p.file && mermaid_document(p.file))
+    return textResult(mermaid_message("builtin"));
   if (p.file) {
     const abs = resolveCwdPath(p.file);
     const lang = languageByPath(abs);
@@ -203,6 +210,19 @@ async function doCheck(p: LspParams) {
   if (!p.file)
     return errResult("provide `file` (use `lsp start` to begin a session).");
   const abs = resolveCwdPath(p.file);
+  if (mermaid_document(abs)) {
+    const diags = await check_mermaid_file(abs);
+    const rendered = await renderDiagnostics(diags);
+    return {
+      ...textResult(rendered.text || mermaid_message("checked")),
+      details: {
+        diagnosticCount: diags.length,
+        diagnostics: diags.slice(0, DIAGNOSTICS_FORMAT_MAX),
+        fullPath: rendered.fullPath,
+        errorCount: diags.filter((d) => d.severity === "error").length,
+      },
+    };
+  }
   const lang = languageByPath(abs);
   if (!lang) return errResult(`unrecognized file: ${p.file}`);
   const root = discoverProjectRoot(abs, lang);

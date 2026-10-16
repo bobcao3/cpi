@@ -13,6 +13,7 @@ import fast from "./fast.ts";
 import goal from "./goal.ts";
 import llmEditor from "./llm-editor/index.ts";
 import lsp from "./lsp.ts";
+import mermaid from "./mermaid/index.ts";
 import onboarding from "./onboarding.ts";
 import providerUsage from "./provider-usage.ts";
 import provider from "./provider.ts";
@@ -34,6 +35,7 @@ export default async function cpi(host: ExtensionAPI): Promise<void> {
     goal,
     llmEditor,
     lsp,
+    mermaid,
     onboarding,
     providerUsage,
     provider,

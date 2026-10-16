@@ -26,7 +26,7 @@ let response_ready = new Promise((resolve) => {
 const telemetry_line = (screen) =>
   screen.split("\n").find((line) => /↑\d.*↓\d.*R\d.*CH[\d.]+%/.test(line));
 const runtime_line = (screen) =>
-  screen.split("\n").find((line) => /^[●◉○] /.test(line));
+  screen.split("\n").find((line) => /^── [●◉○] /.test(line));
 async function until(check) {
   for (let index = 0; index < 100; index++) {
     const screen = capture();
@@ -116,12 +116,14 @@ await fixture(
       const active = await until(
         (screen) =>
           requests.length >= 1 &&
-          !!telemetry_line(screen) &&
           runtime_line(screen)?.includes("Waiting for API response"),
       );
-      const active_header = telemetry_line(active);
-      assert.equal(active_header.indexOf("↑0"), idle_header.indexOf("↑0"));
-      assert.match(runtime_line(active), /^[●◉○] Waiting for API response/);
+      const active_header = runtime_line(active);
+      assert.equal(active_header.search(/[●◉○]/), idle_header.indexOf("↑0"));
+      assert.match(active_header, /^── [●◉○] Waiting for API response/);
+      assert.match(active_header, / ─+ [\d.]+%\/[\d.]+[kmb]? ──$/);
+      assert.equal(telemetry_line(active), undefined);
+      assert.doesNotMatch(active, /^[●◉○] /m);
       assert.doesNotMatch(active_header, /Working|💤/u);
       await until_status("working");
       resume();
@@ -149,6 +151,7 @@ await fixture(
         (screen) =>
           requests.length >= 2 &&
           (screen.match(/^\s*OK\s*$/gm) ?? []).length >= 2 &&
+          !!telemetry_line(screen) &&
           !runtime_line(screen),
       );
       console.log(screen);

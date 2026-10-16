@@ -5,6 +5,8 @@ import type { JsonNode as Node } from "../lib/tree-sitter.ts";
 import { checkFile, findSession } from "../lib/lsp/manager.ts";
 import { discoverProjectRoot, languageByPath } from "../lib/lsp/discover.ts";
 import { renderDiagnostics } from "../lib/lsp/diagnostics-overflow.ts";
+import { check_mermaid_file } from "../mermaid/check.ts";
+import { mermaid_document } from "../mermaid/markdown.ts";
 
 export interface LspHookResult {
   appendedText?: string;
@@ -25,6 +27,16 @@ export async function postRunLspCheck(
   const warned = warnedSet();
   for (const t of edits) {
     try {
+      if (mermaid_document(t.path)) {
+        const diags = await check_mermaid_file(t.path);
+        if (diags.length) {
+          const rendered = await renderDiagnostics(diags);
+          appendedText = [appendedText, rendered.text]
+            .filter(Boolean)
+            .join("\n");
+        }
+        continue;
+      }
       const lang = languageByPath(t.path);
       if (!lang) continue;
       const root = discoverProjectRoot(t.path, lang);

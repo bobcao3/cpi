@@ -95,7 +95,9 @@ export function renderTreeLayout(
       markerStart: 0,
       markerEnd: width,
     });
-    lines.push(paint(fit(`${prefix}${children.length - shown} more`)));
+    lines.push(
+      paint(fit(`${prefix}${theme.guide(`${children.length - shown} more`)}`)),
+    );
   };
   const control = (
     kind: "collapse" | "body-toggle",
@@ -117,7 +119,7 @@ export function renderTreeLayout(
       markerEnd: width,
       large,
     });
-    lines.push(paint(fit(prefix + hint)));
+    lines.push(paint(fit(prefix + theme.guide(hint))));
   };
   const closeDisclosure = () => {
     const frame = disclosures.pop()!;
@@ -163,10 +165,17 @@ export function renderTreeLayout(
         : node.status
           ? STATUS_TEXT[node.status]
           : " ";
-    const status = node.status
-      ? theme.status(truncateToWidth(rawStatus, 1, ""), node.status) +
-        (compact ? "" : " ")
-      : space;
+    const icon =
+      node.icon === undefined ? undefined : truncateToWidth(node.icon, 2, "");
+    const status =
+      icon !== undefined
+        ? theme.guide(
+            icon + " ".repeat(Math.max(0, space.length - visibleWidth(icon))),
+          )
+        : node.status
+          ? theme.status(truncateToWidth(rawStatus, 1, ""), node.status) +
+            (compact ? "" : " ")
+          : space;
     const minimumHeaderWidth =
       2 * space.length + 1 + (visualDepth ? space.length : 0);
     const maxGuides = Math.max(
@@ -208,7 +217,7 @@ export function renderTreeLayout(
     ).padEnd(space.length);
     const statusPrefix = width >= space.length + space.length ? status : "";
     const prefix = truncateToWidth(
-      statusPrefix + guide + branch + marker,
+      statusPrefix + guide + branch + theme.guide(marker),
       Math.max(0, width - 1),
       "",
     );
@@ -279,7 +288,11 @@ export function renderTreeLayout(
       plannedBody && bodyRepeatsSummary(node.summary, plannedBody.lines)
         ? undefined
         : node.summary;
-    const text = [caption ? `${node.label}:` : node.label, summary]
+    const label =
+      !open && node.collapsedLabel !== undefined
+        ? node.collapsedLabel
+        : node.label;
+    const text = [caption ? `${label}:` : label, summary]
       .filter(Boolean)
       .join(caption ? " " : " · ")
       .replace(/[\r\n\t]+/g, " ");
@@ -375,6 +388,10 @@ export function renderTreeLayout(
   }
   closeThrough(0);
   if (limited || lines.length >= MAX_ROWS - 1)
-    lines.push(fit("… display row limit; retained content remains available"));
+    lines.push(
+      fit(
+        theme.guide("… display row limit; retained content remains available"),
+      ),
+    );
   return { lines, hits, positions };
 }

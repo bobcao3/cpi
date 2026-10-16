@@ -2,7 +2,12 @@ import type { TreeNode } from "./tree-view-types.ts";
 
 function labelAttributes(node: TreeNode): boolean {
   return Boolean(
-    node.summary || node.metadata?.length || node.status || node.surface,
+    node.summary ||
+    node.collapsedLabel ||
+    node.icon ||
+    node.metadata?.length ||
+    node.status ||
+    node.surface,
   );
 }
 
