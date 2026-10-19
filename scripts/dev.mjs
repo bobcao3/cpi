@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import { ensureFork } from "./fork.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const fork = ensureFork();
+const fork = await ensureFork();
 const result = spawnSync(
   process.execPath,
   [join(root, "packages/cli/bin/cpi.mjs"), ...process.argv.slice(2)],
