@@ -56,6 +56,7 @@ type CompactionText = {
     budget: string;
     empty: string;
     invalid: string;
+    malformed: string;
     changed: string;
   };
 };
@@ -126,6 +127,10 @@ function readSummary(
     (block): block is ToolCall =>
       block.type === "toolCall" && block.name === tool_name,
   );
+  if (call?.argumentsError)
+    throw new Error(
+      render(text.errors.malformed, { stop_reason: response.stopReason }),
+    );
   if (call) return validateSummary(call.arguments, skills, text.errors.invalid);
   const output = contentText(response.content);
   if (response.stopReason !== "stop" || !output.trim())
@@ -204,7 +209,6 @@ async function summarizeTask(
   ctx: ExtensionContext,
   references: ReferenceBundle,
   skills: Skill[],
-  maxTokens: number,
   text: CompactionText,
 ) {
   const { preparation } = event;
@@ -258,7 +262,6 @@ async function summarizeTask(
         tools: [tool],
       },
       {
-        maxTokens,
         signal,
         cacheRetention: "none",
         sessionId,
@@ -342,19 +345,21 @@ export function registerCompaction(pi: ExtensionAPI): void {
         collectRuntimeState(ctx),
         boundary.id,
       );
+      // Fail before summarizing when no summary could fit; reasoning shares the
+      // output limit, so the request is sized by the provider, not this budget.
+      summaryBudget(
+        event,
+        ctx,
+        checkpoint,
+        text,
+        toolTokens(pi),
+        event.branchEntries,
+      );
       const result = await summarizeTask(
         event,
         ctx,
         initial_references,
         available_skills,
-        summaryBudget(
-          event,
-          ctx,
-          checkpoint,
-          text,
-          toolTokens(pi),
-          event.branchEntries,
-        ),
         text,
       );
       if (event.signal.aborted) throw event.signal.reason;

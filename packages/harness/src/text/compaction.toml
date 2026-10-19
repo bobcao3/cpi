@@ -88,6 +88,7 @@ failed = 'Compaction cancelled: {{error}}. Existing context was retained; no inc
 budget = 'Reference restoration and retained messages leave insufficient room for a safe compaction summary. Reduce the active reference set or use a larger-context model.'
 empty = 'The summarizer did not return a summary.'
 invalid = 'The summarizer did not return a valid summary and available-skill selection.'
+malformed = 'The summarizer returned malformed summary arguments (stop reason: {{stop_reason}})'
 changed = 'The compaction source history was replaced or edited while summarizing; retry compaction'
 
 [feedback]
