@@ -69,12 +69,26 @@ export function decorateFastProvider(provider, config) {
     const current = catalog.find((entry) => entry.id === model.id);
     if (model[OWNER] && !current)
       throw new Error(`Fast model unavailable: ${model.provider}/${model.id}`);
+    // A Fast variant is its base model on the wire; replay its turns as the base
+    // model's so provider replay keeps reasoning, tool-call ids, and the cache.
+    const backendContext = {
+      ...context,
+      messages: context.messages.map((message) => {
+        const source =
+          message.role === "assistant" && message.provider === model.provider
+            ? catalog.find((entry) => entry.id === message.model)
+            : undefined;
+        return source?.[OWNER]
+          ? { ...message, model: source[OWNER].id }
+          : message;
+      }),
+    };
     if (!current?.[OWNER])
       return provider[simple ? "streamSimple" : "stream"](
         model[OWNER]
           ? { ...current, baseUrl: model.baseUrl, headers: model.headers }
           : model,
-        context,
+        backendContext,
         options,
       );
     const canonical = {
@@ -90,18 +104,6 @@ export function decorateFastProvider(provider, config) {
         model: canonical.id,
         service_tier: "priority",
       };
-    };
-    const backendContext = {
-      ...context,
-      messages: context.messages.map((message) => {
-        const source =
-          message.role === "assistant" && message.provider === model.provider
-            ? catalog.find((entry) => entry.id === message.model)
-            : undefined;
-        return source?.[OWNER]
-          ? { ...message, model: source[OWNER].id }
-          : message;
-      }),
     };
     return logicalStream(
       provider[simple ? "streamSimple" : "stream"](
