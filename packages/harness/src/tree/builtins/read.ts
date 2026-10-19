@@ -8,6 +8,7 @@ import {
 } from "node:path";
 import { getReadmePath } from "@earendil-works/pi-coding-agent";
 import {
+  formatReadLineRange,
   getLanguageFromPath,
   type Theme,
 } from "@earendil-works/pi-coding-agent";
@@ -37,18 +38,12 @@ const COMPACT_RESOURCE_FILE_NAMES = new Set([
 type ReadRenderArgs = {
   path?: string;
   file_path?: string;
-  offset?: number;
-  limit?: number;
+  offset?: unknown;
+  limit?: unknown;
 };
-function formatReadLineRange(
-  args: ReadRenderArgs | undefined,
-  theme: Theme,
-): string {
-  // Strict tool schemas make models send null for omitted optional fields.
-  if (args?.offset == null && args?.limit == null) return "";
-  const startLine = args.offset ?? 1;
-  const endLine = args.limit != null ? startLine + args.limit - 1 : "";
-  return theme.fg("warning", `:${startLine}${endLine ? `-${endLine}` : ""}`);
+function readLineRange(args: ReadRenderArgs | undefined, theme: Theme): string {
+  const range = formatReadLineRange(args?.offset, args?.limit);
+  return range && theme.fg("warning", range);
 }
 function toPosixPath(filePath: string): string {
   return filePath.split(sep).join("/");
@@ -149,7 +144,7 @@ export const readRenderers: ToolRenderers = {
           (classification
             ? theme.fg("accent", classification.label)
             : renderToolPath(path, theme, context.cwd)) +
-          formatReadLineRange(args, theme),
+          readLineRange(args, theme),
         status: toolStatus(snapshot),
         children,
         defaultOpen: true,
