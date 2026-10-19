@@ -151,7 +151,8 @@ export function resolveFastModel(resolve, options) {
         result.model.provider.toLowerCase() !== requestedProvider) ||
       !runtime.getModel(result.model.provider, result.model.id)
     ) {
-      throw new Error(`Fast model unavailable: ${selector}`);
+      const reason = result.error ? ` (${result.error})` : "";
+      throw new Error(`Fast model unavailable: ${selector}${reason}`);
     }
   }
   return result;
