@@ -1,12 +1,13 @@
 import { execFileSync, spawnSync } from "node:child_process";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 import {
   createAgentSession,
   DefaultResourceLoader,
   FooterComponent,
   FooterDataProvider,
+  getPackageDir,
   initTheme,
   SessionManager,
   SettingsManager,
@@ -16,11 +17,14 @@ import {
   visibleWidth,
 } from "@earendil-works/pi-tui";
 import { expect, test } from "vitest";
+import { forkDir, isForkCheckout } from "../../../scripts/fork.mjs";
 import { createVcsSource } from "../src/vcs/index.ts";
 
 test.skipIf(spawnSync("jj", ["--version"]).status !== 0)(
   "footer selects JJ before its first render and follows logical cwd without changing session cwd",
   async () => {
+    if (isForkCheckout(forkDir()))
+      expect(getPackageDir()).toBe(join(forkDir(), "packages/coding-agent"));
     const root = await mkdtemp(join(tmpdir(), "cpi-footer-"));
     const launch = join(root, "launch");
     const target = join(root, "target");
@@ -64,15 +68,25 @@ test.skipIf(spawnSync("jj", ["--version"]).status !== 0)(
     initTheme("dark", false);
     const footer = new FooterComponent(session, data);
     const first = () => stripAnsi(footer.render(240)[0]);
+    const displayed = (path: string) =>
+      process.env.HOME && path.startsWith(`${process.env.HOME}/`)
+        ? `~/${relative(process.env.HOME, path)}`
+        : path;
     try {
-      expect(first()).toContain(`${target} (jj:project-change) • Project view`);
+      expect(first()).toContain(
+        `${displayed(target)} (jj:project-change) • Project view`,
+      );
       expect(
         footer.render(240).slice(1).map(stripAnsi).join("\n"),
       ).not.toContain("jj:project-change");
       data.setProject({ cwd: launch });
-      expect(first()).toContain(`${launch} (launch-branch) • Project view`);
+      expect(first()).toContain(
+        `${displayed(launch)} (launch-branch) • Project view`,
+      );
       data.setProject({ cwd: target });
-      expect(first()).toContain(`${target} (jj:project-change) • Project view`);
+      expect(first()).toContain(
+        `${displayed(target)} (jj:project-change) • Project view`,
+      );
       expect(sessionManager.getCwd()).toBe(launch);
       for (const width of [1, 3, 12, 40, 80]) {
         for (const row of footer.render(width))

@@ -8,7 +8,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, parse } from "node:path";
 import { FooterDataProvider } from "@earendil-works/pi-coding-agent";
 import { expect, test, vi } from "vitest";
 import { CommandRepository } from "../src/vcs/command-repository.ts";
@@ -60,7 +60,7 @@ test.skipIf(!hasJj)(
       writeFileSync(join(broken, ".git"), "invalid worktree metadata");
       provider.setCwd(broken);
       expect(provider.getVcsStatus()).toBeNull();
-      provider.setCwd(tmpdir());
+      provider.setCwd(parse(root).root);
       expect(provider.getVcsStatus()).toBeNull();
     } finally {
       data?.dispose();
