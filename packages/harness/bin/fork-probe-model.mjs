@@ -62,16 +62,22 @@ export function selectForkProbeSubstitute(request, services, manager) {
     const effort = rule.to.match(EFFORT);
     const id = effort ? rule.to.slice(0, effort.index) : rule.to;
     const target = registry.getModel(source.provider, id);
+    if (!target) continue;
+    // A probe holds the parent's whole context, using the target's long-context
+    // window when the rule allows one.
+    const capacity = Math.max(target.contextWindow, rule.contextWindow ?? 0);
     if (
-      !target ||
       target.provider !== source.provider ||
-      !(target.contextWindow >= source.contextWindow) ||
+      !(capacity >= source.contextWindow) ||
       !source.input.every((kind) => target.input.includes(kind)) ||
       !within_cached_input_cost(source, target)
     )
       continue;
     return {
-      model: target,
+      model:
+        target.contextWindow >= source.contextWindow
+          ? target
+          : { ...target, contextWindow: source.contextWindow },
       ...(effort ? { thinkingLevel: effort[1] } : {}),
     };
   }

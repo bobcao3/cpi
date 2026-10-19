@@ -24,10 +24,10 @@
   },
   "forkProbe": {
     "substitutions": [
-      { "from": "gpt-5.6-sol", "to": "gpt-6-luna:medium" },
-      { "from": "gpt-6.1-sol", "to": "gpt-6-luna:medium" },
-      { "from": "gpt-6-sol", "to": "gpt-6-luna:medium" },
-      { "from": "gpt-6-astra", "to": "gpt-6-luna:medium" },
+      { "from": "gpt-5.6-sol", "to": "gpt-6-luna:medium", "contextWindow": 872000 },
+      { "from": "gpt-6.1-sol", "to": "gpt-6-luna:medium", "contextWindow": 872000 },
+      { "from": "gpt-6-sol", "to": "gpt-6-luna:medium", "contextWindow": 872000 },
+      { "from": "gpt-6-astra", "to": "gpt-6-luna:medium", "contextWindow": 872000 },
       { "from": "claude-opus-5", "to": "claude-haiku-5-5:medium" },
       { "from": "claude-opus-5-5", "to": "claude-haiku-5-5:medium" },
       { "from": "claude-fable-5", "to": "claude-haiku-5-5:medium" },

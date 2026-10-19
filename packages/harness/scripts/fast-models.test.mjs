@@ -53,6 +53,21 @@ test("fork probes canonicalize Fast identities and retain inexpensive cached mod
         assert.equal(selected.thinkingLevel, "medium");
         const source = runtime.getModel("openai-codex", id + suffix);
         assert.ok(selected.model.cost.input <= source.cost.cacheRead);
+        assert.ok(selected.model.contextWindow >= source.contextWindow);
+        const capped = selectForkProbeSubstitute(
+          {
+            modelSubstitutions: defaults.forkProbe.substitutions.map(
+              ({ contextWindow, ...rule }) => rule,
+            ),
+          },
+          { modelRuntime: runtime },
+          manager,
+        );
+        const luna = runtime.getModel("openai-codex", "gpt-6-luna");
+        assert.equal(
+          capped.model?.id,
+          luna.contextWindow >= source.contextWindow ? "gpt-6-luna" : undefined,
+        );
       }
     }
   });

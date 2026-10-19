@@ -1,8 +1,11 @@
 import { loadCpiConfig } from "./config.ts";
 
+const CONTEXT_WINDOW_MAX = 16_000_000;
+
 export interface ForkProbeModelRule {
   from: string;
   to: string;
+  contextWindow?: number;
 }
 
 export function validForkProbeModelRules(
@@ -23,7 +26,11 @@ export function validForkProbeModelRules(
             Buffer.byteLength(id) <= 256 &&
             id.trim() === id &&
             !/[\x00-\x1f\x7f]/.test(id),
-        ),
+        ) &&
+        (rule.contextWindow === undefined ||
+          (Number.isSafeInteger(rule.contextWindow) &&
+            rule.contextWindow > 0 &&
+            rule.contextWindow <= CONTEXT_WINDOW_MAX)),
     )
   );
 }
