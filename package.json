@@ -30,21 +30,21 @@
     "sharp": "0.35.4",
     "smol-toml": "1.9.0",
     "@bobcao3/cpi-tree-sitter-wasm": "0.0.1",
-    "@earendil-works/pi-agent-core": "https://github.com/bobcao3/pi/releases/download/cpi-1.2.0-3/be311c06d53d775f7de671ce8c20af9fad3db37d5de1ea0251bc1e7bd94748b8.tgz",
-    "@earendil-works/pi-ai": "https://github.com/bobcao3/pi/releases/download/cpi-1.2.0-3/4a70b535305820bcfd25eef15b51abd00ff4b24bbd835d5dd7b649437fa8f6e1.tgz",
-    "@earendil-works/pi-codemode": "https://github.com/bobcao3/pi/releases/download/cpi-1.2.0-3/86043194db75eeafbda891bdcdf5d437ac38fba2c6ab980a2a80fd0426c25450.tgz",
-    "@earendil-works/pi-coding-agent": "https://github.com/bobcao3/pi/releases/download/cpi-1.2.0-3/24a7e102d989aab87b87eb5af2d0fc0b59f489543e224b7893fe999c53020c72.tgz",
-    "@earendil-works/pi-durable": "https://github.com/bobcao3/pi/releases/download/cpi-1.2.0-3/cfeef7d0628ccb0479bef4e48039a8ad350cae35355c837b095ec2eb7872307a.tgz",
-    "@earendil-works/pi-tui": "https://github.com/bobcao3/pi/releases/download/cpi-1.2.0-3/e163721b112d4f18bc384e9b2243180a0642d11aefc4b50870cdd754daa60652.tgz"
+    "@earendil-works/pi-agent-core": "https://github.com/bobcao3/pi/releases/download/cpi-1.3.0-1/b8c07d6d9a98da2d0b54f0ab42ae370b4e63ad534fc0ef1aee3511c3e532e9f1.tgz",
+    "@earendil-works/pi-ai": "https://github.com/bobcao3/pi/releases/download/cpi-1.3.0-1/e67a03ab00e168129f12487eb2d57ebfc328112aeef8f07538229984457a2e4c.tgz",
+    "@earendil-works/pi-codemode": "https://github.com/bobcao3/pi/releases/download/cpi-1.3.0-1/38f1f919f9d2173a939bf0b77793840264eb759ca689dafb700b74fc06046e29.tgz",
+    "@earendil-works/pi-coding-agent": "https://github.com/bobcao3/pi/releases/download/cpi-1.3.0-1/92be5d0132fff71a502bb3691c1fddf8632fa488a6fea827ca7e5d81663dd8e3.tgz",
+    "@earendil-works/pi-durable": "https://github.com/bobcao3/pi/releases/download/cpi-1.3.0-1/470abe5fb7442ce00916a23a7cc70ca64bf6c21508dd7b804119d4bb8ee605ff.tgz",
+    "@earendil-works/pi-tui": "https://github.com/bobcao3/pi/releases/download/cpi-1.3.0-1/b12003bda3772d413dfaf2ecd2b2a087dab43b0fd3f6d5195a2fb1cd8698c8b9.tgz"
   },
   "overrides": {
     "@types/node": "$@types/node",
-    "@earendil-works/pi-agent-core": "https://github.com/bobcao3/pi/releases/download/cpi-1.2.0-3/be311c06d53d775f7de671ce8c20af9fad3db37d5de1ea0251bc1e7bd94748b8.tgz",
-    "@earendil-works/pi-ai": "https://github.com/bobcao3/pi/releases/download/cpi-1.2.0-3/4a70b535305820bcfd25eef15b51abd00ff4b24bbd835d5dd7b649437fa8f6e1.tgz",
-    "@earendil-works/pi-codemode": "https://github.com/bobcao3/pi/releases/download/cpi-1.2.0-3/86043194db75eeafbda891bdcdf5d437ac38fba2c6ab980a2a80fd0426c25450.tgz",
-    "@earendil-works/pi-coding-agent": "https://github.com/bobcao3/pi/releases/download/cpi-1.2.0-3/24a7e102d989aab87b87eb5af2d0fc0b59f489543e224b7893fe999c53020c72.tgz",
-    "@earendil-works/pi-durable": "https://github.com/bobcao3/pi/releases/download/cpi-1.2.0-3/cfeef7d0628ccb0479bef4e48039a8ad350cae35355c837b095ec2eb7872307a.tgz",
-    "@earendil-works/pi-tui": "https://github.com/bobcao3/pi/releases/download/cpi-1.2.0-3/e163721b112d4f18bc384e9b2243180a0642d11aefc4b50870cdd754daa60652.tgz"
+    "@earendil-works/pi-agent-core": "https://github.com/bobcao3/pi/releases/download/cpi-1.3.0-1/b8c07d6d9a98da2d0b54f0ab42ae370b4e63ad534fc0ef1aee3511c3e532e9f1.tgz",
+    "@earendil-works/pi-ai": "https://github.com/bobcao3/pi/releases/download/cpi-1.3.0-1/e67a03ab00e168129f12487eb2d57ebfc328112aeef8f07538229984457a2e4c.tgz",
+    "@earendil-works/pi-codemode": "https://github.com/bobcao3/pi/releases/download/cpi-1.3.0-1/38f1f919f9d2173a939bf0b77793840264eb759ca689dafb700b74fc06046e29.tgz",
+    "@earendil-works/pi-coding-agent": "https://github.com/bobcao3/pi/releases/download/cpi-1.3.0-1/92be5d0132fff71a502bb3691c1fddf8632fa488a6fea827ca7e5d81663dd8e3.tgz",
+    "@earendil-works/pi-durable": "https://github.com/bobcao3/pi/releases/download/cpi-1.3.0-1/470abe5fb7442ce00916a23a7cc70ca64bf6c21508dd7b804119d4bb8ee605ff.tgz",
+    "@earendil-works/pi-tui": "https://github.com/bobcao3/pi/releases/download/cpi-1.3.0-1/b12003bda3772d413dfaf2ecd2b2a087dab43b0fd3f6d5195a2fb1cd8698c8b9.tgz"
   },
   "devDependencies": {
     "@cpi/cli": "0.0.4",
