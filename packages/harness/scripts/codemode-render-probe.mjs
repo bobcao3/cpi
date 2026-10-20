@@ -1,3 +1,4 @@
+import { setTimeout } from "node:timers/promises";
 import { hostCodingAgent, hostTui } from "../bin/host-pi.mjs";
 
 const { ToolExecutionComponent } = await hostCodingAgent();
@@ -27,9 +28,23 @@ export function create_render_probe({ session, manager, theme, work }) {
     manager.appendMessage(assistant);
     session.agent.state.messages.push(assistant);
     const started = performance.now();
-    const output = await session.agent.state.tools
-      .find((tool) => tool.name === name)
-      .execute(id, args, undefined, on_update);
+    const tool = session.agent.state.tools.find((tool) => tool.name === name);
+    let output;
+    for (let attempt = 0; attempt < 200; attempt++) {
+      output = await tool.execute(id, args, undefined, on_update);
+      const admission_rejected =
+        output.isError === true &&
+        output.details?.calls?.length === 0 &&
+        output.content.some(
+          (part) =>
+            part.type === "text" &&
+            /^Script error:\nScript sandbox failed: Codemode worker limit reached \(\d+ workers are still running or shutting down\)\. Retry after they exit\.\n\nNo tool calls were made\.$/.test(
+              part.text,
+            ),
+        );
+      if (!admission_rejected || attempt === 199) break;
+      await setTimeout(25);
+    }
     const result = { ...output, durationMs: performance.now() - started };
     manager.appendMessage({
       role: "toolResult",
