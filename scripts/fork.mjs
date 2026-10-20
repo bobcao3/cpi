@@ -27,6 +27,10 @@ export async function ensureFork() {
     if (process.env.CPI_FORK) {
       throw new Error(`CPI_FORK=${dir} is not a Pi fork checkout`);
     }
+    const { forkRevision } = JSON.parse(
+      readFileSync(join(root, "vendor/pi/manifest.json"), "utf8"),
+    );
+    assert.match(forkRevision, /^[0-9a-f]{40}$/);
     const remote = process.env.CPI_FORK_REMOTE ?? DEFAULT_REMOTE;
     const result = spawnSync("jj", ["git", "clone", remote, dir], {
       stdio: "inherit",
@@ -34,6 +38,14 @@ export async function ensureFork() {
     if (result.error) throw result.error;
     if (result.status !== 0) {
       throw new Error(`jj git clone ${remote} failed (${result.status})`);
+    }
+    const checkout = spawnSync("jj", ["new", forkRevision], {
+      cwd: dir,
+      stdio: "inherit",
+    });
+    if (checkout.error) throw checkout.error;
+    if (checkout.status !== 0) {
+      throw new Error(`jj new ${forkRevision} failed (${checkout.status})`);
     }
   }
   await hydrateFork(dir);
