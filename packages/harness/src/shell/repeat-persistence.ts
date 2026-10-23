@@ -1,7 +1,17 @@
+import { record_shell_shutdown } from "./shutdown.ts";
 import type {
   ExtensionAPI,
   ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
+import { getAgentDir } from "@earendil-works/pi-coding-agent";
+import { join } from "node:path";
+import {
+  captureSessionOwner,
+  createSessionOwner,
+  type SessionOwner,
+} from "../lib/storage/owner.ts";
+import { adopt_repeat_storage } from "./repeat-lifecycle.ts";
+import { joinRepeatsForShutdown } from "./repeat.ts";
 import { hostCodingAgent } from "../../bin/host-pi.mjs";
 import type { RepeatMonitor } from "./background-types.ts";
 import type { ShellProfile } from "./profile.ts";
@@ -13,6 +23,7 @@ export interface RepeatRecord {
   version: 1;
   id: string;
   scope: string;
+  artifact_owner?: SessionOwner;
   command: string;
   cwd: string;
   shell: Pick<
@@ -55,12 +66,14 @@ function persist(record: RepeatRecord): void {
   else state.pending.set(record.id, record);
 }
 
-export function suspendRepeatWrites(
+export async function suspendRepeatWrites(
   ctx: ExtensionContext,
   reason: string,
-): void {
+): Promise<void> {
   if (reason === "reload")
     state.reloading.add(ctx.sessionManager.getSessionId());
+  if (reason === "quit")
+    await joinRepeatsForShutdown(ctx.sessionManager.getSessionId());
 }
 
 export function recordRepeatStart(mon: RepeatMonitor, env_file?: string): void {
@@ -71,6 +84,7 @@ export function recordRepeatStart(mon: RepeatMonitor, env_file?: string): void {
     version: 1,
     id: mon.id,
     scope: mon.sessScope,
+    artifact_owner: mon.owner,
     command: mon.command,
     cwd: mon.cwd,
     shell: { executable, argvPrefix, dialect, displayName },
@@ -119,11 +133,44 @@ export async function resumeRepeatMonitors(
   ctx: ExtensionContext,
   monitors: ReadonlyMap<string, RepeatMonitor>,
   notify = true,
+  owner?: SessionOwner,
 ): Promise<void> {
-  const { SessionManager } = await hostCodingAgent();
   const manager = ctx.sessionManager;
   const scope = manager.getSessionId();
   const session_file = manager.getSessionFile();
+  const captured_owner = Object.freeze({
+    ...(owner ?? captureSessionOwner(manager, join(getAgentDir(), "jobs"))),
+  });
+  const history = getRepeatHistory(ctx);
+  const records = new Map(history.map((record) => [record.id, record]));
+  for (const mon of monitors.values()) {
+    if (mon.operation) continue;
+    const recorded =
+      records.get(mon.id)?.artifact_owner ??
+      state.records.get(mon.id)?.artifact_owner;
+    const inherited =
+      mon.env.CPI_ARTIFACT_SESSION_ID && mon.env.CPI_ARTIFACT_SESSION_DIR
+        ? createSessionOwner(
+            mon.env.CPI_ARTIFACT_SESSION_ID,
+            mon.env.CPI_ARTIFACT_SESSION_DIR,
+          )
+        : undefined;
+    const artifact_owner =
+      mon.owner ??
+      recorded ??
+      inherited ??
+      (mon.sessScope && mon.sessScope !== scope
+        ? captureSessionOwner(
+            {
+              getSessionId: () => mon.sessScope!,
+              getSessionDir: () => mon.env.PI_SESSION_DIR ?? "",
+            },
+            join(getAgentDir(), "jobs"),
+          )
+        : captured_owner);
+    adopt_repeat_storage(mon, artifact_owner);
+  }
+  const { SessionManager } = await hostCodingAgent();
   state.writers.set(scope, (record) => {
     const append_inactive = () => {
       if (!session_file) return false;
@@ -144,8 +191,19 @@ export async function resumeRepeatMonitors(
     }
   });
   state.reloading.delete(scope);
-  for (const record of getRepeatHistory(ctx))
-    state.records.set(record.id, record);
+  for (const record of history) {
+    if (record.artifact_owner) state.records.set(record.id, record);
+    else
+      persist({
+        ...record,
+        artifact_owner: monitors.get(record.id)?.owner ?? captured_owner,
+      });
+  }
+  for (const mon of monitors.values()) {
+    const record = state.records.get(mon.id);
+    if (record && !record.artifact_owner && mon.owner)
+      persist({ ...record, artifact_owner: mon.owner });
+  }
   for (const record of [...state.pending.values()]) {
     if (record.scope === scope) persist(record);
   }
@@ -193,4 +251,15 @@ export async function resumeRepeatMonitors(
       });
     if (delivered()) persist(interrupted);
   }
+}
+
+export function recordRepeatShutdown(mon: RepeatMonitor): void {
+  if (!recordRepeatTerminal(mon, "shutdown"))
+    record_shell_shutdown(mon.env.PI_SESSION_DIR, mon.sessScope, {
+      id: mon.id,
+      command: mon.command,
+      describe: mon.describe,
+      log_path: mon.logPath,
+      kind: "repeat",
+    });
 }

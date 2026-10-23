@@ -1,9 +1,10 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { open, stat, writeFile, rename, readFile } from "node:fs/promises";
-import { join, delimiter } from "node:path";
+import { open, stat, writeFile, rename, readFile, rm } from "node:fs/promises";
+import { join, delimiter, resolve } from "node:path";
 import { ghostmuxRequest, type NativeResponse } from "./ghostmux-transport.ts";
 import { resolveShell, type ShellProfile } from "./profile.ts";
+import { staging_path } from "../lib/storage/paths.ts";
 import {
   ensureTargetDirectory,
   ghostmuxSocket,
@@ -149,6 +150,10 @@ export class MonitorClient {
   async signal(signal: string): Promise<void> {
     if (!this.target) await this.whenReady;
     const target = this.target!;
+    if (signal.length <= 32 && /^(?:SIG)?(?:KILL|0*9)$/i.test(signal)) {
+      await reapLaunch(target);
+      return;
+    }
     const response = await ghostmuxRequest(
       target.socketPath,
       { op: "signal_session", uid: target.uid, signal },
@@ -157,6 +162,7 @@ export class MonitorClient {
     );
     if (!response.ok)
       throw new Error(response.error_name ?? "ghostmux signal failed");
+    if (process.platform === "win32") await reapLaunch(target);
   }
   sendSignal(signal: string): void {
     void this.signal(signal).catch(() => {});
@@ -190,7 +196,8 @@ export async function reapLaunch(
   target: Pick<
     SessionTarget,
     "uid" | "socketPath" | "statusPath" | "binaryPath"
-  >,
+  > &
+    Partial<Pick<SessionTarget, "pid" | "serverPid">>,
 ): Promise<void> {
   let prevented = false;
   try {
@@ -207,7 +214,7 @@ export async function reapLaunch(
         true;
     } catch {}
   }
-  if (prevented) return;
+  if (prevented && !target.pid) return;
   try {
     const response = await ghostmuxRequest(
       target.socketPath,
@@ -215,15 +222,31 @@ export async function reapLaunch(
       undefined,
       target.binaryPath,
     );
-    if (!response.ok && response.error_name !== "UnknownUid")
+    if (
+      !response.ok ||
+      !response.session ||
+      !Number.isInteger(response.session.exit_code)
+    )
       throw new Error(response.error_name ?? "ghostmux launch cleanup failed");
+    if (
+      response.session.uid !== target.uid ||
+      (target.pid && response.session.pid !== target.pid) ||
+      (target.serverPid && response.server_pid !== target.serverPid)
+    )
+      throw new Error("ghostmux cleanup identity changed");
   } catch (error) {
     const native = JSON.parse(
       await readFile(target.statusPath, "utf8"),
     ) as NativeResponse;
     if (
-      native.session?.exit_code !== null &&
-      native.session?.exit_code !== undefined
+      native.session?.uid === target.uid &&
+      Number.isInteger(native.session.pid) &&
+      native.session.pid > 0 &&
+      Number.isInteger(native.server_pid) &&
+      native.server_pid > 0 &&
+      (!target.pid || native.session.pid === target.pid) &&
+      (!target.serverPid || native.server_pid === target.serverPid) &&
+      Number.isInteger(native.session.exit_code)
     )
       return;
     throw new Error(`Cannot confirm shell launch cleanup: ${String(error)}`);
@@ -237,11 +260,17 @@ export async function launchMonitor(
   cwd = process.cwd(),
   isPty = false,
   signal?: AbortSignal,
+  cleanupPending?: (
+    error: unknown,
+    retry: () => Promise<void>,
+    path: string,
+  ) => void,
 ): Promise<MonitorHandle> {
   signal?.throwIfAborted();
-  const binaryPath = await resolveGhostmuxBinary();
+  cwd = resolve(cwd);
+  const binaryPath = resolve(await resolveGhostmuxBinary());
   signal?.throwIfAborted();
-  const directory = await ensureTargetDirectory();
+  const directory = await ensureTargetDirectory(env);
   const uid = `sh-${shellId}`;
   if (!/^[a-zA-Z0-9_.-]{1,128}$/.test(uid))
     throw new Error("Invalid ghostmux shell UID");
@@ -266,7 +295,7 @@ export async function launchMonitor(
   };
   const key =
     Object.keys(env).find((key) => key.toLowerCase() === "path") ?? "PATH";
-  const commandDirectory = await ghostmuxCommandDirectory(binaryPath);
+  const commandDirectory = await ghostmuxCommandDirectory(binaryPath, env);
   const childEnv = {
     ...env,
     CPI_GHOSTMUX_SOCKET: socketPath,
@@ -284,16 +313,16 @@ export async function launchMonitor(
     flag: "wx",
     mode: 0o600,
   });
-  signal?.throwIfAborted();
   let cancellation: Promise<void> | undefined;
   let cleanupError: unknown;
   const abort = () => {
-    cancellation = reapLaunch(target).catch((error) => {
+    cancellation ??= reapLaunch(target).catch((error) => {
       cleanupError = error;
     });
   };
   signal?.addEventListener("abort", abort, { once: true });
   try {
+    signal?.throwIfAborted();
     const { stdout } = await execute(
       binaryPath,
       [
@@ -332,9 +361,16 @@ export async function launchMonitor(
     target.serverPid = response.server_pid;
     if (signal?.aborted) throw new Error("Shell launch aborted");
     const index = join(directory, `pid-${target.pid}.json`);
-    const temporary = `${index}.${uid}`;
-    await writeFile(temporary, JSON.stringify({ statePath }), { mode: 0o600 });
-    await rename(temporary, index);
+    const temporary = staging_path(index);
+    try {
+      await writeFile(temporary, JSON.stringify({ statePath }), {
+        mode: 0o600,
+        flag: "wx",
+      });
+      await rename(temporary, index);
+    } finally {
+      await rm(temporary, { force: true });
+    }
     const ready = await readTarget(statePath);
     if (ready.pid !== target.pid || ready.serverPid !== target.serverPid)
       throw new Error("ghostmux launch identity changed");
@@ -342,9 +378,17 @@ export async function launchMonitor(
     rememberTarget(ready);
     return { client: new MonitorClient(statePath, ready), logPath };
   } catch (error) {
-    if (cancellation) await cancellation;
-    else await reapLaunch(target);
-    if (cleanupError) throw cleanupError;
+    try {
+      if (cancellation) await cancellation;
+      else await reapLaunch(target);
+      if (cleanupError) throw cleanupError;
+    } catch (cleanupFailure) {
+      cleanupPending?.(cleanupFailure, () => reapLaunch(target), statusPath);
+      throw new AggregateError(
+        [error, cleanupFailure],
+        "shell launch cleanup failed",
+      );
+    }
     throw error;
   } finally {
     signal?.removeEventListener("abort", abort);

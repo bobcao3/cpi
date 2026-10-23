@@ -37,7 +37,7 @@ export function createHarness(host, root, directory) {
     return value.execute(randomUUID(), parameters, undefined, undefined);
   };
   const list = (session) => invoke(session, "sh_background_ps", {});
-  const runtimeFor = async (manager, extensionPaths = []) => {
+  const runtimeFor = async (manager, extensionPaths = [], mode = "rpc") => {
     const createRuntime = async ({
       cwd,
       agentDir,
@@ -60,6 +60,7 @@ export function createHarness(host, root, directory) {
           noContextFiles: true,
           additionalExtensionPaths: [
             join(root, "src/shell.ts"),
+            join(root, "src/lsp.ts"),
             ...extensionPaths,
           ],
         },
@@ -80,8 +81,10 @@ export function createHarness(host, root, directory) {
     });
     const bind = (session) =>
       session.bindExtensions({
-        mode: "rpc",
-        uiContext: { ...session.extensionRunner.getUIContext() },
+        mode,
+        ...(mode === "print"
+          ? {}
+          : { uiContext: { ...session.extensionRunner.getUIContext() } }),
         onError: (error) => {
           throw error;
         },

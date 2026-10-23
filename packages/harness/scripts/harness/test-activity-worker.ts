@@ -13,7 +13,7 @@ import { runShell, setCurrentScope } from "../../src/shell/exec.ts";
 import { listActivities } from "../../src/lib/activity.ts";
 
 const local = await observationFixture();
-const scope = `worker-activity-${randomUUID()}`;
+const scope = local.owner.session_id;
 process.env.PI_SESSION_ID = scope;
 delete process.env.CPI_GHOSTMUX_SOCKET;
 delete process.env.CPI_SUBAGENT_RPC;

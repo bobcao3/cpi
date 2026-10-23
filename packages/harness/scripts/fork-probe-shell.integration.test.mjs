@@ -1,15 +1,20 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
+import { existsSync } from "node:fs";
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import test from "node:test";
 import { promisify } from "node:util";
 import { hostCodingAgent } from "../bin/host-pi.mjs";
 import { runForkProbe } from "../src/lib/fork-probe.ts";
-import { stopSubagentRpc } from "../src/lib/subagent-rpc.ts";
+import { getSubagentRpc, stopSubagentRpc } from "../src/lib/subagent-rpc.ts";
+import { registerHoldSource } from "../src/lib/session-hold.ts";
 import { disposeAll } from "../src/lib/lsp/manager.ts";
 import { localFixture } from "./local-fixture.mjs";
-import { createHarness } from "./shell-persistence.integration.helper.mjs";
+import {
+  createHarness,
+  until,
+} from "./shell-persistence.integration.helper.mjs";
 import { assertLocalModel, packagePath } from "./test-runtime.mjs";
 
 const execute = promisify(execFile);
@@ -93,6 +98,127 @@ test(
       await local.close();
       if (cacheRetention === undefined) delete process.env.PI_CACHE_RETENTION;
       else process.env.PI_CACHE_RETENTION = cacheRetention;
+    }
+  },
+);
+
+test(
+  "headless quit drains admitted probe continuations but refuses a new CLI admission",
+  { timeout: 30000 },
+  async () => {
+    let hold = false;
+    let release;
+    let announce;
+    const ready = new Promise((resolve) => {
+      announce = resolve;
+    });
+    const gate = new Promise((resolve) => {
+      release = resolve;
+    });
+    const local = await localFixture(async () => {
+      if (hold) {
+        announce();
+        await gate;
+      }
+      return { content: "DRAINED_PROBE" };
+    });
+    const marker = join(local.directory, "cleanup-prepared");
+    const observer = join(local.directory, "cleanup-observer.ts");
+    await writeFile(
+      observer,
+      `import {writeFileSync} from 'node:fs'; export default function(pi) {
+    pi.on('session_cleanup', event => {
+      if(event.phase === 'prepare' && event.reason === 'quit') writeFileSync(${JSON.stringify(marker)}, 'prepared');
+    });
+  }`,
+    );
+    const manager = host.SessionManager.create(
+      local.directory,
+      join(local.directory, "sessions"),
+    );
+    manager.appendModelChange("local-fixture", "fixture");
+    manager.appendMessage({
+      role: "user",
+      content: "Finish the admitted work before quitting.",
+      timestamp: Date.now(),
+    });
+    const harness = createHarness(host, packagePath(""), local.agentDir);
+    const runtime = await harness.runtimeFor(
+      manager,
+      [packagePath("src/core.ts"), observer],
+      "print",
+    );
+    let unregister;
+    let work;
+    let closing;
+    let active = true;
+    const controller = new AbortController();
+    try {
+      await runtime.session.prompt("Initialize the headless session.");
+      hold = true;
+      work = (async () => {
+        for (let index = 0; index < 2; index++) {
+          const result = await runForkProbe(
+            {
+              parentSessionFile: manager.getSessionFile(),
+              cwd: local.directory,
+              signal: controller.signal,
+              timeoutMs: 10000,
+            },
+            "Describe your status.",
+          );
+          assert.equal(result.ok, true, JSON.stringify(result));
+        }
+      })().finally(() => {
+        active = false;
+      });
+      void work.catch(() => {});
+      await Promise.race([
+        ready,
+        work.then(() => {
+          throw new Error("probe never reached the model");
+        }),
+      ]);
+      unregister = registerHoldSource({
+        id: "owned-probe-chain",
+        hasPending: () => active,
+        noticeText: () => "owned probes",
+        deadlineMs: 15000,
+        onAbort: () => controller.abort(),
+      });
+      closing = runtime.dispose();
+      void closing.catch(() => {});
+      await until(() => existsSync(marker), "Cleanup prepare did not run");
+      await assert.rejects(
+        execute(
+          process.execPath,
+          [
+            packagePath("bin/subagent.js"),
+            "-s",
+            "drain-refusal",
+            "Must not start a new job.",
+          ],
+          {
+            cwd: local.directory,
+            env: { ...process.env, CPI_SUBAGENT_RPC: getSubagentRpc() },
+            timeout: 5000,
+          },
+        ),
+        (error) => /draining/.test(error.stderr),
+      );
+      assert.equal(controller.signal.aborted, false);
+      release();
+      await work;
+      await closing;
+      assert.equal(local.requests.length, 3);
+    } finally {
+      release();
+      controller.abort();
+      await work?.catch(() => {});
+      unregister?.();
+      await (closing ?? runtime.dispose()).catch(() => {});
+      await stopSubagentRpc();
+      await local.close();
     }
   },
 );

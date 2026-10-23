@@ -32,7 +32,7 @@ Hard rules:
 2. Never write file/module trees in docs: the filesystem is the tree and folder
    structure should explain itself.
 3. All model-facing text (tool descriptions, prompt snippets, guidelines, schema
-   field descriptions) belongs in `packages/harness/src/text/` as TOML templates
+   field descriptions) belongs in `packages/harness/text/` as TOML templates
    loaded via `loadText`/`render`, never inlined in extension `.ts` source.
 4. Docs must never repeat values or behavior encoded in default config or code;
    refer to that source of truth.

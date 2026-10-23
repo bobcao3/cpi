@@ -1,10 +1,15 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { readFile, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 import { connect } from "node:net";
 import test from "node:test";
 import { localFixture } from "./local-fixture.mjs";
+import { hostCodingAgent } from "../bin/host-pi.mjs";
+import {
+  captureSessionOwner,
+  sessionArtifactDirectory,
+} from "../src/lib/storage/owner.ts";
 import {
   getSubagentRpc,
   ensureSubagentRpc,
@@ -20,17 +25,50 @@ test(
   "worker output preserves bytes, continuation, reload, failures, cancellation, and shutdown",
   { timeout: 30000 },
   async () => {
-    const local = await localFixture((body) => ({
-      content: JSON.stringify(body.messages.at(-1).content).includes("SECOND")
-        ? "SECOND"
-        : "FIRST",
-    }));
+    let releaseFirst;
+    let firstRequest;
+    const held = new Promise((resolve) => {
+      releaseFirst = resolve;
+    });
+    const started = new Promise((resolve) => {
+      firstRequest = resolve;
+    });
+    let holdFirst = true;
+    const local = await localFixture(async (body) => {
+      if (holdFirst) {
+        holdFirst = false;
+        firstRequest();
+        await held;
+      }
+      return {
+        content: JSON.stringify(body.messages.at(-1).content).includes("SECOND")
+          ? "SECOND"
+          : "FIRST",
+      };
+    });
+    const { SessionManager } = await hostCodingAgent();
+    const manager = SessionManager.create(
+      local.directory,
+      join(local.directory, "sessions"),
+    );
+    const ownerA = captureSessionOwner(manager);
+    let ownerB;
+    const target = join(local.directory, "existing.txt");
+    await writeFile(target, "unchanged");
     const extension = join(local.directory, "output.mjs");
     await writeFile(join(local.directory, "stdout.bin"), stdout);
     await writeFile(
       extension,
-      `import { readFileSync } from "node:fs";
+      `import { readFileSync, writeFileSync } from "node:fs";
+import { writeTool } from ${JSON.stringify(new URL("../src/llm-editor/tool.ts", import.meta.url).href)};
+import { captureSessionOwner } from ${JSON.stringify(new URL("../src/lib/storage/owner.ts", import.meta.url).href)};
 export default function(pi) {
+  pi.on("session_shutdown", async (_event, ctx) => {
+    if (!process.env.CPI_OWNER_PROOF) return;
+    const owner = captureSessionOwner(ctx.sessionManager);
+    const result = await writeTool.execute("owner-proof", {path:${JSON.stringify(target)},file_text:"worker recovery"},undefined,undefined,ctx);
+    writeFileSync(process.env.CPI_OWNER_PROOF,JSON.stringify({owner,childId:ctx.sessionManager.getSessionId(),recovery:result.details.tempPath}));
+  });
   pi.on("session_start", () => {
     const bytes = readFileSync(${JSON.stringify(join(local.directory, "stdout.bin"))});
     process.stdout.write(bytes.subarray(0, 3));
@@ -63,7 +101,13 @@ export default function(pi) {
       const output = [];
       const diagnostics = [];
       const events = [];
-      const result = await runSubagentWorker(request(), {
+      const inputA = request();
+      const proofA = join(local.directory, "owner-a.json");
+      const proofB = join(local.directory, "owner-b.json");
+      inputA.env.CPI_OWNER_PROOF = proofA;
+      inputA.env.PI_SESSION_DIR = join(local.directory, "wrong-owner");
+      const pendingA = runSubagentWorker(inputA, {
+        owner: ownerA,
         signal: AbortSignal.timeout(10000),
         stdout: (chunk) => output.push(chunk),
         stderr: (chunk) => diagnostics.push(chunk),
@@ -73,6 +117,55 @@ export default function(pi) {
             ? { kind: "continue", prompt: "Reply SECOND." }
             : { kind: "finish" },
       });
+      await Promise.race([
+        started,
+        pendingA.then((result) => {
+          throw (
+            result.error ??
+            new Error("worker finished before reaching the request gate")
+          );
+        }),
+      ]);
+      manager.newSession();
+      ownerB = captureSessionOwner(manager);
+      await ensureSubagentRpc(ownerB);
+      const inputB = request();
+      inputB.env.CPI_OWNER_PROOF = proofB;
+      inputB.env.PI_SESSION_DIR = inputA.env.PI_SESSION_DIR;
+      const resultB = await runSubagentWorker(inputB, {
+        owner: ownerB,
+        signal: AbortSignal.timeout(10000),
+        onMessage: () => ({ kind: "finish" }),
+      });
+      assert.equal(resultB.error, undefined);
+      assert.equal(resultB.exitCode, 0);
+      releaseFirst();
+      const result = await pendingA;
+      for (const [owner, proof, ownedResult] of [
+        [ownerA, proofA, result],
+        [ownerB, proofB, resultB],
+      ]) {
+        const recorded = JSON.parse(await readFile(proof, "utf8"));
+        assert.deepEqual(recorded.owner, owner);
+        assert.notEqual(recorded.childId, owner.session_id);
+        assert.ok(
+          !relative(
+            sessionArtifactDirectory(owner, "subagent-transcripts"),
+            ownedResult.observation.markdownPath,
+          ).startsWith(".."),
+        );
+        assert.ok(
+          !relative(
+            sessionArtifactDirectory(owner, "write-recovery"),
+            recorded.recovery,
+          ).startsWith(".."),
+        );
+        assert.equal(
+          await readFile(recorded.recovery, "utf8"),
+          "worker recovery",
+        );
+      }
+      assert.equal(await readFile(target, "utf8"), "unchanged");
       assert.equal(result.error, undefined);
       assert.equal(result.exitCode, 0);
       assert.equal(result.observation.finalAnswer, "SECOND");
@@ -200,6 +293,7 @@ export default function(pi) {
         let shutdown;
         let consumerCalls = 0;
         const pending = runSubagentWorker(input, {
+          owner: ownerB,
           signal: controller.signal,
           stdout: () => {
             if (mode === "callback") {
@@ -243,6 +337,7 @@ export default function(pi) {
         await stopSubagentRpc();
       }
     } finally {
+      releaseFirst();
       await stopSubagentRpc();
       await local.close();
     }

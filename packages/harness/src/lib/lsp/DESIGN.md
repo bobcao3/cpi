@@ -18,7 +18,7 @@
   [`../../llm-editor/lsp.ts`](../../llm-editor/lsp.ts).
 - Configuration: [`../config.ts`](../config.ts),
   [`../../../cpi-config.default.json`](../../../cpi-config.default.json).
-- Model-facing guidance: [`../../text/lsp.toml`](../../text/lsp.toml).
+- Model-facing guidance: [`../../../text/lsp.toml`](../../../text/lsp.toml).
 
 ## Design rationale
 

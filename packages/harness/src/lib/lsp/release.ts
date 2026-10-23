@@ -3,11 +3,14 @@
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
 import { createWriteStream, existsSync, readFileSync } from "node:fs";
-import { chmod, copyFile, mkdir, mkdtemp, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { chmod, copyFile, mkdir } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
+import { Readable } from "node:stream";
+import { pipeline } from "node:stream/promises";
+import type { ReadableStream } from "node:stream/web";
 import { promisify } from "node:util";
 import { resolveShell } from "../../shell/profile.ts";
+import { with_temporary_directory } from "../storage/paths.ts";
 
 const execFileAsync = promisify(execFile);
 const DL_TIMEOUT = 60_000;
@@ -43,23 +46,15 @@ export async function download(url: string, dest: string): Promise<void> {
   const timer = setTimeout(() => ctrl.abort(), DL_TIMEOUT);
   try {
     const res = await fetch(url, { signal: ctrl.signal });
-    if (!res.ok || !res.body) throw new Error(`HTTP ${res.status} for ${url}`);
-    const ws = createWriteStream(dest);
-    const reader = res.body.getReader();
-    try {
-      for (;;) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        ws.write(Buffer.from(value));
-      }
-    } finally {
-      ws.end();
-      reader.releaseLock();
+    if (!res.ok || !res.body) {
+      await res.body?.cancel();
+      throw new Error(`HTTP ${res.status} for ${url}`);
     }
-    await new Promise<void>((res2, rej) => {
-      ws.on("finish", res2);
-      ws.on("error", rej);
-    });
+    await pipeline(
+      Readable.fromWeb(res.body as unknown as ReadableStream<Uint8Array>),
+      createWriteStream(dest, { flags: "wx", mode: 0o600 }),
+      { signal: ctrl.signal },
+    );
   } finally {
     clearTimeout(timer);
   }
@@ -75,9 +70,15 @@ async function expandZip(
   env: NodeJS.ProcessEnv,
 ): Promise<void> {
   if (!IS_WIN) {
-    await execFileAsync("tar", ["-xf", archive, "-C", dir], {
-      windowsHide: true,
-    });
+    try {
+      await execFileAsync("tar", ["-xf", archive, "-C", dir], {
+        windowsHide: true,
+      });
+    } catch {
+      await execFileAsync("unzip", ["-q", archive, "-d", dir], {
+        windowsHide: true,
+      });
+    }
     return;
   }
   const shell = resolveShell("auto", env);
@@ -117,25 +118,26 @@ export async function extractArchive(
 
 /** Downloads, optionally verifies, extracts and installs one release asset; returns the installed binary path. */
 export async function installReleaseBinary(o: ReleaseInstall): Promise<string> {
-  const dir = await mkdtemp(join(tmpdir(), "cpi-release-"));
   const assetName = basename(new URL(o.url).pathname);
-  try {
-    const archive = join(dir, assetName);
-    await download(o.url, archive);
-    if (o.verify) await o.verify(archive);
-    await extractArchive(archive, o.archiveExt, dir, o.env);
-    const found = o.binPaths
-      .map((p) => join(dir, p))
-      .find((p) => existsSync(p));
-    if (!found)
-      throw new Error(
-        `${assetName}: none of ${o.binPaths.join(", ")} in archive`,
-      );
-    await mkdir(dirname(o.dest), { recursive: true });
-    await copyFile(found, o.dest);
-    if (!IS_WIN) await chmod(o.dest, 0o755);
-    return o.dest;
-  } finally {
-    await rm(dir, { recursive: true, force: true });
-  }
+  return with_temporary_directory(
+    "release",
+    async (dir) => {
+      const archive = join(dir, assetName);
+      await download(o.url, archive);
+      if (o.verify) await o.verify(archive);
+      await extractArchive(archive, o.archiveExt, dir, o.env);
+      const found = o.binPaths
+        .map((p) => join(dir, p))
+        .find((p) => existsSync(p));
+      if (!found)
+        throw new Error(
+          `${assetName}: none of ${o.binPaths.join(", ")} in archive`,
+        );
+      await mkdir(dirname(o.dest), { recursive: true });
+      await copyFile(found, o.dest);
+      if (!IS_WIN) await chmod(o.dest, 0o755);
+      return o.dest;
+    },
+    { env: o.env },
+  );
 }

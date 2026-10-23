@@ -1,21 +1,21 @@
 ---
-name: subagents-in-pi
+name: subagents-in-cpi
 description:
-  "Use when delegating to a sub-agent, fanning out parallel or background tasks,
-  spawning or resuming a child `cpi` agent, or running the `subagent` script.
-  Search terms — subagent, delegate, parallel, background cpi, --session-id,
-  resume."
+  Completing tasks when user explicitly requests subagents or 'fan-out', or when
+  researching multiple disjoint topics or files
 ---
 
-# Subagents in cpi
+# Subagents are shell commands
 
 Launch `subagent` directly through `sh`. Use `subagent --help` for the current
 flags and output contract.
 
 ## Launch and resume
 
-On POSIX, always pass the task on standard input through a **quoted heredoc**;
-never pass prompts as positional arguments:
+Subagents are shell invocations of the `cpi` harness through the `subagent`
+entrypoint. Avoid directly invoking `cpi` CLI.
+
+Use `subagent --help` for current flags and output contract.
 
 ```sh
 subagent -s sub-task <<'TASK'
@@ -23,16 +23,16 @@ subagent -s sub-task <<'TASK'
 TASK
 ```
 
-The quoted delimiter prevents shell expansion of task text. In native
-PowerShell, pipe a literal here-string to `subagent` instead.
-
 Never redirect or pipe the launcher's stdout or stderr: doing so can hide live
-observability. Give `sh` a short `waitfor`; if the command backgrounds, wait for
-the completion notification rather than polling its log.
+observability. Give `sh` a 0s `waitfor` to immediately background.
 
-Subagents are tracked work, not daemons. Never use `sh_detach`, `setsid`,
-`nohup`, or `disown`. Reuse a deliberately chosen session id to resume. Keep
-nesting one level deep.
+Wait for the shell completion notification rather than polling its log.
+
+Subagents are tracked by the parent agent harness, do not invoke `sh_detach`,
+`setsid`, `nohup`, or `disown`. You can interrupt it at any time by interrupting
+the process.
+
+Reuse a deliberately chosen session id to resume an agent.
 
 Authoritative launcher behavior is in
 [`../../bin/subagent`](../../bin/subagent),

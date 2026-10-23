@@ -1,6 +1,9 @@
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { localFixture } from "./local-fixture.mjs";
+import { randomUUID } from "node:crypto";
+import { createSessionOwner } from "../src/lib/storage/owner.ts";
+import { ensureSubagentRpc } from "../src/lib/subagent-rpc.ts";
 
 export async function observationFixture() {
   let path;
@@ -71,5 +74,7 @@ export async function observationFixture() {
   });
   path = join(fixture.directory, "fixture.txt");
   await writeFile(path, "OBSERVATION_CONTENT\n\n\nsecond line\n");
-  return { ...fixture, path };
+  const owner = createSessionOwner(randomUUID(), fixture.directory);
+  await ensureSubagentRpc(owner);
+  return { ...fixture, path, owner };
 }

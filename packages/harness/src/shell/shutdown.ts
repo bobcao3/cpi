@@ -1,5 +1,13 @@
 import { randomUUID } from "node:crypto";
-import { mkdirSync, renameSync, writeFileSync } from "node:fs";
+import {
+  closeSync,
+  fsyncSync,
+  mkdirSync,
+  openSync,
+  renameSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { readFile, readdir, unlink } from "node:fs/promises";
 import { join } from "node:path";
 import type {
@@ -12,6 +20,7 @@ import {
   type NotificationDetails,
 } from "../lib/notification.ts";
 import { loadText, render, textPath } from "../lib/text.ts";
+import { staging_path } from "../lib/storage/paths.ts";
 import { shellRecords, updateShellRecord } from "./persistence.ts";
 
 interface ShutdownAction {
@@ -35,22 +44,38 @@ export function record_shell_shutdown(
   action: ShutdownAction,
 ): void {
   if (!session_dir || !scope) return;
+  let temporary: string | undefined;
+  let fd: number | undefined;
+  let created = false;
   try {
     const directory = record_directory(session_dir, scope);
     mkdirSync(directory, { recursive: true, mode: 0o700 });
     const path = join(directory, `${randomUUID()}.json`);
+    temporary = staging_path(path);
+    fd = openSync(temporary, "wx", 0o600);
+    created = true;
     writeFileSync(
-      `${path}.tmp`,
+      fd,
       JSON.stringify({ ...action, interrupted_at: Date.now() }) + "\n",
-      {
-        flag: "wx",
-        mode: 0o600,
-        flush: true,
-      },
     );
-    renameSync(`${path}.tmp`, path);
+    fsyncSync(fd);
+    closeSync(fd);
+    fd = undefined;
+    renameSync(temporary, path);
+    created = false;
   } catch (error) {
     console.error(error);
+  } finally {
+    if (fd !== undefined) {
+      try {
+        closeSync(fd);
+      } catch {}
+    }
+    if (created && temporary) {
+      try {
+        unlinkSync(temporary);
+      } catch {}
+    }
   }
 }
 

@@ -20,6 +20,7 @@ import provider from "./provider.ts";
 import shell from "./shell.ts";
 import subagentModels from "./subagent-models.ts";
 import subagentTranscript from "./subagent-transcript/index.ts";
+import tempDir from "./temp-dir.ts";
 import toolsInstaller from "./tools-installer/extension.ts";
 import waitAny from "./wait-any.ts";
 
@@ -42,6 +43,7 @@ export default async function cpi(host: ExtensionAPI): Promise<void> {
     shell,
     subagentModels,
     subagentTranscript,
+    tempDir,
     toolsInstaller,
     waitAny,
     codemode,

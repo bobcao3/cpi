@@ -16,10 +16,15 @@ import {
  */
 
 import { Type } from "typebox";
-import { writeFile, mkdir } from "node:fs/promises";
-import { dirname } from "node:path";
+import { writeFile, mkdir, mkdtemp, rm } from "node:fs/promises";
+import { dirname, join } from "node:path";
 import type { ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
 import { loadEditorConfig } from "../lib/config.ts";
+import {
+  captureSessionOwner,
+  sessionArtifactDirectory,
+  type SessionOwner,
+} from "../lib/storage/owner.ts";
 import { resolveCwdPath, getCwd } from "../lib/cwd.ts";
 import { expandSourcePath } from "../lib/skill-paths.ts";
 import { surfaceNewAgents, formatAgentsBlock } from "../lib/agents.ts";
@@ -95,6 +100,7 @@ function errorResult(
   command: Command,
   path: string,
   message: string,
+  tempPath?: string,
 ) {
   return {
     content: [
@@ -108,26 +114,58 @@ function errorResult(
       },
     ],
     isError: true,
-    details: { id, kind: "error", path, message },
+    details: { id, kind: "error", path, message, tempPath },
   };
 }
 
-async function executeWrite(params: WriteParams, id: string, abs: string) {
+async function executeWrite(
+  params: WriteParams,
+  id: string,
+  abs: string,
+  owner: SessionOwner,
+) {
   const T = loadEditorText(getCwd());
   const fileText = params.file_text;
   return withPathLock(abs, async () => {
+    let parentReady = false;
     try {
       await mkdir(dirname(abs), { recursive: true });
+      parentReady = true;
       await writeFile(abs, fileText, { flag: "wx" });
     } catch (e) {
       const code = (e as Error & { code?: string }).code;
-      if (code === "EEXIST")
+      if (parentReady && code === "EEXIST") {
+        let directory: string | undefined;
+        let tempPath: string;
+        try {
+          directory = await mkdtemp(
+            join(sessionArtifactDirectory(owner, "write-recovery"), "write-"),
+          );
+          tempPath = join(directory, "content");
+          await writeFile(tempPath, fileText, { flag: "wx", mode: 0o600 });
+        } catch (error) {
+          if (directory)
+            await rm(directory, { recursive: true, force: true }).catch(
+              () => {},
+            );
+          return errorResult(
+            id,
+            "write",
+            abs,
+            fmt(T.errors.file_exists_save_failed, {
+              path: abs,
+              reason: (error as Error).message,
+            }),
+          );
+        }
         return errorResult(
           id,
           "write",
           abs,
-          fmt(T.errors.file_exists, { path: abs }),
+          fmt(T.errors.file_exists, { path: abs, temp_path: tempPath }),
+          tempPath,
         );
+      }
       return errorResult(
         id,
         "write",
@@ -143,7 +181,7 @@ async function executeWrite(params: WriteParams, id: string, abs: string) {
         bytes: Buffer.byteLength(fileText, "utf-8"),
       }),
     ];
-    const lsp = await lspFields(abs);
+    const lsp = await lspFields(abs, owner);
     if (lsp) body.push(lsp);
     const agents = surfaceAgentsBlock(dirname(abs));
     return okResult(
@@ -176,10 +214,12 @@ async function executeEdit(
   ctx: ExtensionContext,
   id: string,
   abs: string,
+  owner?: SessionOwner,
 ) {
   const cwd = getCwd();
   const cfg = loadEditorConfig(cwd);
   const common = {
+    owner,
     cwd,
     signal,
     fuzzyMatch: cfg.fuzzyMatch,
@@ -251,6 +291,13 @@ async function execute(
     command === "read" ? expandSourcePath(params.path) : params.path,
   );
   if (signal?.aborted) return errorResult(id, command, abs, T.errors.aborted);
+  const owner =
+    command === "write" ||
+    command === "edit" ||
+    command === "apply_patch" ||
+    (command === "read" && "query" in params && params.query)
+      ? captureSessionOwner(ctx.sessionManager)
+      : undefined;
 
   if (command === "read")
     return executeRead(
@@ -259,8 +306,11 @@ async function execute(
       ctx,
       id,
       abs,
+      owner,
     );
-  if (command === "write") return executeWrite(params as WriteParams, id, abs);
+  if (command === "write") {
+    return executeWrite(params as WriteParams, id, abs, owner!);
+  }
   return executeEdit(
     command,
     params as EditParams | PatchParams,
@@ -269,6 +319,7 @@ async function execute(
     ctx,
     id,
     abs,
+    owner,
   );
 }
 

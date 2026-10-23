@@ -2,18 +2,11 @@
 
 import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
-import {
-  chmod,
-  copyFile,
-  mkdir,
-  readFile,
-  rm,
-  writeFile,
-} from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { chmod, copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
+import { storage_path, with_temporary_directory } from "../storage/paths.ts";
 import { type LspServerSpec } from "./registry.ts";
 import {
   IS_WIN,
@@ -58,7 +51,10 @@ export async function ensureUv(
   env: NodeJS.ProcessEnv,
 ): Promise<string> {
   const want = opts.uv.version;
-  const dir = join(getAgentDir(), "cache", "uv", "bin");
+  const dir = join(
+    storage_path("cache", "uv", { base: getAgentDir(), env }),
+    "bin",
+  );
   const bin = join(dir, IS_WIN ? "uv.exe" : "uv");
   if (existsSync(bin)) {
     try {
@@ -76,31 +72,31 @@ export async function ensureUv(
   if (!target) throw new Error(`no uv asset for ${platformKey()}`);
   const aname = `uv-${target}${IS_WIN ? ".zip" : ".tar.gz"}`;
   const url = `https://github.com/${opts.uv.repo}/releases/download/${want}/${aname}`;
-  const tmp = join(tmpdir(), `pi-uv-${Date.now()}`);
-  await mkdir(tmp, { recursive: true });
-  const archive = join(tmp, aname);
-  try {
-    await download(url, archive);
-    await verifyUv(archive, aname, want, opts, tmp);
-    await extractArchive(archive, IS_WIN ? "zip" : "tar.gz", tmp, env);
-    const extracted = IS_WIN
-      ? join(tmp, "uv.exe")
-      : join(tmp, `uv-${target}`, "uv");
-    await mkdir(dir, { recursive: true });
-    await copyFile(extracted, bin);
-    if (!IS_WIN) await chmod(bin, 0o755);
-    const v = await runCapture(
-      launchTarget(bin, env),
-      ["--version"],
-      dir,
-      env,
-      opts.installTimeoutMs,
-    );
-    if (!v.includes(want)) throw new Error(`uv version mismatch: ${v}`);
-    return bin;
-  } finally {
-    await rm(tmp, { recursive: true, force: true });
-  }
+  return with_temporary_directory(
+    "uv",
+    async (tmp) => {
+      const archive = join(tmp, aname);
+      await download(url, archive);
+      await verifyUv(archive, aname, want, opts, tmp);
+      await extractArchive(archive, IS_WIN ? "zip" : "tar.gz", tmp, env);
+      const extracted = IS_WIN
+        ? join(tmp, "uv.exe")
+        : join(tmp, `uv-${target}`, "uv");
+      await mkdir(dir, { recursive: true });
+      await copyFile(extracted, bin);
+      if (!IS_WIN) await chmod(bin, 0o755);
+      const v = await runCapture(
+        launchTarget(bin, env),
+        ["--version"],
+        dir,
+        env,
+        opts.installTimeoutMs,
+      );
+      if (!v.includes(want)) throw new Error(`uv version mismatch: ${v}`);
+      return bin;
+    },
+    { env },
+  );
 }
 
 async function verifyUv(

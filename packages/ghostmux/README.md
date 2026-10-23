@@ -148,7 +148,7 @@ and signals work for both session types. Pipe sessions reject terminal captures,
 screenshots, resizing, and input with `NotPty`. Session status exposes `is_pty`.
 
 See [`src/managed_process.zig`](https://github.com/bobcao3/cpi/blob/main/packages/ghostmux/src/managed_process.zig) for backend selection
-and [`shell.toml`](https://github.com/bobcao3/cpi/blob/main/packages/harness/src/text/shell.toml) for
+and [`shell.toml`](https://github.com/bobcao3/cpi/blob/main/packages/harness/text/shell.toml) for
 model-facing shell and capture guidance.
 
 Launch short-lived commands with an atomic output subscription:

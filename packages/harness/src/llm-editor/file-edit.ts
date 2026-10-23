@@ -1,13 +1,5 @@
-import { randomUUID } from "node:crypto";
-import {
-  readFile,
-  stat,
-  writeFile,
-  rename,
-  unlink,
-  chmod,
-} from "node:fs/promises";
-import { resolve, dirname, join } from "node:path";
+import { readFile, stat, open, rename, unlink, chmod } from "node:fs/promises";
+import { resolve } from "node:path";
 import {
   generateDiffString,
   generateUnifiedPatch,
@@ -32,11 +24,17 @@ import { editDiffOps, type DiffOp } from "./diff.ts";
 import { withPathLock } from "./lock.ts";
 import { lspFields } from "./lsp.ts";
 import { loadEditorConfig } from "../lib/config.ts";
+import { staging_path } from "../lib/storage/paths.ts";
+import {
+  inheritedSessionOwner,
+  type SessionOwner,
+} from "../lib/storage/owner.ts";
 
 export interface FileEditOptions {
   cwd: string;
   signal?: AbortSignal;
   maxFileBytes?: number;
+  owner?: SessionOwner;
 }
 
 type Usage = { input: number; output: number };
@@ -152,6 +150,7 @@ export async function withFileEdit(
 ): Promise<EditFileResult> {
   const T = loadEditorText(opts.cwd);
   const abs = resolve(opts.cwd, path);
+  const owner = opts.owner ?? inheritedSessionOwner();
   return withPathLock(abs, async () => {
     if (opts.signal?.aborted) return { ok: false, error: T.errors.aborted };
     let content: string;
@@ -187,17 +186,23 @@ export async function withFileEdit(
     const applied = await update(content);
     if (applied.ok === false) return applied;
     const { usage } = applied;
-    const tmp = join(dirname(abs), `.llm-editor-tmp-${randomUUID()}`);
+    const tmp = staging_path(abs);
+    let created = false;
     try {
-      await writeFile(tmp, applied.content, { encoding: "utf-8", flag: "wx" });
+      const handle = await open(tmp, "wx", 0o600);
+      created = true;
+      try {
+        await handle.writeFile(applied.content, "utf-8");
+      } finally {
+        await handle.close();
+      }
       await chmod(tmp, mode);
       if (opts.signal?.aborted) {
-        await unlink(tmp).catch(() => {});
         return { ok: false, error: T.errors.aborted, usage };
       }
       await rename(tmp, abs);
+      created = false;
     } catch (err) {
-      await unlink(tmp).catch(() => {});
       return {
         ok: false,
         error: fmt(T.errors.write_failed, {
@@ -206,8 +211,10 @@ export async function withFileEdit(
         }),
         usage,
       };
+    } finally {
+      if (created) await unlink(tmp).catch(() => {});
     }
-    const lsp = await lspFields(abs);
+    const lsp = await lspFields(abs, owner);
     const { diff, firstChangedLine } = generateDiffString(
       content,
       applied.content,
@@ -239,7 +246,7 @@ export async function applyPatchFile(
   const T = loadEditorText(opts.cwd);
   return withFileEdit(
     path,
-    { cwd: opts.cwd, signal: opts.signal },
+    { cwd: opts.cwd, signal: opts.signal, owner: opts.owner },
     async (content) =>
       applyFileDiff(content, [opts.patch], T, { ...opts, path }),
   );

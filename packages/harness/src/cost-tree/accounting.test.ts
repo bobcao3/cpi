@@ -216,7 +216,7 @@ test("real persisted sessions retain deduplicated subtree spend across reload, r
     });
   } finally {
     if (session) await shutdown(session);
-    server.close();
+    await server.close();
     if (previous) process.env.CPI_COST_SOCKET = previous;
     else delete process.env.CPI_COST_SOCKET;
     if (previousRun) process.env.CPI_COST_RUN_ID = previousRun;
@@ -292,7 +292,7 @@ test("worker run totals share attribution with sockets and exclude resumed histo
     });
   } finally {
     if (session) await shutdown(session);
-    server.close();
+    await server.close();
     if (previous) process.env.CPI_COST_SOCKET = previous;
     else delete process.env.CPI_COST_SOCKET;
     if (previousRun) process.env.CPI_COST_RUN_ID = previousRun;
@@ -325,6 +325,6 @@ test("real sockets reject oversized input and close incomplete senders on an abs
       } as any),
     ).toBe(false);
   } finally {
-    server.close();
+    await server.close();
   }
 });

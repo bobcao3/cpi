@@ -15,6 +15,6 @@ Server choices, versions, and timeouts are configuration, not documentation:
 see the `lsp` section of
 [`cpi-config.default.json`](../packages/harness/cpi-config.default.json).
 Model-facing rules are the authority in
-[`lsp.toml`](../packages/harness/src/text/lsp.toml); the subsystem
+[`lsp.toml`](../packages/harness/text/lsp.toml); the subsystem
 design is in
 [`DESIGN.md`](../packages/harness/src/lib/lsp/DESIGN.md).

@@ -22,6 +22,7 @@ import {
 export type { EditFileResult };
 
 export interface EditFileOptions {
+  owner?: import("../lib/storage/owner.ts").SessionOwner;
   id: string;
   instruction: string;
   provider: string;
@@ -96,6 +97,7 @@ export async function editFile(
     let outcome: Attempt | undefined;
     let correctionsSent = 0;
     const res = await runSubagent({
+      owner: opts.owner,
       role: "editor",
       title: basename(resolve(opts.cwd, path)),
       systemPrompt: baseSystem,

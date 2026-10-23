@@ -10,6 +10,7 @@ import { once } from "node:events";
 import { createServer } from "node:net";
 import { ensureSubagentRpc, stopSubagentRpc } from "../src/lib/subagent-rpc.ts";
 import { listActivities } from "../src/lib/activity.ts";
+import { createSessionOwner } from "../src/lib/storage/owner.ts";
 
 const local = await localFixture(() => {
   throw new Error("Handled input must not reach the model");
@@ -39,7 +40,9 @@ writeFileSync(
   }),
 );
 delete process.env.CPI_SUBAGENT_RPC;
-const endpoint = await ensureSubagentRpc();
+const endpoint = await ensureSubagentRpc(
+  createSessionOwner("backpressure", directory),
+);
 const child = spawn(childRuntime, [packagePath("bin/subagent.js")], {
   cwd: directory,
   env: {

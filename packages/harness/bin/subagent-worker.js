@@ -4,6 +4,7 @@ import { runForkProbeSubagent } from "./fork-probe-runner.js";
 import { runSubagentSession } from "./subagent-session.js";
 import { runSubagent } from "./subagent-runner.js";
 import { finishObservation } from "./subagent-events.mjs";
+import { inheritedSessionOwner } from "../src/lib/storage/owner.ts";
 
 if (!parentPort) throw new Error("subagent worker requires a parent port");
 
@@ -60,6 +61,8 @@ async function runWorker() {
   let exitCode = 1;
   let failure;
   try {
+    if (!inheritedSessionOwner())
+      throw new Error("subagent worker requires an artifact owner");
     if (!workerData || typeof workerData !== "object") {
       throw new Error("unsupported subagent worker request");
     }

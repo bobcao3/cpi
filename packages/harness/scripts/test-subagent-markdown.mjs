@@ -21,6 +21,7 @@ import {
 } from "../src/lib/activity.ts";
 import { createToolDisplay } from "../bin/subagent-display.mjs";
 import { createMarkdownWriter } from "../src/lib/subagent-markdown.ts";
+import { createSessionOwner } from "../src/lib/storage/owner.ts";
 
 const streamed = [];
 const writer = createMarkdownWriter((chunk) => streamed.push(chunk));
@@ -62,10 +63,13 @@ beginActivity({
   label: "markdown integration",
   started_at: Date.now(),
 });
-const observation = new SubagentObservation({
-  runId,
-  env: { PI_SESSION_DIR: directory },
-});
+const observation = new SubagentObservation(
+  {
+    runId,
+    env: { PI_SESSION_DIR: directory },
+  },
+  createSessionOwner(runId, directory),
+);
 let sequence = 0;
 const chunks = [];
 observation.options.onMarkdown = (chunk) => chunks.push(chunk);

@@ -7,6 +7,11 @@ import type {
   ExtensionAPI,
   ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
+import { ExtensionRunner, getAgentDir } from "@earendil-works/pi-coding-agent";
+import { join } from "node:path";
+import { captureSessionOwner, type SessionOwner } from "./lib/storage/owner.ts";
+import { bind_storage_owner } from "./lib/storage/operations.ts";
+import { register_storage_lifecycle } from "./lib/storage/lifecycle.ts";
 import {
   applySystemPromptTransforms,
   getSystemPromptOverride,
@@ -63,6 +68,22 @@ import { registerGoalProbe } from "./lib/goal-probe.ts";
 import { render_thinking_summary } from "./lib/thinking-summary.ts";
 
 export default function coreExtension(pi: ExtensionAPI): void {
+  let storage_context: ExtensionContext | undefined;
+  let storage_owner: SessionOwner | undefined;
+  if (!process.env.PI_SUBAGENT) {
+    if (typeof ExtensionRunner.prototype.cleanupSession !== "function")
+      throw new Error("cpi storage requires host session cleanup events");
+    const jobs = join(getAgentDir(), "jobs");
+    register_storage_lifecycle(
+      pi,
+      jobs,
+      () =>
+        !!storage_context &&
+        !storage_context.hasUI &&
+        getLastOutcome() === "completed",
+      () => storage_owner,
+    );
+  }
   pi.registerThinkingRenderer(render_thinking_summary);
   registerToolInspector(pi);
   injectSourcePaths();
@@ -78,11 +99,18 @@ export default function coreExtension(pi: ExtensionAPI): void {
   registerCompaction(pi);
   const promptModel = registerModelContext(pi);
   pi.on("session_start", async (_event, ctx: ExtensionContext) => {
+    storage_context = ctx;
+    const owner = captureSessionOwner(
+      ctx.sessionManager,
+      join(getAgentDir(), "jobs"),
+    );
+    storage_owner = owner;
+    setSessionDir(owner.session_dir);
+    bind_storage_owner(owner);
     startKittyProbe(ctx);
-    if (!process.env.PI_SUBAGENT) await ensureSubagentRpc();
+    if (!process.env.PI_SUBAGENT) await ensureSubagentRpc(owner);
     setupCpiFooter(pi, ctx);
     setupStatusReports(ctx);
-    setSessionDir(ctx.sessionManager?.getSessionDir());
     registerRightSegment("subagent-cost", () =>
       costSegment(ctx.sessionManager.getSessionId()),
     );

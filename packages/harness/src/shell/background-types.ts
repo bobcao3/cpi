@@ -2,6 +2,8 @@ import type { WriteStream } from "node:fs";
 import type { StringDecoder } from "node:string_decoder";
 import type { MonitorClient, ResumeClient } from "./monitor.ts";
 import type { ShellDialect, ShellProfile } from "./profile.ts";
+import type { ShellStorage } from "./storage.ts";
+import type { SessionOwner } from "../lib/storage/owner.ts";
 export interface BackgroundChild {
   id: string;
   activityId: string;
@@ -23,6 +25,8 @@ export interface BackgroundChild {
   colBytes: number;
   sessDir?: string;
   sessScope?: string;
+  storage?: ShellStorage;
+  artifact_owner?: SessionOwner;
 }
 export type CompletionHook = (
   id: string,
@@ -38,6 +42,25 @@ export type CompletionHook = (
   },
 ) => void;
 export interface RepeatMonitor {
+  owner?: import("../lib/storage/owner.ts").SessionOwner;
+  operation?: import("../lib/storage/operations.ts").OwnedOperation;
+  legacy?: boolean;
+  storageBound?: boolean;
+  completionSent?: boolean;
+  lastExit?: number | null;
+  notifyStopped?: () => void;
+  task?: Promise<void>;
+  launching?: Promise<import("./monitor.ts").MonitorHandle>;
+  launchCleanup?: () => Promise<void>;
+  nativeJoined?: boolean;
+  reaping?: Promise<void>;
+  logClosed?: Promise<void>;
+  logError?: unknown;
+  wake?: (code: number | null) => void;
+  signalSent?: boolean;
+  signalTask?: Promise<void>;
+  abort?: () => void;
+  settled?: () => void;
   id: string;
   command: string;
   shell: ShellProfile;

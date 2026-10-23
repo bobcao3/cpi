@@ -20,6 +20,7 @@ import { assertLocalModel, packagePath } from "./test-runtime.mjs";
 import { randomUUID } from "node:crypto";
 import { fixture } from "./fast-fixture.mjs";
 import { subagentEnvironment } from "../src/lib/activity-subagent.ts";
+import { createSessionOwner } from "../src/lib/storage/owner.ts";
 
 test("installed subagent worker uses the active Pi SDK without a local Pi peer", async () => {
   await fixture(async ({ runtime, directory, modelsPath, requests }) => {
@@ -30,7 +31,7 @@ test("installed subagent worker uses the active Pi SDK without a local Pi peer",
       await cp(packagePath("src/lib"), join(install, "src/lib"), {
         recursive: true,
       });
-      await cp(packagePath("src/text"), join(install, "src/text"), {
+      await cp(packagePath("text"), join(install, "text"), {
         recursive: true,
       });
       await copyFile(
@@ -76,7 +77,11 @@ test("installed subagent worker uses the active Pi SDK without a local Pi peer",
           "--import",
           new URL("./loopback-network.mjs", import.meta.url).href,
         ],
-        workerData: { ...request, observationCredits: credits.buffer },
+        workerData: {
+          ...request,
+          storageOwner: createSessionOwner(request.runId, directory),
+          observationCredits: credits.buffer,
+        },
         env: { ...env, CPI_CODING_AGENT_DIR: directory },
       });
       let diagnostics = "";

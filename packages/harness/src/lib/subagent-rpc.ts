@@ -1,5 +1,10 @@
 import { createServer, type Socket } from "node:net";
 import {
+  reserve_owned_operation,
+  storage_owner_retired,
+  type OwnedOperation,
+} from "./storage/operations.ts";
+import {
   MAX_ACTIVE,
   state,
   send,
@@ -7,7 +12,15 @@ import {
   abortRun,
   type ActiveRun,
   type RpcState,
+  type RpcBinding,
 } from "./subagent-rpc-runtime.ts";
+import {
+  createSessionOwner,
+  inheritedSessionOwner,
+  sameSessionOwner,
+  owner_key,
+  type SessionOwner,
+} from "./storage/owner.ts";
 import {
   type SubagentWorkerRequest,
   validCliSubagentRequest,
@@ -15,7 +28,7 @@ import {
 } from "./subagent-rpc-protocol.ts";
 import {
   createSubagentRpcEndpoint,
-  removeSubagentRpcEndpoint,
+  closeSubagentRpcListener,
   secureSubagentRpcEndpoint,
 } from "./subagent-rpc-endpoint.ts";
 import type {
@@ -35,6 +48,7 @@ const MAX_FORWARDED_DATA_CHUNK_BYTES = 48 * 1024;
 const MAX_SOCKET_BACKLOG_BYTES = 8 * 1024 * 1024;
 
 export interface SubagentWorkerRunOptions extends SubagentObservationOptions {
+  owner?: SessionOwner;
   signal?: AbortSignal;
   onMessage?: (message: unknown) => unknown;
 }
@@ -55,6 +69,7 @@ function launch(
   socket: Socket,
   request: SubagentWorkerRequest,
   rpc: RpcState,
+  binding: RpcBinding,
 ): void {
   let run: ActiveRun;
   const forward = (stream: "stdout" | "stderr", chunk: Buffer): void => {
@@ -88,8 +103,9 @@ function launch(
   try {
     run = startRun(
       request,
+      binding.owner,
       rpc,
-      rpc.endpoint!,
+      binding.endpoint,
       {
         stdout: (chunk) => forward("stdout", chunk),
         stderr: (chunk) => forward("stderr", chunk),
@@ -114,7 +130,9 @@ function launch(
   socket.on("error", () => abortRun(run));
 }
 
-function accept(socket: Socket, rpc: RpcState): void {
+function accept(socket: Socket, rpc: RpcState, binding: RpcBinding): void {
+  binding.sockets.add(socket);
+  socket.once("close", () => binding.sockets.delete(socket));
   let input = Buffer.alloc(0);
   const onData = (chunk: Buffer): void => {
     if (input.length + chunk.length > MAX_REQUEST_BYTES) {
@@ -137,7 +155,11 @@ function accept(socket: Socket, rpc: RpcState): void {
       fail(socket, "invalid subagent RPC request");
       return;
     }
-    launch(socket, value, rpc);
+    if (!rpc.bindings.has(binding.endpoint)) {
+      fail(socket, "subagent session admission is closed");
+      return;
+    }
+    launch(socket, value, rpc, binding);
   };
   socket.on("data", onData);
   socket.on("error", () => {});
@@ -153,10 +175,32 @@ export async function runSubagentWorker(
       error: new Error("invalid subagent worker request"),
     };
   }
-  let endpoint = getSubagentRpc();
+  if (options.signal?.aborted) return { exitCode: null };
+  const rpc = state();
+  let owner: SessionOwner;
+  let endpoint: string;
+  let operation: OwnedOperation | undefined;
   try {
-    endpoint ??= await ensureSubagentRpc();
+    const inherited = inheritedSessionOwner();
+    const selected = options.owner ?? inherited ?? rpc.owner;
+    if (!selected)
+      throw new Error("subagent run requires a captured session owner");
+    owner = createSessionOwner(selected.session_id, selected.session_dir);
+    if (inherited && !sameSessionOwner(inherited, owner))
+      throw new Error("subagent cannot change its inherited artifact owner");
+    operation = reserve_owned_operation(owner, options.signal);
+    options = { ...options, signal: operation.signal };
+    const current = getSubagentRpc();
+    endpoint =
+      inherited && current
+        ? current
+        : rpc.owner &&
+            rpc.server?.listening &&
+            sameSessionOwner(rpc.owner, owner)
+          ? rpc.endpoint!
+          : await ensureSubagentRpc(owner);
   } catch (error) {
+    operation?.finish();
     return {
       exitCode: null,
       error:
@@ -165,13 +209,16 @@ export async function runSubagentWorker(
           : new Error("failed to start subagent RPC"),
     };
   }
-  const rpc = state();
-  if (options.signal?.aborted) return { exitCode: null };
+  if (options.signal?.aborted) {
+    operation.finish();
+    return { exitCode: null };
+  }
 
   let run: ActiveRun;
   try {
-    run = startRun(request, rpc, endpoint, options);
+    run = startRun(request, owner, rpc, endpoint, { ...options, operation });
   } catch (error) {
+    operation.finish();
     return {
       exitCode: null,
       error:
@@ -193,37 +240,129 @@ export async function runSubagentWorker(
   };
 }
 
-export async function ensureSubagentRpc(): Promise<string> {
+export async function ensureSubagentRpc(owner?: SessionOwner): Promise<string> {
   const rpc = state();
-  if (rpc.endpoint && rpc.server?.listening) {
-    rpc.server.removeAllListeners("connection");
-    rpc.server.on("connection", (socket) => accept(socket, rpc));
-    return rpc.endpoint;
+  owner ??= inheritedSessionOwner() ?? rpc.owner;
+  if (!owner) throw new Error("subagent RPC requires a captured session owner");
+  owner = createSessionOwner(owner.session_id, owner.session_dir);
+  const key = owner_key(owner);
+  if (storage_owner_retired(owner)) {
+    const route =
+      rpc.routes.get(key) ??
+      (rpc.owner && sameSessionOwner(rpc.owner, owner)
+        ? rpc.endpoint
+        : undefined);
+    if (!route) throw new Error("retired storage owner has no RPC route");
+    return route;
   }
-  if (rpc.ready) return rpc.ready;
-  rpc.ready = new Promise<string>((resolve, reject) => {
-    const endpoint = createSubagentRpcEndpoint();
-    const server = createServer();
-    server.on("connection", (socket) => accept(socket, rpc));
-    server.maxConnections = MAX_ACTIVE;
-    server.once("error", reject);
-    server.listen(endpoint, () => {
-      server.off("error", reject);
-      server.on("error", (error) => {
-        process.stderr.write(`[subagent-rpc] ${error.message}\n`);
+  if (!rpc.routes.has(key) && rpc.routes.size >= 1024)
+    throw new Error("subagent RPC route limit reached");
+  for (const binding of rpc.bindings.values()) {
+    if (sameSessionOwner(binding.owner, owner)) {
+      binding.server.removeAllListeners("connection");
+      binding.server.on("connection", (socket) => accept(socket, rpc, binding));
+      return binding.ready;
+    }
+    retireBinding(binding, rpc);
+  }
+  if (rpc.retiring.size >= MAX_ACTIVE)
+    throw new Error("subagent RPC retirement limit reached");
+  const endpoint = createSubagentRpcEndpoint();
+  const server = createServer();
+  const binding: RpcBinding = {
+    owner,
+    endpoint,
+    server,
+    sockets: new Set(),
+    ready: new Promise<string>((resolve, reject) => {
+      server.on("connection", (socket) => accept(socket, rpc, binding));
+      server.maxConnections = MAX_ACTIVE;
+      server.once("error", reject);
+      server.listen(endpoint, () => {
+        server.off("error", reject);
+        server.on("error", (error) => {
+          process.stderr.write(`[subagent-rpc] ${error.message}\n`);
+        });
+        try {
+          secureSubagentRpcEndpoint(endpoint);
+          resolve(endpoint);
+        } catch (error) {
+          reject(error);
+        }
       });
-      secureSubagentRpcEndpoint(endpoint);
-      rpc.server = server;
-      rpc.endpoint = endpoint;
-      resolve(endpoint);
-    });
-  });
+    }),
+  };
+  rpc.bindings.set(endpoint, binding);
+  rpc.routes.set(key, endpoint);
+  if (rpc.server && !rpc.owner) {
+    const legacy = rpc.server;
+    const legacyEndpoint = rpc.endpoint;
+    trackClosure(
+      rpc,
+      closeSubagentRpcListener(
+        legacy,
+        legacyEndpoint,
+        [...rpc.active].flatMap((run) => (run.socket ? [run.socket] : [])),
+      ),
+    );
+  }
+  rpc.owner = owner;
+  rpc.server = server;
+  rpc.endpoint = endpoint;
+  rpc.ready = binding.ready;
   try {
-    return await rpc.ready;
+    return await binding.ready;
   } catch (error) {
-    rpc.ready = undefined;
+    rpc.bindings.delete(endpoint);
+    try {
+      for (const socket of binding.sockets) socket.destroy();
+      await retireBinding(binding, rpc);
+    } catch (cleanupError) {
+      throw new AggregateError(
+        [error, cleanupError],
+        "subagent RPC startup cleanup failed",
+      );
+    } finally {
+      if (rpc.ready === binding.ready) {
+        rpc.ready = undefined;
+        rpc.server = undefined;
+        rpc.endpoint = undefined;
+        rpc.owner = undefined;
+      }
+    }
     throw error;
   }
+}
+
+function retireBinding(
+  binding: RpcBinding & { closing?: Promise<void> },
+  rpc: RpcState,
+): Promise<void> {
+  rpc.routes.set(owner_key(binding.owner), binding.endpoint);
+  rpc.bindings.delete(binding.endpoint);
+  binding.closing ??= binding.ready
+    .catch(() => {})
+    .then(() =>
+      closeSubagentRpcListener(
+        binding.server,
+        binding.endpoint,
+        [...binding.sockets],
+        new Set(
+          [...rpc.active].flatMap((run) => (run.socket ? [run.socket] : [])),
+        ),
+      ),
+    );
+  trackClosure(rpc, binding.closing);
+  return binding.closing;
+}
+
+function trackClosure(rpc: RpcState, closed: Promise<void>): void {
+  if (rpc.retiring.has(closed)) return;
+  rpc.retiring.add(closed);
+  void closed.then(
+    () => rpc.retiring.delete(closed),
+    () => {},
+  );
 }
 
 export function getSubagentRpc(): string | undefined {
@@ -234,15 +373,26 @@ export async function stopSubagentRpc(): Promise<void> {
   const rpc = state();
   const runs = [...rpc.active];
   const exits = runs.map((run) => run.exited);
-  const server = rpc.server;
-  const endpoint = rpc.endpoint;
+  for (const binding of rpc.bindings.values()) retireBinding(binding, rpc);
+  if (rpc.server && !rpc.owner)
+    trackClosure(
+      rpc,
+      closeSubagentRpcListener(
+        rpc.server,
+        rpc.endpoint,
+        runs.flatMap((run) => (run.socket ? [run.socket] : [])),
+      ),
+    );
+  const closing = [...rpc.retiring];
   rpc.server = undefined;
   rpc.endpoint = undefined;
   rpc.ready = undefined;
-  const serverClosed = server
-    ? new Promise<void>((resolve) => server.close(() => resolve()))
-    : Promise.resolve();
+  rpc.owner = undefined;
   for (const run of runs) abortRun(run);
-  await Promise.all([serverClosed, ...exits]);
-  if (endpoint) removeSubagentRpcEndpoint(endpoint);
+  const settled = await Promise.allSettled([...closing, ...exits]);
+  const errors = settled.flatMap((result) =>
+    result.status === "rejected" ? [result.reason] : [],
+  );
+  if (errors.length)
+    throw new AggregateError(errors, "subagent RPC shutdown failed");
 }

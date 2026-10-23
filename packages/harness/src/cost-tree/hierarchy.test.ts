@@ -44,7 +44,7 @@ test("real nested sockets forward cumulative descendants without counting duplic
       count: 2,
     });
   } finally {
-    child.close();
-    parent.close();
+    await child.close();
+    await parent.close();
   }
 });

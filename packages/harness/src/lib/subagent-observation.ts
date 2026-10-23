@@ -1,6 +1,9 @@
-import { closeSync, fsyncSync, mkdirSync, openSync, writeSync } from "node:fs";
+import { closeSync, fsyncSync, openSync, writeSync } from "node:fs";
 import { join } from "node:path";
-import { getAgentDir } from "@earendil-works/pi-coding-agent";
+import {
+  sessionArtifactDirectory,
+  type SessionOwner,
+} from "./storage/owner.ts";
 import {
   appendActivityTail,
   finishActivity,
@@ -18,6 +21,7 @@ import {
 import type { SubagentWorkerRequest } from "./subagent-rpc-protocol.ts";
 
 export class SubagentObservation {
+  readonly owner: SessionOwner;
   readonly credits = new Int32Array(new SharedArrayBuffer(4));
   readonly result: SubagentObservationResult;
   options: SubagentObservationOptions = {};
@@ -37,14 +41,11 @@ export class SubagentObservation {
   private request: SubagentWorkerRequest;
   private reportUsage = captureSubagentUsageReporter();
 
-  constructor(request: SubagentWorkerRequest) {
+  constructor(request: SubagentWorkerRequest, owner: SessionOwner) {
+    this.owner = owner;
     this.request = request;
     this.reportUsage(request.runId, { input: 0, output: 0, cost: 0 });
-    const directory = join(
-      request.env.PI_SESSION_DIR || join(getAgentDir(), "sessions"),
-      "subagent-transcripts",
-    );
-    mkdirSync(directory, { recursive: true, mode: 0o700 });
+    const directory = sessionArtifactDirectory(owner, "subagent-transcripts");
     const base = join(directory, `${Date.now()}-${request.runId}`);
     this.result = {
       finalAnswer: "",

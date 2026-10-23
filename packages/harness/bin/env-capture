@@ -17,12 +17,9 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-if [[ -n "${PI_SESSION_DIR:-}" ]]; then
-  dir="$PI_SESSION_DIR/env-captures"
-else
-  dir="${CPI_CODING_AGENT_DIR:-$HOME/.cpi/agent}/env-captures"
-fi
-mkdir -p "$dir"
+umask 077
+script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+dir="$(node "$script_dir/env-capture-path.mjs")"
 
 if [[ -n "$label" ]]; then
   name="$(printf '%s' "$label" | tr -c 'A-Za-z0-9._-' '_' | cut -c1-64).env"
@@ -31,7 +28,7 @@ else
 fi
 file="$dir/$name"
 
-tmp="$(mktemp)"
+tmp="$(mktemp "$dir/.env-capture-XXXXXXXX")"
 trap 'rm -f "$tmp"' EXIT
 
 env | awk '
@@ -53,7 +50,7 @@ if [[ "$count" -eq 0 ]]; then
   exit 1
 fi
 
-mv "$tmp" "$file"
+node --input-type=commonjs -e 'require("node:fs").renameSync(process.argv[1], process.argv[2])' "$tmp" "$file"
 
 plural=""
 (( count != 1 )) && plural="s"

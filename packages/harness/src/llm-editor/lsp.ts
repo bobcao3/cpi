@@ -9,12 +9,21 @@ import { loadEditorText, fmt } from "./text.ts";
 import { field } from "./result-xml.ts";
 import { check_mermaid_file } from "../mermaid/check.ts";
 import { mermaid_document } from "../mermaid/markdown.ts";
+import {
+  inheritedSessionOwner,
+  type SessionOwner,
+} from "../lib/storage/owner.ts";
 
 /** Never throws: any failure degrades to "" — the edit already succeeded. Runs under the writer's per-path lock, so checkFile reads the just-written content. `abs` must be absolute. */
-export async function lspFields(abs: string): Promise<string> {
+export async function lspFields(
+  abs: string,
+  owner: SessionOwner | undefined = inheritedSessionOwner(),
+): Promise<string> {
   try {
     if (mermaid_document(abs)) {
-      const rendered = await renderDiagnostics(await check_mermaid_file(abs));
+      const rendered = await renderDiagnostics(await check_mermaid_file(abs), {
+        owner,
+      });
       return rendered.text ? field("diagnostics", rendered.text) : "";
     }
     const lang = languageByPath(abs);
@@ -32,7 +41,7 @@ export async function lspFields(abs: string): Promise<string> {
       });
     }
     const diags = await checkFile(abs);
-    const rendered = await renderDiagnostics(diags);
+    const rendered = await renderDiagnostics(diags, { owner });
     return [
       field("lsp", "started", {
         project: root,

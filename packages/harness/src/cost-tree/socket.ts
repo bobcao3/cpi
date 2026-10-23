@@ -1,9 +1,9 @@
 import { createServer, connect, type Server, type Socket } from "node:net";
-import { mkdtempSync, rmSync, chmodSync } from "node:fs";
+import { mkdirSync, rmSync, chmodSync } from "node:fs";
 import { randomBytes } from "node:crypto";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { validReport, type CostReport } from "../lib/cost-accounting.ts";
+import { socket_directory } from "../lib/storage/paths.ts";
 export type { CostReport } from "../lib/cost-accounting.ts";
 
 const MAX_BYTES = 1024 * 1024;
@@ -27,7 +27,7 @@ export function renderCostReport(r: CostReport): string {
 export function createCostSocket(onReport: (r: CostReport) => void): {
   path: string;
   ready: Promise<void>;
-  close: () => void;
+  close: () => Promise<void>;
 } {
   const isWindows = process.platform === "win32";
   let dir: string | undefined;
@@ -35,8 +35,9 @@ export function createCostSocket(onReport: (r: CostReport) => void): {
   if (isWindows) {
     path = `\\\\.\\pipe\\cpi-cost-${process.pid}-${randomBytes(16).toString("hex")}`;
   } else {
-    dir = mkdtempSync(join(tmpdir(), "cpi-cost-"));
-    chmodSync(dir, 0o700);
+    const allocation = `scope-${randomBytes(8).toString("hex")}`;
+    dir = join(socket_directory("cost", join(allocation, "sock")), allocation);
+    mkdirSync(dir, { mode: 0o700 });
     path = join(dir, "sock");
   }
 
@@ -50,11 +51,13 @@ export function createCostSocket(onReport: (r: CostReport) => void): {
   const server: Server = createServer(
     { allowHalfOpen: true },
     (sock: Socket) => {
-      if (sockets.size >= MAX_CONNECTIONS) {
+      sockets.add(sock);
+      sock.once("close", () => sockets.delete(sock));
+      sock.on("error", () => {});
+      if (sockets.size > MAX_CONNECTIONS) {
         sock.destroy();
         return;
       }
-      sockets.add(sock);
       sock.unref();
       const timer = setTimeout(() => sock.destroy(), TIMEOUT_MS);
       timer.unref();
@@ -85,34 +88,55 @@ export function createCostSocket(onReport: (r: CostReport) => void): {
       });
       sock.on("close", () => {
         clearTimeout(timer);
-        sockets.delete(sock);
       });
-      sock.on("error", () => {});
     },
   );
   server.maxConnections = MAX_CONNECTIONS;
   server.unref();
   server.on("error", (error) => rejectReady(error));
-  server.listen(path, () => {
-    try {
-      if (!isWindows) chmodSync(path, 0o600);
-      resolveReady();
-    } catch (error) {
-      rejectReady(error instanceof Error ? error : new Error(String(error)));
-    }
-  });
-
-  let closed = false;
-  const close = (): void => {
-    if (closed) return;
-    closed = true;
-    for (const sock of sockets) sock.destroy();
-    server.close();
-    if (dir) {
+  try {
+    server.listen(path, () => {
       try {
-        rmSync(dir, { recursive: true, force: true });
-      } catch {}
-    }
+        if (!isWindows) chmodSync(path, 0o600);
+        resolveReady();
+      } catch (error) {
+        rejectReady(error instanceof Error ? error : new Error(String(error)));
+      }
+    });
+  } catch (error) {
+    rejectReady(error instanceof Error ? error : new Error(String(error)));
+  }
+
+  let closing: Promise<void> | undefined;
+  const close = (): Promise<void> => {
+    closing ??= (async () => {
+      await ready.catch(() => {});
+      const listener = new Promise<void>((resolve, reject) => {
+        server.close((error?: Error) => {
+          if (
+            error &&
+            (error as NodeJS.ErrnoException).code !== "ERR_SERVER_NOT_RUNNING"
+          )
+            reject(error);
+          else resolve();
+        });
+      });
+      const connections = [...sockets].map(
+        (sock) =>
+          new Promise<void>((resolve) => {
+            sock.once("close", () => resolve());
+            sock.destroy();
+          }),
+      );
+      const settled = await Promise.allSettled([...connections, listener]);
+      const errors = settled.flatMap((result) =>
+        result.status === "rejected" ? [result.reason] : [],
+      );
+      if (errors.length)
+        throw new AggregateError(errors, "cost socket close failed");
+      if (dir) rmSync(dir, { recursive: true });
+    })();
+    return closing;
   };
   return { path, ready, close };
 }

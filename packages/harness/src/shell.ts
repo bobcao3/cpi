@@ -11,7 +11,12 @@ import { shell_output_schema } from "./shell/result-schema.ts";
 import { surface_shell_shutdowns } from "./shell/shutdown.ts";
 import { Type } from "typebox";
 import { renderShellTree } from "./shell/compact-render.ts";
-import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import {
+  getAgentDir,
+  type ExtensionContext,
+} from "@earendil-works/pi-coding-agent";
+import { captureSessionOwner } from "./lib/storage/owner.ts";
+import { join, resolve } from "node:path";
 import { loadShellConfig } from "./lib/config.ts";
 import { getCwd } from "./lib/cwd.ts";
 import { checkShellPoll } from "./lib/poll-guard.ts";
@@ -158,6 +163,13 @@ export default async function (pi: ExtensionAPI) {
     outputSchema: shell_output_schema,
     renderShell: "self",
     async execute(_toolCallId, params, signal, onUpdate, ctx) {
+      const owner = captureSessionOwner(
+        ctx.sessionManager,
+        join(getAgentDir(), "jobs"),
+      );
+      const session_id = ctx.sessionManager.getSessionId();
+      const session_dir = ctx.sessionManager.getSessionDir();
+      const cwd = getCwd();
       const describe = params.description?.trim();
       const blocked = (
         reason: string,
@@ -246,7 +258,14 @@ export default async function (pi: ExtensionAPI) {
       const res = await runShell(
         params.command,
         effectiveWaitfor,
-        buildShellEnvWithDotenv(ctx?.sessionManager, params.env),
+        buildShellEnvWithDotenv(
+          {
+            getSessionId: () => session_id,
+            getSessionDir: () => session_dir,
+          },
+          params.env ? resolve(cwd, params.env) : undefined,
+          owner,
+        ),
         signal,
         (t) =>
           onUpdate?.({
@@ -258,8 +277,9 @@ export default async function (pi: ExtensionAPI) {
         truncation,
         tunables,
         shell,
-        getCwd(),
+        cwd,
         params.is_pty ?? false,
+        owner,
       );
 
       const tag = describe ? ` (${truncateDescribe(describe)})` : "";
@@ -273,7 +293,10 @@ export default async function (pi: ExtensionAPI) {
       if (slowDown) text = `${slowDown}\n---\n${text}`;
       if (res.uid) text += `\nUID=${res.uid} socket=${res.socketPath}`;
       text += formatAgentsBlock(cdAgents);
-      text += await runLspHook(availability.treeSitter ? parse.node : null);
+      text += await runLspHook(
+        availability.treeSitter ? parse.node : null,
+        owner,
+      );
 
       const is_error =
         res.status === "completed" &&
@@ -335,6 +358,7 @@ export default async function (pi: ExtensionAPI) {
   registerBackgroundListTool(pi, T, switches, truncateDescribe);
 
   pi.on("session_start", async (event, ctx) => {
+    const owner = captureSessionOwner(ctx.sessionManager, getAgentDir());
     shellStatus?.dispose();
     shellStatus = createShellStatusRefresher(ctx);
     const dir = ctx.sessionManager?.getSessionDir();
@@ -343,7 +367,7 @@ export default async function (pi: ExtensionAPI) {
     await bindShellPersistence(pi, ctx);
     await migrateShellRecords(ctx);
     acknowledgeShellNotifications(ctx);
-    await resumeRepeats(pi, ctx, event.reason !== "fork");
+    await resumeRepeats(pi, ctx, event.reason !== "fork", owner);
     if (event.reason !== "fork") await surface_shell_shutdowns(pi, ctx);
     if (event.reason !== "fork" && event.reason !== "reload")
       await surfaceCompletedShells(
@@ -352,7 +376,7 @@ export default async function (pi: ExtensionAPI) {
         ctx.sessionManager.getSessionFile(),
       );
     restoreShellActivities(scope);
-    await resumeBackgroundShells(dir, scope);
+    await resumeBackgroundShells(dir, scope, owner);
     if (event.reason !== "fork" && event.reason !== "reload")
       void notifyOrphanedShells(dir, scope);
     pi.setActiveTools(
@@ -393,7 +417,7 @@ export default async function (pi: ExtensionAPI) {
 
   pi.on("session_shutdown", async (event, ctx) => {
     suspendShellWrites(ctx, event.reason);
-    suspendRepeatWrites(ctx, event.reason);
+    await suspendRepeatWrites(ctx, event.reason);
     shellStatus?.dispose();
     shellStatus = null;
   });

@@ -23,6 +23,7 @@ import {
 } from "../lib/subagent-rpc-protocol.ts";
 
 export interface SubagentOptions {
+  owner?: import("../lib/storage/owner.ts").SessionOwner;
   role: "viewer" | "editor";
   title: string;
   systemPrompt: string;
@@ -143,6 +144,7 @@ export async function runSubagent(
     else opts.signal.addEventListener("abort", onAbort, { once: true });
   }
   const result = await runSubagentWorker(request, {
+    owner: opts.owner,
     signal: controller.signal,
     stderr(chunk) {
       stderr = (stderr + chunk.toString("utf8")).slice(-32768);

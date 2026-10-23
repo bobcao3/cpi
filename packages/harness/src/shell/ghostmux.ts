@@ -1,8 +1,8 @@
-import { createHash, randomUUID } from "node:crypto";
-import { constants } from "node:fs";
+import { createHash } from "node:crypto";
 import { execFile } from "node:child_process";
 import {
   mkdir,
+  open,
   readFile,
   symlink,
   copyFile,
@@ -12,10 +12,16 @@ import {
   rm,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { isAbsolute, join, resolve } from "node:path";
 import { promisify } from "node:util";
 import { ghostmuxRequest, type NativeResponse } from "./ghostmux-transport.ts";
 import { toolPackage } from "../lib/tool-package.ts";
+import {
+  storage_directory,
+  storage_path,
+  socket_directory,
+  staging_path,
+} from "../lib/storage/paths.ts";
 
 const { resolveGhostmux } = await toolPackage("@cpi/ghostmux/resolve");
 
@@ -62,7 +68,7 @@ export function rememberTarget(target: SessionTarget): void {
   targets.set(String(target.pid), target);
   targets.set(target.uid, target);
 }
-function targetDirectory(): string {
+function legacyTargetDirectory(): string {
   const root = process.platform === "darwin" ? "/tmp" : tmpdir();
   return join(root, `cpi-ghostmux-${process.getuid?.() ?? "win32"}`);
 }
@@ -71,21 +77,24 @@ export function ghostmuxSocket(env: NodeJS.ProcessEnv): string {
     .update(env.PI_SESSION_ID ?? `process-${process.pid}`)
     .digest("hex")
     .slice(0, 32);
-  return join(targetDirectory(), `${scope}.sock`);
+  const filename = `${scope}.sock`;
+  return join(socket_directory("ghostmux", filename, { env }), filename);
 }
 export async function resolveGhostmuxBinary(): Promise<string> {
   return resolveGhostmux();
 }
 export async function ghostmuxCommandDirectory(
   binary: string,
+  env: NodeJS.ProcessEnv = process.env,
 ): Promise<string> {
+  binary = resolve(binary);
   const source = await stat(binary, { bigint: true });
   const identity =
     process.platform === "win32"
       ? `${binary}\0${source.size}\0${source.mtimeNs}\0${source.ctimeNs}`
       : binary;
   const directory = join(
-    await ensureTargetDirectory(),
+    storage_directory("cache", "ghostmux-command", { env }),
     `bin-${createHash("sha256").update(identity).digest("hex").slice(0, 16)}`,
   );
   await mkdir(directory, { recursive: true, mode: 0o700 });
@@ -97,9 +106,13 @@ export async function ghostmuxCommandDirectory(
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
     }
-    const temporary = join(directory, `${randomUUID()}.tmp`);
+    const temporary = staging_path(destination);
+    let created = false;
     try {
-      await copyFile(binary, temporary, constants.COPYFILE_EXCL);
+      const handle = await open(temporary, "wx", 0o600);
+      created = true;
+      await handle.close();
+      await copyFile(binary, temporary);
       await chmod(temporary, 0o700);
       try {
         await link(temporary, destination);
@@ -107,7 +120,7 @@ export async function ghostmuxCommandDirectory(
         if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
       }
     } finally {
-      await rm(temporary, { force: true });
+      if (created) await rm(temporary, { force: true });
     }
   } else {
     try {
@@ -128,7 +141,12 @@ export async function ghostmuxRpc(
   const { stdout } = await execute(
     target.binaryPath,
     ["-S", target.socketPath, ...args, "--uid", target.uid, "--json"],
-    { signal, timeout: 10000, maxBuffer: 12 * 1024 * 1024, windowsHide: true },
+    {
+      signal,
+      timeout: args[0] === "screenshot" ? 0 : 10000,
+      maxBuffer: 12 * 1024 * 1024,
+      windowsHide: true,
+    },
   );
   const response = JSON.parse(stdout);
   if (
@@ -147,14 +165,29 @@ export async function getSessionTarget(
   signal?.throwIfAborted();
   if (!/^[a-zA-Z0-9_.-]{1,128}$/.test(id))
     throw new Error(`Invalid shell session ${id}`);
-  const directory = await ensureTargetDirectory();
+  const directory = storage_path("state", "ghostmux");
   let target: SessionTarget;
   try {
-    const statePath = /^\d+$/.test(id)
-      ? JSON.parse(await readFile(join(directory, `pid-${id}.json`), "utf8"))
-          .statePath
-      : (targets.get(id)?.statePath ?? join(directory, `${id}.json`));
-    target = await readTarget(statePath);
+    const remembered = targets.get(id);
+    if (remembered) {
+      target = await readTarget(remembered.statePath);
+    } else {
+      let recovered: SessionTarget | undefined;
+      for (const root of [directory, legacyTargetDirectory()]) {
+        try {
+          const statePath = /^\d+$/.test(id)
+            ? JSON.parse(await readFile(join(root, `pid-${id}.json`), "utf8"))
+                .statePath
+            : join(root, `${id}.json`);
+          recovered = await readTarget(statePath);
+          break;
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+        }
+      }
+      if (!recovered) throw new Error("shell metadata not found");
+      target = recovered;
+    }
   } catch {
     throw new Error(`Unknown shell session ${id}`);
   }
@@ -203,22 +236,30 @@ export async function captureSessionScreenshot(
     throw new Error(
       `Shell ${id} uses pipes; launch with is_pty=true for terminal capture`,
     );
-  const response = await ghostmuxRpc(
-    target,
-    [
-      "screenshot",
-      "--output",
-      resolve(path),
-      ...(fontSize === undefined ? [] : ["--font-size", String(fontSize)]),
-    ],
-    signal,
-  );
+  const response = await ghostmuxRpc(target, [
+    "screenshot",
+    "--output",
+    resolve(path),
+    ...(fontSize === undefined ? [] : ["--font-size", String(fontSize)]),
+  ]);
+  signal?.throwIfAborted();
   if (!response.path)
     throw new Error("ghostmux did not return a screenshot path");
   return target;
 }
 export async function readTarget(path: string): Promise<SessionTarget> {
   const metadata = JSON.parse(await readFile(path, "utf8")) as SessionTarget;
+  if (
+    ![
+      path,
+      metadata.statePath,
+      metadata.statusPath,
+      metadata.logPath,
+      metadata.socketPath,
+      metadata.binaryPath,
+    ].every((value) => typeof value === "string" && isAbsolute(value))
+  )
+    throw new Error("ghostmux recovery paths must be absolute");
   if ((await stat(metadata.statusPath)).size > 65536)
     throw new Error("ghostmux status file exceeds the size limit");
   const native = JSON.parse(
@@ -251,11 +292,8 @@ export async function readTarget(path: string): Promise<SessionTarget> {
   rememberTarget(target);
   return target;
 }
-export async function ensureTargetDirectory(): Promise<string> {
-  const path = targetDirectory();
-  await execute(await resolveGhostmuxBinary(), ["prepare-runtime", path], {
-    windowsHide: true,
-    timeout: 10000,
-  });
-  return path;
+export async function ensureTargetDirectory(
+  env: NodeJS.ProcessEnv = process.env,
+): Promise<string> {
+  return storage_directory("state", "ghostmux", { env });
 }

@@ -1,16 +1,61 @@
-import { readFileSync, existsSync, appendFileSync } from "node:fs";
+import {
+  readFileSync,
+  existsSync,
+  openSync,
+  closeSync,
+  fstatSync,
+  ftruncateSync,
+  writeSync,
+  constants,
+} from "node:fs";
 import { join } from "node:path";
 import {
   getAgentDir,
   type ExtensionAPI,
   type ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
+import { storage_directory } from "./storage/paths.ts";
+
+const DEBUG_LOG_BYTES = 1024 * 1024;
+const DEBUG_LINE_BYTES = 4096;
 
 const debug = (msg: string): void => {
   if (!process.env.PF_DEBUG) return;
+  let fd: number | undefined;
   try {
-    appendFileSync("/tmp/provider-fallback-debug.log", `${msg}\n`);
-  } catch {}
+    const path = join(
+      storage_directory("state", "provider-fallback"),
+      "debug.log",
+    );
+    fd = openSync(
+      path,
+      constants.O_WRONLY |
+        constants.O_APPEND |
+        constants.O_CREAT |
+        constants.O_NOFOLLOW,
+      0o600,
+    );
+    const stat = fstatSync(fd);
+    if (
+      !stat.isFile() ||
+      (process.getuid && stat.uid !== process.getuid()) ||
+      (process.platform !== "win32" && (stat.mode & 0o077) !== 0)
+    )
+      return;
+    const line = Buffer.concat([
+      Buffer.from(msg).subarray(0, DEBUG_LINE_BYTES - 1),
+      Buffer.from("\n"),
+    ]);
+    if (stat.size + line.length > DEBUG_LOG_BYTES) ftruncateSync(fd, 0);
+    writeSync(fd, line);
+  } catch {
+  } finally {
+    if (fd !== undefined) {
+      try {
+        closeSync(fd);
+      } catch {}
+    }
+  }
 };
 
 interface CompatConfig {

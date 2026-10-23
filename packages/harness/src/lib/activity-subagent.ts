@@ -2,6 +2,7 @@ import type { Worker } from "node:worker_threads";
 import { refreshHostRoutingEnv } from "../../bin/host-pi.mjs";
 import type { SubagentWorkerRequest } from "./subagent-rpc-protocol.ts";
 import { beginActivity } from "./activity.ts";
+import type { SessionOwner } from "./storage/owner.ts";
 
 export function subagentEnvironment(
   request: SubagentWorkerRequest,
@@ -30,6 +31,7 @@ export function subagentEnvironment(
 export function observeSubagent(
   request: SubagentWorkerRequest,
   worker: Worker,
+  owner: SessionOwner,
 ): void {
   try {
     const role = request.env.PI_SUBAGENT_ROLE;
@@ -44,10 +46,7 @@ export function observeSubagent(
       id: request.runId,
       kind: "subagent",
       status: "running",
-      session_id:
-        "parentSessionId" in request
-          ? request.parentSessionId
-          : request.env.PI_SESSION_ID,
+      session_id: owner.session_id,
       label: `${role || ("kind" in request ? request.kind : "subagent")}: ${title}`,
       cwd: request.cwd,
       started_at: Date.now(),

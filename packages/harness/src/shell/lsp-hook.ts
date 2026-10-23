@@ -7,6 +7,10 @@ import { discoverProjectRoot, languageByPath } from "../lib/lsp/discover.ts";
 import { renderDiagnostics } from "../lib/lsp/diagnostics-overflow.ts";
 import { check_mermaid_file } from "../mermaid/check.ts";
 import { mermaid_document } from "../mermaid/markdown.ts";
+import {
+  inheritedSessionOwner,
+  type SessionOwner,
+} from "../lib/storage/owner.ts";
 
 export interface LspHookResult {
   appendedText?: string;
@@ -21,6 +25,7 @@ function warnedSet(): Set<string> {
 
 export async function postRunLspCheck(
   edits: EditTarget[],
+  owner: SessionOwner | undefined = inheritedSessionOwner(),
 ): Promise<LspHookResult> {
   let appendedText: string | undefined;
   let warning: string | undefined;
@@ -30,7 +35,7 @@ export async function postRunLspCheck(
       if (mermaid_document(t.path)) {
         const diags = await check_mermaid_file(t.path);
         if (diags.length) {
-          const rendered = await renderDiagnostics(diags);
+          const rendered = await renderDiagnostics(diags, { owner });
           appendedText = [appendedText, rendered.text]
             .filter(Boolean)
             .join("\n");
@@ -44,7 +49,7 @@ export async function postRunLspCheck(
       if (sess && sess.state === "ready") {
         const diags = await checkFile(t.path);
         if (diags.length > 0) {
-          const rendered = await renderDiagnostics(diags);
+          const rendered = await renderDiagnostics(diags, { owner });
           const block = `${t.path}\n${rendered.text}`;
           appendedText =
             appendedText === undefined ? block : `${appendedText}\n${block}`;
@@ -66,8 +71,11 @@ export async function postRunLspCheck(
   return result;
 }
 
-export async function runLspHook(root: Node | null): Promise<string> {
-  const hook = await postRunLspCheck(detectEdits(root));
+export async function runLspHook(
+  root: Node | null,
+  owner: SessionOwner | undefined = inheritedSessionOwner(),
+): Promise<string> {
+  const hook = await postRunLspCheck(detectEdits(root), owner);
   const parts: string[] = [];
   if (hook.appendedText !== undefined) parts.push(hook.appendedText);
   if (hook.warning !== undefined) parts.push(hook.warning);

@@ -1,6 +1,9 @@
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { readFileSync, realpathSync } from "node:fs";
 import { resolve, join } from "node:path";
+import { configure_storage_environment } from "@cpi/harness/storage-paths";
+
+configure_storage_environment();
 
 process.env.PI_APPLICATION_MANIFEST = fileURLToPath(
   new URL("./package.json", import.meta.url),

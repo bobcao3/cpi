@@ -7,6 +7,11 @@ import { observeSubagent, subagentEnvironment } from "./activity-subagent.ts";
 import { updateActivity } from "./activity.ts";
 import { SubagentObservation } from "./subagent-observation.ts";
 import type { SubagentObservationOptions } from "./subagent-events.ts";
+import type { SessionOwner } from "./storage/owner.ts";
+import {
+  reserve_owned_operation,
+  type OwnedOperation,
+} from "./storage/operations.ts";
 
 export const MAX_ACTIVE = 16;
 const MAX_RUN_ID_CHARS = 96;
@@ -18,6 +23,7 @@ const WORKER_PATH = join(
   "subagent-worker.js",
 );
 export interface ActiveRun {
+  readonly owner: SessionOwner;
   observation: SubagentObservation;
   activityId: string;
   cancelled?: boolean;
@@ -32,16 +38,32 @@ export interface ActiveRun {
 }
 export interface RunOptions extends SubagentObservationOptions {
   onMessage?: (message: unknown) => unknown;
+  operation?: OwnedOperation;
 }
 export interface RpcState {
   server?: Server;
   endpoint?: string;
   ready?: Promise<string>;
+  owner?: SessionOwner;
+  bindings: Map<string, RpcBinding>;
+  retiring: Set<Promise<void>>;
+  routes: Map<string, string>;
   active: Set<ActiveRun>;
+}
+export interface RpcBinding {
+  readonly owner: SessionOwner;
+  readonly endpoint: string;
+  readonly server: Server;
+  readonly sockets: Set<Socket>;
+  readonly ready: Promise<string>;
 }
 export function state(): RpcState {
   const globals = globalThis as Record<string, unknown>;
-  return (globals.__cpiSubagentRpc ??= { active: new Set() }) as RpcState;
+  const rpc = (globals.__cpiSubagentRpc ??= { active: new Set() }) as RpcState;
+  rpc.bindings ??= new Map();
+  rpc.retiring ??= new Set();
+  rpc.routes ??= new Map();
+  return rpc;
 }
 export function send(socket: Socket, value: unknown): boolean {
   return socket.writable && socket.write(`${JSON.stringify(value)}\n`);
@@ -75,6 +97,7 @@ function claimRunId(rpc: RpcState, request: SubagentWorkerRequest): void {
 }
 export function startRun(
   request: SubagentWorkerRequest,
+  owner: SessionOwner,
   rpc: RpcState,
   endpoint: string,
   options: RunOptions,
@@ -83,23 +106,32 @@ export function startRun(
   if (rpc.active.size >= MAX_ACTIVE)
     throw new Error(`subagent concurrency limit reached (${MAX_ACTIVE})`);
   claimRunId(rpc, request);
-  const observation = new SubagentObservation(request);
-  observation.options = options;
+  const operation =
+    options.operation ?? reserve_owned_operation(owner, undefined, "external");
+  let observation!: SubagentObservation;
   let worker: Worker;
   try {
+    observation = new SubagentObservation(request, owner);
+    observation.options = options;
     worker = new Worker(WORKER_PATH, {
       workerData: {
         ...request,
+        storageOwner: owner,
         observationCredits: observation.credits.buffer,
       },
       env: subagentEnvironment(request, endpoint),
     });
   } catch (error) {
-    observation.finish(1, false, String(error));
+    try {
+      observation?.finish(1, false, String(error));
+    } finally {
+      operation.finish();
+    }
     throw error;
   }
   let resolveExit!: () => void;
   const run: ActiveRun = {
+    owner,
     observation,
     activityId: request.runId,
     socket,
@@ -110,6 +142,9 @@ export function startRun(
       resolveExit = resolve;
     }),
   };
+  const storage_abort = () => abortRun(run);
+  operation.signal.addEventListener("abort", storage_abort, { once: true });
+  if (operation.signal.aborted) storage_abort();
   let receivedDone = false;
   const fail = (error: unknown): void => {
     if (!run.failed)
@@ -132,6 +167,8 @@ export function startRun(
         );
       finishRun(run, rpc);
     } finally {
+      operation.signal.removeEventListener("abort", storage_abort);
+      operation.finish();
       resolveExit();
     }
   });
@@ -161,7 +198,7 @@ export function startRun(
   });
   rpc.active.add(run);
   try {
-    observeSubagent(request, worker);
+    observeSubagent(request, worker, owner);
     updateActivity(request.runId, {
       log_path: observation.result.markdownPath,
       metrics: {

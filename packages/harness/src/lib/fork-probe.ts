@@ -11,15 +11,12 @@ import {
   closeSync,
   constants,
   existsSync,
-  mkdtempSync,
   openSync,
   readSync,
   realpathSync,
-  rmSync,
   statSync,
 } from "node:fs";
 import { copyFile, truncate } from "node:fs/promises";
-import os from "node:os";
 import path from "node:path";
 import { getCwd } from "./cwd.ts";
 import { loadForkProbeModelRules } from "./fork-probe-config.ts";
@@ -28,6 +25,8 @@ import {
   type ForkProbeSubagentRequest,
 } from "./subagent-rpc.ts";
 import { loadText, textPath } from "./text.ts";
+import { createSessionOwner, inheritedSessionOwner } from "./storage/owner.ts";
+import { with_session_scratch } from "./storage/scratch.ts";
 
 const DEFAULT_TIMEOUT_MS = 5 * 60 * 1000; // 5 min
 const MAX_TIMEOUT_MS = 30 * 60 * 1000; // 30 min
@@ -83,6 +82,8 @@ function clamp(n: number, lo: number, hi: number): number {
 }
 
 function errmsg(err: unknown): string {
+  if (err instanceof AggregateError)
+    return `${err.message}; ${err.errors.map((error) => (error instanceof Error ? error.message : String(error))).join("; ")}`;
   return err instanceof Error ? err.message : String(err);
 }
 
@@ -190,6 +191,9 @@ export async function runForkProbe(
     `parent session file not found: ${opts.parentSessionFile}`,
   );
   const parentSessionId = readParentSessionId(parentFile);
+  const owner =
+    inheritedSessionOwner() ??
+    createSessionOwner(parentSessionId, path.dirname(parentFile));
   const parentSessionBytes = statSync(parentFile).size;
   assertc(typeof prompt === "string", "prompt must be a string");
   assertc(prompt.length > 0, "prompt required");
@@ -207,41 +211,11 @@ export async function runForkProbe(
     1,
     MAX_TIMEOUT_MS,
   );
-  const ephemeral = opts.ephemeral !== false;
-
-  const tmpSessionDir = mkdtempSync(path.join(os.tmpdir(), "pi-fork-"));
-  const cleanup = (): void => {
-    if (!ephemeral) return;
-    try {
-      rmSync(tmpSessionDir, { recursive: true, force: true });
-    } catch {}
-  };
-
-  const forkProbeText = loadText<{ probe: { tools_disabled: string } }>(
-    "fork-probe",
-    textPath("fork-probe"),
-    opts.cwd ?? getCwd(),
+  const cwd = opts.cwd ?? getCwd();
+  assertc(
+    !opts.tools?.trim(),
+    "guarded fork probes do not support external tool writers",
   );
-  const request: ForkProbeSubagentRequest = {
-    version: 1,
-    kind: "fork-probe",
-    modelSubstitutions: loadForkProbeModelRules(opts.cwd ?? getCwd()),
-    parentSessionFile: parentFile,
-    parentSessionId,
-    sessionDir: tmpSessionDir,
-    prompt,
-    ...(opts.title ? { title: opts.title } : {}),
-    toolsDisabledMessage: forkProbeText.probe.tools_disabled,
-    maxOutputTokens: MAX_OUTPUT_TOKENS,
-    cwd: opts.cwd ?? getCwd(),
-    env: inheritedEnvironment(),
-    runId: randomUUID(),
-    ...(opts.model ? { model: opts.model } : {}),
-    ...(opts.tools ? { tools: opts.tools } : {}),
-    ...(opts.appendSystemPrompt
-      ? { appendSystemPrompt: opts.appendSystemPrompt }
-      : {}),
-  };
   const stderr = boundedOutput(MAX_STDERR_BYTES);
   const controller = new AbortController();
   let timedOut = false;
@@ -266,35 +240,74 @@ export async function runForkProbe(
 
   let result: Awaited<ReturnType<typeof runSubagentWorker>> | undefined;
   let workerError: unknown;
+  let workerFailed = false;
+  let operationAborted = false;
   try {
-    const snapshot = path.join(tmpSessionDir, "parent.snapshot");
-    controller.signal.throwIfAborted();
-    await copyFile(parentFile, snapshot, constants.COPYFILE_FICLONE);
-    await truncate(snapshot, parentSessionBytes);
-    controller.signal.throwIfAborted();
-    request.parentSessionFile = snapshot;
-    result = await runSubagentWorker(request, {
-      signal: controller.signal,
-      stderr: stderr.write,
-    });
+    await with_session_scratch(
+      owner,
+      "fork-probes",
+      async (tmpSessionDir, operationSignal) => {
+        try {
+          operationSignal.throwIfAborted();
+          const forkProbeText = loadText<{ probe: { tools_disabled: string } }>(
+            "fork-probe",
+            textPath("fork-probe"),
+            cwd,
+          );
+          const request: ForkProbeSubagentRequest = {
+            version: 1,
+            kind: "fork-probe",
+            modelSubstitutions: loadForkProbeModelRules(cwd),
+            parentSessionFile: parentFile,
+            parentSessionId,
+            sessionDir: tmpSessionDir,
+            prompt,
+            ...(opts.title ? { title: opts.title } : {}),
+            toolsDisabledMessage: forkProbeText.probe.tools_disabled,
+            maxOutputTokens: MAX_OUTPUT_TOKENS,
+            cwd,
+            env: inheritedEnvironment(),
+            runId: randomUUID(),
+            ...(opts.model ? { model: opts.model } : {}),
+            ...(opts.tools ? { tools: opts.tools } : {}),
+            ...(opts.appendSystemPrompt
+              ? { appendSystemPrompt: opts.appendSystemPrompt }
+              : {}),
+          };
+          const snapshot = path.join(tmpSessionDir, "parent.snapshot");
+          await copyFile(parentFile, snapshot, constants.COPYFILE_FICLONE);
+          await truncate(snapshot, parentSessionBytes);
+          operationSignal.throwIfAborted();
+          request.parentSessionFile = snapshot;
+          result = await runSubagentWorker(request, {
+            owner,
+            signal: operationSignal,
+            stderr: stderr.write,
+          });
+        } finally {
+          operationAborted = operationSignal.aborted;
+        }
+      },
+      { retain: opts.ephemeral === false, signal: controller.signal },
+    );
   } catch (error) {
+    workerFailed = true;
     workerError = error;
   } finally {
     clearTimeout(timeout);
     if (callerListenerAdded)
       opts.signal?.removeEventListener("abort", abortFromCaller);
-    cleanup();
   }
 
   const answer = result?.observation?.finalAnswer.trim() ?? "";
   const stderrText = stderr.text().trim();
-  if (workerError !== undefined) {
+  if (workerFailed) {
     return {
       ok: false,
       answer,
-      exitCode: null,
+      exitCode: result?.exitCode ?? null,
       stderr: stderrText,
-      errorMessage: `worker failed: ${errmsg(workerError)}`,
+      errorMessage: `fork probe failed: ${errmsg(workerError)}`,
     };
   }
 
@@ -314,7 +327,7 @@ export async function runForkProbe(
       ? undefined
       : timedOut
         ? `fork probe timed out after ${timeoutMs}ms`
-        : callerAborted
+        : callerAborted || operationAborted
           ? "fork probe aborted"
           : transportError
             ? transportError.message

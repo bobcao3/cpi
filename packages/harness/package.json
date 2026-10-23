@@ -6,6 +6,8 @@
   "type": "module",
   "exports": {
     "./package.json": "./package.json",
+    "./storage": "./src/lib/storage/lifecycle.ts",
+    "./storage-paths": "./src/lib/storage/paths.ts",
     "./tools-installer": "./src/tools-installer/index.ts"
   },
   "bin": {
@@ -21,6 +23,7 @@
   },
   "files": [
     "src",
+    "text",
     "skills",
     "bin",
     "tools",

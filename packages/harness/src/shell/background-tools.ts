@@ -2,7 +2,7 @@ import type { ExtensionAPI } from "../lib/tree-api.ts";
 import { Type } from "typebox";
 
 import {
-  detachChild,
+  detachManagedChild,
   getSessionTarget,
   getShellBackgrounds,
   signalChild,
@@ -18,7 +18,7 @@ import { render, renderLines } from "../lib/text.ts";
 
 interface BackgroundToolText {
   sh_signal: { description: string; prompt_snippet: string };
-  sh_detach: { description: string; prompt_snippet: string };
+  sh_detach: { description: string; prompt_snippet: string; refused?: string };
   sh_background_ps: { description: string; prompt_snippet: string };
   guidelines: {
     sh_signal: string[];
@@ -118,7 +118,18 @@ export function registerBackgroundControlTools(
         (entry) => entry.id === params.id,
       )?.describe;
       const target = await getSessionTarget(params.id).catch(() => undefined);
-      const logPath = detachChild(params.id);
+      const { logPath, inventory } = await detachManagedChild(params.id);
+      if (inventory)
+        return {
+          content: [
+            {
+              type: "text",
+              text: render(text.sh_detach.refused!, { id: params.id }),
+            },
+          ],
+          details: { id: params.id, detached: false, inventory },
+          isError: true,
+        };
       if (!logPath)
         return {
           content: [

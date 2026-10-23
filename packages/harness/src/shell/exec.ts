@@ -1,4 +1,10 @@
 import { randomUUID } from "node:crypto";
+import type { SessionOwner } from "../lib/storage/owner.ts";
+import {
+  list_temp_directories,
+  type DirectoryInventory,
+} from "../lib/storage/temp-dirs.ts";
+import { ShellStorage } from "./storage.ts";
 export {
   captureSessionScreenshot,
   getSessionTarget,
@@ -75,211 +81,225 @@ export async function runShell(
   shell: ShellProfile = resolveShell("bash"),
   cwd: string = process.cwd(),
   isPty = false,
+  owner?: SessionOwner,
 ): Promise<ShResult> {
-  if (signal?.aborted)
-    return {
-      id: null,
-      status: "completed",
-      exitCode: -1,
-      text: "Aborted before start.",
-    };
-  const activityId = randomUUID();
-  const sessDir = env.PI_SESSION_DIR;
-  const sessScope = env.PI_SESSION_ID;
-  let handle: Awaited<ReturnType<typeof launchMonitor>>;
+  const storage = owner ? new ShellStorage(owner, signal) : undefined;
+  signal = storage?.operation.signal ?? signal;
   try {
-    handle = await launchMonitor(
-      command,
-      env,
-      activityId,
-      shell,
-      cwd,
-      isPty,
-      signal,
-    );
-  } catch (e) {
-    return {
-      id: null,
-      status: "completed",
-      exitCode: signal?.aborted ? 137 : -1,
-      text: `ghostmux launch failed: ${(e as Error).message}`,
-    };
-  }
-  const { client, logPath } = handle;
-
-  let status: Awaited<ReturnType<MonitorClient["stat"]>>;
-  try {
-    status = await client.stat();
-  } catch (e) {
-    await client.reap().catch(() => {});
-    client.close();
-    return {
-      id: null,
-      status: "completed",
-      exitCode: -1,
-      text: `ghostmux stat failed: ${(e as Error).message}`,
-    };
-  }
-  const pid = status.pid;
-  const id = String(pid);
-
-  const decoder = new StringDecoder("utf8");
-  let exitCode: number | null = null;
-  let lastUpd = 0;
-  const entry: BackgroundChild = {
-    id,
-    activityId,
-    startedAt: Date.now(),
-    pid,
-    command,
-    dialect: shell.dialect ?? undefined,
-    describe,
-    client,
-    logPath,
-    sessDir,
-    sessScope,
-    acc: "",
-    decoder,
-    exitCode: null,
-    done: false,
-    bytesEmitted: 0,
-    linesEmitted: 0,
-    colBytes: 0,
-  };
-  observeShell(entry, cwd);
-  try {
-    recordShellStart(entry, cwd);
-  } catch (e) {
-    finishActivity(entry.activityId, "failed");
-    await client.reap();
-    client.close();
-    return {
-      id: null,
-      status: "completed",
-      exitCode: -1,
-      text: `ghostmux persistence start failed: ${(e as Error).message}`,
-    };
-  }
-
-  let exitResolve!: () => void;
-  const exitP = new Promise<void>((resolve) => {
-    exitResolve = resolve;
-  });
-  const onEvent = (
-    ev:
-      | { kind: "data"; off: number; buf: Buffer }
-      | { kind: "exit"; exitCode: number; bytes: number },
-  ) => {
-    if (ev.kind === "data") {
-      accumulateOutput(entry, ev.buf, ev.off, tunables.maxAcc);
-      updateActivity(entry.activityId, {
-        metrics: {
-          output_bytes: entry.bytesEmitted,
-          last_output_at: Date.now(),
-        },
-      });
-      const now = Date.now();
-      if (onPartial && now - lastUpd >= tunables.updateMs) {
-        lastUpd = now;
-        void buildOutputText(entry.acc, {
-          persistIfTruncated: false,
-          truncation,
-          tunables,
-        }).then((r) => onPartial(r.text));
-      }
-    } else {
-      finishShell(entry, ev.exitCode, ev.bytes);
-      if (entry.done) return;
-      entry.acc += entry.decoder.end();
-      exitCode = ev.exitCode;
-      completeBackground(entry, ev.exitCode);
-      exitResolve();
+    if (signal?.aborted)
+      return {
+        id: null,
+        status: "completed",
+        exitCode: -1,
+        text: "Aborted before start.",
+      };
+    const activityId = randomUUID();
+    const sessDir = env.PI_SESSION_DIR;
+    const sessScope = env.PI_SESSION_ID;
+    let handle: Awaited<ReturnType<typeof launchMonitor>>;
+    try {
+      handle = await launchMonitor(
+        command,
+        env,
+        activityId,
+        shell,
+        cwd,
+        isPty,
+        signal,
+        storage &&
+          ((error, retry, path) => storage.pending(error, retry, path)),
+      );
+    } catch (e) {
+      return {
+        id: null,
+        status: "completed",
+        exitCode: signal?.aborted ? 137 : -1,
+        text: `ghostmux launch failed: ${(e as Error).message}`,
+      };
     }
-  };
-  try {
-    await client.subscribe(onEvent);
-  } catch (e) {
-    if (!entry.done) {
-      finishActivity(entry.activityId, "failed", { connection_lost: 1 });
-      recordShellEnd(entry, "lost", -1, true);
-      await client.reap().catch(() => {});
+    const { client, logPath } = handle;
+    storage?.bind(client);
+
+    let status: Awaited<ReturnType<MonitorClient["stat"]>>;
+    try {
+      status = await client.stat();
+    } catch (e) {
+      await (storage?.reap() ?? client.reap());
       client.close();
       return {
         id: null,
         status: "completed",
         exitCode: -1,
-        text: `ghostmux subscribe failed: ${(e as Error).message}`,
+        text: `ghostmux stat failed: ${(e as Error).message}`,
       };
     }
-  }
-  const onSockClose = () => {
-    if (!stopBackground(entry)) return;
-    exitCode = -1;
-    exitResolve();
-  };
-  client.onClose(onSockClose);
+    const pid = status.pid;
+    const id = String(pid);
 
-  const onAbort = () => client.sendSignal("SIGKILL");
-  signal?.addEventListener("abort", onAbort, { once: true });
-  if (signal?.aborted) onAbort();
+    const decoder = new StringDecoder("utf8");
+    let exitCode: number | null = null;
+    let lastUpd = 0;
+    const entry: BackgroundChild = {
+      id,
+      activityId,
+      startedAt: Date.now(),
+      pid,
+      command,
+      dialect: shell.dialect ?? undefined,
+      describe,
+      client,
+      logPath,
+      sessDir,
+      sessScope,
+      storage,
+      acc: "",
+      decoder,
+      exitCode: null,
+      done: false,
+      bytesEmitted: 0,
+      linesEmitted: 0,
+      colBytes: 0,
+    };
+    observeShell(entry, cwd);
+    try {
+      recordShellStart(entry, cwd);
+    } catch (e) {
+      finishActivity(entry.activityId, "failed");
+      await (storage?.reap() ?? client.reap());
+      client.close();
+      return {
+        id: null,
+        status: "completed",
+        exitCode: -1,
+        text: `ghostmux persistence start failed: ${(e as Error).message}`,
+      };
+    }
 
-  let timer: ReturnType<typeof setTimeout>;
-  const completed = await Promise.race([
-    exitP.then(() => true),
-    new Promise<boolean>((r) => {
-      timer = setTimeout(
-        () => r(false),
-        Math.min(waitforSec, maxWaitfor) * 1000,
-      );
-    }),
-  ]);
-  signal?.removeEventListener("abort", onAbort);
-  clearTimeout(timer!);
+    let exitResolve!: () => void;
+    const exitP = new Promise<void>((resolve) => {
+      exitResolve = resolve;
+    });
+    const onEvent = (
+      ev:
+        | { kind: "data"; off: number; buf: Buffer }
+        | { kind: "exit"; exitCode: number; bytes: number },
+    ) => {
+      if (ev.kind === "data") {
+        accumulateOutput(entry, ev.buf, ev.off, tunables.maxAcc);
+        updateActivity(entry.activityId, {
+          metrics: {
+            output_bytes: entry.bytesEmitted,
+            last_output_at: Date.now(),
+          },
+        });
+        const now = Date.now();
+        if (onPartial && now - lastUpd >= tunables.updateMs) {
+          lastUpd = now;
+          void buildOutputText(entry.acc, {
+            persistIfTruncated: false,
+            truncation,
+            tunables,
+          }).then((r) => onPartial(r.text));
+        }
+      } else {
+        finishShell(entry, ev.exitCode, ev.bytes);
+        if (entry.done) return;
+        entry.acc += entry.decoder.end();
+        exitCode = ev.exitCode;
+        completeBackground(entry, ev.exitCode);
+        exitResolve();
+      }
+    };
+    try {
+      await client.subscribe(onEvent);
+    } catch (e) {
+      if (!entry.done) {
+        finishActivity(entry.activityId, "failed", { connection_lost: 1 });
+        recordShellEnd(entry, "lost", -1, true);
+        await (storage?.reap() ?? client.reap());
+        client.close();
+        return {
+          id: null,
+          status: "completed",
+          exitCode: -1,
+          text: `ghostmux subscribe failed: ${(e as Error).message}`,
+        };
+      }
+    }
+    const onSockClose = () => {
+      if (!stopBackground(entry)) return;
+      exitCode = -1;
+      exitResolve();
+    };
+    client.onClose(onSockClose);
 
-  if (completed) {
-    client.close();
-    const content = entry.acc;
-    const outputLines = entry.linesEmitted + (entry.colBytes > 0 ? 1 : 0);
-    if (content) updateActivity(entry.activityId, { tail: content });
-    const { text } = await buildOutputText(content, {
+    const onAbort = () => {
+      if (!storage) client.sendSignal("SIGKILL");
+    };
+    signal?.addEventListener("abort", onAbort, { once: true });
+    if (signal?.aborted) onAbort();
+
+    let timer: ReturnType<typeof setTimeout>;
+    const completed = await Promise.race([
+      exitP.then(() => true),
+      new Promise<boolean>((r) => {
+        timer = setTimeout(
+          () => r(false),
+          Math.min(waitforSec, maxWaitfor) * 1000,
+        );
+      }),
+    ]);
+    signal?.removeEventListener("abort", onAbort);
+    clearTimeout(timer!);
+
+    if (completed) {
+      client.close();
+      const content = entry.acc;
+      const outputLines = entry.linesEmitted + (entry.colBytes > 0 ? 1 : 0);
+      if (content) updateActivity(entry.activityId, { tail: content });
+      const { text } = await buildOutputText(content, {
+        logPath,
+        truncation,
+        tunables,
+      });
+
+      return {
+        id,
+        ...client.target,
+        status: "completed",
+        exitCode,
+        backendError: client.target?.error,
+        text: client.target?.error
+          ? `ghostmux: ${client.target.error}\n${text}`
+          : text,
+        outputLines,
+        fullOutputPath: logPath,
+      };
+    }
+    // still running → background it; the subscribe callback stays live for completion
+    bg.set(id, entry);
+    if (storage) storage.background = true;
+    const { text } = await buildOutputText(entry.acc, {
       logPath,
       truncation,
       tunables,
     });
-
     return {
       id,
       ...client.target,
-      status: "completed",
-      exitCode,
-      backendError: client.target?.error,
-      text: client.target?.error
-        ? `ghostmux: ${client.target.error}\n${text}`
-        : text,
-      outputLines,
+      status: "running",
+      exitCode: null,
+      text,
       fullOutputPath: logPath,
+      cursor: {
+        line: entry.linesEmitted + 1,
+        column: entry.colBytes,
+        bytes: entry.bytesEmitted,
+      },
     };
+  } finally {
+    if (!storage?.background) await storage?.reap();
   }
-  // still running → background it; the subscribe callback stays live for completion
-  bg.set(id, entry);
-  const { text } = await buildOutputText(entry.acc, {
-    logPath,
-    truncation,
-    tunables,
-  });
-  return {
-    id,
-    ...client.target,
-    status: "running",
-    exitCode: null,
-    text,
-    fullOutputPath: logPath,
-    cursor: {
-      line: entry.linesEmitted + 1,
-      column: entry.colBytes,
-      bytes: entry.bytesEmitted,
-    },
-  };
 }
 
 export function signalChild(id: string, sig: string): boolean {
@@ -293,7 +313,8 @@ export function signalChild(id: string, sig: string): boolean {
     e.cancelRequested = true;
     updateActivity(e.activityId, { status: "stopping" });
   }
-  e.client.sendSignal(sig);
+  if (e.storage) e.storage.sendSignal(sig);
+  else e.client.sendSignal(sig);
   if (e.cancelRequested) {
     updateShellRecord(e.activityId, { cancelRequested: true });
   }
@@ -316,14 +337,53 @@ export const silenceChild = (id: string): boolean => {
  */
 export const detachChild = (id: string): string | null => {
   const e = bg.get(id);
-  if (!e || e.done || e.sessScope !== shellState.scope) return null;
+  if (
+    !e ||
+    e.done ||
+    e.storage ||
+    e.artifact_owner ||
+    e.sessScope !== shellState.scope
+  )
+    return null;
+  return detachBackground(e);
+};
+
+export async function detachManagedChild(id: string): Promise<{
+  logPath: string | null;
+  inventory?: DirectoryInventory;
+}> {
+  const entry = bg.get(id);
+  if (!entry || entry.done || entry.sessScope !== shellState.scope)
+    return { logPath: null };
+  if (entry.artifact_owner && !entry.storage) return { logPath: null };
+  if (entry.storage) {
+    const inventory = await list_temp_directories(
+      entry.storage.operation.owner,
+    );
+    if (
+      inventory.issues.length ||
+      inventory.alive.some((item) => item.type === "scratch")
+    )
+      return { logPath: null, inventory };
+  }
+  if (
+    bg.get(id) !== entry ||
+    entry.done ||
+    entry.sessScope !== shellState.scope
+  )
+    return { logPath: null };
+  return { logPath: detachBackground(entry) };
+}
+
+function detachBackground(e: BackgroundChild): string {
   e.signaled = true; // suppress any in-flight completion hook
   finishActivity(e.activityId, "detached");
   recordShellEnd(e, "detached", undefined, true);
   e.client.orphan();
-  bg.delete(id);
+  bg.delete(e.id);
+  e.storage?.release();
   return e.logPath;
-};
+}
 
 export const getBackgroundCount = (): number =>
   [...bg.values()].filter((e) => e.sessScope === shellState.scope).length;

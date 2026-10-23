@@ -1,4 +1,5 @@
 import { type ToolDefinition } from "../tree/index.ts";
+import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { renderRepeatTree, type RepeatDetails } from "./repeat-render.ts";
 
@@ -17,8 +18,9 @@ import {
   type ToolText,
 } from "../lib/text.ts";
 import { getCwd } from "../lib/cwd.ts";
-import { resolve } from "node:path";
+import { join, resolve } from "node:path";
 import { startRepeat } from "./repeat.ts";
+import { captureSessionOwner } from "../lib/storage/owner.ts";
 
 export function createRepeatTool(
   DESCRIBE_MAX: number,
@@ -63,6 +65,14 @@ export function createRepeatTool(
     parameters: schema,
     renderShell: "self" as const,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+      const owner = captureSessionOwner(
+        ctx.sessionManager,
+        join(getAgentDir(), "jobs"),
+      );
+      const session_id = ctx.sessionManager.getSessionId();
+      const session_dir = ctx.sessionManager.getSessionDir();
+      const cwd = getCwd();
+      const env_file = params.env ? resolve(cwd, params.env) : undefined;
       const interval = params.interval;
       const description = params.description?.trim();
       const blocked = (
@@ -107,11 +117,19 @@ export function createRepeatTool(
       const id = startRepeat(
         params.command,
         interval,
-        buildShellEnvWithDotenv(ctx?.sessionManager, params.env),
+        buildShellEnvWithDotenv(
+          {
+            getSessionId: () => session_id,
+            getSessionDir: () => session_dir,
+          },
+          env_file,
+          owner,
+        ),
         description,
         shell,
-        getCwd(),
-        params.env ? resolve(getCwd(), params.env) : undefined,
+        cwd,
+        env_file,
+        owner,
       );
 
       const tag = description ? ` (${truncateDescribe(description)})` : "";

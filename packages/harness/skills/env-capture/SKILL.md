@@ -1,31 +1,37 @@
 ---
 name: env-capture
-description:
-  "Use when snapshotting the current shell environment (e.g. after sourcing a
-  venv or exporting vars) into a session-scoped dotenv file to reload via
-  `env=<path>` on sh / sh_repeat_until / lsp. Search terms — env capture,
-  dotenv, venv env, source activate, env snapshot, PI_SESSION_DIR."
+description: "Use when shell commands require venv / environment variable setup"
 ---
 
-# env-capture
+## Capture env
+
+```sh
+source .venv/bin/activate && env-capture
+```
+
+or in more complex scenarios:
+
+```sh
+eval $( pixi shell-hook );
+cd /path/to/project && source activate;
+env-capture
+```
 
 `env-capture` snapshots the current shell environment into a session-scoped
 dotenv file.
 
-Chain it at the end of the same `sh` command after activation or export:
+## Using captured dotenv
 
-```
-source .venv/bin/activate && env-capture
-```
+Set the `env` argument of the shell tool, so that the shell command loads the
+environment variables.
 
-`sh` runs the command in one invocation of the resolved shell, so `env-capture`
-sees the environment produced by the preceding command. Separate `sh` calls are
-stateless. Call `env-capture` by its bare name.
+## Why
 
-Copy the printed `env=<path>` into later `sh`, `sh_repeat_until`, or `lsp`
-calls. Environment contents remain in the file.
+1. Most environment setup is costly, capturing the env saves lots of file reads.
+2. Doing so avoids `source ... &&` patterns. Especially useful if multiplle
+   layers of environments are used.
+3. The shell, sh repeat, and lsp tools (when not using a persistent / PTY
+   session) are otherwise stateless.
 
-The authoritative CLI and implementation are
-[`../../bin/env-capture`](../../bin/env-capture). The read-side parser is
-[`dotenv.ts`](https://github.com/bobcao3/cpi/blob/main/packages/harness/src/lib/dotenv.ts) and
+cpi harness implementation of env can be found here:
 [`shell/tools.ts`](https://github.com/bobcao3/cpi/blob/main/packages/harness/src/shell/tools.ts).

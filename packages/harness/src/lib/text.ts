@@ -18,7 +18,7 @@ export interface ToolText {
   guidelines: { bullets: string[] };
 }
 
-const TEXT_DIR = fileURLToPath(new URL("../text/", import.meta.url));
+const TEXT_DIR = fileURLToPath(new URL("../../text/", import.meta.url));
 
 export function textPath(id: string): string {
   return join(TEXT_DIR, `${id}.toml`);

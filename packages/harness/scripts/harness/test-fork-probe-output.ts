@@ -27,6 +27,7 @@ import {
   getThemeByName,
 } from "@cpi/cli";
 import { buildFooterRows } from "../../src/lib/footer-rows.ts";
+import { captureSessionOwner } from "../../src/lib/storage/owner.ts";
 import {
   getSubagentUsage,
   getSubagentAccounts,
@@ -161,6 +162,7 @@ async function probe(prompt: string) {
   let stdout = "";
   let stderr = "";
   const result = await runSubagentWorker(request, {
+    owner: captureSessionOwner(parent),
     signal: AbortSignal.timeout(20000),
     stdout: (chunk) => {
       stdout += chunk;

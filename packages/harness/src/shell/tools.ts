@@ -1,12 +1,17 @@
-import { createWriteStream, existsSync } from "node:fs";
-import { chmod, copyFile, mkdir, readFile, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { existsSync } from "node:fs";
+import { readFile } from "node:fs/promises";
 import { delimiter, dirname, join } from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { ghostmuxSocket } from "./ghostmux.ts";
-import { resolveShell } from "./profile.ts";
+import { installReleaseBinary } from "../lib/lsp/release.ts";
+import { storage_path } from "../lib/storage/paths.ts";
+import {
+  captureSessionOwner,
+  inheritedSessionOwner,
+  type SessionOwner,
+} from "../lib/storage/owner.ts";
 import {
   initTreeSitterWasm,
   ensureTreeSitterReady,
@@ -24,8 +29,7 @@ const { getTreeSitterWasmPath, resolveTreeSitterWasm } = await toolPackage(
 );
 
 const execFileAsync = promisify(execFile);
-const DL_TIMEOUT = 60_000;
-const CACHE_DIR = join(getAgentDir(), "cache", "shell-tools");
+const CACHE_DIR = storage_path("cache", "shell-tools", { base: getAgentDir() });
 const BIN_DIR = join(CACHE_DIR, "bin");
 const VENDOR_BIN = join(
   dirname(fileURLToPath(import.meta.url)),
@@ -34,6 +38,12 @@ const VENDOR_BIN = join(
   "bin",
 );
 const CPI_CONTROL_ENV_KEYS = [
+  "CPI_ARTIFACT_SESSION_ID",
+  "CPI_ARTIFACT_SESSION_DIR",
+  "CPI_STORAGE_ROOT",
+  "CPI_STORAGE_HOST_ID",
+  "CPI_TEMP_DIR",
+  "CPI_OUTPUT_DIR",
   "CPI_GHOSTMUX_SOCKET",
   "CPI_RUNTIME_BIN",
   "CPI_RUNTIME_KIND",
@@ -144,33 +154,6 @@ export function listManagedShellTools(): ManagedShellTool[] {
   }));
 }
 
-async function download(url: string, dest: string): Promise<void> {
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), DL_TIMEOUT);
-  try {
-    const res = await fetch(url, { signal: ctrl.signal });
-    if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`);
-    const ws = createWriteStream(dest);
-    const reader = res.body.getReader();
-    try {
-      for (;;) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        ws.write(Buffer.from(value));
-      }
-    } finally {
-      ws.end();
-      reader.releaseLock();
-    }
-    await new Promise<void>((res, rej) => {
-      ws.on("finish", res);
-      ws.on("error", rej);
-    });
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
 async function ensureTool(spec: ToolSpec): Promise<boolean> {
   const target = spec.targets[PLATFORM_KEY];
   if (!target) {
@@ -182,56 +165,23 @@ async function ensureTool(spec: ToolSpec): Promise<boolean> {
   try {
     await readFile(binPath);
     if (await verifyTool(binPath, spec.version)) return true;
-    await rm(binPath, { force: true });
   } catch {}
   const baseName = aname.replace(/\.(tar\.(?:gz|xz)|zip)$/, "");
   const url = `https://github.com/${spec.repo}/releases/download/${spec.version}/${aname}`;
-  const tmp = join(tmpdir(), `pi-sh-${spec.name}-${Date.now()}`);
-  const archivePath = join(tmp, aname);
-  await mkdir(tmp, { recursive: true });
   try {
-    await download(url, archivePath);
-    await mkdir(tmp, { recursive: true });
-    if (spec.archiveExt === "zip") {
-      if (IS_WIN) {
-        const profile = resolveShell("auto");
-        const quote = (value: string) => `'${value.replaceAll("'", "''")}'`;
-        await execFileAsync(
-          profile.executable,
-          profile.commandArgs(
-            `Expand-Archive -LiteralPath ${quote(archivePath)} -DestinationPath ${quote(tmp)} -Force`,
-          ),
-          { windowsHide: true },
-        );
-      } else {
-        try {
-          await execFileAsync("tar", ["-xf", archivePath, "-C", tmp]);
-        } catch {
-          await execFileAsync("unzip", ["-q", archivePath, "-d", tmp]);
-        }
-      }
-    } else if (spec.archiveExt === "tar.xz") {
-      try {
-        await execFileAsync("tar", ["-xJf", archivePath, "-C", tmp]);
-      } catch {
-        await execFileAsync("tar", ["-xf", archivePath, "-C", tmp]);
-      }
-    } else {
-      await execFileAsync("tar", ["-xzf", archivePath, "-C", tmp]);
-    }
-    await mkdir(BIN_DIR, { recursive: true });
-    const extractedBin = join(tmp, binName(spec.name));
-    const nestedBin = join(tmp, baseName, binName(spec.name));
-    await copyFile(existsSync(nestedBin) ? nestedBin : extractedBin, binPath);
-    if (!IS_WIN) await chmod(binPath, 0o755);
+    await installReleaseBinary({
+      url,
+      archiveExt: spec.archiveExt,
+      binPaths: [join(baseName, binName(spec.name)), binName(spec.name)],
+      dest: binPath,
+      env: process.env,
+    });
     if (!(await verifyTool(binPath, spec.version)))
       throw new Error("tool verification failed");
     return true;
   } catch (err) {
     console.warn(`[shell-ext] Failed to install ${spec.name}:`, err);
     return false;
-  } finally {
-    await rm(tmp, { recursive: true, force: true });
   }
 }
 
@@ -286,13 +236,35 @@ export function getToolEnv(): NodeJS.ProcessEnv {
 }
 
 /** Session identity scopes nested subagent shell records and resume visibility. */
-export function buildShellEnv(sm?: {
-  getSessionId(): string | undefined;
-  getSessionDir(): string | undefined;
-}): NodeJS.ProcessEnv {
+export function buildShellEnv(
+  sm?: {
+    getSessionId(): string | undefined;
+    getSessionDir(): string | undefined;
+  },
+  artifact_owner?: SessionOwner,
+): NodeJS.ProcessEnv {
   const env = getToolEnv();
+  const id = sm?.getSessionId();
+  const dir = sm?.getSessionDir();
+  const owner =
+    artifact_owner ??
+    inheritedSessionOwner() ??
+    (id
+      ? captureSessionOwner(
+          {
+            getSessionId: () => id,
+            getSessionDir: () => dir ?? "",
+          },
+          join(getAgentDir(), "jobs"),
+        )
+      : undefined);
+  delete env.CPI_ARTIFACT_SESSION_ID;
+  delete env.CPI_ARTIFACT_SESSION_DIR;
+  if (owner) {
+    env.CPI_ARTIFACT_SESSION_ID = owner.session_id;
+    env.CPI_ARTIFACT_SESSION_DIR = owner.session_dir;
+  }
   if (sm) {
-    const id = sm.getSessionId();
     if (id) env.PI_SESSION = id.slice(0, 8);
     if (id) env.PI_SESSION_ID = id;
     if (id)
@@ -300,7 +272,6 @@ export function buildShellEnv(sm?: {
         ...env,
         CPI_GHOSTMUX_SOCKET: undefined,
       });
-    const dir = sm.getSessionDir();
     if (dir) env.PI_SESSION_DIR = dir;
   }
   return env;
@@ -312,8 +283,9 @@ export function buildShellEnvWithDotenv(
     getSessionDir(): string | undefined;
   },
   envPath?: string | null,
+  artifact_owner?: SessionOwner,
 ): NodeJS.ProcessEnv {
-  const env = buildShellEnv(sm);
+  const env = buildShellEnv(sm, artifact_owner);
   if (!envPath) return env;
   const controlEnv = new Map(
     CPI_CONTROL_ENV_KEYS.map((key) => [key, env[key]]),

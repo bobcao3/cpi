@@ -30,6 +30,7 @@ import {
 import { loadLspConfig } from "./lib/config.ts";
 import { renderDiagnostics } from "./lib/lsp/diagnostics-overflow.ts";
 import { DIAGNOSTICS_FORMAT_MAX } from "./lib/lsp/diagnostics.ts";
+import { captureSessionOwner, type SessionOwner } from "./lib/storage/owner.ts";
 import { renderLspTree } from "./lsp-render.ts";
 import { check_mermaid_file } from "./mermaid/check.ts";
 import { mermaid_document } from "./mermaid/markdown.ts";
@@ -206,13 +207,13 @@ async function doStop(p: LspParams) {
   );
 }
 
-async function doCheck(p: LspParams) {
+async function doCheck(p: LspParams, owner: SessionOwner) {
   if (!p.file)
     return errResult("provide `file` (use `lsp start` to begin a session).");
   const abs = resolveCwdPath(p.file);
   if (mermaid_document(abs)) {
     const diags = await check_mermaid_file(abs);
-    const rendered = await renderDiagnostics(diags);
+    const rendered = await renderDiagnostics(diags, { owner });
     return {
       ...textResult(rendered.text || mermaid_message("checked")),
       details: {
@@ -238,7 +239,9 @@ async function doCheck(p: LspParams) {
     );
   }
   const diags = await checkFile(abs);
-  const rendered = diags.length ? await renderDiagnostics(diags) : undefined;
+  const rendered = diags.length
+    ? await renderDiagnostics(diags, { owner })
+    : undefined;
   return {
     ...textResult(rendered?.text ?? `no diagnostics for ${p.file}`),
     details: {
@@ -290,7 +293,10 @@ export default async function lspExtension(pi: ExtensionAPI): Promise<void> {
           case "stop":
             return await doStop(params);
           case "check":
-            return await doCheck(params);
+            return await doCheck(
+              params,
+              captureSessionOwner(_ctx.sessionManager),
+            );
         }
       } catch (e) {
         return errResult(

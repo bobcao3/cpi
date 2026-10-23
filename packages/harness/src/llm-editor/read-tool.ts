@@ -13,6 +13,7 @@ import { loadEditorText, fmt } from "./text.ts";
 import { viewFile } from "./viewer.ts";
 import { readImageResult, textResult, videoResult } from "./media-result.ts";
 import { lineBodies } from "./lines.ts";
+import type { SessionOwner } from "../lib/storage/owner.ts";
 
 type ReadParams = { path: string; query?: string };
 
@@ -78,6 +79,7 @@ export async function executeRead(
   ctx: ExtensionContext,
   id: string,
   abs: string,
+  owner?: SessionOwner,
 ) {
   const cwd = getCwd();
   const T = loadEditorText(cwd);
@@ -133,6 +135,7 @@ export async function executeRead(
   const cfg = loadEditorConfig(cwd);
   const pick = resolveEditorModel(ctx);
   const r = await viewFile(params.path, {
+    owner,
     id,
     query: params.query,
     provider: pick.provider,

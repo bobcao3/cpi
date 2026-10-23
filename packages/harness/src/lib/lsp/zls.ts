@@ -1,7 +1,7 @@
 /** zls provisioning: the zigtools release worker maps a Zig version (project pin, then local `zig`, then config) to the zls build for this platform; the artifact is sha256- and minisign-verified. */
 
 import { existsSync } from "node:fs";
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, open, unlink } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { parsePubKey, parseSig, verifyMinisign } from "../minisig.ts";
@@ -17,6 +17,7 @@ import {
   sha256File,
 } from "./release.ts";
 import { type ResolveOptions, type ResolveResult } from "./provision.ts";
+import { staging_path } from "../storage/paths.ts";
 
 const API_TIMEOUT = 15_000;
 const COMPATIBILITY_CACHE_LIMIT = 64;
@@ -79,12 +80,23 @@ async function writeCompatibilityCache(
     -COMPATIBILITY_CACHE_LIMIT,
   );
   await mkdir(dirname(path), { recursive: true });
-  const temporary = `${path}.${process.pid}.${Date.now()}.tmp`;
-  await writeFile(
-    temporary,
-    `${JSON.stringify(Object.fromEntries(entries))}\n`,
-  );
-  await rename(temporary, path);
+  const temporary = staging_path(path);
+  let created = false;
+  try {
+    const handle = await open(temporary, "wx", 0o600);
+    created = true;
+    try {
+      await handle.writeFile(
+        `${JSON.stringify(Object.fromEntries(entries))}\n`,
+      );
+    } finally {
+      await handle.close();
+    }
+    await rename(temporary, path);
+    created = false;
+  } finally {
+    if (created) await unlink(temporary).catch(() => {});
+  }
 }
 
 function recoverHint(reason: string): string {

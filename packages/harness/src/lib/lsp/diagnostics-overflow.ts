@@ -3,17 +3,22 @@
  * and return its path, falling back to capped inline output if persistence fails.
  */
 
-import { mkdir, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { randomUUID } from "node:crypto";
+import { open, unlink } from "node:fs/promises";
+import { join } from "node:path";
 import { type Diagnostic, formatDiagnostics } from "./diagnostics.ts";
-import { getSessionDir } from "../session-dir.ts";
+import {
+  inheritedSessionOwner,
+  sessionArtifactDirectory,
+  type SessionOwner,
+} from "../storage/owner.ts";
+import { storage_directory } from "../storage/paths.ts";
 
 export const DIAGNOSTICS_INLINE_CAP = 3;
 
 export interface RenderDiagnosticsOptions {
   cap?: number;
-  sessionDir?: string;
+  owner?: SessionOwner;
 }
 
 export interface RenderedDiagnostics {
@@ -27,17 +32,6 @@ function assertCap(cap: unknown): asserts cap is number {
       `renderDiagnostics: cap must be a positive int, got ${String(cap)}`,
     );
   }
-}
-
-function overflowPath(sessionDir: string | undefined): {
-  path: string;
-  makeDir: boolean;
-} {
-  const base = sessionDir ?? tmpdir();
-  const name = `pi-lsp-diags-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.log`;
-  if (sessionDir)
-    return { path: join(base, "lsp-diagnostics", name), makeDir: true };
-  return { path: join(base, name), makeDir: false };
 }
 
 export async function renderDiagnostics(
@@ -54,11 +48,23 @@ export async function renderDiagnostics(
     return { text: formatDiagnostics(diags, { max: cap }) };
   }
   const full = formatDiagnostics(diags, { max: diags.length });
-  const { path, makeDir } = overflowPath(opts.sessionDir ?? getSessionDir());
+  const owner = opts.owner ?? inheritedSessionOwner();
+  let path: string | undefined;
+  let created = false;
   try {
-    if (makeDir) await mkdir(dirname(path), { recursive: true });
-    await writeFile(path, full, "utf8");
+    const directory = owner
+      ? sessionArtifactDirectory(owner, "lsp-diagnostics")
+      : storage_directory("state", "lsp-diagnostics");
+    path = join(directory, `diagnostics-${randomUUID()}.log`);
+    const handle = await open(path, "wx", 0o600);
+    created = true;
+    try {
+      await handle.writeFile(full, "utf8");
+    } finally {
+      await handle.close();
+    }
   } catch {
+    if (created && path) await unlink(path).catch(() => {});
     return { text: formatDiagnostics(diags, { max: cap }) };
   }
   const head = formatDiagnostics(diags.slice(0, cap), { max: cap });

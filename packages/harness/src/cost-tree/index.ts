@@ -22,7 +22,7 @@ interface Resource {
   path: string;
   sessionId: string;
   parent?: string;
-  close: () => void;
+  close: () => Promise<void>;
   timer?: ReturnType<typeof setInterval>;
 }
 
@@ -70,7 +70,7 @@ export default function costTree(pi: ExtensionAPI): void {
         ? previous.parent
         : process.env[ENV];
     clearInterval(previous?.timer);
-    if (!reuse) previous?.close();
+    if (!reuse) await previous?.close();
     unbind?.();
     context = ctx;
     lastSent = "";
@@ -97,15 +97,24 @@ export default function costTree(pi: ExtensionAPI): void {
     if (reuse) resource = previous;
     else {
       const recordReport = captureCostReportReporter();
-      const socket = createCostSocket((r) => {
-        recordReport(r);
-        requestFooterRender();
-      });
+      let socket: ReturnType<typeof createCostSocket> | undefined;
       try {
+        socket = createCostSocket((r) => {
+          recordReport(r);
+          requestFooterRender();
+        });
         await socket.ready;
       } catch (error) {
-        socket.close();
-        unbind?.();
+        try {
+          await socket?.close();
+        } catch (cleanupError) {
+          throw new AggregateError(
+            [error, cleanupError],
+            "cost socket startup cleanup failed",
+          );
+        } finally {
+          unbind?.();
+        }
         throw error;
       }
       resource = {
@@ -126,24 +135,40 @@ export default function costTree(pi: ExtensionAPI): void {
   pi.on("agent_end", flush);
   pi.on("session_shutdown", async (event) => {
     clearInterval(timer);
-    await pending;
+    let failed = false;
+    let failure: unknown;
     try {
+      await pending;
       await flush();
+    } catch (error) {
+      failed = true;
+      failure = error;
     } finally {
-      if (event.reason !== "reload") resource?.close();
-      if (
-        event.reason !== "reload" &&
-        resource &&
-        process.env[ENV] === resource.path
-      ) {
-        if (resource.parent) process.env[ENV] = resource.parent;
-        else delete process.env[ENV];
+      try {
+        if (event.reason !== "reload") await resource?.close();
+      } catch (error) {
+        if (failed)
+          throw new AggregateError(
+            [failure, error],
+            "cost socket shutdown cleanup failed",
+          );
+        throw error;
+      } finally {
+        if (
+          event.reason !== "reload" &&
+          resource &&
+          process.env[ENV] === resource.path
+        ) {
+          if (resource.parent) process.env[ENV] = resource.parent;
+          else delete process.env[ENV];
+        }
+        if (event.reason !== "reload" && global[RESOURCE_KEY] === resource)
+          delete global[RESOURCE_KEY];
+        unbind?.();
+        resource = undefined;
+        context = undefined;
       }
-      if (event.reason !== "reload" && global[RESOURCE_KEY] === resource)
-        delete global[RESOURCE_KEY];
-      unbind?.();
-      resource = undefined;
-      context = undefined;
     }
+    if (failed) throw failure;
   });
 }

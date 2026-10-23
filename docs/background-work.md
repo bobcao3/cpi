@@ -12,7 +12,7 @@ Each background shell is a session in the
 output, and log file survive agent turns; completion wakes the agent with a
 notification carrying the exit code and a log line range. What the agent is
 told is the authority in
-[`shell.toml`](../packages/harness/src/text/shell.toml).
+[`shell.toml`](../packages/harness/text/shell.toml).
 
 - **Signals.** `sh_signal` targets the whole process group. SIGKILL suppresses
   the completion notice; other signals do not guarantee termination and still

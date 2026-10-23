@@ -1,5 +1,5 @@
-import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { randomUUID } from "node:crypto";
+import { readFile, stat, unlink } from "node:fs/promises";
 import { join } from "node:path";
 import { Type } from "typebox";
 import {
@@ -10,6 +10,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { loadText, render, renderLines, textPath } from "../lib/text.ts";
 import { screenshot_output_schema } from "./result-schema.ts";
+import { storage_directory } from "../lib/storage/paths.ts";
 
 interface CaptureText {
   tool: { description: string; prompt_snippet: string; guidelines: string[] };
@@ -64,15 +65,19 @@ export function registerTerminalCaptureTool(
       if (!ctx.model?.input.includes("image"))
         throw new Error(text.results.non_vision);
       signal?.throwIfAborted();
-      const directory = await mkdtemp(join(tmpdir(), "cpi-sh-screen-"));
+      const path = join(
+        storage_directory("state", "shell-screenshot"),
+        `${randomUUID()}.png`,
+      );
+      let acknowledged = false;
       try {
-        const path = join(directory, "screen.png");
         const target = await captureSessionScreenshot(
           params.id,
           path,
           params.font_size,
           signal,
         );
+        acknowledged = true;
         signal?.throwIfAborted();
         if ((await stat(path)).size > MAX_IMAGE_BYTES)
           throw new Error(text.results.image_too_large);
@@ -105,8 +110,18 @@ export function registerTerminalCaptureTool(
           structuredContent: { ...metadata, image: image_block },
           details: metadata,
         };
+      } catch (error) {
+        if (!acknowledged)
+          throw new Error(
+            render(text.results.capture_pending, {
+              path,
+              reason: error instanceof Error ? error.message : String(error),
+            }),
+            { cause: error },
+          );
+        throw error;
       } finally {
-        await rm(directory, { recursive: true, force: true });
+        if (acknowledged) await unlink(path);
       }
     },
   });

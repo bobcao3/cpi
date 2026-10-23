@@ -8,11 +8,17 @@ import type { ShellDialect } from "./profile.ts";
 import type { BackgroundChild } from "./background-types.ts";
 import { beginActivity } from "../lib/activity.ts";
 import { readTarget } from "./ghostmux.ts";
+import {
+  sameSessionOwner,
+  sessionArtifactPath,
+  type SessionOwner,
+} from "../lib/storage/owner.ts";
 
 export const SHELL_ENTRY = "cpi-shell";
 export class ShellIdentityError extends Error {}
 export interface ShellRecord {
   version: 1;
+  artifact_owner?: SessionOwner;
   id: string;
   scope: string;
   pid: string;
@@ -64,6 +70,16 @@ function cacheShellRecord(record: ShellRecord): void {
   const existing = state.records.get(record.id);
   if (existing && existing.scope !== record.scope)
     throw new ShellIdentityError("Shell resource ownership changed");
+  record.artifact_owner ??= existing?.artifact_owner;
+  if (record.artifact_owner) {
+    sessionArtifactPath(record.artifact_owner, "shell");
+    if (
+      existing?.artifact_owner &&
+      !sameSessionOwner(existing.artifact_owner, record.artifact_owner)
+    )
+      throw new ShellIdentityError("Shell artifact ownership changed");
+    record.artifact_owner = Object.freeze({ ...record.artifact_owner });
+  }
   if (state.records.size >= 100_000 && !existing)
     throw new Error("Shell lifecycle record limit exceeded");
   state.records.set(record.id, record);
@@ -140,6 +156,7 @@ export function recordShellStart(entry: BackgroundChild, cwd: string): void {
     throw new ShellIdentityError("Shell resource ownership changed");
   writeShellRecord({
     version: 1,
+    artifact_owner: entry.storage?.operation.owner,
     id: entry.activityId,
     scope: entry.sessScope,
     pid: entry.id,

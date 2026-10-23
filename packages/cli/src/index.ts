@@ -1,10 +1,14 @@
 import { configureHostRouting } from "../bootstrap.mjs";
+import { join } from "node:path";
+import { create_storage_delete_guard } from "@cpi/harness/storage";
 import {
   APP_NAME,
   type CreateAgentSessionOptions,
   type CreateAgentSessionServicesOptions,
   createAgentSessionServices as createPiServices,
   createAgentSession as createPiSession,
+  deleteSessionFile as deletePiSessionFile,
+  type DeleteSessionOptions,
   getAgentDir,
   getPackageDir,
   type MainOptions,
@@ -28,11 +32,25 @@ export * from "@earendil-works/pi-coding-agent";
 export { DefaultResourceLoader } from "./resources.ts";
 export { createVcsSource } from "./vcs/index.ts";
 
+export function deleteSessionFile(
+  sessionPath: string,
+  options: DeleteSessionOptions = {},
+) {
+  return deletePiSessionFile(sessionPath, {
+    guard: create_storage_delete_guard(join(getAgentDir(), "jobs")),
+    ...options,
+  });
+}
+
 export function main(args: string[], options: MainOptions = {}) {
   return runPi(args, {
     createVcsSource,
     extensionFactories: defaultExtensionFactories,
     ...options,
+    sessionDeleteOptions: {
+      guard: create_storage_delete_guard(join(getAgentDir(), "jobs")),
+      ...options.sessionDeleteOptions,
+    },
     defaultExtensionPaths: [
       ...defaultExtensionPaths,
       ...(options.defaultExtensionPaths ?? []),

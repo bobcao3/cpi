@@ -11,6 +11,7 @@ import { loadEditorText, fmt } from "./text.ts";
 import { lineBodies, numberLines } from "./lines.ts";
 
 export interface ViewFileOptions {
+  owner?: import("../lib/storage/owner.ts").SessionOwner;
   query: string;
   provider: string;
   modelId: string;
@@ -134,6 +135,7 @@ export async function viewFile(
   const numbered = numberLines(content);
   const task = fmt(T.tasks.viewer, { content: numbered, query: opts.query });
   const res = await runSubagent({
+    owner: opts.owner,
     role: "viewer",
     title: basename(abs),
     systemPrompt: T.system.viewer,
