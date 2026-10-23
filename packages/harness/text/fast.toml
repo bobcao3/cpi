@@ -3,7 +3,6 @@ description = "Select the current model's -fast variant"
 
 [tool]
 description = "Select or leave the current model's -fast variant"
-prompt_snippet = ""
 
 [guidelines]
 bullets = []

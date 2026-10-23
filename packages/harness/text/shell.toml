@@ -3,19 +3,16 @@
 # ── Tool metadata shown to the main agent ──
 [sh]
 description = "Run a shell command; if still running after `waitfor`, background it and return a signalling id. Codemode returns structured results: check is_error/status, read the bounded output preview, and use full_output_path for complete output. Nonzero exits and blocked commands set is_error=true; execution exceptions reject."
-prompt_snippet = "Run shell commands"
 
 [sh_signal]
 description = "Signal a background shell command by its sh-returned ID."
-prompt_snippet = "Signal background shell commands"
 
 [sh_background_ps]
 description = "List active background shells and repeat_until monitors."
-prompt_snippet = "List active background jobs"
 
 [sh_detach]
-description = "Detach a background shell to survive pi shutdown, like nohup/tmux. Output still drains to its log; Ghostmux retains the child's output pipe, avoiding SIGPIPE."
-prompt_snippet = "Detach background shells to run untracked"
+description = "Detach a background shell to survive cpi shutdown, like nohup/tmux. Refused while its captured owner has any scratch directory or inventory issue; retained-only work may detach. Output still drains to its log; Ghostmux retains the child's output pipe, avoiding SIGPIPE."
+refused = "Cannot detach {{id}}: its captured owner has scratch directories or temporary-directory inventory issues. Join scratch writers and resolve the inventory first. Detached work may use retained directories only, never this owner's current or future scratch directories."
 
 [schema.sh]
 description = "Short description of what this command is doing (a few words)"
@@ -75,6 +72,7 @@ sh_signal = [
 ]
 sh_detach = [
   "Detach removes the PID from sh_background_ps and sh_signal and prevents later completion notifications; the process keeps running.",
+  "Detach is refused while the shell's captured owner has any scratch directory or inventory issue. Detached work must use retained directories only and must never access that owner's current or future scratch directories.",
   "After backgrounding a service/web server that must outlive this session, use sh_detach.",
   "Never detach subagent launchers: only the RPC client detaches, not the root-owned Worker; root pi shutdown cancels the agent."
 ]

@@ -2,7 +2,6 @@
 
 [tool]
 description = "Schedule a one-shot alarm or cancel active alarms. The tool sends a notification when an alarm fires."
-prompt_snippet = "Schedule future wake-up alarms for the model"
 
 [schema]
 relative_seconds = "Seconds from now for the alarm to fire"

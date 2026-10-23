@@ -1,0 +1,34 @@
+[tool]
+label = "Temporary directories"
+description = """
+Create, list, or release session-owned temporary directories. Scratch uses automatic session cleanup: the harness removes it during orderly shutdown or session deletion, after managed writers settle. You do not need to release scratch before finishing a turn. Retained survives until explicit release; use it for unmanaged or detached writers. Manual release is optional early cleanup and requires an owned ID and writers_done=true. Every executed call returns the owner's inventory, including failures. complete=false or alive=null means incomplete, not empty. Failed cleanup and interrupted prior-host scratch remain visible; crash cleanup is not guaranteed.
+"""
+prompt_snippet = "Create scratch with automatic session cleanup, or retained workspaces with explicit release."
+
+[schema]
+action = "create allocates, list inventories, and release optionally removes an owned directory early after all writers join."
+type = "scratch is automatically removed on orderly shutdown after managed writers settle. retained survives until explicit release. Defaults to scratch."
+purpose = "Short lowercase purpose name using letters, digits or hyphens, starting with a letter. Defaults to work."
+id = "Owned directory ID returned by create or list. Required for release; not a path."
+writers_done = "Required literal true for manual release: ALL writers, including detached processes and descendants, have stopped and been joined."
+complete = "Whether the full owner inventory was read without issues. False means partial or unknown, not empty."
+alive = "All known live managed directories for this owner. Null means unreadable; empty is conclusive only when complete=true."
+issues = "Problems preventing a complete inventory."
+
+[guidelines]
+bullets = [
+  "Use temp_dir instead of raw mktemp or ad-hoc cache roots. Do not invent paths or pass root, force, or TTL flags.",
+  "Scratch is session-scoped and automatically cleaned after managed writers settle on orderly shutdown. No cleanup turn or manual release is required. Release early only to reclaim space after all writers join.",
+  "Use retained for unmanaged or detached work. Never give scratch paths to writers outside the harness's managed lifetime. Detaching is refused while the owner has scratch allocations or inventory issues.",
+  "Retained survives the session; release it only after every writer joins. Move results you need to keep out of scratch before the session ends.",
+  "Inventory may include concurrent delegated work. Do not manually release another task's directory unless cleanup was delegated to you and all its writers joined.",
+  "Inspect alive and issues on every result. Report cleanup failures or unresolved prior-host scratch; incomplete inventory is not proof of cleanup.",
+]
+
+[results]
+inventory = "{{json}}"
+inventory_failed = "Temporary-directory inventory is incomplete: {{error}}"
+owner_failed = "Could not capture temporary-directory owner. Inventory is incomplete: {{error}}"
+aborted = "Temporary-directory operation was aborted. No new action started."
+release_requires_writers = "Manual release requires an owned ID and writers_done=true: ALL writers, including detached processes and descendants, have stopped and been joined."
+invalid_action = "Unknown action. Use create, list, or release."

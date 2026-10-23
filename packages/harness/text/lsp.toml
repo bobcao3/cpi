@@ -2,7 +2,6 @@
 
 [tool]
 description = "Manage language server sessions and retrieve file diagnostics."
-prompt_snippet = "LSP sessions: start/check/stop"
 
 [schema]
 project_dir = "Project root (start/stop)."

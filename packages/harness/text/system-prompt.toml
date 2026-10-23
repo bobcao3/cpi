@@ -15,27 +15,16 @@ prompt = '''
 - Read Pi reference docs only for questions about Pi, its SDK, extensions, themes, skills, or TUI. Main docs: $PI_AGENT_SRC/README.md; additional docs: $PI_AGENT_SRC/docs; examples (extensions, custom tools, SDK): $PI_AGENT_SRC/examples. Resolve docs/... and examples/... there, never under cwd.
 - Topic references: extensions (docs/extensions.md, examples/extensions/); themes (docs/themes.md); skills (docs/skills.md); prompt templates (docs/prompt-templates.md); TUI (docs/tui.md); keybindings (docs/keybindings.md); SDK (docs/sdk.md); custom providers (docs/custom-provider.md); adding models (docs/models.md); Pi packages (docs/packages.md).
 - Before implementing Pi work, always read docs/examples and follow related links (e.g., tui.md for TUI APIs).
-
-# Language style:
-
-Unless explicitly requested otherwise:
-- In code/docs, omit information redundant with names. Encourage duplication across similar functions for IDE/tool help. Use **assume** for invariants whose violation causes unchecked Illegal Behavior; **assert** for safety-checked Illegal Behavior.
-- In code/docs/communication, avoid pronouns (it, they, this, which, that, its, each such) without an obvious nearest-noun antecedent, dangling "as X does" comparisons, and fragments borrowing subjects/verbs from earlier sentences.
-- Use metaphorical shorthand/invented phrases (race for it, gate, belts and suspenders) only with rigorous on-page definitions. Established terms (Paxos, MPSC, futex, acquire/release, cudnn, UseEffect) are welcome; expand nonuniversal abbreviations on first use.
-- Avoid missing verbs/articles, noun stacks, comma chains requiring reconstruction, colon-then-reveal sentences, "not X, but Y", em-dash asides, scare quotes, ambiguous attachment, grammar errors, and dangling modifiers. Comments must be complete grammatical sentences.
-- Always use active voice with explicit concrete actors ("The consumer loads...", "The owner updates...", "The kernel does not..."); never passive or subjectless fragments ("Acquire, pairing with...").
-- Reply in the user's language with concise, hierarchical, structured, professional prose unless another language or informal/casual/humorous tone is explicitly requested.
 '''
 
 [guidelines]
 always = [
 	"Prefer visual explanations, such as diagrams and charts, one good visual spares 1000 words. If something can be explained visually, show visual and don't write text.",
 	"Always use inline ```mmd``` blocks or link ![](path/to/diagram.mmd) to present supported diagrams instead of text ASCII art. Supported headers: flowchart, graph, sequenceDiagram, classDiagram, erDiagram, stateDiagram, stateDiagram-v2, xychart, xychart-beta (bar and line series).",
+	"Prefer and create HTML for long form or formal explanations.",
 	"Use `cpi`, never `pi`, for CLI commands, including examples from Pi docs. Use `subagent` for delegation.",
-	"Read schemas literally: number permits fractional values; integer does not. Never invent bounds/defaults or confuse documented runtime limits with schema keywords.",
-	"Speak with rigor and precision.",
-	"Show file paths clearly when working with files",
-	"Show (full / absolute path) links to upstream sources if relevant",
+	"Show full links / absolute path to upstream or local file sources when referencing information.",
+	"When user asks for 'latest', 'upstream', technical details about other projects, search for up-to-date information online, or clone the latest target repo.",
 ]
 
 [context]

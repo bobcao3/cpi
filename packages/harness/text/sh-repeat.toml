@@ -2,7 +2,6 @@
 
 [tool]
 description = "Run a shell command repeatedly. Each monitor runs in a detached process group and starts in the background."
-prompt_snippet = "Poll with repeated shell commands"
 
 [schema]
 command = "Command to run repeatedly"

@@ -138,21 +138,22 @@ one {{open}} line and one {{close}} line.
 '''
 # ── Tool metadata shown to the main agent (one tool per command) ──
 [tool.read]
-description = "Read files and directories. Directory reads list a non-hidden 2-level tree. File reads without a query return plain text without line numbers."
-prompt_snippet = "Read files/dirs (AI-filtered)"
+description = "Read files, show images, or list directories.  File reads without a query return plain text without line numbers."
 guidelines = [
-	"Prefer read for files/directories; use sh for git, builds, tests, searches, and process control.",
-	"Use absolute paths for read/edit/write/apply_patch; read also accepts its declared path prefixes.",
-	"Pass read.query for AI-filtered relevant ranges with line numbers instead of the whole file.",
+	"Directory reads list a non-hidden 2-level tree.",
+	"Passing read.query to read tool, an subagent will semantically filter for relevant ranges, results are shown with line numbers.",
+	"Prefer read over shell.",
+	"Use absolute paths for read/edit/write/apply_patch.",
 	"{{#vision}}Use `read` tool to view an image file (jpg/png/gif/webp/avif) & show it to the user.{{/vision}}",
 ]
 
 [tool.edit]
-description = "Edit an existing file from a natural-language instruction. A hunk is a diff header plus context/removal/addition lines. Errors count hunks from 1 in submission order and cite patch-text lines, not source lines. Stop at the first failed hunk; editor.partialApply controls whether earlier hunks persist. Partial application ends the attempt and reports applied/failed/unattempted later hunks. Same-path edits serialize."
-prompt_snippet = "Edit files via natural-language instruction"
+description = "Edit an existing file using well defined natural-language instruction."
 guidelines = [
-	"Name the function/class/method and concrete actions in edit.instruction; the subagent emits unified-diff hunks and refuses creative synthesis. Prefer 'In MyClass.my_method, change X to Y' over 'fix the bug'.",
-	"Review the diff for instruction compliance and logical correctness; matching source is insufficient. edit cannot create files; use write.",
+	"Edit tool cannot create files, use write instead",
+	"Use edit tool for formatting, mechanical code edits, do not use `edit` on docs or code comments.",
+	"Edit tool: Name the function/class/method and concrete actions in instruction",
+	"Edit tool is not for creative synthesis: Instruct 'In MyClass.my_method, change X to Y', not 'fix the bug'.",
 ]
 
 [tool.apply_patch]
@@ -161,17 +162,13 @@ Apply diff text to one existing file; never create, delete, or rename. A hunk is
 Headers: `@@`, `@@ exact source line`, or `@@ -OLD,COUNT +NEW,COUNT @@`. Prefix context with a space, removals with -, additions with +. A context-only hunk has no additions/removals; later hunks match after its unchanged lines. Exact-source headers select a source line; the body matches after it. Exact-source headers and unnumbered hunks require unique matches within remaining source lines. At least one hunk must change lines. Text after a numbered header's closing @@ does not select a location.
 Stop at the first failed hunk. editor.partialApply controls whether earlier hunks persist; feedback identifies applied/failed/unattempted later hunks. After partial application, re-read and retry only remaining changes. Validate file headers, surrounding markers, and input-size limits before applying; validation failure leaves the file unchanged. Optional *** Begin Patch/*** End Patch markers or Markdown fences are accepted; file headers must name the path argument.
 """
-prompt_snippet = "Apply single-file diff hunks directly"
 guidelines = [
 	"Use apply_patch for a known exact change with current source, or edit to delegate the change. After a mismatch, re-read; never guess context.",
 ]
 
 [tool.write]
 description = "Write a new file and create parent directories as needed."
-prompt_snippet = "Write new files"
-guidelines = [
-	"write creates from file_text and fails if the path exists; use apply_patch/edit for existing files. Prefer write over sh heredocs: writes are atomic and share edit's per-path lock.",
-]
+guidelines = []
 
 # ── Schema field descriptions (injected into the TypeBox tool schemas) ──
 [schema]
@@ -208,7 +205,8 @@ not_a_file = "{{path}} is not a regular file."
 file_too_large = "{{path}}: {{size}} bytes exceeds {{limit}}. Use sh for targeted reads/edits."
 cannot_read = "Cannot read {{path}}: {{reason}}"
 create_requires_text = "write requires file_text."
-file_exists = "{{path}} already exists — use `apply_patch` or `edit` to modify it."
+file_exists = "{{path}} already exists. Use `apply_patch` or `edit` to modify it. Your submitted content is in {{temp_path}}."
+file_exists_save_failed = "{{path}} already exists. Use `apply_patch` or `edit` to modify it. Could not save the submitted content to a temporary file: {{reason}}"
 create_failed = "Could not create {{path}}: {{reason}}"
 edit_requires_instruction = "edit requires an instruction."
 no_editor_model = "Select a main-session model or configure an available editor.model with credentials."

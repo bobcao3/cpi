@@ -5,7 +5,6 @@ content = 'system reminder | Current cwd: {{cwd}}{{#reason}} ({{reason}}){{/reas
 
 [tool]
 description = "Change the cwd for all subsequent tool calls or shell commands."
-prompt_snippet = "Change the cwd for all subsequent tool calls or shell commands."
 
 [schema]
 path = "Target directory, absolute, or relative to cwd"

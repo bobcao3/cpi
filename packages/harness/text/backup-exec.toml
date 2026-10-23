@@ -2,7 +2,6 @@
 
 [tool]
 description = "Execute an argv vector and return combined stdout and stderr, plus the exit code."
-prompt_snippet = "Fallback argv runner — use only when sh is broken"
 
 [schema]
 command = "Argv vector to exec directly (no shell), e.g. [`make`, `test`] or [`bash`, `-c`, `ls -la`]. Omit or leave empty to default to [$SHELL]."

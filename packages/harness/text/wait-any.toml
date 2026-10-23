@@ -2,7 +2,6 @@
 
 [tool]
 description = "Yield until an event wakes the agent."
-prompt_snippet = "Yield control until an event wakes you"
 
 [guidelines]
 bullets = [
