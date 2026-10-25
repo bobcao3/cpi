@@ -1,10 +1,3 @@
----
-name: unslop
-description:
-  Cut AI tells from any writing. Always invoke this skill when writing
-  documentation.
----
-
 # Unslop
 
 Edit text to remove AI patterns. Scan for the patterns below, then rewrite.

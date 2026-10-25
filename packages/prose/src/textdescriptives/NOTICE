@@ -1,0 +1,23 @@
+TextDescriptives
+Authors: Lasse Hansen, Kenneth Enevoldsen, and the TextDescriptives contributors.
+Licensed under the Apache License, Version 2.0. See LICENSE.
+Upstream repository: https://github.com/HLasse/TextDescriptives
+Paper: https://doi.org/10.21105/joss.05153
+
+This is a source-vendored subset, not the complete upstream distribution.
+UPSTREAM.json records the release, archive URL, archive SHA256, and per-file
+source and local hashes. CITATION.cff is preserved from the source archive.
+
+Local changes:
+- The package initializer imports only the retained components and declares the
+  upstream version without querying installed distribution metadata.
+- The components initializer imports only the retained metric components.
+- Metric implementations and their shared component utilities are unchanged.
+
+Omitted: dataframe extractors, model-download helpers, scikit-learn integration,
+quality and coherence components, example datasets, upstream development and
+release tooling, documentation, and paper artifacts.
+
+The upstream NumPy upper bound and dependencies needed only by omitted features
+are not part of this package. Compatibility is tested against the dependencies
+resolved in the enclosing cpi-prose uv.lock.

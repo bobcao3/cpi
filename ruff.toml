@@ -1,0 +1,2 @@
+extend-exclude = ["**/src/textdescriptives/**"]
+force-exclude = true

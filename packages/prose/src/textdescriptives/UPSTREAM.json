@@ -1,0 +1,33 @@
+{
+  "name": "TextDescriptives",
+  "version": "2.8.4",
+  "repository": "https://github.com/HLasse/TextDescriptives",
+  "metadata": "https://pypi.org/pypi/textdescriptives/2.8.4/json",
+  "source": "https://files.pythonhosted.org/packages/d1/ce/2b3174f2105e4b16639fc7d2af000c3b4abc3c09f0b2a7f250b3165fbb40/textdescriptives-2.8.4.tar.gz",
+  "sha256": "872baf8d3ee88d3f0cd076003a265b4788215126b5dcbeb6f7d439a50df40ba1",
+  "license": "Apache-2.0",
+  "source_files_sha256": {
+    "LICENSE": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
+    "CITATION.cff": "9b275346f2e13f8b51fb4948834e594caf1695d6781d740e701aa86556e5894b",
+    "src/textdescriptives/__init__.py": "54ee2b4b9ed0b89b560ca28fac90c4c561369f525426bae441963c2a079db054",
+    "src/textdescriptives/components/__init__.py": "f9b4682e27b5794c274b08f419b09858adbc14f1257c42ce374eb7c12db53438",
+    "src/textdescriptives/components/dependency_distance.py": "cff6232de294ae3ff25d59830dc63a28404bb8a206e766a8833a391e38512074",
+    "src/textdescriptives/components/descriptive_stats.py": "34b9dcef05660b8218fd1c43004bf8b6bd013e311c10b3228119affd5037dcad",
+    "src/textdescriptives/components/information_theory.py": "71298ff1bb9bf60a9049cb558f96ec2b525dbb6cb35ef9e89e4398cba9ea26b7",
+    "src/textdescriptives/components/pos_proportions.py": "e864da2d316bba276ff0d2e7566de331e0713168ee3fd02eab5d1128334c12e1",
+    "src/textdescriptives/components/readability.py": "527de6bea8238166b0b28cbcff2c64ab80c70759fb18e2f216b7d201b07b0026",
+    "src/textdescriptives/components/utils.py": "00a7f6bb5e05f2d6aae742c397c19405e55bccb870aae3a84e6b41a4b9e0a38d"
+  },
+  "vendored_files_sha256": {
+    "LICENSE": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
+    "CITATION.cff": "9b275346f2e13f8b51fb4948834e594caf1695d6781d740e701aa86556e5894b",
+    "__init__.py": "6489f1c4883a1d669e079c246ddc294a1080945ac020f09c4550baba0f67a5be",
+    "components/__init__.py": "6bab34af87a3894b702f8d4fb3962810a11594630b04d1d2920760d9ed2c35e9",
+    "components/dependency_distance.py": "cff6232de294ae3ff25d59830dc63a28404bb8a206e766a8833a391e38512074",
+    "components/descriptive_stats.py": "34b9dcef05660b8218fd1c43004bf8b6bd013e311c10b3228119affd5037dcad",
+    "components/information_theory.py": "71298ff1bb9bf60a9049cb558f96ec2b525dbb6cb35ef9e89e4398cba9ea26b7",
+    "components/pos_proportions.py": "e864da2d316bba276ff0d2e7566de331e0713168ee3fd02eab5d1128334c12e1",
+    "components/readability.py": "527de6bea8238166b0b28cbcff2c64ab80c70759fb18e2f216b7d201b07b0026",
+    "components/utils.py": "00a7f6bb5e05f2d6aae742c397c19405e55bccb870aae3a84e6b41a4b9e0a38d"
+  }
+}

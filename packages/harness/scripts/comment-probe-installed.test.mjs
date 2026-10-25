@@ -16,7 +16,7 @@ import { init } from "es-module-lexer";
 import { stageTree } from "../../cli/scripts/release-stage.mjs";
 
 const harness = fileURLToPath(new URL("../", import.meta.url));
-const skill = "skills/process-clean-slop-code-comments";
+const skill = "skills/prose-writing-editing";
 
 test("source and compiled comment-probe launchers parse real comments", async () => {
   const directory = await mkdtemp(join(tmpdir(), "cpi-comment-probe-"));

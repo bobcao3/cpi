@@ -1,0 +1,32 @@
+{
+  "name": "@cpi/prose",
+  "version": "0.0.6",
+  "private": true,
+  "description": "Local prose analysis with scoped source comments and reference corpora",
+  "type": "module",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22.22.2",
+    "bun": ">=1.4.0"
+  },
+  "bin": {
+    "cpi-prose": "./bin/cpi-prose.mjs"
+  },
+  "exports": {
+    ".": "./src/cli.mjs",
+    "./package.json": "./package.json"
+  },
+  "dependencies": {
+    "@cpi/tree-sitter-wasm": "0.0.6"
+  },
+  "files": [
+    "bin",
+    "src",
+    "pyproject.toml",
+    "uv.lock",
+    ".python-version",
+    "LICENSE",
+    "!**/__pycache__",
+    "!**/*.pyc"
+  ]
+}

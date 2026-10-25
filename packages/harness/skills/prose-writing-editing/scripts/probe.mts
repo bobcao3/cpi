@@ -1,7 +1,8 @@
 #!/usr/bin/env -S node --disable-warning=ExperimentalWarning
 /**
  * Comment-probe CLI: extract, strip, or restore a docstring or comment block.
- * Target semantics, guards, and prerequisites live in this skill's SKILL.md.
+ * Target semantics, guards, and prerequisites live in
+ * process-clean-slop-code-comments.md.
  */
 
 import {

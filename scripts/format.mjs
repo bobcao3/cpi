@@ -11,6 +11,10 @@ const files = [...sourceFiles(), "tsconfig.json", ".prettierrc"];
 let failures = 0;
 for (const file of files) {
   const filepath = join(root, file);
+  const { ignored } = await prettier.getFileInfo(filepath, {
+    ignorePath: join(root, ".prettierignore"),
+  });
+  if (ignored) continue;
   const source = await readFile(filepath, "utf8");
   const options = { ...(await prettier.resolveConfig(filepath)), filepath };
   if (mode === "--write") {
