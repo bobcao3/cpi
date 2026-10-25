@@ -7,7 +7,7 @@ import {
   unlinkSync,
 } from "node:fs";
 import { rm } from "node:fs/promises";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { reserve_owned_operation } from "./operations.ts";
 import { storage_host_id } from "./paths.ts";
 import {
@@ -38,8 +38,8 @@ export interface ManagedDirectory {
   readonly owner: SessionOwner;
 }
 export interface DirectoryInventory {
-  alive: ManagedDirectory[];
-  issues: string[];
+  directories: ManagedDirectory[];
+  inventory_errors: string[];
 }
 interface DirectoryRecord extends ManagedDirectory {
   version: 1;
@@ -222,10 +222,10 @@ export async function create_temp_directory(
   }
 }
 
-export async function list_temp_directories(
+export async function inventory_temp_directories(
   owner: SessionOwner,
 ): Promise<DirectoryInventory> {
-  const result: DirectoryInventory = { alive: [], issues: [] };
+  const result: DirectoryInventory = { directories: [], inventory_errors: [] };
   try {
     try {
       owner = capture_owner(owner);
@@ -248,7 +248,7 @@ export async function list_temp_directories(
         const entry = entries.readSync();
         if (!entry) break;
         if (count >= 256) {
-          result.issues.push(
+          result.inventory_errors.push(
             "temporary directory inventory entry limit reached; inventory incomplete",
           );
           break;
@@ -272,7 +272,7 @@ export async function list_temp_directories(
             );
           }
         } catch (error) {
-          result.issues.push(
+          result.inventory_errors.push(
             `${join(directory, entry.name)}: ${diagnostic(error)}`,
           );
         }
@@ -282,7 +282,7 @@ export async function list_temp_directories(
     }
     for (const [slot, id] of slots) {
       if (records.get(id)?.slot !== slot)
-        result.issues.push(
+        result.inventory_errors.push(
           `${join(directory, `slot-${slot}`)}: reservation has no matching directory record (${id})`,
         );
     }
@@ -295,17 +295,32 @@ export async function list_temp_directories(
         check_root(owner, record);
         if (!same_identity(private_directory(record.path), record.identity!))
           throw new Error("directory identity changed");
-        result.alive.push(managed(record));
+        result.directories.push(managed(record));
       } catch (error) {
-        result.issues.push(`${record.path}: ${diagnostic(error)}`);
+        result.inventory_errors.push(`${record.path}: ${diagnostic(error)}`);
       }
     }
   } catch (error) {
-    result.issues.push(
+    result.inventory_errors.push(
       `temporary directory inventory failed: ${diagnostic(error)}`,
     );
   }
   return result;
+}
+
+export async function release_temp_directory_by_path(
+  owner: SessionOwner,
+  path: string,
+): Promise<void> {
+  owner = capture_owner(owner);
+  if (typeof path !== "string" || !UUID.test(basename(path)))
+    throw new Error("invalid temporary directory path");
+  const directory = sessionArtifactPath(owner, "temp-dirs");
+  private_directory(directory);
+  const record = read_record(owner, directory, basename(path));
+  if (record.path !== path)
+    throw new Error("temporary directory path is not owned by this session");
+  await release_temp_directory(owner, record.id);
 }
 
 export async function release_temp_directory(
@@ -372,10 +387,10 @@ export async function release_temp_directory(
 export async function pending_temp_directories(
   owner: SessionOwner,
 ): Promise<string[]> {
-  const inventory = await list_temp_directories(owner);
+  const inventory = await inventory_temp_directories(owner);
   return [
-    ...inventory.issues,
-    ...inventory.alive
+    ...inventory.inventory_errors,
+    ...inventory.directories
       .filter((directory) => directory.type === "scratch")
       .map(
         (directory) => `${directory.path}: automatic scratch cleanup pending`,

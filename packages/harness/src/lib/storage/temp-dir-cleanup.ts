@@ -1,7 +1,7 @@
 import type { SessionOwner } from "./owner.ts";
 import { diagnostic } from "./temp-dir-records.ts";
 import {
-  list_temp_directories,
+  inventory_temp_directories,
   pending_temp_directories,
   release_temp_directory,
 } from "./temp-dirs.ts";
@@ -10,10 +10,10 @@ export async function cleanup_temp_directories(
   owner: SessionOwner,
   signal: AbortSignal,
 ): Promise<string[]> {
-  const inventory = await list_temp_directories(owner);
-  if (inventory.issues.length) return pending_temp_directories(owner);
+  const inventory = await inventory_temp_directories(owner);
+  if (inventory.inventory_errors.length) return pending_temp_directories(owner);
   const pending: string[] = [];
-  for (const directory of inventory.alive) {
+  for (const directory of inventory.directories) {
     if (directory.type !== "scratch") continue;
     if (signal.aborted) {
       pending.push(

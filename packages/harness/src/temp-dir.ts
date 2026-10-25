@@ -6,8 +6,8 @@ import type { ExtensionAPI } from "./lib/tree-api.ts";
 import { captureSessionOwner, type SessionOwner } from "./lib/storage/owner.ts";
 import {
   create_temp_directory,
-  list_temp_directories,
-  release_temp_directory,
+  inventory_temp_directories,
+  release_temp_directory_by_path,
   type ManagedDirectory,
 } from "./lib/storage/temp-dirs.ts";
 import { loadText, render, renderLines, textPath } from "./lib/text.ts";
@@ -19,12 +19,14 @@ interface TempDirectoryText {
   results: Record<string, string>;
 }
 
+type TempDirectory = Omit<ManagedDirectory, "id">;
+
 interface InventoryResult {
   owner: SessionOwner | null;
-  complete: boolean;
-  alive: ManagedDirectory[] | null;
-  issues: string[];
-  created?: ManagedDirectory;
+  inventory_complete: boolean;
+  directories: TempDirectory[] | null;
+  inventory_errors: string[];
+  created?: TempDirectory;
   released?: string;
   error?: string;
 }
@@ -33,24 +35,29 @@ function error_message(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+function model_directory(directory: ManagedDirectory): TempDirectory {
+  const { path, type, lifecycle, created_at, purpose, owner } = directory;
+  return { path, type, lifecycle, created_at, purpose, owner };
+}
+
 async function inventory(
   owner: SessionOwner,
   text: TempDirectoryText,
 ): Promise<InventoryResult> {
   try {
-    const current = await list_temp_directories(owner);
+    const current = await inventory_temp_directories(owner);
     return {
       owner,
-      complete: current.issues.length === 0,
-      alive: current.alive,
-      issues: current.issues,
+      inventory_complete: current.inventory_errors.length === 0,
+      directories: current.directories.map(model_directory),
+      inventory_errors: current.inventory_errors,
     };
   } catch (error) {
     return {
       owner,
-      complete: false,
-      alive: null,
-      issues: [
+      inventory_complete: false,
+      directories: null,
+      inventory_errors: [
         render(text.results.inventory_failed, { error: error_message(error) }),
       ],
     };
@@ -65,7 +72,7 @@ function tool_result(data: InventoryResult, text: TempDirectoryText) {
     ],
     structuredContent: JSON.parse(json) as JsonValue,
     details: data,
-    isError: data.error !== undefined || !data.complete,
+    isError: data.error !== undefined || !data.inventory_complete,
   };
 }
 
@@ -78,7 +85,11 @@ export default function temp_dir(pi: ExtensionAPI): void {
   const parameters = Type.Object(
     {
       action: Type.Union(
-        [Type.Literal("create"), Type.Literal("list"), Type.Literal("release")],
+        [
+          Type.Literal("create"),
+          Type.Literal("inventory"),
+          Type.Literal("release"),
+        ],
         { description: text.schema.action },
       ),
       type: Type.Optional(
@@ -87,25 +98,23 @@ export default function temp_dir(pi: ExtensionAPI): void {
           default: "scratch",
         }),
       ),
-      purpose: Type.Optional(
-        Type.String({
-          description: text.schema.purpose,
-          pattern: "^[a-z][a-z0-9-]{0,63}$",
-          default: "work",
+      purpose: Type.String({
+        description: text.schema.purpose,
+        pattern: "^[a-z][a-z0-9-]{0,63}$",
+      }),
+      path: Type.Optional(
+        Type.String({ description: text.schema.path, minLength: 1 }),
+      ),
+      confirm_all_writers_stopped: Type.Optional(
+        Type.Literal(true, {
+          description: text.schema.confirm_all_writers_stopped,
         }),
-      ),
-      id: Type.Optional(
-        Type.String({ description: text.schema.id, minLength: 1 }),
-      ),
-      writers_done: Type.Optional(
-        Type.Literal(true, { description: text.schema.writers_done }),
       ),
     },
     { additionalProperties: false },
   );
   const directory = Type.Object(
     {
-      id: Type.String(),
       path: Type.String(),
       type: directory_type,
       lifecycle: Type.Union([
@@ -124,11 +133,15 @@ export default function temp_dir(pi: ExtensionAPI): void {
       }),
       Type.Null(),
     ]),
-    complete: Type.Boolean({ description: text.schema.complete }),
-    alive: Type.Union([Type.Array(directory), Type.Null()], {
-      description: text.schema.alive,
+    inventory_complete: Type.Boolean({
+      description: text.schema.inventory_complete,
     }),
-    issues: Type.Array(Type.String(), { description: text.schema.issues }),
+    directories: Type.Union([Type.Array(directory), Type.Null()], {
+      description: text.schema.directories,
+    }),
+    inventory_errors: Type.Array(Type.String(), {
+      description: text.schema.inventory_errors,
+    }),
     created: Type.Optional(directory),
     released: Type.Optional(Type.String()),
     error: Type.Optional(Type.String()),
@@ -157,31 +170,33 @@ export default function temp_dir(pi: ExtensionAPI): void {
         return tool_result(
           {
             owner: null,
-            complete: false,
-            alive: null,
-            issues: [message],
+            inventory_complete: false,
+            directories: null,
+            inventory_errors: [message],
             error: message,
           },
           text,
         );
       }
-      let created: ManagedDirectory | undefined;
+      let created: TempDirectory | undefined;
       let released: string | undefined;
       let failure: string | undefined;
       try {
         if (signal?.aborted) throw new Error(text.results.aborted);
         if (params.action === "create") {
-          created = await create_temp_directory(
-            owner,
-            params.type ?? "scratch",
-            params.purpose ?? "work",
+          created = model_directory(
+            await create_temp_directory(
+              owner,
+              params.type ?? "scratch",
+              params.purpose,
+            ),
           );
         } else if (params.action === "release") {
-          if (!params.id || params.writers_done !== true)
+          if (!params.path || params.confirm_all_writers_stopped !== true)
             throw new Error(text.results.release_requires_writers);
-          await release_temp_directory(owner, params.id);
-          released = params.id;
-        } else if (params.action !== "list") {
+          await release_temp_directory_by_path(owner, params.path);
+          released = params.path;
+        } else if (params.action !== "inventory") {
           throw new Error(text.results.invalid_action);
         }
       } catch (error) {

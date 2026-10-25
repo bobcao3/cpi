@@ -10,7 +10,7 @@ import {
   unlink,
   writeFile,
 } from "node:fs/promises";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import test from "node:test";
 import {
   captureSessionOwner,
@@ -75,6 +75,14 @@ test(
               : JSON.stringify({ ...JSON.parse(record_bytes), path: external }),
           );
         }
+        const checked = await fixture.invoke(runtime.session, "temp_dir", {
+          action: "inventory",
+          purpose: "inspect-fault",
+        });
+        assert.equal(checked.isError, true);
+        assert.equal(checked.structuredContent.inventory_complete, false);
+        assert.deepEqual(checked.structuredContent.directories, []);
+        assert.ok(checked.structuredContent.inventory_errors.length > 0);
         await assert.rejects(
           runtime.session.close({ timeoutMs: 5000 }),
           /[Pp]ending/,
@@ -141,13 +149,31 @@ test(
         purpose: "early-release",
       });
       assert.equal(early.isError, false);
+      for (const path of [
+        fixture.local.directory,
+        join(early.details.created.path, "child"),
+        `${early.details.created.path}/`,
+        `${early.details.created.path}/../${basename(early.details.created.path)}`,
+        join(fixture.local.directory, basename(early.details.created.path)),
+      ]) {
+        const rejected = await fixture.invoke(runtime.session, "temp_dir", {
+          action: "release",
+          purpose: "reject-unowned-path",
+          path,
+          confirm_all_writers_stopped: true,
+        });
+        assert.equal(rejected.isError, true, path);
+        assert.equal(existsSync(early.details.created.path), true);
+        assert.equal(existsSync(fixture.local.directory), true);
+      }
       const released = await fixture.invoke(runtime.session, "temp_dir", {
         action: "release",
-        id: early.details.created.id,
-        writers_done: true,
+        purpose: "early-cleanup",
+        path: early.details.created.path,
+        confirm_all_writers_stopped: true,
       });
       assert.equal(released.isError, false);
-      assert.equal(released.details.released, early.details.created.id);
+      assert.equal(released.details.released, early.details.created.path);
       assert.equal(existsSync(early.details.created.path), false);
       await runtime.session.reload();
       assert.deepEqual(
@@ -160,6 +186,14 @@ test(
       const next_owner = captureSessionOwner(next_manager);
       assert.notDeepEqual(next_owner, original_owner);
       assert.deepEqual(await inventory(next_owner), []);
+      const foreign = await fixture.invoke(runtime.session, "temp_dir", {
+        action: "release",
+        purpose: "check-ownership",
+        path: original.path,
+        confirm_all_writers_stopped: true,
+      });
+      assert.equal(foreign.isError, true);
+      assert.equal(existsSync(original.path), true);
       const entry = seed(next_manager, "Fork this owner.");
       const next = await create_temp_directory(next_owner, "scratch", "next");
       assert.equal(

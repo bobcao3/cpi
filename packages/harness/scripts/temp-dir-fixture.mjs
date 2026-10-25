@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { once } from "node:events";
 import { Worker } from "node:worker_threads";
 import {
-  list_temp_directories,
+  inventory_temp_directories,
   release_temp_directory,
 } from "../src/lib/storage/temp-dirs.ts";
 
@@ -13,9 +13,9 @@ export const supported = {
 };
 export const ids = (directories) => directories.map(({ id }) => id).sort();
 export async function inventory(owner) {
-  const current = await list_temp_directories(owner);
-  assert.deepEqual(current.issues, []);
-  return current.alive;
+  const current = await inventory_temp_directories(owner);
+  assert.deepEqual(current.inventory_errors, []);
+  return current.directories;
 }
 export async function release_all(owner) {
   for (const directory of await inventory(owner))

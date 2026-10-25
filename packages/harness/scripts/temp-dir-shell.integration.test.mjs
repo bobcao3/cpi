@@ -7,12 +7,12 @@ import { join } from "node:path";
 import test from "node:test";
 import { promisify } from "node:util";
 import { captureSessionOwner } from "../src/lib/storage/owner.ts";
-import { release_temp_directory } from "../src/lib/storage/temp-dirs.ts";
+import { release_temp_directory_by_path } from "../src/lib/storage/temp-dirs.ts";
 import { disposeAll } from "../src/lib/lsp/manager.ts";
 import { getSessionTarget, readTarget } from "../src/shell/ghostmux.ts";
 import { until } from "./shell-persistence.integration.helper.mjs";
 import { nodeProgram } from "./shell-platform.mjs";
-import { ids, inventory, supported } from "./temp-dir-fixture.mjs";
+import { inventory, supported } from "./temp-dir-fixture.mjs";
 import { temp_session } from "./temp-dir-session-fixture.mjs";
 
 const execute = promisify(execFile);
@@ -220,7 +220,10 @@ const poll = setInterval(() => {
       await fixture.runtime.session.close({ timeoutMs: 5000 });
       assert.equal(existsSync(retained.path), true);
       assert.equal(existsSync(payload), false);
-      assert.deepEqual(ids(await inventory(owner)), [retained.id]);
+      assert.deepEqual(
+        (await inventory(owner)).map(({ path }) => path),
+        [retained.path],
+      );
       assert.equal((await readTarget(job.target.statePath)).completed, false);
       process.kill(job.target.pid, 0);
       process.kill(job.writer_pid, 0);
@@ -234,7 +237,7 @@ const poll = setInterval(() => {
       dead(job.target.pid);
       dead(job.writer_pid);
       assert.equal(await readFile(payload, "utf8"), "written after close");
-      await release_temp_directory(owner, retained.id);
+      await release_temp_directory_by_path(owner, retained.path);
       assert.equal(existsSync(retained.path), false);
       assert.deepEqual(await inventory(owner), []);
     } finally {

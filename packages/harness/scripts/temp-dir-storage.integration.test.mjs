@@ -16,7 +16,7 @@ import { join } from "node:path";
 import test from "node:test";
 import { createSessionOwner } from "../src/lib/storage/owner.ts";
 import {
-  list_temp_directories,
+  inventory_temp_directories,
   release_temp_directory,
 } from "../src/lib/storage/temp-dirs.ts";
 import {
@@ -112,9 +112,9 @@ test(
       await writeFile(join(external, "sentinel"), "external sentinel");
       await rename(directory.path, backup);
       await symlink(external, directory.path, "dir");
-      let unsafe = await list_temp_directories(owner);
-      assert.deepEqual(unsafe.alive, []);
-      assert.ok(unsafe.issues.length > 0);
+      let unsafe = await inventory_temp_directories(owner);
+      assert.deepEqual(unsafe.directories, []);
+      assert.ok(unsafe.inventory_errors.length > 0);
       await assert.rejects(
         release_temp_directory(owner, directory.id),
         /unsafe|identity/,
@@ -129,9 +129,11 @@ test(
         join(directory.path, "replacement"),
         "replacement sentinel",
       );
-      unsafe = await list_temp_directories(owner);
-      assert.deepEqual(unsafe.alive, []);
-      assert.ok(unsafe.issues.some((issue) => /identity/.test(issue)));
+      unsafe = await inventory_temp_directories(owner);
+      assert.deepEqual(unsafe.directories, []);
+      assert.ok(
+        unsafe.inventory_errors.some((issue) => /identity/.test(issue)),
+      );
       await assert.rejects(
         release_temp_directory(owner, directory.id),
         /identity/,

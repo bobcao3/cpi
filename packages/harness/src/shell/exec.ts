@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { SessionOwner } from "../lib/storage/owner.ts";
 import {
-  list_temp_directories,
+  inventory_temp_directories,
   type DirectoryInventory,
 } from "../lib/storage/temp-dirs.ts";
 import { ShellStorage } from "./storage.ts";
@@ -357,12 +357,12 @@ export async function detachManagedChild(id: string): Promise<{
     return { logPath: null };
   if (entry.artifact_owner && !entry.storage) return { logPath: null };
   if (entry.storage) {
-    const inventory = await list_temp_directories(
+    const inventory = await inventory_temp_directories(
       entry.storage.operation.owner,
     );
     if (
-      inventory.issues.length ||
-      inventory.alive.some((item) => item.type === "scratch")
+      inventory.inventory_errors.length ||
+      inventory.directories.some((item) => item.type === "scratch")
     )
       return { logPath: null, inventory };
   }
