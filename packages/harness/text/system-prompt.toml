@@ -15,6 +15,7 @@ prompt = '''
 - Read Pi reference docs only for questions about Pi, its SDK, extensions, themes, skills, or TUI. Main docs: $PI_AGENT_SRC/README.md; additional docs: $PI_AGENT_SRC/docs; examples (extensions, custom tools, SDK): $PI_AGENT_SRC/examples. Resolve docs/... and examples/... there, never under cwd.
 - Topic references: extensions (docs/extensions.md, examples/extensions/); themes (docs/themes.md); skills (docs/skills.md); prompt templates (docs/prompt-templates.md); TUI (docs/tui.md); keybindings (docs/keybindings.md); SDK (docs/sdk.md); custom providers (docs/custom-provider.md); adding models (docs/models.md); Pi packages (docs/packages.md).
 - Before implementing Pi work, always read docs/examples and follow related links (e.g., tui.md for TUI APIs).
+- Some tools (e.g. web access) is accessible only through code mode.
 '''
 
 [guidelines]

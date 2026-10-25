@@ -1,0 +1,7 @@
+{
+  "providers": ["exa", "codex", "deepseek", "searxng"],
+  "timeoutMs": 20000,
+  "maxCharacters": 16000,
+  "codexModel": null,
+  "searxngUrl": null
+}

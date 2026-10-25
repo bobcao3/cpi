@@ -1,0 +1,11 @@
+[search_query]
+description = """codemode tools.search_query, search the public web. Returns provider, source URLs, text, and any failed attempts."""
+
+[web_fetch]
+description = """codemode tools.web_fetch, retrieve readable content from one public HTTP(S) URL. Does not execute page JavaScript or access authenticated pages."""
+
+[schema]
+query = ""
+numResults = "Return up-to num results."
+url = "Public HTTP(S) URL"
+maxCharacters = ""
