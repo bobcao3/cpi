@@ -11,7 +11,8 @@ const share_write: w.DWORD = 0x00000002;
 const open_existing: w.DWORD = 3;
 const normal_attributes: w.DWORD = 0x00000080;
 
-// Zig's spawn inherits all inheritable handles, without a handle-list attribute.
+// Zig's spawn does not set a handle-list attribute.
+// The child inherits every handle marked inheritable.
 pub fn start(allocator: std.mem.Allocator, io: std.Io, request: wire.Request) !terminal.Spawn {
     const command = try arguments.command_line(allocator, request.argv);
     var environment = try arguments.environment_exact(allocator, request.env);

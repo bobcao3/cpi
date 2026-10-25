@@ -9,7 +9,7 @@
     "./resolve": "./bin/ghostmux-resolve.mjs",
     "./source": "./bin/ghostmux-source.mjs",
     "./signature": "./bin/ghostmux-signature.mjs",
-    "./package": "./bin/ghostmux-package.mjs",
+    "./package": "./scripts/ghostmux-package.mjs",
     "./package.json": "./package.json"
   },
   "bin": {
@@ -31,8 +31,8 @@
   "scripts": {
     "build": "zig build --release=safe",
     "pack:release": "node scripts/package.mjs",
-    "test": "node install.test.mjs && node --test integration.test.mjs",
-    "release": "node bin/ghostmux-release.mjs"
+    "test": "node tests/install.test.mjs && node --test tests/integration.test.mjs",
+    "release": "node scripts/ghostmux-release.mjs"
   },
   "devDependencies": {
     "sharp": "0.35.4"

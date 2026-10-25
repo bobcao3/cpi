@@ -56,7 +56,7 @@ jobs:
         env:
           CPI_MINISIGN_SECRET: ${{ secrets.CPI_MINISIGN_SECRET }}
         run: |
-          tag=$(node packages/ghostmux/bin/ghostmux-release.mjs tag)
+          tag=$(node packages/ghostmux/scripts/ghostmux-release.mjs tag)
           if [[ '${{ github.ref_type }}' == tag && '${{ github.ref_name }}' != "$tag" ]]; then
             echo "The requested tag does not match the checked-out ghostmux release." >&2
             exit 1
@@ -64,14 +64,14 @@ jobs:
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
           echo "name=ghostmux ${tag#ghostmux-}" >> "$GITHUB_OUTPUT"
           for metadata in dist/ghostmux-*.json; do
-            node packages/ghostmux/bin/ghostmux-release.mjs sign "${metadata%.json}"
+            node packages/ghostmux/scripts/ghostmux-release.mjs sign "${metadata%.json}"
           done
           tar -czf dist/ghostmux-licenses.tar.gz -C dist licenses
       - name: Test signed installed executable
         env:
           GHOSTMUX_TEST_ARTIFACT: ${{ github.workspace }}/dist
           GHOSTMUX_BIN: ${{ github.workspace }}/dist/ghostmux-linux-x64
-        run: node packages/ghostmux/install.test.mjs
+        run: node packages/ghostmux/tests/install.test.mjs
       - name: Pack native npm packages and wrapper
         run: node packages/ghostmux/scripts/package.mjs dist npm-dist
       - uses: actions/upload-artifact@v4

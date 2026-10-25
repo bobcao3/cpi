@@ -100,7 +100,7 @@ jobs:
           fi
       - name: Test Ghostmux npm and Bun installs without Pi peers or Zig
         if: ${{ !cancelled() && steps.ghostmux.outcome == 'success' }}
-        run: node packages/ghostmux/install.test.mjs
+        run: node packages/ghostmux/tests/install.test.mjs
       - name: Test cpi shell and installed host integration
         if: matrix.package == 'ghostmux'
         shell: bash
@@ -118,7 +118,7 @@ jobs:
       - name: Stage Ghostmux binary and provenance
         if: matrix.package == 'ghostmux'
         shell: bash
-        run: node packages/ghostmux/bin/ghostmux-release.mjs stage "$GHOSTMUX_BIN" dist '${{ matrix.platform }}'
+        run: node packages/ghostmux/scripts/ghostmux-release.mjs stage "$GHOSTMUX_BIN" dist '${{ matrix.platform }}'
       - name: Build portable WASM
         if: matrix.package == 'tree-sitter-wasm'
         working-directory: packages/tree-sitter-wasm

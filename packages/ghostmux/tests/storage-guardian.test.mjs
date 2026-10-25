@@ -22,7 +22,7 @@ import { fileURLToPath } from "node:url";
 
 const binary =
   process.env.GHOSTMUX_BIN ??
-  fileURLToPath(new URL("./zig-out/bin/ghostmux", import.meta.url));
+  fileURLToPath(new URL("../zig-out/bin/ghostmux", import.meta.url));
 const linux = { skip: process.platform !== "linux", timeout: 15000 };
 const exists = (path) =>
   access(path).then(

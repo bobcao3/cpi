@@ -9,8 +9,8 @@ import {
   platforms,
   releaseTag,
   sourceDigest,
-} from "./ghostmux-source.mjs";
-import { verifyArtifact } from "./ghostmux-signature.mjs";
+} from "../bin/ghostmux-source.mjs";
+import { verifyArtifact } from "../bin/ghostmux-signature.mjs";
 
 const [command, input, output, requestedPlatform] = process.argv.slice(2);
 const digest = await sourceDigest();

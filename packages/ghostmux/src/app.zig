@@ -304,7 +304,7 @@ fn write_input(self: *App) std.Io.Cancelable!void {
 
 fn wait_child(self: *App) std.Io.Cancelable!void {
     std.debug.assert(self.process.?.child.stdin == null and self.process.?.child.stdout == null and self.process.?.child.stderr == null);
-    // POSIX wait cancellation clears the temporary Child ID without reaping the process.
+    // A canceled POSIX wait clears the temporary child ID without reaping the process.
     var waiting_child = self.process.?.child;
     const term = waiting_child.wait(self.io) catch |err| switch (err) {
         error.Canceled => return error.Canceled,

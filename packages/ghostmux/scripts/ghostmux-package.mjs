@@ -14,8 +14,8 @@ import {
   platformKey,
   platforms,
   sourceDigest,
-} from "./ghostmux-source.mjs";
-import { verifyArtifact } from "./ghostmux-signature.mjs";
+} from "../bin/ghostmux-source.mjs";
+import { verifyArtifact } from "../bin/ghostmux-signature.mjs";
 
 const json = async (path) => JSON.parse(await readFile(path, "utf8"));
 const save = (path, value) =>

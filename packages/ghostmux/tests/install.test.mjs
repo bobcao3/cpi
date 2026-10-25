@@ -12,15 +12,15 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { packageRoot, platformKey } from "./bin/ghostmux-source.mjs";
-import { stage_wrapper } from "./bin/ghostmux-package.mjs";
-import { registry_manifest } from "../cli/scripts/registry-manifest.mjs";
+import { packageRoot, platformKey } from "../bin/ghostmux-source.mjs";
+import { stage_wrapper } from "../scripts/ghostmux-package.mjs";
+import { registry_manifest } from "../../cli/scripts/registry-manifest.mjs";
 import {
   execute,
   install,
   pack,
   registry,
-} from "../../scripts/package-test.mjs";
+} from "../../../scripts/package-test.mjs";
 
 const directory = await mkdtemp(join(tmpdir(), "gmi-"));
 let server;

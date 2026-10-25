@@ -4,7 +4,7 @@ import { lstat, mkdir, readFile, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { registry_manifest } from "../../cli/scripts/registry-manifest.mjs";
 import { artifactName, platforms } from "../bin/ghostmux-source.mjs";
-import { stage_binary, stage_wrapper } from "../bin/ghostmux-package.mjs";
+import { stage_binary, stage_wrapper } from "./ghostmux-package.mjs";
 
 const [input, output, requested] = process.argv.slice(2);
 assert(

@@ -48,7 +48,7 @@ jobs:
           GHOSTMUX_TEST_ARTIFACT: ${{ runner.temp }}/native-inputs
           CPI_TREE_SITTER_TEST_ARTIFACT: ${{ runner.temp }}/native-inputs
         run: |
-          node packages/ghostmux/install.test.mjs
+          node packages/ghostmux/tests/install.test.mjs
           node --test packages/tree-sitter-wasm/artifact.test.mjs
       - name: Build self-contained application
         env:

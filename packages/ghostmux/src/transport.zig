@@ -131,7 +131,7 @@ pub fn lock_startup(allocator: std.mem.Allocator, io: std.Io, path: [:0]const u8
     return startup;
 }
 
-// Assume the caller holds the startup lock until the first response arrives.
+// Hold the startup lock until the first response arrives.
 pub fn connect_or_start(allocator: std.mem.Allocator, io: std.Io, path: [:0]const u8, can_start: bool) !std.Io.net.Stream {
     return connect_once(allocator, io, path) catch |initial| {
         if (!can_start or !startable(initial)) return initial;

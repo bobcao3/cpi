@@ -9,7 +9,7 @@ import { promisify } from "node:util";
 
 export const binary =
   process.env.GHOSTMUX_BIN ??
-  fileURLToPath(new URL("./zig-out/bin/ghostmux", import.meta.url));
+  fileURLToPath(new URL("../zig-out/bin/ghostmux", import.meta.url));
 const execute = promisify(execFile);
 export const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
