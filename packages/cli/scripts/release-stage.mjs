@@ -22,6 +22,9 @@ const excluded = new Set([
   "__tests__",
   "coverage",
   ".cache",
+  ".venv",
+  "__pycache__",
+  ".ruff_cache",
   ".artifacts",
   "artifacts",
   ".turbo",
@@ -75,22 +78,23 @@ function emitted(path, tool = false) {
   );
 }
 
-export function manifestPaths(value) {
+export function manifestPaths(value, preserveSource = false) {
   if (typeof value === "string") {
     if (/\.d\.(ts|mts|cts)$/.test(value)) return value;
     return value
-      .replace(/^(\.\/)?src(?=\/|$)/, "$1dist")
+      .replace(/^(\.\/)?src(?=\/|$)/, preserveSource ? "$1src" : "$1dist")
       .replace(/dist\/bundle\/(cli|rpc-entry)\.js$/, "dist/$1.js")
       .replace(/\.(ts|tsx|mts|cts)$/, (_, ext) =>
         ext === "mts" ? ".mjs" : ext === "cts" ? ".cjs" : ".js",
       );
   }
-  if (Array.isArray(value)) return value.map(manifestPaths);
+  if (Array.isArray(value))
+    return value.map((entry) => manifestPaths(entry, preserveSource));
   if (!value || typeof value !== "object") return value;
   const result = {};
   for (const [key, entry] of Object.entries(value)) {
     if (key === "source") continue;
-    const rewritten = manifestPaths(entry);
+    const rewritten = manifestPaths(entry, preserveSource);
     if (rewritten !== undefined) result[key] = rewritten;
   }
   return Object.keys(result).length ? result : undefined;
@@ -108,7 +112,7 @@ async function rewriteModules(code, sourcePath, outputPath, packageRoot) {
       );
     const targetPath = emitted(
       relative(packageRoot, target).split(sep).join("/"),
-      /\/(ghostmux|tree-sitter-wasm)$/.test(packageRoot),
+      /\/(ghostmux|tree-sitter-wasm|prose)$/.test(packageRoot),
     );
     let specifier = relative(dirname(outputPath), join(packageRoot, targetPath))
       .split(sep)
@@ -171,7 +175,7 @@ export async function stageTree(
     if (!entry.isFile()) throw new Error(`Unsupported source file: ${path}`);
     const info = await stat(path);
     bounded(info.size);
-    const tool = /\/(ghostmux|tree-sitter-wasm)$/.test(packageRoot);
+    const tool = /\/(ghostmux|tree-sitter-wasm|prose)$/.test(packageRoot);
     const compile =
       /\.(ts|tsx|mts|cts)$/.test(local) &&
       !/\.d\.(ts|mts|cts)$/.test(local) &&

@@ -40,8 +40,17 @@ export async function stage_workspace(
         (await lstat(path)).isDirectory() || /\.d\.(ts|mts|cts)$/.test(path),
     });
   for (const key of ["exports", "main", "module", "bin", "pi", "files"])
-    if (manifest[key]) manifest[key] = manifestPaths(manifest[key]);
-  await copyFile(join(root, "LICENSE"), join(destination, "LICENSE"));
+    if (manifest[key])
+      manifest[key] = manifestPaths(
+        manifest[key],
+        manifest.name === "@cpi/prose",
+      );
+  try {
+    await lstat(join(destination, "LICENSE"));
+  } catch (error) {
+    if (error.code !== "ENOENT") throw error;
+    await copyFile(join(root, "LICENSE"), join(destination, "LICENSE"));
+  }
   return manifest;
 }
 

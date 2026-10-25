@@ -88,6 +88,7 @@ async function main() {
     "packages/cli",
     "packages/harness",
     "packages/ghostmux",
+    "packages/prose",
     "packages/tree-sitter-wasm",
   ]) {
     const folder = join(root, directory);
@@ -160,7 +161,11 @@ async function main() {
       delete manifest.scripts;
       delete manifest.workspaces;
       for (const key of ["exports", "main", "module", "bin", "pi", "files"]) {
-        if (manifest[key]) manifest[key] = manifestPaths(manifest[key]);
+        if (manifest[key])
+          manifest[key] = manifestPaths(
+            manifest[key],
+            manifest.name === "@cpi/prose",
+          );
       }
       for (const field of [
         "dependencies",

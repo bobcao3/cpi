@@ -17,7 +17,7 @@
     "format": "node scripts/format.mjs --write",
     "format:check": "node scripts/format.mjs --check",
     "ghostmux:build": "cd packages/ghostmux && zig build --release=safe",
-    "ghostmux:test-install": "node packages/ghostmux/install.test.mjs",
+    "ghostmux:test-install": "node packages/ghostmux/tests/install.test.mjs",
     "test:cli": "cd packages/cli && node ../../node_modules/vitest/dist/cli.js --run test/vcs.test.ts test/footer-project.test.ts",
     "pack:release": "node packages/cli/scripts/package.mjs",
     "verify:release": "node packages/cli/scripts/verify-installed.mjs"
@@ -49,7 +49,9 @@
   "devDependencies": {
     "@cpi/cli": "0.0.6",
     "@cpi/harness": "0.0.6",
+    "@cpi/search": "0.0.6",
     "@cpi/ghostmux": "0.0.6",
+    "@cpi/prose": "0.0.6",
     "@cpi/tree-sitter-wasm": "0.0.6",
     "@types/bun": "1.4.2",
     "@types/mustache": "4.2.6",
@@ -67,22 +69,31 @@
   "workspaces": [
     "packages/cli",
     "packages/harness",
+    "packages/search",
     "packages/ghostmux",
+    "packages/prose",
     "packages/tree-sitter-wasm"
   ],
   "bin": {
-    "cpi": "packages/cli/bin/cpi"
+    "cpi": "packages/cli/bin/cpi",
+    "cpi-prose": "packages/prose/bin/cpi-prose.mjs"
   },
   "files": [
     "packages/cli",
     "packages/harness",
+    "packages/search",
     "packages/ghostmux",
+    "packages/prose",
     "packages/tree-sitter-wasm",
     "!**/node_modules",
     "!**/.zig-cache",
     "!**/zig-out",
     "!**/zig-pkg",
     "!**/.cache",
+    "!**/.venv",
+    "!**/__pycache__",
+    "!**/*.pyc",
+    "!**/.ruff_cache",
     "!**/dist",
     "!**/assets",
     "!**/native.json",

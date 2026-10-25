@@ -23,6 +23,8 @@
         "@cpi/cli": "0.0.6",
         "@cpi/ghostmux": "0.0.6",
         "@cpi/harness": "0.0.6",
+        "@cpi/prose": "0.0.6",
+        "@cpi/search": "0.0.6",
         "@cpi/tree-sitter-wasm": "0.0.6",
         "@types/bun": "1.4.2",
         "@types/mustache": "4.2.6",
@@ -49,9 +51,11 @@
       "version": "0.0.6",
       "bin": {
         "cpi": "./bin/cpi",
+        "cpi-prose": "./bin/cpi-prose.mjs",
       },
       "dependencies": {
         "@cpi/harness": "0.0.6",
+        "@cpi/prose": "0.0.6",
         "@earendil-works/pi-agent-core": "https://github.com/bobcao3/pi/releases/download/cpi-1.3.0-1/b8c07d6d9a98da2d0b54f0ab42ae370b4e63ad534fc0ef1aee3511c3e532e9f1.tgz",
         "@earendil-works/pi-ai": "https://github.com/bobcao3/pi/releases/download/cpi-1.3.0-1/e67a03ab00e168129f12487eb2d57ebfc328112aeef8f07538229984457a2e4c.tgz",
         "@earendil-works/pi-codemode": "https://github.com/bobcao3/pi/releases/download/cpi-1.3.0-1/38f1f919f9d2173a939bf0b77793840264eb759ca689dafb700b74fc06046e29.tgz",
@@ -102,6 +106,29 @@
         "@earendil-works/pi-ai": "1.3.0-cpi.1",
         "@earendil-works/pi-coding-agent": "1.3.0-cpi.1",
         "@earendil-works/pi-tui": "1.3.0-cpi.1",
+        "typebox": "*",
+      },
+    },
+    "packages/prose": {
+      "name": "@cpi/prose",
+      "version": "0.0.6",
+      "bin": {
+        "cpi-prose": "./bin/cpi-prose.mjs",
+      },
+      "dependencies": {
+        "@cpi/tree-sitter-wasm": "0.0.6",
+      },
+    },
+    "packages/search": {
+      "name": "@cpi/search",
+      "version": "0.0.6",
+      "dependencies": {
+        "@cpi/harness": "0.0.6",
+        "@modelcontextprotocol/sdk": "1.31.0",
+      },
+      "peerDependencies": {
+        "@earendil-works/pi-ai": "*",
+        "@earendil-works/pi-coding-agent": "*",
         "typebox": "*",
       },
     },
@@ -185,6 +212,10 @@
     "@cpi/ghostmux-win32-x64": ["@bobcao3/cpi-ghostmux-win32-x64@0.0.1", "", { "os": "win32", "cpu": "x64" }, "sha512-xM/E/vxWQjYPnCSJvSvZ2SMlN+vgTRn3WeLk+Iqz5+DTz3jO5inO2HevDN4I2lH6WS7pQcYzWqoxQFx8iMhF8w=="],
 
     "@cpi/harness": ["@cpi/harness@workspace:packages/harness"],
+
+    "@cpi/prose": ["@cpi/prose@workspace:packages/prose"],
+
+    "@cpi/search": ["@cpi/search@workspace:packages/search"],
 
     "@cpi/tree-sitter-wasm": ["@cpi/tree-sitter-wasm@workspace:packages/tree-sitter-wasm"],
 

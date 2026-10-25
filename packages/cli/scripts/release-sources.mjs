@@ -50,6 +50,9 @@ export async function prepareReleaseSources(checkout, cache) {
     ".artifacts",
     ".cache",
     "coverage",
+    ".venv",
+    "__pycache__",
+    ".ruff_cache",
     ".env",
     "auth.json",
   ]);
@@ -92,6 +95,7 @@ export async function prepareReleaseSources(checkout, cache) {
       "packages/cli",
       "packages/harness",
       "packages/ghostmux",
+      "packages/prose",
       "packages/tree-sitter-wasm",
     ]) {
       const directory = join(root, folder);
