@@ -116,6 +116,7 @@ export interface Highlight {
 
 interface Parser {
   alloc: CallableFunction;
+  dealloc: CallableFunction;
   parse: CallableFunction;
   parseLang: CallableFunction;
   highlight: CallableFunction;
@@ -155,6 +156,7 @@ function wrap(instance: WebAssembly.Instance): Parser {
   const e = instance.exports;
   return {
     alloc: e.alloc as CallableFunction,
+    dealloc: e.dealloc as CallableFunction,
     parse: e.parse as CallableFunction,
     parseLang: e.parse_lang as CallableFunction,
     highlight: e.highlight as CallableFunction,
@@ -169,6 +171,10 @@ function wrap(instance: WebAssembly.Instance): Parser {
 function parserSync(): Parser | null {
   const st = state();
   return st.instance ? wrap(st.instance) : null;
+}
+
+function discard(): void {
+  state().instance = null;
 }
 
 async function instantiate(): Promise<Parser | null> {
@@ -230,12 +236,19 @@ export async function parseLangCommand(
   if (!parser) return { ast: null, node: null, available: false };
   const name = new TextEncoder().encode(lang);
   const namePtr = parser.alloc(name.length) as number;
-  if (!namePtr) return { ast: null, node: null, available: false };
-  new Uint8Array(parser.memory.buffer, namePtr, name.length).set(name);
-  const langId = parser.langIdByName(namePtr, name.length) as number;
-  if (langId < 0) return { ast: null, node: null, available: false };
-  const encoded = new TextEncoder().encode(source);
-  return parseEncoded(langId, encoded);
+  if (!namePtr) {
+    discard();
+    return { ast: null, node: null, available: false };
+  }
+  try {
+    new Uint8Array(parser.memory.buffer, namePtr, name.length).set(name);
+    const langId = parser.langIdByName(namePtr, name.length) as number;
+    if (langId < 0) return { ast: null, node: null, available: false };
+    const encoded = new TextEncoder().encode(source);
+    return await parseEncoded(langId, encoded);
+  } finally {
+    parser.dealloc(namePtr);
+  }
 }
 
 async function parseEncoded(
@@ -245,13 +258,19 @@ async function parseEncoded(
   const parser = parserSync();
   if (!parser) return { ast: null, node: null, available: false };
 
+  const ptr = parser.alloc(encoded.length) as number;
+  if (!ptr) {
+    discard();
+    return { ast: null, node: null, available: false };
+  }
   try {
-    const ptr = parser.alloc(encoded.length) as number;
-    if (!ptr) return { ast: null, node: null, available: false };
     new Uint8Array(parser.memory.buffer, ptr, encoded.length).set(encoded);
 
     const resultPtr = parser.parseLang(langId, ptr, encoded.length) as number;
-    if (!resultPtr) return { ast: null, node: null, available: false };
+    if (!resultPtr) {
+      discard();
+      return { ast: null, node: null, available: false };
+    }
 
     const len = parser.resultLen() as number;
     const resultBytes = new Uint8Array(parser.memory.buffer, resultPtr, len);
@@ -264,8 +283,11 @@ async function parseEncoded(
       available: true,
     };
   } catch (err) {
+    discard();
     console.warn("[tree-sitter] Parse failed:", err);
     return { ast: null, node: null, available: false };
+  } finally {
+    parser.dealloc(ptr);
   }
 }
 
