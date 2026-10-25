@@ -59,6 +59,8 @@ function assistant(
     "Thinking...",
     1,
     [],
+    undefined,
+    undefined,
     render_thinking_summary,
   );
 }
@@ -243,6 +245,8 @@ test("shared responsive layout, Markdown transforms, and all foregrounds remain 
         return text.replace("original", "transformed");
       },
     ],
+    undefined,
+    undefined,
     render_thinking_summary,
   );
   component.updateContent(

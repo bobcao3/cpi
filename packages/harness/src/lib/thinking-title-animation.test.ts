@@ -60,6 +60,8 @@ test(
       "Thinking...",
       1,
       [],
+      undefined,
+      undefined,
       render_thinking_summary,
       () => {
         const current = title(component);
@@ -107,6 +109,8 @@ test(
       "Thinking...",
       1,
       [],
+      undefined,
+      undefined,
       render_thinking_summary,
       () => {
         const current = title(component);
@@ -146,6 +150,8 @@ test(
       "Thinking...",
       1,
       [],
+      undefined,
+      undefined,
       render_thinking_summary,
       () => {
         if (title(component) === "💡▸ Thinking: Forecast") finish();
@@ -188,6 +194,8 @@ test(
       "Thinking...",
       1,
       [],
+      undefined,
+      undefined,
       render_thinking_summary,
       () => {
         const current = title(component);
