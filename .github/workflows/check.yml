@@ -30,7 +30,6 @@ jobs:
       GHOSTMUX_BIN:
         ${{ github.workspace }}/.ci-native/ghostmux-${{ matrix.platform }}${{
         startsWith(matrix.platform, 'win32-') && '.exe' || '' }}
-      CPI_STORAGE_ROOT: ${{ runner.temp }}/cpi-host
       NODE_OPTIONS: --import=./packages/cli/bootstrap.mjs
     steps:
       - uses: actions/checkout@v6
@@ -41,7 +40,11 @@ jobs:
         with:
           bun-version: "1.4.0"
       - name: Prepare cpi integration logs
-        run: mkdir -p .ci-host-logs
+        env:
+          CPI_STORAGE_ROOT: ${{ runner.temp }}/cpi-host
+        run: |
+          mkdir -p .ci-host-logs
+          echo "CPI_STORAGE_ROOT=$CPI_STORAGE_ROOT" >> "$GITHUB_ENV"
       - name: Download this run's native Ghostmux build
         uses: actions/download-artifact@v4
         with:
