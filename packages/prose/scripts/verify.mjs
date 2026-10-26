@@ -11,14 +11,7 @@ import { createRequire } from "node:module";
 import { delimiter, join, resolve, sep } from "node:path";
 import { setTimeout } from "node:timers/promises";
 import { registry_server } from "../../cli/scripts/registry-server.mjs";
-import {
-  digest,
-  execute,
-  json,
-  names,
-  public_version,
-  validate,
-} from "./release.mjs";
+import { digest, execute, json, names, validate } from "./release.mjs";
 
 assert(
   process.argv.length === 3 ||
@@ -36,13 +29,31 @@ await rm(report_path, { force: true });
 if (public_registry) {
   const deadline = Date.now() + 300000;
   for (const pkg of packages) {
-    for (let attempt = 0; attempt < 31; attempt++) {
-      if (await public_version(pkg)) break;
-      assert(
-        attempt < 30 && Date.now() < deadline,
-        `${pkg.name}: public registry availability deadline exceeded`,
-      );
-      await setTimeout(10000);
+    for (const accept of [
+      "application/json",
+      "application/vnd.npm.install-v1+json",
+    ]) {
+      for (let attempt = 0; attempt < 31; attempt++) {
+        const response = await fetch(
+          `https://registry.npmjs.org/${encodeURIComponent(pkg.name)}`,
+          { headers: { accept }, signal: AbortSignal.timeout(30000) },
+        );
+        assert(response.ok || response.status === 404);
+        if (response.ok) {
+          const body = await response.text();
+          assert(body.length <= 1024 * 1024);
+          const manifest = JSON.parse(body).versions?.[pkg.version];
+          if (manifest) {
+            assert.equal(manifest.dist?.integrity, pkg.integrity);
+            break;
+          }
+        } else await response.body?.cancel();
+        assert(
+          attempt < 30 && Date.now() < deadline,
+          `${pkg.name}: public ${accept} availability deadline exceeded`,
+        );
+        await setTimeout(10000);
+      }
     }
   }
 }
