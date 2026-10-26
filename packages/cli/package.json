@@ -9,8 +9,7 @@
   },
   "type": "module",
   "bin": {
-    "cpi": "./bin/cpi",
-    "cpi-prose": "./bin/cpi-prose.mjs"
+    "cpi": "./bin/cpi"
   },
   "exports": {
     ".": {
