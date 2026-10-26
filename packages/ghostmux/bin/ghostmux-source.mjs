@@ -10,7 +10,7 @@ export const platforms = JSON.parse(
 );
 export const publicKey =
   "RWQWdcLzFjpLqtjewtcZo71AHJVUFws3irxz2ColvNW/r0m4tHyxzDX5";
-export const releaseTag = "ghostmux-2026.10.01";
+export const releaseTag = "ghostmux-2026.10.25";
 
 export function platformKey(
   platform = process.platform,
