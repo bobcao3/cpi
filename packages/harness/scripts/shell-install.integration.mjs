@@ -29,6 +29,7 @@ try {
   await mkdir(installed);
   for (const path of [
     "src",
+    "text",
     "bin",
     "cpi-config.default.json",
     "fallback-providers.example.json",

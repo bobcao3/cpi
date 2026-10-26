@@ -23,6 +23,8 @@ const env = {
   BUN_INSTALL_BIN: join(work, "bin"),
   BUN_INSTALL_CACHE_DIR: join(work, "cache"),
   CPI_CODING_AGENT_DIR: join(work, "agent"),
+  CPI_FORK_REMOTE:
+    process.env.CPI_FORK_REMOTE ?? "https://github.com/bobcao3/pi.git",
   CPI_RUNTIME: "",
   NODE_OPTIONS: "",
   NODE_PATH: "",
