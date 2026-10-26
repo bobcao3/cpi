@@ -3,7 +3,7 @@ name: Registry installation
 on:
   push:
     branches: ["**"]
-    tags: ["v*"]
+    tags: ["v*", "prose-v*"]
   pull_request:
   workflow_dispatch:
     inputs:
@@ -21,6 +21,7 @@ concurrency:
 
 jobs:
   package:
+    if: ${{ !startsWith(github.ref, 'refs/tags/prose-v') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
@@ -151,3 +152,77 @@ jobs:
         run:
           node packages/cli/scripts/release-registry.mjs "${{ runner.temp
           }}/registry"
+  prose-package:
+    if: startsWith(github.ref, 'refs/tags/prose-v')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          package-manager-cache: false
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.4.0"
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e
+        with:
+          version: "0.11.28"
+          enable-cache: false
+      - run: bun install --frozen-lockfile --ignore-scripts
+      - name: Package prose and its signed WASM dependency
+        env:
+          CPI_PROSE_RELEASE_TAG: ${{ github.ref_name }}
+        run: node packages/prose/scripts/package.mjs "${{ runner.temp }}/prose"
+      - name:
+          Verify isolated npm and Bun installations with real Python analysis
+        run: node packages/prose/scripts/verify.mjs "${{ runner.temp }}/prose"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: prose-packages
+          path: |
+            ${{ runner.temp }}/prose/*.tgz
+            ${{ runner.temp }}/prose/*.json
+            ${{ runner.temp }}/prose/SHA256SUMS
+          if-no-files-found: error
+          retention-days: 14
+  prose-publish:
+    if: github.event_name == 'push' || inputs.publish_npm
+    needs: prose-package
+    runs-on: ubuntu-24.04
+    environment: npm-publish
+    permissions:
+      contents: read
+      id-token: write
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          package-manager-cache: false
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.4.0"
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e
+        with:
+          version: "0.11.28"
+          enable-cache: false
+      - run: bun install --frozen-lockfile --ignore-scripts
+      - uses: actions/download-artifact@v4
+        with:
+          name: prose-packages
+          path: ${{ runner.temp }}/prose
+      - name: Publish verified WASM and prose packages through OIDC
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node packages/prose/scripts/publish.mjs "${{ runner.temp }}/prose"
+      - name: Verify actual installations from the public npm registry
+        run:
+          node packages/prose/scripts/verify.mjs "${{ runner.temp }}/prose"
+          --public
+      - uses: actions/upload-artifact@v4
+        with:
+          name: prose-public-verification
+          path: ${{ runner.temp }}/prose/*.json
+          if-no-files-found: error
