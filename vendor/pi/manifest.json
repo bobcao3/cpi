@@ -1,48 +1,61 @@
 {
   "format": 1,
-  "upstreamRevision": "71023aec1546d6d677a65669c5665c0927ce0dd0",
-  "upstreamVersion": "1.3.0",
-  "upstreamPackages": {
-    "@earendil-works/pi-telemetry": "1.3.0",
-    "@earendil-works/pi-mcp": "1.3.0",
-    "@earendil-works/chord": "1.3.0"
-  },
-  "forkRevision": "e658c4e2f0cedfb842cb46008efe3fdd0de588b5",
-  "version": "1.3.0-cpi.1",
-  "rootLockSha256": "37d2e98eb9a390ae2894253b91c236aef4c17596fc36b9cc8dbc114a83811895",
-  "modelCatalogRevision": "sha256-ffa3e98626230f378f80200debb736c4a2238b5f2ba246a92cfc7d8e19604678",
+  "upstreamRevision": "d5b3de22d0e24a3e9c38a9410d3329b099717283",
+  "upstreamVersion": "1.4.0",
+  "upstreamPackages": {},
+  "forkRevision": "360030ed3adb20bb8b3b0e7d98844b327e3b4e75",
+  "version": "1.4.0-cpi.1",
+  "rootLockSha256": "6fedaee747ad57722f17244ddd621fea098bcecd5d14cfcb2a9dbb7bf7f70504",
+  "modelCatalogRevision": "sha256-7fe1b41feaf43a7aad4bc832e6b306c7ced56e6d41bbc724b74e91eeacff6edf",
   "modelsSha256": "8cd91fa7eae8e9b219b8f50ed7581d7c31fe6df29b5a07a0a672589bb7323c21",
   "node": "v24.21.0",
   "esbuild": "0.28.2",
   "typescript": "7.0.2",
   "artifacts": [
     {
-      "name": "@earendil-works/pi-agent-core",
-      "version": "1.3.0-cpi.1",
-      "filename": "b8c07d6d9a98da2d0b54f0ab42ae370b4e63ad534fc0ef1aee3511c3e532e9f1.tgz",
-      "sha256": "b8c07d6d9a98da2d0b54f0ab42ae370b4e63ad534fc0ef1aee3511c3e532e9f1",
-      "integrity": "sha512-GBNCixnlk76kFGyFNUXK84xgdumBXfBeHlMGaPfMS/JHkoK6z+JCN55dy63exRzBvFFPRGeTHFxcJHf+h4+DAA==",
+      "name": "@earendil-works/chord",
+      "version": "1.4.0-cpi.1",
+      "filename": "12a35a7c3227341a83fae0e9ed7ab2768d54c10ddc0fb52d148ed73588febf1a.tgz",
+      "sha256": "12a35a7c3227341a83fae0e9ed7ab2768d54c10ddc0fb52d148ed73588febf1a",
+      "integrity": "sha512-D+Dzwl5aQvxpZuUQcmsNSFHitElpeYm3Dor11XNGsN9Y++a4o9EnAmOLP1PF2lth+5TB1xcDzOlHyngqkzHtdQ==",
       "dependencies": {
-        "@earendil-works/pi-ai": "https://github.com/bobcao3/pi/releases/download/cpi-1.3.0-1/e67a03ab00e168129f12487eb2d57ebfc328112aeef8f07538229984457a2e4c.tgz",
+        "@earendil-works/pi-telemetry": "https://github.com/bobcao3/pi/releases/download/cpi-1.4.0-1/65bad78c6a8e3a178458011777e54b7a3c78309b350faa5e52f370f18c582ca4.tgz",
         "typebox": "1.3.27"
       },
       "source": {
-        "sha256": "965539a8843ab95643c9f631a51b415f597bb257bc6aa89fd492f6852dc1d889",
-        "integrity": "sha512-2iiEq33SB2P+yL3Y/MFccneviQrcasCQM1Sb+mH+ud31qwe2A3jWQWbcDmeGUJjg0VQySnTP/HpX//ebVEl5jA==",
-        "url": "https://github.com/bobcao3/pi/releases/download/cpi-1.3.0-1/965539a8843ab95643c9f631a51b415f597bb257bc6aa89fd492f6852dc1d889.tgz"
+        "sha256": "7ed9dbc96c5c77be37ae55773dba697f9204c87b666b6186fffbd68a4d3b3d85",
+        "integrity": "sha512-B4eCjnasgm79p2oUK7QnHQwzLUZEj8MA5grVw7/nR31Gl+GV8NyZUzQQ8WGg9+LRSctkSZVwHe8GSA5NfOo1xA==",
+        "url": "https://github.com/bobcao3/pi/releases/download/cpi-1.4.0-1/7ed9dbc96c5c77be37ae55773dba697f9204c87b666b6186fffbd68a4d3b3d85.tgz"
       },
-      "url": "https://github.com/bobcao3/pi/releases/download/cpi-1.3.0-1/b8c07d6d9a98da2d0b54f0ab42ae370b4e63ad534fc0ef1aee3511c3e532e9f1.tgz"
+      "url": "https://github.com/bobcao3/pi/releases/download/cpi-1.4.0-1/12a35a7c3227341a83fae0e9ed7ab2768d54c10ddc0fb52d148ed73588febf1a.tgz"
+    },
+    {
+      "name": "@earendil-works/pi-agent-core",
+      "version": "1.4.0-cpi.1",
+      "filename": "7d3403b5be3f8ad9f4cfbdc23c097b06d98de0e83ea0f83e1ded07cc27606678.tgz",
+      "sha256": "7d3403b5be3f8ad9f4cfbdc23c097b06d98de0e83ea0f83e1ded07cc27606678",
+      "integrity": "sha512-259V7dFT/Cxhdkbcps46saJ3gWOYopsJth5mKWLC8QRfck0qr2gGZd+bsfLAvtvq78K/GMRFs+x1h9qe81JnNg==",
+      "dependencies": {
+        "@earendil-works/pi-ai": "https://github.com/bobcao3/pi/releases/download/cpi-1.4.0-1/e23e84600a10c9dd0fb057f6ddea6899db9f2bc0359305099d935c5423c7e9d3.tgz",
+        "typebox": "1.3.27"
+      },
+      "source": {
+        "sha256": "29d2459f3223571d7a67738b6183cf39d574f8d5b33bdbb4714b3f37dbd8fd65",
+        "integrity": "sha512-ERdwRx+aKgNStF6CTl9dxpZE6YOFSyGZhELJU6/jKKw8w7uGfSVYl/Wvj0aIo/3aYgtOyclLboe2fbrekt0o2w==",
+        "url": "https://github.com/bobcao3/pi/releases/download/cpi-1.4.0-1/29d2459f3223571d7a67738b6183cf39d574f8d5b33bdbb4714b3f37dbd8fd65.tgz"
+      },
+      "url": "https://github.com/bobcao3/pi/releases/download/cpi-1.4.0-1/7d3403b5be3f8ad9f4cfbdc23c097b06d98de0e83ea0f83e1ded07cc27606678.tgz"
     },
     {
       "name": "@earendil-works/pi-ai",
-      "version": "1.3.0-cpi.1",
-      "filename": "e67a03ab00e168129f12487eb2d57ebfc328112aeef8f07538229984457a2e4c.tgz",
-      "sha256": "e67a03ab00e168129f12487eb2d57ebfc328112aeef8f07538229984457a2e4c",
-      "integrity": "sha512-yjq4XyRyn7/I7vLN0ifDzobknoo/nKkELr0vQqR4R6Iie/9mWVu5KewuAtxNNznChPuv6aGWWK8XW5SBoMZSdQ==",
+      "version": "1.4.0-cpi.1",
+      "filename": "e23e84600a10c9dd0fb057f6ddea6899db9f2bc0359305099d935c5423c7e9d3.tgz",
+      "sha256": "e23e84600a10c9dd0fb057f6ddea6899db9f2bc0359305099d935c5423c7e9d3",
+      "integrity": "sha512-1I9avqUDdO8Bby5bAUS6rVOGFOZJdzcMtBETcnN2LIpXBvOva0Gp3oovoBMgAmyY6lgcKnUWg9HJfVsYQkffyg==",
       "dependencies": {
         "@anthropic-ai/sdk": "0.129.0",
         "@aws-sdk/client-bedrock-runtime": "3.1127.0",
-        "@earendil-works/pi-telemetry": "1.3.0",
+        "@earendil-works/pi-telemetry": "https://github.com/bobcao3/pi/releases/download/cpi-1.4.0-1/65bad78c6a8e3a178458011777e54b7a3c78309b350faa5e52f370f18c582ca4.tgz",
         "@google/genai": "2.21.0",
         "@smithy/node-http-handler": "4.12.1",
         "http-proxy-agent": "9.1.0",
@@ -52,40 +65,40 @@
         "typebox": "1.3.27"
       },
       "source": {
-        "sha256": "e67a03ab00e168129f12487eb2d57ebfc328112aeef8f07538229984457a2e4c",
-        "integrity": "sha512-yjq4XyRyn7/I7vLN0ifDzobknoo/nKkELr0vQqR4R6Iie/9mWVu5KewuAtxNNznChPuv6aGWWK8XW5SBoMZSdQ==",
-        "url": "https://github.com/bobcao3/pi/releases/download/cpi-1.3.0-1/e67a03ab00e168129f12487eb2d57ebfc328112aeef8f07538229984457a2e4c.tgz"
+        "sha256": "dde15f17768da274a9a87139aa890f33bcc02eab566d4aff6f64618deeab37a6",
+        "integrity": "sha512-RMRNds0cWxLbzS9A32LWYHUK4TIsHNUV0oJQvhz/0yR9vMbsMPuBRZfZVSmMIRfB+DOWJaq69q45yg24esSd/w==",
+        "url": "https://github.com/bobcao3/pi/releases/download/cpi-1.4.0-1/dde15f17768da274a9a87139aa890f33bcc02eab566d4aff6f64618deeab37a6.tgz"
       },
-      "url": "https://github.com/bobcao3/pi/releases/download/cpi-1.3.0-1/e67a03ab00e168129f12487eb2d57ebfc328112aeef8f07538229984457a2e4c.tgz"
+      "url": "https://github.com/bobcao3/pi/releases/download/cpi-1.4.0-1/e23e84600a10c9dd0fb057f6ddea6899db9f2bc0359305099d935c5423c7e9d3.tgz"
     },
     {
       "name": "@earendil-works/pi-codemode",
-      "version": "1.3.0-cpi.1",
-      "filename": "38f1f919f9d2173a939bf0b77793840264eb759ca689dafb700b74fc06046e29.tgz",
-      "sha256": "38f1f919f9d2173a939bf0b77793840264eb759ca689dafb700b74fc06046e29",
-      "integrity": "sha512-zmmmIb9VB1YS8IbPP2dt1d7DuKyVDCYTRGEVzZ6e+Wh73+DkHfgSgmeqH95LJkSRvyDdvvX/wCdIbJA3z0dr1g==",
+      "version": "1.4.0-cpi.1",
+      "filename": "6bcfc28efcf7b9daab02d754e4bb644b2cdcb7e70fccf7b8c9449663ede8db48.tgz",
+      "sha256": "6bcfc28efcf7b9daab02d754e4bb644b2cdcb7e70fccf7b8c9449663ede8db48",
+      "integrity": "sha512-7HlHJBjHrKBLbe/89v4RcooG26eLDEwnPJiPvkw/pYO/kdOKnKdSBHQOTDxduakAhFvrjOaWhIVSW5/7GmN6Wg==",
       "dependencies": {
         "quickjs-wasi": "3.6.2"
       },
       "source": {
-        "sha256": "38f1f919f9d2173a939bf0b77793840264eb759ca689dafb700b74fc06046e29",
-        "integrity": "sha512-zmmmIb9VB1YS8IbPP2dt1d7DuKyVDCYTRGEVzZ6e+Wh73+DkHfgSgmeqH95LJkSRvyDdvvX/wCdIbJA3z0dr1g==",
-        "url": "https://github.com/bobcao3/pi/releases/download/cpi-1.3.0-1/38f1f919f9d2173a939bf0b77793840264eb759ca689dafb700b74fc06046e29.tgz"
+        "sha256": "6bcfc28efcf7b9daab02d754e4bb644b2cdcb7e70fccf7b8c9449663ede8db48",
+        "integrity": "sha512-7HlHJBjHrKBLbe/89v4RcooG26eLDEwnPJiPvkw/pYO/kdOKnKdSBHQOTDxduakAhFvrjOaWhIVSW5/7GmN6Wg==",
+        "url": "https://github.com/bobcao3/pi/releases/download/cpi-1.4.0-1/6bcfc28efcf7b9daab02d754e4bb644b2cdcb7e70fccf7b8c9449663ede8db48.tgz"
       },
-      "url": "https://github.com/bobcao3/pi/releases/download/cpi-1.3.0-1/38f1f919f9d2173a939bf0b77793840264eb759ca689dafb700b74fc06046e29.tgz"
+      "url": "https://github.com/bobcao3/pi/releases/download/cpi-1.4.0-1/6bcfc28efcf7b9daab02d754e4bb644b2cdcb7e70fccf7b8c9449663ede8db48.tgz"
     },
     {
       "name": "@earendil-works/pi-coding-agent",
-      "version": "1.3.0-cpi.1",
-      "filename": "92be5d0132fff71a502bb3691c1fddf8632fa488a6fea827ca7e5d81663dd8e3.tgz",
-      "sha256": "92be5d0132fff71a502bb3691c1fddf8632fa488a6fea827ca7e5d81663dd8e3",
-      "integrity": "sha512-NnivjSm+ogXp+UZ7d/9M3lsbbGgcjjNCGnTeJ/v7s1MroQK+PFtftnk18CA8Phxy+U08dqJw/rqwxf3JphDDmA==",
+      "version": "1.4.0-cpi.1",
+      "filename": "7713d1d69e5e88d97b5b7b7862038d2305b6ed645f14a4b9311e3de1a37f9402.tgz",
+      "sha256": "7713d1d69e5e88d97b5b7b7862038d2305b6ed645f14a4b9311e3de1a37f9402",
+      "integrity": "sha512-K/CDJGhkeAyBD94b2EnsFzV2yVCQZakUeNWk7dkhOMl6qNXOQajUXLxCYpiYYgtW4OWecefc2le15geknVd6Ew==",
       "dependencies": {
-        "@earendil-works/pi-agent-core": "https://github.com/bobcao3/pi/releases/download/cpi-1.3.0-1/b8c07d6d9a98da2d0b54f0ab42ae370b4e63ad534fc0ef1aee3511c3e532e9f1.tgz",
-        "@earendil-works/pi-ai": "https://github.com/bobcao3/pi/releases/download/cpi-1.3.0-1/e67a03ab00e168129f12487eb2d57ebfc328112aeef8f07538229984457a2e4c.tgz",
-        "@earendil-works/pi-codemode": "https://github.com/bobcao3/pi/releases/download/cpi-1.3.0-1/38f1f919f9d2173a939bf0b77793840264eb759ca689dafb700b74fc06046e29.tgz",
-        "@earendil-works/pi-mcp": "1.3.0",
-        "@earendil-works/pi-tui": "https://github.com/bobcao3/pi/releases/download/cpi-1.3.0-1/b12003bda3772d413dfaf2ecd2b2a087dab43b0fd3f6d5195a2fb1cd8698c8b9.tgz",
+        "@earendil-works/pi-agent-core": "https://github.com/bobcao3/pi/releases/download/cpi-1.4.0-1/7d3403b5be3f8ad9f4cfbdc23c097b06d98de0e83ea0f83e1ded07cc27606678.tgz",
+        "@earendil-works/pi-ai": "https://github.com/bobcao3/pi/releases/download/cpi-1.4.0-1/e23e84600a10c9dd0fb057f6ddea6899db9f2bc0359305099d935c5423c7e9d3.tgz",
+        "@earendil-works/pi-codemode": "https://github.com/bobcao3/pi/releases/download/cpi-1.4.0-1/6bcfc28efcf7b9daab02d754e4bb644b2cdcb7e70fccf7b8c9449663ede8db48.tgz",
+        "@earendil-works/pi-mcp": "https://github.com/bobcao3/pi/releases/download/cpi-1.4.0-1/604e94ae170aee2d98c4b913b1770864bae04b1e93c9179f8c4dbc4308402ee9.tgz",
+        "@earendil-works/pi-tui": "https://github.com/bobcao3/pi/releases/download/cpi-1.4.0-1/99a7e7bc9ec440da2481260bddb8bbc43f820215bd78d53d61d2462ecbeeb581.tgz",
         "@silvia-odwyer/photon-node": "0.3.4",
         "brace-expansion": "5.0.12",
         "chalk": "6.0.0",
@@ -105,49 +118,81 @@
         "yaml": "2.9.0"
       },
       "source": {
-        "sha256": "8a82c884e83dc40b921561338c553c0d092bd1a106268aaa6c657141dea2e3a8",
-        "integrity": "sha512-GqD7Qzf1DheOpKQwpte61o7hUw/DJG3wXOlSdq/KSJ7s5ysSIlpRRy1NyGXMehoFChQ2yDDx5bFWbiZCjj1DhA==",
-        "url": "https://github.com/bobcao3/pi/releases/download/cpi-1.3.0-1/8a82c884e83dc40b921561338c553c0d092bd1a106268aaa6c657141dea2e3a8.tgz"
+        "sha256": "de2a780a36cf1f2e931f2c59ab1c8d7c06b907a565d45adb908c64d6d1837fcf",
+        "integrity": "sha512-MXwZjxnQoRwi8u/fD+O7wSGqYdb5pOi22KM8ZOJ6FQ6TcehYP70Y+zKcBsFq55viBja5F9nTLNvaMZr5LECKEQ==",
+        "url": "https://github.com/bobcao3/pi/releases/download/cpi-1.4.0-1/de2a780a36cf1f2e931f2c59ab1c8d7c06b907a565d45adb908c64d6d1837fcf.tgz"
       },
-      "url": "https://github.com/bobcao3/pi/releases/download/cpi-1.3.0-1/92be5d0132fff71a502bb3691c1fddf8632fa488a6fea827ca7e5d81663dd8e3.tgz"
+      "url": "https://github.com/bobcao3/pi/releases/download/cpi-1.4.0-1/7713d1d69e5e88d97b5b7b7862038d2305b6ed645f14a4b9311e3de1a37f9402.tgz"
     },
     {
       "name": "@earendil-works/pi-durable",
-      "version": "1.3.0-cpi.1",
-      "filename": "470abe5fb7442ce00916a23a7cc70ca64bf6c21508dd7b804119d4bb8ee605ff.tgz",
-      "sha256": "470abe5fb7442ce00916a23a7cc70ca64bf6c21508dd7b804119d4bb8ee605ff",
-      "integrity": "sha512-T8fykq4B3/3pKirYYR8NchZzUN5SIjdye4WxgYxB1leb/ivCCCThjWVi1tSC7edynWtVJ60hesCsa/6oBZciJg==",
+      "version": "1.4.0-cpi.1",
+      "filename": "2beb25ef813fe2177bfc95e542e7d2b20c77ce7ef8685553609bc7cea3e76be4.tgz",
+      "sha256": "2beb25ef813fe2177bfc95e542e7d2b20c77ce7ef8685553609bc7cea3e76be4",
+      "integrity": "sha512-u+WQ5hYas2y+QprS/4bXmebc7Fl9tPpPLP5Y4pGerc3lMOWCDFsCjs21jaGHgRoXXIVNGXvoCPckQQMEuQ3WlQ==",
       "dependencies": {
-        "@earendil-works/chord": "1.3.0",
-        "@earendil-works/pi-ai": "https://github.com/bobcao3/pi/releases/download/cpi-1.3.0-1/e67a03ab00e168129f12487eb2d57ebfc328112aeef8f07538229984457a2e4c.tgz",
-        "@earendil-works/pi-codemode": "https://github.com/bobcao3/pi/releases/download/cpi-1.3.0-1/38f1f919f9d2173a939bf0b77793840264eb759ca689dafb700b74fc06046e29.tgz",
+        "@earendil-works/chord": "https://github.com/bobcao3/pi/releases/download/cpi-1.4.0-1/12a35a7c3227341a83fae0e9ed7ab2768d54c10ddc0fb52d148ed73588febf1a.tgz",
+        "@earendil-works/pi-ai": "https://github.com/bobcao3/pi/releases/download/cpi-1.4.0-1/e23e84600a10c9dd0fb057f6ddea6899db9f2bc0359305099d935c5423c7e9d3.tgz",
+        "@earendil-works/pi-codemode": "https://github.com/bobcao3/pi/releases/download/cpi-1.4.0-1/6bcfc28efcf7b9daab02d754e4bb644b2cdcb7e70fccf7b8c9449663ede8db48.tgz",
+        "@earendil-works/pi-telemetry": "https://github.com/bobcao3/pi/releases/download/cpi-1.4.0-1/65bad78c6a8e3a178458011777e54b7a3c78309b350faa5e52f370f18c582ca4.tgz",
         "@silvia-odwyer/photon": "0.3.3",
         "diff": "8.0.4",
         "typebox": "1.3.27"
       },
       "source": {
-        "sha256": "3d6c033ed1f9f4c7ed7d96bd90e04902d62685a0c40e77e7843485609ddf8330",
-        "integrity": "sha512-MtrQsdhWgXKgYqOI9w9UvaSVpePswlglArP1j+EAYjsUmh+WStMe8BxlGDvuCrV+uJJrX6w+f86YOdp5SBZMag==",
-        "url": "https://github.com/bobcao3/pi/releases/download/cpi-1.3.0-1/3d6c033ed1f9f4c7ed7d96bd90e04902d62685a0c40e77e7843485609ddf8330.tgz"
+        "sha256": "f0b96a9924b014f18a1614b716708485e69d436e1958d433230ccf84905dba56",
+        "integrity": "sha512-i18Q1TWWTCb/sHN13h2euJRLwmiUkDe33Wo8ABuqa+BfxouO0h9y4qJ4KqT4GSbih7KJkzJw+qQA3OI31sUatA==",
+        "url": "https://github.com/bobcao3/pi/releases/download/cpi-1.4.0-1/f0b96a9924b014f18a1614b716708485e69d436e1958d433230ccf84905dba56.tgz"
       },
-      "url": "https://github.com/bobcao3/pi/releases/download/cpi-1.3.0-1/470abe5fb7442ce00916a23a7cc70ca64bf6c21508dd7b804119d4bb8ee605ff.tgz"
+      "url": "https://github.com/bobcao3/pi/releases/download/cpi-1.4.0-1/2beb25ef813fe2177bfc95e542e7d2b20c77ce7ef8685553609bc7cea3e76be4.tgz"
+    },
+    {
+      "name": "@earendil-works/pi-mcp",
+      "version": "1.4.0-cpi.1",
+      "filename": "604e94ae170aee2d98c4b913b1770864bae04b1e93c9179f8c4dbc4308402ee9.tgz",
+      "sha256": "604e94ae170aee2d98c4b913b1770864bae04b1e93c9179f8c4dbc4308402ee9",
+      "integrity": "sha512-wVBS0FzIesiLGSfYx05T0+4aTNKC1/h0FHiOTOtVpN5ZAHQ5xWsenFByOD5pDacJwq/W16s0iePGFL9KhHpWRg==",
+      "dependencies": {
+        "cross-spawn": "7.0.6"
+      },
+      "source": {
+        "sha256": "604e94ae170aee2d98c4b913b1770864bae04b1e93c9179f8c4dbc4308402ee9",
+        "integrity": "sha512-wVBS0FzIesiLGSfYx05T0+4aTNKC1/h0FHiOTOtVpN5ZAHQ5xWsenFByOD5pDacJwq/W16s0iePGFL9KhHpWRg==",
+        "url": "https://github.com/bobcao3/pi/releases/download/cpi-1.4.0-1/604e94ae170aee2d98c4b913b1770864bae04b1e93c9179f8c4dbc4308402ee9.tgz"
+      },
+      "url": "https://github.com/bobcao3/pi/releases/download/cpi-1.4.0-1/604e94ae170aee2d98c4b913b1770864bae04b1e93c9179f8c4dbc4308402ee9.tgz"
+    },
+    {
+      "name": "@earendil-works/pi-telemetry",
+      "version": "1.4.0-cpi.1",
+      "filename": "65bad78c6a8e3a178458011777e54b7a3c78309b350faa5e52f370f18c582ca4.tgz",
+      "sha256": "65bad78c6a8e3a178458011777e54b7a3c78309b350faa5e52f370f18c582ca4",
+      "integrity": "sha512-lv/55jlZYVK6bZBCOR4TvNBNTffV3fr5nUCbzNbt9GVlaljKOIzFQEETs7OEJ7Kfrgx7ZE9xY81ajj1EUJ9RZg==",
+      "dependencies": {},
+      "source": {
+        "sha256": "65bad78c6a8e3a178458011777e54b7a3c78309b350faa5e52f370f18c582ca4",
+        "integrity": "sha512-lv/55jlZYVK6bZBCOR4TvNBNTffV3fr5nUCbzNbt9GVlaljKOIzFQEETs7OEJ7Kfrgx7ZE9xY81ajj1EUJ9RZg==",
+        "url": "https://github.com/bobcao3/pi/releases/download/cpi-1.4.0-1/65bad78c6a8e3a178458011777e54b7a3c78309b350faa5e52f370f18c582ca4.tgz"
+      },
+      "url": "https://github.com/bobcao3/pi/releases/download/cpi-1.4.0-1/65bad78c6a8e3a178458011777e54b7a3c78309b350faa5e52f370f18c582ca4.tgz"
     },
     {
       "name": "@earendil-works/pi-tui",
-      "version": "1.3.0-cpi.1",
-      "filename": "b12003bda3772d413dfaf2ecd2b2a087dab43b0fd3f6d5195a2fb1cd8698c8b9.tgz",
-      "sha256": "b12003bda3772d413dfaf2ecd2b2a087dab43b0fd3f6d5195a2fb1cd8698c8b9",
-      "integrity": "sha512-lEQ2Ow9qWMZXAAbAahq/yJ8hbEkI86MJVXolGa3Zte6d2i0bPG6V+1SOzNfJ5uywbvAI8pTXqpSv6Fqr74xWjg==",
+      "version": "1.4.0-cpi.1",
+      "filename": "99a7e7bc9ec440da2481260bddb8bbc43f820215bd78d53d61d2462ecbeeb581.tgz",
+      "sha256": "99a7e7bc9ec440da2481260bddb8bbc43f820215bd78d53d61d2462ecbeeb581",
+      "integrity": "sha512-If21bsq6d+0e+RrDbjcEXA6mwRlw6JKX8I/ibLvTUJHNvILRKs9cZpoXzQGOSbUsGa5JyOuOHqTHoWp58H0ojA==",
       "dependencies": {
         "get-east-asian-width": "1.6.0",
-        "marked": "18.0.11"
+        "marked": "18.0.11",
+        "marked-cjk-friendly": "0.1.2"
       },
       "source": {
-        "sha256": "b12003bda3772d413dfaf2ecd2b2a087dab43b0fd3f6d5195a2fb1cd8698c8b9",
-        "integrity": "sha512-lEQ2Ow9qWMZXAAbAahq/yJ8hbEkI86MJVXolGa3Zte6d2i0bPG6V+1SOzNfJ5uywbvAI8pTXqpSv6Fqr74xWjg==",
-        "url": "https://github.com/bobcao3/pi/releases/download/cpi-1.3.0-1/b12003bda3772d413dfaf2ecd2b2a087dab43b0fd3f6d5195a2fb1cd8698c8b9.tgz"
+        "sha256": "99a7e7bc9ec440da2481260bddb8bbc43f820215bd78d53d61d2462ecbeeb581",
+        "integrity": "sha512-If21bsq6d+0e+RrDbjcEXA6mwRlw6JKX8I/ibLvTUJHNvILRKs9cZpoXzQGOSbUsGa5JyOuOHqTHoWp58H0ojA==",
+        "url": "https://github.com/bobcao3/pi/releases/download/cpi-1.4.0-1/99a7e7bc9ec440da2481260bddb8bbc43f820215bd78d53d61d2462ecbeeb581.tgz"
       },
-      "url": "https://github.com/bobcao3/pi/releases/download/cpi-1.3.0-1/b12003bda3772d413dfaf2ecd2b2a087dab43b0fd3f6d5195a2fb1cd8698c8b9.tgz"
+      "url": "https://github.com/bobcao3/pi/releases/download/cpi-1.4.0-1/99a7e7bc9ec440da2481260bddb8bbc43f820215bd78d53d61d2462ecbeeb581.tgz"
     }
   ],
   "closure": {
