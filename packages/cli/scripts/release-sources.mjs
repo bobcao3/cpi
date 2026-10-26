@@ -94,7 +94,6 @@ export async function prepareReleaseSources(checkout, cache) {
     for (const folder of [
       "packages/cli",
       "packages/harness",
-      "packages/search",
       "packages/ghostmux",
       "packages/prose",
       "packages/tree-sitter-wasm",

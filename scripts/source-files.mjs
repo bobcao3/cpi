@@ -34,7 +34,6 @@ export function sourceFiles() {
     "scripts",
     "packages/cli",
     "packages/harness",
-    "packages/search",
     "packages/ghostmux",
     "packages/prose",
     "packages/tree-sitter-wasm",

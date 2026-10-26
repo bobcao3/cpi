@@ -3,13 +3,13 @@ import {
   fauxAssistantMessage,
   fauxToolCall,
   getCurrentTools,
-} from "../../../.pi-fork/packages/ai/src/index.ts";
+} from "../../../../.pi-fork/packages/ai/src/index.ts";
 import {
   createHarness,
   getToolResult,
-} from "../../../.pi-fork/packages/coding-agent/test/suite/harness.ts";
-import { createCodemodeExtension } from "../../../.pi-fork/packages/coding-agent/src/extensions/codemode/index.ts";
-import search_extension from "./index.ts";
+} from "../../../../.pi-fork/packages/coding-agent/test/suite/harness.ts";
+import { createCodemodeExtension } from "../../../../.pi-fork/packages/coding-agent/src/extensions/codemode/index.ts";
+import search_extension from "../../src/search/index.ts";
 
 test("search tools stay codemode-only even when activated and reject invalid calls through nested execution", async () => {
   const harness = await createHarness({

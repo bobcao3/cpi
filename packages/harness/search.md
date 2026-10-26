@@ -1,16 +1,10 @@
 # Search
 
-A Pi extension package with two codemode tools, `search_query` and `web_fetch`.
+The harness includes two codemode tools, `search_query` and `web_fetch`.
 
-## Load the extension
+## Use the tools
 
-From this checkout:
-
-```sh
-cpi install /home/bob/cpi/packages/search
-```
-
-Reload the agent after installation. The tools are callable through codemode and are not declared as direct model tools. Codemode must be enabled in the host.
+Both tools load with the harness. They are callable through codemode and are not declared as direct model tools.
 
 ```js
 const result = await tools.search_query({
@@ -57,7 +51,7 @@ Example configuration:
 }
 ```
 
-See [`SearchConfig`](./src/config.ts) for the supported fields and validation. `CPI_SEARCH_TIMEOUT_MS` overrides the per-provider timeout. Set `CPI_SEARCH_SEARXNG_URL` to an empty string to disable the final fallback even when `SEARXNG_URL` is set.
+See [`SearchConfig`](./src/search/config.ts) for the supported fields and validation. `CPI_SEARCH_TIMEOUT_MS` overrides the per-provider timeout. Set `CPI_SEARCH_SEARXNG_URL` to an empty string to disable the final fallback even when `SEARXNG_URL` is set.
 
 Provider credentials are not stored in this file. Codex credentials are resolved and refreshed by the host. Exa credentials come from `EXA_API_KEY`. Credentials are sent only to their fixed provider endpoints; redirects are rejected.
 

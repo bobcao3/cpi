@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { readable_html } from "./html.ts";
+import { readable_html } from "../../src/search/html.ts";
 
 test("HTML extraction preserves Unicode and quoted attributes while discarding scripts and comments", () => {
   const html =
@@ -16,7 +16,7 @@ test("HTML extraction preserves Unicode and quoted attributes while discarding s
 });
 
 test("maximum-size malformed HTML completes within an isolated process deadline", async () => {
-  const module = new URL("./html.ts", import.meta.url).href;
+  const module = new URL("../../src/search/html.ts", import.meta.url).href;
   const { stdout } = await promisify(execFile)(
     "node",
     [

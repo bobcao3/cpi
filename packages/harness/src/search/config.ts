@@ -33,7 +33,7 @@ function read_config(path: string | URL): Partial<SearchConfig> {
 
 export function search_config(cwd: string, trusted: boolean): SearchConfig {
   const config = {
-    ...read_config(new URL("../search.default.json", import.meta.url)),
+    ...read_config(new URL("../../search.default.json", import.meta.url)),
     ...read_config(join(getAgentDir(), "search.json")),
     ...(trusted ? read_config(join(cwd, ".cpi", "search.json")) : {}),
   } as SearchConfig;

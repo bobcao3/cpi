@@ -17,6 +17,7 @@ import mermaid from "./mermaid/index.ts";
 import onboarding from "./onboarding.ts";
 import providerUsage from "./provider-usage.ts";
 import provider from "./provider.ts";
+import search from "./search/index.ts";
 import shell from "./shell.ts";
 import subagentModels from "./subagent-models.ts";
 import subagentTranscript from "./subagent-transcript/index.ts";
@@ -40,6 +41,7 @@ export default async function cpi(host: ExtensionAPI): Promise<void> {
     onboarding,
     providerUsage,
     provider,
+    search,
     shell,
     subagentModels,
     subagentTranscript,

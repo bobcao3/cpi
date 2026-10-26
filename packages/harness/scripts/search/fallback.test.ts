@@ -1,10 +1,10 @@
 import { expect, test } from "bun:test";
 import { createServer, type IncomingMessage } from "node:http";
 import type { AddressInfo } from "node:net";
-import { json_request } from "./http.ts";
-import { fetch_public_page } from "./public-fetch.ts";
-import { route, type ProviderFactory } from "./route.ts";
-import { searxng_provider } from "./searxng.ts";
+import { json_request } from "../../src/search/http.ts";
+import { fetch_public_page } from "../../src/search/public-fetch.ts";
+import { route, type ProviderFactory } from "../../src/search/route.ts";
+import { searxng_provider } from "../../src/search/searxng.ts";
 
 const query = "café & ports / 中文?";
 const results = [

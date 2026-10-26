@@ -8,6 +8,26 @@ export default async function verifyRoutes() {
     await hostCodingAgent();
   }
   const sdk = await import("../src/index.ts");
+  const loader = new sdk.DefaultResourceLoader({
+    cwd: process.cwd(),
+    agentDir: process.env.PI_CODING_AGENT_DIR!,
+    settingsManager: sdk.SettingsManager.inMemory(),
+    noSkills: true,
+    noThemes: true,
+    noContextFiles: true,
+    noPromptTemplates: true,
+  });
+  await loader.reload();
+  const loaded = loader.getExtensions();
+  assert.deepEqual(loaded.errors, []);
+  for (const name of ["search_query", "web_fetch"]) {
+    const tools = loaded.extensions.flatMap((extension) => {
+      const tool = extension.tools.get(name);
+      return tool ? [tool.definition] : [];
+    });
+    assert.equal(tools.length, 1, `${name} must be registered once by default`);
+    assert.equal(tools[0].exposure, "codemode");
+  }
   const before = process.env.CPI_HOST_ROOT;
   const { hostCodingAgent, hostAi, hostTui } =
     await import("../../harness/bin/host-pi.mjs");

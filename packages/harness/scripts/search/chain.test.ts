@@ -3,18 +3,18 @@ import { createServer } from "node:http";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { AddressInfo } from "node:net";
-import { ENV_AGENT_DIR } from "../../../.pi-fork/packages/coding-agent/src/config.ts";
+import { ENV_AGENT_DIR } from "../../../../.pi-fork/packages/coding-agent/src/config.ts";
 import {
   createHarness,
   getToolResult,
-} from "../../../.pi-fork/packages/coding-agent/test/suite/harness.ts";
+} from "../../../../.pi-fork/packages/coding-agent/test/suite/harness.ts";
 import {
   fauxAssistantMessage,
   fauxToolCall,
-} from "../../../.pi-fork/packages/ai/src/index.ts";
-import { createCodemodeExtension } from "../../../.pi-fork/packages/coding-agent/src/extensions/codemode/index.ts";
-import { search_config } from "./config.ts";
-import search_extension from "./index.ts";
+} from "../../../../.pi-fork/packages/ai/src/index.ts";
+import { createCodemodeExtension } from "../../../../.pi-fork/packages/coding-agent/src/extensions/codemode/index.ts";
+import { search_config } from "../../src/search/config.ts";
+import search_extension from "../../src/search/index.ts";
 
 async function fixture(
   run: (state: {

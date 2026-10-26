@@ -24,7 +24,6 @@
         "@cpi/ghostmux": "0.0.6",
         "@cpi/harness": "0.0.6",
         "@cpi/prose": "0.0.6",
-        "@cpi/search": "0.0.6",
         "@cpi/tree-sitter-wasm": "0.0.6",
         "@types/bun": "1.4.2",
         "@types/mustache": "4.2.6",
@@ -92,6 +91,7 @@
       "dependencies": {
         "@cpi/ghostmux": "0.0.6",
         "@cpi/tree-sitter-wasm": "0.0.6",
+        "@modelcontextprotocol/sdk": "1.31.0",
         "beautiful-mermaid": "1.1.3",
         "jiti": "2.7.0",
         "mustache": "4.2.0",
@@ -117,19 +117,6 @@
       },
       "dependencies": {
         "@cpi/tree-sitter-wasm": "0.0.6",
-      },
-    },
-    "packages/search": {
-      "name": "@cpi/search",
-      "version": "0.0.6",
-      "dependencies": {
-        "@cpi/harness": "0.0.6",
-        "@modelcontextprotocol/sdk": "1.31.0",
-      },
-      "peerDependencies": {
-        "@earendil-works/pi-ai": "*",
-        "@earendil-works/pi-coding-agent": "*",
-        "typebox": "*",
       },
     },
     "packages/tree-sitter-wasm": {
@@ -214,8 +201,6 @@
     "@cpi/harness": ["@cpi/harness@workspace:packages/harness"],
 
     "@cpi/prose": ["@cpi/prose@workspace:packages/prose"],
-
-    "@cpi/search": ["@cpi/search@workspace:packages/search"],
 
     "@cpi/tree-sitter-wasm": ["@cpi/tree-sitter-wasm@workspace:packages/tree-sitter-wasm"],
 

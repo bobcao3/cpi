@@ -76,6 +76,14 @@ const loader = new sdk.DefaultResourceLoader({
 });
 await loader.reload();
 assert.deepEqual(loader.getExtensions().errors, []);
+for (const name of ["search_query", "web_fetch"]) {
+  const tools = loader.getExtensions().extensions.flatMap((extension) => {
+    const tool = extension.tools.get(name);
+    return tool ? [tool.definition] : [];
+  });
+  assert.equal(tools.length, 1, `${name} must be registered once by default`);
+  assert.equal(tools[0].exposure, "codemode");
+}
 const host = await import(
   pathToFileURL(
     join(

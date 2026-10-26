@@ -3,8 +3,7 @@ import type {
   ExtensionToolContext,
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { fileURLToPath } from "node:url";
-import { loadText, render } from "@cpi/harness/text";
+import { loadText, render, textPath } from "../lib/text.ts";
 import { search_config } from "./config.ts";
 import { provider_chain } from "./chain.ts";
 import { public_url } from "./http.ts";
@@ -18,10 +17,7 @@ interface SearchText {
 }
 
 export default function search_extension(pi: ExtensionAPI): void {
-  const text = loadText<SearchText>(
-    "search",
-    fileURLToPath(import.meta.resolve("@cpi/harness/text/search.toml")),
-  );
+  const text = loadText<SearchText>("search", textPath("search"));
   const outputSchema = Type.Object({
     provider: Type.Union(PROVIDER_NAMES.map((name) => Type.Literal(name))),
     text: Type.String(),
