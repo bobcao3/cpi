@@ -10,9 +10,9 @@ import { createSessionOwner } from "../src/lib/storage/owner.ts";
 import { read_guardian_record } from "../src/lib/storage/journal.ts";
 
 test(
-  "a late pending receipt after a native timeout does not poison cleanup retry",
+  "a late pending receipt after a guardian timeout does not poison cleanup retry",
   {
-    skip: process.platform !== "linux" || process.getuid?.() === 0,
+    skip: process.platform === "win32" || process.getuid?.() === 0,
     timeout: 20000,
   },
   async () => {

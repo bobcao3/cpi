@@ -221,7 +221,7 @@ test(
 );
 
 test(
-  "native guardian recovers a real probe host after process-group SIGKILL and retries deletion refusal",
+  "scratch guardian recovers a real probe host after process-group SIGKILL and retries deletion refusal",
   supported,
   async () => {
     const release = gate();
@@ -302,7 +302,7 @@ process.send({unexpectedResult:result});
           }, "Guardian did not persist deletion refusal after host death");
           const pending = await read_guardian_record(registration.path);
           assert.equal(pending.state, "pending");
-          assert.equal(pending.closure_evidence, "pidfd_exit");
+          assert.equal(pending.closure_evidence, "host_exit");
           assert.equal(existsSync(registration.value.path), true);
           await chmod(blocked_root, 0o700);
         }
@@ -313,7 +313,7 @@ process.send({unexpectedResult:result});
         );
         const final = await read_guardian_record(registration.path);
         assert.equal(final.host_closed, true);
-        assert.equal(final.closure_evidence, "pidfd_exit");
+        assert.equal(final.closure_evidence, "host_exit");
         assert.equal(existsSync(registration.value.path), false);
         blocked_root = undefined;
       }

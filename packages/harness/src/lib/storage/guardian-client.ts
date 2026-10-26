@@ -1,10 +1,11 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { existsSync } from "node:fs";
-import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { isMainThread } from "node:worker_threads";
-import { toolPackage } from "../tool-package.ts";
+import { runtimeSpawn } from "../runtime.ts";
 import { sessionArtifactDirectory, type SessionOwner } from "./owner.ts";
 import { read_guardian_record } from "./journal.ts";
+import { scratch_record_path, scratch_scope_path } from "./scratch-record.ts";
 
 interface Receipt {
   version: number;
@@ -47,14 +48,10 @@ export class ScratchGuardian {
       throw new Error(
         "scratch guardian requires a root host, not an untracked Worker",
       );
-    if (process.platform !== "linux")
-      throw new Error(
-        "native scratch supervision requires Linux pidfd support",
-      );
     const root = sessionArtifactDirectory(owner, purpose);
     const journal = sessionArtifactDirectory(owner, "storage-guardian");
-    this.path = join(root, `${retain ? "retained" : "scratch"}-${id}`);
-    this.record = join(journal, `${id}.json`);
+    this.path = scratch_scope_path(root, id, retain);
+    this.record = scratch_record_path(journal, id);
     this.config = {
       version: 1,
       host_pid: process.pid,
@@ -74,11 +71,15 @@ export class ScratchGuardian {
     const registration = JSON.stringify(this.config) + "\n";
     if (Buffer.byteLength(registration) > 16384)
       throw new Error("oversized guardian registration");
-    const { resolveGhostmux } = await toolPackage("@cpi/ghostmux/resolve");
-    const binary = await resolveGhostmux();
-    this.child = spawn(binary, ["--storage-guardian"], {
+    const runtime = runtimeSpawn();
+    const script = fileURLToPath(
+      new URL("./scratch-guardian-child.ts", import.meta.url),
+    );
+    this.child = spawn(runtime.bin, [...runtime.pre, script], {
       stdio: ["pipe", "pipe", "pipe"],
+      detached: true,
       windowsHide: true,
+      env: guardian_environment(),
     });
     this.started = this.child.pid !== undefined;
     const child = this.child;
@@ -229,4 +230,12 @@ export class ScratchGuardian {
       clearTimeout(timeout);
     }
   }
+}
+
+function guardian_environment(): NodeJS.ProcessEnv {
+  const environment = { ...process.env };
+  delete environment.NODE_OPTIONS;
+  delete environment.NODE_PATH;
+  delete environment.JITI_ALIAS;
+  return environment;
 }

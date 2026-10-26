@@ -10,6 +10,145 @@ permissions:
   contents: read
 
 jobs:
+  native-build:
+    name: Native packages
+    uses: ./.github/workflows/build-packages.yml
+    with:
+      package: all
+  cpi-host-integration:
+    name: cpi host integration (${{ matrix.platform }})
+    needs: native-build
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.native-build.outputs.ghostmux_matrix) }}
+    defaults:
+      run:
+        shell: bash
+    env:
+      GHOSTMUX_BIN:
+        ${{ github.workspace }}/.ci-native/ghostmux-${{ matrix.platform }}${{
+        startsWith(matrix.platform, 'win32-') && '.exe' || '' }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.4.0"
+      - name: Prepare cpi integration logs
+        env:
+          CPI_STORAGE_ROOT: ${{ runner.temp }}/cpi-host
+        run: |
+          mkdir -p .ci-host-logs
+          echo "CPI_STORAGE_ROOT=$CPI_STORAGE_ROOT" >> "$GITHUB_ENV"
+      - name: Download this run's native Ghostmux build
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: .ci-native
+      - name: Verify native source provenance and restore executable bits
+        timeout-minutes: 2
+        env:
+          NATIVE_PLATFORM: ${{ matrix.platform }}
+        run: |
+          set -o pipefail
+          node --input-type=module <<'NODE' 2>&1 | tee .ci-host-logs/native-provenance.log
+          import assert from 'node:assert/strict';
+          import { createHash } from 'node:crypto';
+          import { existsSync } from 'node:fs';
+          import { chmod, readFile } from 'node:fs/promises';
+          import { basename, join } from 'node:path';
+          import { artifactName, packageRoot, platformKey, platforms, sourceDigest } from './packages/ghostmux/bin/ghostmux-source.mjs';
+          const platform = platformKey();
+          assert.equal(platform, process.env.NATIVE_PLATFORM);
+          assert(!existsSync(join(packageRoot, 'native.json')), 'Verify checkout sources, not packaged native metadata');
+          const binary = process.env.GHOSTMUX_BIN;
+          assert.equal(basename(binary), artifactName(platform));
+          const metadata = JSON.parse(await readFile(`${binary}.json`, 'utf8'));
+          assert.equal(metadata.platform, platform);
+          assert.equal(metadata.target, platforms[platform].target);
+          assert.equal(metadata.cpu_baseline, platforms[platform].baseline);
+          assert.equal(metadata.zig, '0.16.0');
+          assert.equal(metadata.optimize, 'ReleaseSafe');
+          assert.equal(metadata.source_sha256, await sourceDigest());
+          assert.equal(metadata.binary_sha256, createHash('sha256').update(await readFile(binary)).digest('hex'));
+          if (process.platform !== 'win32') await chmod(binary, 0o755);
+          console.log(JSON.stringify({ binary, ...metadata }, null, 2));
+          NODE
+      - name: Install pinned cpi host dependencies
+        timeout-minutes: 5
+        run: |
+          set -o pipefail
+          npm ci --ignore-scripts 2>&1 | tee .ci-host-logs/dependencies.log
+      - name: Configure cpi host bootstrap
+        id: host
+        run: |
+          echo "NODE_OPTIONS=--import=$(node -p 'require("node:url").pathToFileURL(process.cwd() + "/packages/cli/bootstrap.mjs").href')" >> "$GITHUB_ENV"
+      - name: Test cpi shell native lifecycle
+        if: ${{ !cancelled() && steps.host.outcome == 'success' }}
+        timeout-minutes: 5
+        run: |
+          set -o pipefail
+          node --experimental-transform-types packages/harness/scripts/shell-native-lifecycle.integration.ts 2>&1 | tee .ci-host-logs/lifecycle.log
+      - name: Test cpi shell large-output lifecycle
+        if: ${{ !cancelled() && steps.host.outcome == 'success' }}
+        timeout-minutes: 5
+        run: |
+          set -o pipefail
+          node --experimental-transform-types packages/harness/scripts/shell-large-output.integration.ts 2>&1 | tee .ci-host-logs/large-output.log
+      - name: Test cpi shell cancellation
+        if: ${{ !cancelled() && steps.host.outcome == 'success' }}
+        timeout-minutes: 5
+        run: |
+          set -o pipefail
+          node --experimental-transform-types packages/harness/scripts/shell/test-cancellation.ts 2>&1 | tee .ci-host-logs/cancellation.log
+      - name: Test cpi fork-probe shell integration
+        if: ${{ !cancelled() && steps.host.outcome == 'success' }}
+        timeout-minutes: 10
+        run: |
+          set -o pipefail
+          node --test packages/harness/scripts/fork-probe-shell.integration.test.mjs 2>&1 | tee .ci-host-logs/fork-probe.log
+      - name: Test portable scratch and temporary storage
+        if: ${{ !cancelled() && steps.host.outcome == 'success' }}
+        timeout-minutes: 5
+        run: |
+          set -o pipefail
+          node --test packages/harness/scripts/storage-portable.integration.test.mjs 2>&1 | tee .ci-host-logs/storage.log
+      - name: Test installed cpi shell host
+        if: ${{ !cancelled() && steps.host.outcome == 'success' }}
+        timeout-minutes: 10
+        run: |
+          set -o pipefail
+          node packages/harness/scripts/shell-install.integration.mjs 2>&1 | tee .ci-host-logs/installed-host.log
+      - name: Test cpi Ghostmux vision integration
+        if: ${{ !cancelled() && steps.host.outcome == 'success' }}
+        timeout-minutes: 5
+        run: |
+          set -o pipefail
+          node packages/harness/scripts/ghostmux-vision.integration.test.mjs 2>&1 | tee .ci-host-logs/vision.log
+      - name: Test cpi Windows shell concurrency and process trees
+        if:
+          ${{ !cancelled() && steps.host.outcome == 'success' && runner.os ==
+          'Windows' }}
+        timeout-minutes: 10
+        run: |
+          set -o pipefail
+          node --experimental-transform-types packages/harness/scripts/shell/test-windows.ts 2>&1 | tee .ci-host-logs/windows-process-trees.log
+      - name: Preserve cpi integration logs, native input, and host state
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cpi-host-integration-${{ matrix.platform }}
+          path: |
+            .ci-host-logs/
+            .ci-native/
+            ${{ runner.temp }}/cpi-host/
+          include-hidden-files: true
+          if-no-files-found: warn
+          retention-days: 14
   check:
     runs-on: ubuntu-24.04
     timeout-minutes: 15

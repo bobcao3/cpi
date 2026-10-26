@@ -7,9 +7,12 @@ import {
   openSync,
   readFileSync,
   readSync,
+  renameSync,
+  unlinkSync,
   writeFileSync,
   type BigIntStats,
 } from "node:fs";
+import { randomUUID } from "node:crypto";
 import {
   dirname,
   isAbsolute,
@@ -19,6 +22,11 @@ import {
   resolve,
   sep,
 } from "node:path";
+
+const nofollow = process.platform === "win32" ? 0 : constants.O_NOFOLLOW;
+const nonblock = process.platform === "win32" ? 0 : constants.O_NONBLOCK;
+const directory_flag = process.platform === "win32" ? 0 : constants.O_DIRECTORY;
+const MAX_RECORD_BYTES = 32768;
 
 export interface DirectoryIdentity {
   dev: string;
@@ -79,21 +87,37 @@ export function private_directory(
 }
 
 export function read_private_record(path: string): unknown {
-  const fd = openSync(
-    path,
-    constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
+  return JSON.parse(
+    read_private_bytes(path, MAX_RECORD_BYTES).toString("utf8"),
   );
+}
+
+export function read_private_bytes(path: string, limit: number): Buffer {
+  if (!Number.isInteger(limit) || limit < 1 || limit > 1024 * 1024)
+    throw new Error("invalid private read limit");
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const snapshot = read_private_snapshot(path, limit);
+    if (snapshot) return snapshot;
+  }
+  throw new Error(`directory metadata changed during read: ${path}`);
+}
+
+function read_private_snapshot(
+  path: string,
+  limit: number,
+): Buffer | undefined {
+  const fd = openSync(path, constants.O_RDONLY | nofollow | nonblock);
   try {
     const stat = fstatSync(fd, { bigint: true });
     if (
       !stat.isFile() ||
       stat.nlink !== 1n ||
-      stat.size > 16384n ||
+      stat.size > BigInt(limit) ||
       (process.getuid && stat.uid !== BigInt(process.getuid())) ||
       (process.platform !== "win32" && (Number(stat.mode) & 0o077) !== 0)
     )
       throw new Error(`unsafe directory metadata: ${path}`);
-    const buffer = Buffer.alloc(16385);
+    const buffer = Buffer.alloc(limit + 1);
     let length = 0;
     for (let reads = 0; reads < buffer.length; reads++) {
       const count = readSync(fd, buffer, length, buffer.length - length, null);
@@ -108,8 +132,8 @@ export function read_private_record(path: string): unknown {
         directory_identity(stat),
       )
     )
-      throw new Error(`directory metadata changed during read: ${path}`);
-    return JSON.parse(buffer.subarray(0, length).toString("utf8"));
+      return undefined;
+    return buffer.subarray(0, length);
   } finally {
     closeSync(fd);
   }
@@ -117,14 +141,41 @@ export function read_private_record(path: string): unknown {
 
 export function write_private_record(path: string, value: unknown): void {
   const data = JSON.stringify(value) + "\n";
-  if (Buffer.byteLength(data) > 16384)
+  if (Buffer.byteLength(data) > MAX_RECORD_BYTES)
     throw new Error("directory metadata size limit reached");
+  write_private_bytes(path, Buffer.from(data), true);
+  sync_private_directory(dirname(path));
+}
+
+export function replace_private_record(path: string, value: unknown): void {
+  const data = Buffer.from(JSON.stringify(value) + "\n");
+  if (data.length > MAX_RECORD_BYTES)
+    throw new Error("directory metadata size limit reached");
+  const directory = dirname(path);
+  const temporary = join(directory, `.${randomUUID()}.tmp`);
+  write_private_bytes(temporary, data, true);
+  try {
+    renameSync(temporary, path);
+  } catch (error) {
+    try {
+      unlinkSync(temporary);
+    } catch {}
+    throw error;
+  }
+  sync_private_directory(directory);
+}
+
+function write_private_bytes(
+  path: string,
+  data: Buffer,
+  exclusive: boolean,
+): void {
   const fd = openSync(
     path,
     constants.O_WRONLY |
       constants.O_CREAT |
-      constants.O_EXCL |
-      constants.O_NOFOLLOW,
+      (exclusive ? constants.O_EXCL : constants.O_TRUNC) |
+      nofollow,
     0o600,
   );
   try {
@@ -133,15 +184,12 @@ export function write_private_record(path: string, value: unknown): void {
   } finally {
     closeSync(fd);
   }
-  sync_private_directory(dirname(path));
 }
 
 export function sync_private_directory(path: string): void {
+  if (process.platform === "win32" || process.platform === "darwin") return;
   const expected = directory_identity(private_directory(path));
-  const fd = openSync(
-    path,
-    constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW,
-  );
+  const fd = openSync(path, constants.O_RDONLY | directory_flag | nofollow);
   try {
     if (!same_identity(fstatSync(fd, { bigint: true }), expected))
       throw new Error(`directory changed during metadata sync: ${path}`);

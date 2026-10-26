@@ -21,11 +21,6 @@ fn run(init: std.process.Init) !void {
     const io = init.io;
     const args = try init.minimal.args.toSlice(allocator);
     defer allocator.free(args);
-    if (args.len > 1 and std.mem.eql(u8, args[1], "--storage-guardian")) {
-        if (args.len != 2) return error.InvalidGuardianArguments;
-        if (@import("builtin").os.tag != .linux) return error.StorageGuardianUnsupported;
-        return @import("storage_guardian.zig").run(allocator, io);
-    }
     if (args.len > 1 and std.mem.eql(u8, args[1], "prepare-runtime")) {
         if (args.len != 3) return error.InvalidRuntimeArguments;
         return @import("socket_directory.zig").prepare(allocator, io, args[2]);

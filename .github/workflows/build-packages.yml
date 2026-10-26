@@ -1,27 +1,6 @@
-name: Package builds
+name: Native package builds
 
 on:
-  push:
-    branches: ["**"]
-    paths:
-      - "packages/**"
-      - "scripts/**"
-      - ".github/**"
-      - "package.json"
-      - "package-lock.json"
-      - "bun.lock"
-      - ".npmrc"
-      - "vendor/pi/manifest.json"
-  pull_request:
-    paths:
-      - "packages/**"
-      - "scripts/**"
-      - ".github/**"
-      - "package.json"
-      - "package-lock.json"
-      - "bun.lock"
-      - ".npmrc"
-      - "vendor/pi/manifest.json"
   workflow_dispatch:
     inputs:
       package:
@@ -35,12 +14,18 @@ on:
         description: Package to build
         type: string
         default: all
+    outputs:
+      ghostmux_matrix:
+        description: Native platforms for downstream cpi host integration
+        value: ${{ jobs.platforms.outputs.ghostmux_matrix }}
 
 permissions:
   contents: read
 
 concurrency:
-  group: packages-${{ github.workflow }}-${{ github.ref }}-${{ inputs.package || 'all' }}
+  group:
+    packages-${{ github.workflow }}-${{ github.ref }}-${{ inputs.package ||
+    'all' }}
   cancel-in-progress: true
 
 jobs:
@@ -49,22 +34,30 @@ jobs:
     timeout-minutes: 5
     outputs:
       matrix: ${{ steps.matrix.outputs.value }}
+      ghostmux_matrix: ${{ steps.matrix.outputs.ghostmux }}
     steps:
       - uses: actions/checkout@v6
       - id: matrix
         env:
           PACKAGE: ${{ inputs.package || 'all' }}
-        run: echo "value=$(node scripts/package-build-matrix.mjs "$PACKAGE")" >> "$GITHUB_OUTPUT"
+        run: |
+          echo "value=$(node scripts/package-build-matrix.mjs "$PACKAGE")" >> "$GITHUB_OUTPUT"
+          echo "ghostmux=$(node scripts/package-build-matrix.mjs ghostmux)" >> "$GITHUB_OUTPUT"
   build:
     name: ${{ matrix.package }} (${{ matrix.platform }})
     needs: platforms
-    timeout-minutes: 30
+    timeout-minutes: 40
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.platforms.outputs.matrix) }}
     runs-on: ${{ matrix.runner }}
+    defaults:
+      run:
+        shell: bash
     env:
-      GHOSTMUX_BIN: ${{ github.workspace }}/packages/ghostmux/zig-out/bin/ghostmux${{ startsWith(matrix.platform, 'win32-') && '.exe' || '' }}
+      GHOSTMUX_BIN:
+        ${{ github.workspace }}/packages/ghostmux/zig-out/bin/ghostmux${{
+        startsWith(matrix.platform, 'win32-') && '.exe' || '' }}
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-node@v4
@@ -78,56 +71,84 @@ jobs:
           version: "0.16.0"
           cache-key: ${{ matrix.artifact }}
           cache-size-limit: 4096
-      - name: Install reviewed dependencies
-        run: npm ci --ignore-scripts
+      - name: Prepare native logs
+        run: mkdir -p .ci-native-logs
+      - name: Install pinned native workspace dependencies without cpi
+        id: dependencies
+        timeout-minutes: 5
+        run: |
+          set -o pipefail
+          npm ci --ignore-scripts --workspace "packages/${{ matrix.package }}" --include-workspace-root=false --no-audit --no-fund 2>&1 | tee .ci-native-logs/dependencies.log
+          node --input-type=module <<'NODE' 2>&1 | tee .ci-native-logs/dependency-boundary.log
+          import assert from 'node:assert/strict';
+          import { existsSync } from 'node:fs';
+          for (const scope of ['@earendil-works', '@mariozechner']) {
+            assert(!existsSync(`node_modules/${scope}`), `Native builds must not install Pi packages: ${scope}`);
+          }
+          NODE
       - name: Build Ghostmux
         if: matrix.package == 'ghostmux'
         id: ghostmux
-        working-directory: packages/ghostmux
-        run: zig build --release=safe -Dtarget=${{ matrix.target }} -Dcpu=${{ matrix.baseline }} --summary all
+        timeout-minutes: 15
+        run: |
+          set -o pipefail
+          (cd packages/ghostmux && zig build --release=safe -Dtarget=${{ matrix.target }} -Dcpu=${{ matrix.baseline }} --summary all) 2>&1 | tee .ci-native-logs/build.log
       - name: Test Ghostmux native code
         if: matrix.package == 'ghostmux'
-        working-directory: packages/ghostmux
-        run: zig build test --release=safe -Dtarget=${{ matrix.target }} -Dcpu=${{ matrix.baseline }}
+        timeout-minutes: 10
+        run: |
+          set -o pipefail
+          (cd packages/ghostmux && zig build test --release=safe -Dtarget=${{ matrix.target }} -Dcpu=${{ matrix.baseline }}) 2>&1 | tee .ci-native-logs/zig-tests.log
       - name: Verify static Linux linkage
         if: matrix.package == 'ghostmux' && runner.os == 'Linux'
-        shell: bash
+        timeout-minutes: 2
         run: |
           headers=$(readelf --program-headers "$GHOSTMUX_BIN")
+          printf '%s\n' "$headers" | tee .ci-native-logs/linkage.log
           if grep -q INTERP <<< "$headers"; then
             echo "The Linux release must not require a dynamic loader." >&2
             exit 1
           fi
-      - name: Test Ghostmux npm and Bun installs without Pi peers or Zig
-        if: ${{ !cancelled() && steps.ghostmux.outcome == 'success' }}
-        run: node packages/ghostmux/tests/install.test.mjs
-      - name: Test cpi shell and installed host integration
-        if: matrix.package == 'ghostmux'
-        shell: bash
+      - name: Test standalone Ghostmux protocol and rendering
+        if:
+          ${{ !cancelled() && steps.ghostmux.outcome == 'success' &&
+          steps.dependencies.outcome == 'success' }}
+        timeout-minutes: 5
         run: |
-          export NODE_OPTIONS="--import=$(node -p 'require("node:url").pathToFileURL(process.cwd() + "/packages/cli/bootstrap.mjs").href')"
-          node --experimental-transform-types packages/harness/scripts/shell-native-lifecycle.integration.ts
-          node --experimental-transform-types packages/harness/scripts/shell-large-output.integration.ts
-          node --experimental-transform-types packages/harness/scripts/shell/test-cancellation.ts
-          node --test packages/harness/scripts/fork-probe-shell.integration.test.mjs
-          node packages/harness/scripts/shell-install.integration.mjs
-          node packages/harness/scripts/ghostmux-vision.integration.test.mjs
-      - name: Test Windows shell concurrency and process trees
-        if: matrix.package == 'ghostmux' && runner.os == 'Windows'
-        run: node --experimental-transform-types packages/harness/scripts/shell/test-windows.ts
-      - name: Stage Ghostmux binary and provenance
+          set -o pipefail
+          node --test packages/ghostmux/tests/integration.test.mjs 2>&1 | tee .ci-native-logs/protocol-rendering.log
+      - name: Test Ghostmux npm and Bun installs without Pi peers or Zig
+        if:
+          ${{ !cancelled() && steps.ghostmux.outcome == 'success' &&
+          steps.dependencies.outcome == 'success' }}
+        timeout-minutes: 5
+        run: |
+          set -o pipefail
+          node packages/ghostmux/tests/install.test.mjs 2>&1 | tee .ci-native-logs/standalone-installs.log
+      - name: Stage Ghostmux binary and source provenance for release signing
         if: matrix.package == 'ghostmux'
-        shell: bash
-        run: node packages/ghostmux/scripts/ghostmux-release.mjs stage "$GHOSTMUX_BIN" dist '${{ matrix.platform }}'
+        timeout-minutes: 2
+        run:
+          node packages/ghostmux/scripts/ghostmux-release.mjs stage
+          "$GHOSTMUX_BIN" dist '${{ matrix.platform }}'
       - name: Build portable WASM
         if: matrix.package == 'tree-sitter-wasm'
-        working-directory: packages/tree-sitter-wasm
-        run: zig build -Drelease=true --summary all
-      - name: Test WASM parsers with Node and Bun
-        if: matrix.package == 'tree-sitter-wasm'
+        timeout-minutes: 15
         run: |
-          node packages/tree-sitter-wasm/scripts/tree-sitter-wasm.integration.mjs
-          bun --bun packages/tree-sitter-wasm/scripts/tree-sitter-wasm.integration.mjs
+          set -o pipefail
+          (cd packages/tree-sitter-wasm && zig build -Drelease=true --summary all) 2>&1 | tee .ci-native-logs/build.log
+      - name: Test WASM parsers with Node
+        if: matrix.package == 'tree-sitter-wasm'
+        timeout-minutes: 5
+        run: |
+          set -o pipefail
+          node packages/tree-sitter-wasm/scripts/tree-sitter-wasm.integration.mjs 2>&1 | tee .ci-native-logs/wasm-node.log
+      - name: Test WASM parsers with Bun
+        if: matrix.package == 'tree-sitter-wasm'
+        timeout-minutes: 5
+        run: |
+          set -o pipefail
+          bun --bun packages/tree-sitter-wasm/scripts/tree-sitter-wasm.integration.mjs 2>&1 | tee .ci-native-logs/wasm-bun.log
       - name: Stage WASM
         if: matrix.package == 'tree-sitter-wasm'
         run: |
@@ -138,4 +159,16 @@ jobs:
           name: ${{ matrix.artifact }}
           path: dist/
           if-no-files-found: error
+          retention-days: 14
+      - name: Preserve native logs and binaries
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-diagnostics-${{ matrix.artifact }}
+          path: |
+            .ci-native-logs/
+            dist/
+            packages/${{ matrix.package }}/zig-out/
+          include-hidden-files: true
+          if-no-files-found: warn
           retention-days: 14
