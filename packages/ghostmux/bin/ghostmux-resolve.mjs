@@ -1,5 +1,6 @@
 import { constants } from "node:fs";
 import { existsSync } from "node:fs";
+import { createHash } from "node:crypto";
 import {
   access,
   chmod,
@@ -16,6 +17,7 @@ import {
   artifactName,
   packageRoot,
   platformKey,
+  platforms,
   releaseTag,
   sourceDigest,
 } from "./ghostmux-source.mjs";
@@ -99,8 +101,9 @@ export async function resolveGhostmux() {
 async function sourceReleaseBinary(name, platform) {
   const digest = await sourceDigest();
   const directory = join(tmpdir(), "cpi-ghostmux", digest.slice(0, 16));
-  const binary = join(directory, name);
+  const binary = join(directory, "bin", name);
   const signature = `${binary}.minisig`;
+  await mkdir(join(directory, "bin"), { recursive: true, mode: 0o700 });
   if (existsSync(binary) && existsSync(signature)) {
     try {
       verifyArtifact(
@@ -110,10 +113,10 @@ async function sourceReleaseBinary(name, platform) {
         platform,
       );
       await chmod(binary, 0o755);
+      await writeNative(binary, directory, platform, digest);
       return binary;
     } catch {}
   }
-  await mkdir(directory, { recursive: true, mode: 0o700 });
   const [bytes, block] = await Promise.all([
     releaseAsset(name),
     releaseAsset(`${name}.minisig`),
@@ -124,7 +127,24 @@ async function sourceReleaseBinary(name, platform) {
   await rename(staging, binary);
   await writeFile(signature, block);
   await chmod(binary, 0o755);
+  await writeNative(binary, directory, platform, digest);
   return binary;
+}
+
+async function writeNative(binary, directory, platform, digest) {
+  const metadata = {
+    platform,
+    target: platforms[platform].target,
+    cpu_baseline: platforms[platform].baseline,
+    source_sha256: digest,
+    binary_sha256: createHash("sha256")
+      .update(await readFile(binary))
+      .digest("hex"),
+  };
+  await writeFile(
+    join(directory, "native.json"),
+    `${JSON.stringify(metadata, null, 2)}\n`,
+  );
 }
 
 async function releaseAsset(name) {

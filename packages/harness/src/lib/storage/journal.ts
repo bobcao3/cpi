@@ -47,6 +47,7 @@ export async function pending_guardian_records(
       }
     }
   } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return pending;
     pending.push(`guardian reconciliation failed: ${String(error)}`);
   }
   return pending;
