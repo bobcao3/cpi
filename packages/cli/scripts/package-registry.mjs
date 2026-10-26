@@ -54,6 +54,7 @@ try {
   for (const directory of [
     "cli",
     "harness",
+    "search",
     "prose",
     "ghostmux",
     "tree-sitter-wasm",
@@ -73,7 +74,7 @@ try {
     });
   }
   await init;
-  for (const name of ["harness", "cli", "prose"]) {
+  for (const name of ["harness", "cli", "search", "prose"]) {
     const directory = join(destination, name);
     entries.push({
       directory,
