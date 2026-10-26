@@ -30,8 +30,6 @@ jobs:
       GHOSTMUX_BIN:
         ${{ github.workspace }}/.ci-native/ghostmux-${{ matrix.platform }}${{
         startsWith(matrix.platform, 'win32-') && '.exe' || '' }}
-      NODE_OPTIONS:
-        --import=file:///${{ replace(github.workspace, '\', '/') }}/packages/cli/bootstrap.mjs
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-node@v4
@@ -85,50 +83,71 @@ jobs:
         run: |
           set -o pipefail
           npm ci --ignore-scripts 2>&1 | tee .ci-host-logs/dependencies.log
+      - name: Configure cpi host bootstrap
+        id: bootstrap
+        run: |
+          bootstrap=$(node -p 'require("node:url").pathToFileURL(process.cwd() + "/packages/cli/bootstrap.mjs").href')
+          echo "node_options=--import=$bootstrap" >> "$GITHUB_OUTPUT"
       - name: Test cpi shell native lifecycle
         if: ${{ !cancelled() }}
+        env:
+          NODE_OPTIONS: ${{ steps.bootstrap.outputs.node_options }}
         timeout-minutes: 5
         run: |
           set -o pipefail
           node --experimental-transform-types packages/harness/scripts/shell-native-lifecycle.integration.ts 2>&1 | tee .ci-host-logs/lifecycle.log
       - name: Test cpi shell large-output lifecycle
         if: ${{ !cancelled() }}
+        env:
+          NODE_OPTIONS: ${{ steps.bootstrap.outputs.node_options }}
         timeout-minutes: 5
         run: |
           set -o pipefail
           node --experimental-transform-types packages/harness/scripts/shell-large-output.integration.ts 2>&1 | tee .ci-host-logs/large-output.log
       - name: Test cpi shell cancellation
         if: ${{ !cancelled() }}
+        env:
+          NODE_OPTIONS: ${{ steps.bootstrap.outputs.node_options }}
         timeout-minutes: 5
         run: |
           set -o pipefail
           node --experimental-transform-types packages/harness/scripts/shell/test-cancellation.ts 2>&1 | tee .ci-host-logs/cancellation.log
       - name: Test cpi fork-probe shell integration
         if: ${{ !cancelled() }}
+        env:
+          NODE_OPTIONS: ${{ steps.bootstrap.outputs.node_options }}
         timeout-minutes: 10
         run: |
           set -o pipefail
           node --test packages/harness/scripts/fork-probe-shell.integration.test.mjs 2>&1 | tee .ci-host-logs/fork-probe.log
       - name: Test portable scratch and temporary storage
         if: ${{ !cancelled() }}
+        env:
+          NODE_OPTIONS: ${{ steps.bootstrap.outputs.node_options }}
         timeout-minutes: 5
         run: |
           set -o pipefail
           node --test packages/harness/scripts/storage-portable.integration.test.mjs 2>&1 | tee .ci-host-logs/storage.log
       - name: Test installed cpi shell host
         if: ${{ !cancelled() }}
+        env:
+          NODE_OPTIONS: ${{ steps.bootstrap.outputs.node_options }}
         timeout-minutes: 10
         run: |
           set -o pipefail
           node packages/harness/scripts/shell-install.integration.mjs 2>&1 | tee .ci-host-logs/installed-host.log
       - name: Test cpi Ghostmux vision integration
         if: ${{ !cancelled() }}
+        env:
+          NODE_OPTIONS: ${{ steps.bootstrap.outputs.node_options }}
         timeout-minutes: 5
         run: |
           set -o pipefail
           node packages/harness/scripts/ghostmux-vision.integration.test.mjs 2>&1 | tee .ci-host-logs/vision.log
       - name: Test cpi Windows shell concurrency and process trees
         if: ${{ !cancelled() && runner.os == 'Windows' }}
+        env:
+          NODE_OPTIONS: ${{ steps.bootstrap.outputs.node_options }}
         timeout-minutes: 10
         run: |
           set -o pipefail
