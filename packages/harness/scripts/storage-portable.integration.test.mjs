@@ -35,8 +35,10 @@ test(
         "retained",
         "portable",
       );
+      const missing = await create_temp_directory(owner, "scratch", "missing");
       await writeFile(join(scratch.path, "payload"), "scratch");
       await writeFile(join(retained.path, "payload"), "retained");
+      await rm(missing.path, { recursive: true, force: true });
       const inventory = await inventory_temp_directories(owner);
       assert.deepEqual(inventory.inventory_errors, []);
       assert.deepEqual(

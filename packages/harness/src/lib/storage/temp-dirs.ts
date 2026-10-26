@@ -142,12 +142,8 @@ function managed(record: DirectoryRecord): ManagedDirectory {
   });
 }
 function check_root(owner: SessionOwner, record: DirectoryRecord): void {
-  if (
-    !same_identity(
-      private_directory(payload_root(owner, record.type)),
-      record.root_identity,
-    )
-  )
+  const root = private_directory(payload_root(owner, record.type));
+  if (!same_identity(root, record.root_identity))
     throw new Error(`directory payload root identity changed: ${record.id}`);
 }
 
@@ -297,7 +293,14 @@ export async function inventory_temp_directories(
           throw new Error("directory identity changed");
         result.directories.push(managed(record));
       } catch (error) {
-        result.inventory_errors.push(`${record.path}: ${diagnostic(error)}`);
+        if (missing(error))
+          await release_temp_directory(owner, record.id).catch((failure) =>
+            result.inventory_errors.push(
+              `${record.id}: ${diagnostic(failure)}`,
+            ),
+          );
+        else
+          result.inventory_errors.push(`${record.path}: ${diagnostic(error)}`);
       }
     }
   } catch (error) {
