@@ -72,7 +72,7 @@ function ensure_root(root: string, private_root: boolean): void {
   ensure_directory(root, private_root);
 }
 
-export function storage_directory(
+function storage_parent_directory(
   area: StorageArea,
   purpose: string,
   options: StorageOptions = {},
@@ -81,6 +81,15 @@ export function storage_directory(
   const { root, private_root } = placement(options);
   ensure_root(root, private_root);
   ensure_directory(dirname(path), true);
+  return path;
+}
+
+export function storage_directory(
+  area: StorageArea,
+  purpose: string,
+  options: StorageOptions = {},
+): string {
+  const path = storage_parent_directory(area, purpose, options);
   ensure_directory(path, true);
   return path;
 }
@@ -112,7 +121,7 @@ export function configure_storage_environment(
 export function socket_directory(
   purpose: string,
   filename: string,
-  options: StorageOptions = {},
+  options: StorageOptions & { create?: boolean } = {},
 ): string {
   if (
     !filename ||
@@ -125,9 +134,11 @@ export function socket_directory(
     throw new Error("invalid socket filename");
   validate_purpose(purpose);
   const env = options.env ?? process.env;
+  const prepare_directory =
+    options.create === false ? storage_parent_directory : storage_directory;
   let directory: string | undefined;
   if (env.CPI_STORAGE_ROOT !== undefined || options.base !== undefined) {
-    directory = storage_directory("runtime", purpose, options);
+    directory = prepare_directory("runtime", purpose, options);
   } else {
     const candidates = [
       env.XDG_RUNTIME_DIR && {
@@ -150,13 +161,13 @@ export function socket_directory(
           (process.getuid && stat.uid !== process.getuid())
         )
           continue;
-        directory = storage_directory("runtime", purpose, {
+        directory = prepare_directory("runtime", purpose, {
           env: { ...env, CPI_STORAGE_ROOT: candidate.root },
         });
         break;
       } catch {}
     }
-    if (!directory) directory = storage_directory("runtime", purpose, options);
+    if (!directory) directory = prepare_directory("runtime", purpose, options);
   }
   if (
     process.platform === "win32" ||
@@ -168,7 +179,7 @@ export function socket_directory(
     throw new Error("no numeric uid for private socket directory");
   const shortRoot = join("/tmp", `cpi-${uid}`);
   const shortPurpose = `ipc-${createHash("sha256").update(directory).digest("hex").slice(0, 12)}`;
-  const shortDirectory = storage_directory("runtime", shortPurpose, {
+  const shortDirectory = prepare_directory("runtime", shortPurpose, {
     env: { CPI_STORAGE_ROOT: shortRoot },
   });
   if (Buffer.byteLength(join(shortDirectory, filename)) > 100)

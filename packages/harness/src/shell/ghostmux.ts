@@ -12,7 +12,7 @@ import {
   rm,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { isAbsolute, join, resolve } from "node:path";
+import { dirname, isAbsolute, join, resolve } from "node:path";
 import { promisify } from "node:util";
 import { ghostmuxRequest, type NativeResponse } from "./ghostmux-transport.ts";
 import { toolPackage } from "../lib/tool-package.ts";
@@ -78,7 +78,13 @@ export function ghostmuxSocket(env: NodeJS.ProcessEnv): string {
     .digest("hex")
     .slice(0, 32);
   const filename = `${scope}.sock`;
-  return join(socket_directory("ghostmux", filename, { env }), filename);
+  return join(
+    socket_directory("ghostmux", filename, {
+      env,
+      create: process.platform !== "win32",
+    }),
+    filename,
+  );
 }
 export async function resolveGhostmuxBinary(): Promise<string> {
   return resolveGhostmux();
@@ -295,5 +301,11 @@ export async function readTarget(path: string): Promise<SessionTarget> {
 export async function ensureTargetDirectory(
   env: NodeJS.ProcessEnv = process.env,
 ): Promise<string> {
+  if (process.platform === "win32")
+    await execute(
+      await resolveGhostmuxBinary(),
+      ["prepare-runtime", dirname(ghostmuxSocket(env))],
+      { timeout: 10000, windowsHide: true },
+    );
   return storage_directory("state", "ghostmux", { env });
 }
