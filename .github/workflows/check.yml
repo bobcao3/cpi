@@ -30,7 +30,8 @@ jobs:
       GHOSTMUX_BIN:
         ${{ github.workspace }}/.ci-native/ghostmux-${{ matrix.platform }}${{
         startsWith(matrix.platform, 'win32-') && '.exe' || '' }}
-      NODE_OPTIONS: --import=./packages/cli/bootstrap.mjs
+      NODE_OPTIONS:
+        --import=file:///${{ replace(github.workspace, '\', '/') }}/packages/cli/bootstrap.mjs
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-node@v4

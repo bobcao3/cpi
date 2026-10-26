@@ -1,9 +1,24 @@
 import { constants } from "node:fs";
-import { access, readFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import {
+  access,
+  chmod,
+  mkdir,
+  readFile,
+  rename,
+  writeFile,
+} from "node:fs/promises";
 import { dirname, isAbsolute, join } from "node:path";
 import { createRequire } from "node:module";
 import { spawnSync } from "node:child_process";
-import { packageRoot, platformKey, sourceDigest } from "./ghostmux-source.mjs";
+import { tmpdir } from "node:os";
+import {
+  artifactName,
+  packageRoot,
+  platformKey,
+  releaseTag,
+  sourceDigest,
+} from "./ghostmux-source.mjs";
 import { verifyArtifact } from "./ghostmux-signature.mjs";
 
 async function executable(path) {
@@ -41,6 +56,9 @@ export async function resolveGhostmux() {
     return development;
   }
   const platform = platformKey();
+  const artifact = artifactName(platform);
+  if (existsSync(join(packageRoot, "src")))
+    return sourceReleaseBinary(artifact, platform);
   const name = `@cpi/ghostmux-${platform}`;
   let manifestPath;
   try {
@@ -76,4 +94,55 @@ export async function resolveGhostmux() {
     platform,
   );
   return binary;
+}
+
+async function sourceReleaseBinary(name, platform) {
+  const digest = await sourceDigest();
+  const directory = join(tmpdir(), "cpi-ghostmux", digest.slice(0, 16));
+  const binary = join(directory, name);
+  const signature = `${binary}.minisig`;
+  if (existsSync(binary) && existsSync(signature)) {
+    try {
+      verifyArtifact(
+        await readFile(binary),
+        await readFile(signature, "utf8"),
+        digest,
+        platform,
+      );
+      await chmod(binary, 0o755);
+      return binary;
+    } catch {}
+  }
+  await mkdir(directory, { recursive: true, mode: 0o700 });
+  const [bytes, block] = await Promise.all([
+    releaseAsset(name),
+    releaseAsset(`${name}.minisig`),
+  ]);
+  verifyArtifact(bytes, block.toString("utf8"), digest, platform);
+  const staging = `${binary}.${process.pid}.tmp`;
+  await writeFile(staging, bytes, { mode: 0o755 });
+  await rename(staging, binary);
+  await writeFile(signature, block);
+  await chmod(binary, 0o755);
+  return binary;
+}
+
+async function releaseAsset(name) {
+  const response = await fetch(
+    `https://github.com/bobcao3/cpi/releases/download/${releaseTag}/${name}`,
+    { signal: AbortSignal.timeout(120000) },
+  );
+  if (!response.ok)
+    throw new Error(
+      `Missing signed Ghostmux download ${name}: HTTP ${response.status}`,
+    );
+  const chunks = [];
+  let size = 0;
+  for await (const chunk of response.body) {
+    size += chunk.length;
+    if (size > 128 * 1024 * 1024)
+      throw new Error("Ghostmux download exceeds the size limit");
+    chunks.push(chunk);
+  }
+  return Buffer.concat(chunks, size);
 }

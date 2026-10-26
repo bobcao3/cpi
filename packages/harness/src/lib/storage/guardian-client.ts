@@ -72,9 +72,7 @@ export class ScratchGuardian {
     if (Buffer.byteLength(registration) > 16384)
       throw new Error("oversized guardian registration");
     const runtime = runtimeSpawn();
-    const script = fileURLToPath(
-      new URL("./scratch-guardian-child.ts", import.meta.url),
-    );
+    const script = guardian_entrypoint();
     this.child = spawn(runtime.bin, [...runtime.pre, script], {
       stdio: ["pipe", "pipe", "pipe"],
       detached: true,
@@ -238,4 +236,13 @@ function guardian_environment(): NodeJS.ProcessEnv {
   delete environment.NODE_PATH;
   delete environment.JITI_ALIAS;
   return environment;
+}
+
+function guardian_entrypoint(): string {
+  const source = fileURLToPath(
+    new URL("./scratch-guardian-child.ts", import.meta.url),
+  );
+  return existsSync(source)
+    ? source
+    : fileURLToPath(new URL("./scratch-guardian-child.js", import.meta.url));
 }
