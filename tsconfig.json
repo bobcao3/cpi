@@ -22,5 +22,6 @@
     "packages/harness/src/**/*.ts",
     "packages/harness/scripts/harness/**/*.ts",
     "packages/harness/scripts/shell/**/*.ts"
-  ]
+  ],
+  "exclude": ["packages/search/src/*.test.ts"]
 }
