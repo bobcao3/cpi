@@ -7,6 +7,7 @@ import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { archive_manifest } from "./registry-archive.mjs";
 import { release_assets } from "./release-registry.mjs";
+import { registry_name } from "./registry-manifest.mjs";
 
 const root = fileURLToPath(new URL("../../../", import.meta.url));
 function run(script, args, env = process.env) {
@@ -74,7 +75,7 @@ test(
       const fork = JSON.parse(originals[2]);
       const fork_versions = new Map(
         fork.artifacts.map((artifact) => [
-          artifact.name.replace("@earendil-works/", "@bobcao3/"),
+          registry_name(artifact.name),
           artifact.version,
         ]),
       );
